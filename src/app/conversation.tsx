@@ -1,16 +1,22 @@
-import Icons from "@/constants/icons";
 import AddPeopleModal from "@/components/AddPeopleModal";
+import CalendarPicker from "@/components/CalendarPicker";
+import Icons from "@/constants/icons";
+import { useAuth } from "@/hooks/useAuth";
+import { useChat } from "@/hooks/useChat";
+import { ChatMessage, Room, RoomMember } from "@/types/chat.types";
+import {
+    filterMessagesByText,
+    formatMessageTime,
+    getMessageInitials,
+    isOwnMessage
+} from "@/utils/chatHelpers";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams } from "expo-router";
-import CalendarPicker from "@/components/CalendarPicker";
-import { useChat } from "@/hooks/useChat";
-import { useAuth } from "@/hooks/useAuth";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
-    Animated,
     FlatList,
     Image,
     KeyboardAvoidingView,
@@ -23,18 +29,9 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    View,
+    View
 } from "react-native";
 import EmojiPicker from "rn-emoji-keyboard";
-import { ChatMessage, RoomMember, Room } from "@/types/chat.types";
-import {
-    getMessageInitials,
-    formatMessageTime,
-    isOwnMessage,
-    groupMessagesByDate,
-    filterMessagesByText,
-} from "@/utils/chatHelpers";
-import { formatFileSize, validateFiles } from "@/services/api/upload.service";
 
 let Audio: typeof import("expo-av").Audio | null = null;
 try {
@@ -168,12 +165,20 @@ const vnStyles = StyleSheet.create({
 
 const DATE_RANGES = ["Today", "Last 7 days", "Last 30 days", "Last 90 days"];
 
-function DateFilterPanel() {
+function DateFilterPanel({ onFilterChange }: { onFilterChange: (start: Date | null, end: Date | null) => void }) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const [startDate, setStartDate] = useState<Date | null>(today);
     const [endDate, setEndDate] = useState<Date | null>(today);
     const [selectedRange, setSelectedRange] = useState<string | null>("Today");
+    const isFirstRender = useRef(true);
+    useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            return;
+        }
+        onFilterChange(startDate, endDate);
+    }, [startDate, endDate, onFilterChange]);
 
     const handleRangeSelect = (range: string) => {
         setSelectedRange(range);
@@ -233,7 +238,7 @@ function DateFilterPanel() {
                     endDate={endDate}
                     onSelectStart={handleSelectStart}
                     onSelectEnd={handleSelectEnd}
-                    onDone={() => {}}
+                    onDone={() => { }}
                     compact={true}
                 />
             </View>
@@ -300,9 +305,9 @@ function AttachmentsPanel({ messages }: { messages: ChatMessage[] }) {
                         <Ionicons
                             name={
                                 t === "Images" ? "image-outline" :
-                                t === "Videos" ? "videocam-outline" :
-                                t === "Docs" ? "document-text-outline" :
-                                "link-outline"
+                                    t === "Videos" ? "videocam-outline" :
+                                        t === "Docs" ? "document-text-outline" :
+                                            "link-outline"
                             }
                             size={13}
                             color={activeTab === t ? "#1D1D1D" : "#9CA3AF"}
@@ -342,7 +347,7 @@ const ap = StyleSheet.create({
     container: { paddingBottom: 4 },
     tabRow: {
         flexDirection: "row",
-        justifyContent:"space-between",
+        justifyContent: "space-between",
         paddingHorizontal: 16,
         borderBottomWidth: 1,
         borderBottomColor: "#E5E7EB",
@@ -718,6 +723,8 @@ export default function ConversationScreen() {
     const [recordingDuration, setRecordingDuration] = useState(0);
     const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const [firstVisibleDate, setFirstVisibleDate] = useState<Date | null>(null);
+    const [dateFilterStart, setDateFilterStart] = useState<Date | null>(null);
+    const [dateFilterEnd, setDateFilterEnd] = useState<Date | null>(null);
 
     const startRecording = useCallback(async () => {
         if (!Audio) {
@@ -801,7 +808,7 @@ export default function ConversationScreen() {
                 if (Audio) {
                     await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
                 }
-            } catch {}
+            } catch { }
         }
         setRecordingInstance(null);
         setIsRecording(false);
@@ -841,8 +848,8 @@ export default function ConversationScreen() {
         if (roomId) {
             fetchMessages(roomId);
             if (isChannel) {
-                fetchPostTypes(roomId).catch(() => {});
-                fetchRoomPermissions(roomId).catch(() => {});
+                fetchPostTypes(roomId).catch(() => { });
+                fetchRoomPermissions(roomId).catch(() => { });
             }
         }
     }, [roomId, isChannel, fetchMessages, fetchPostTypes, fetchRoomPermissions]);
@@ -929,7 +936,7 @@ export default function ConversationScreen() {
             setEmojiPickerMsg(null);
             try {
                 await toggleReaction(msg._id, emoji);
-            } catch {}
+            } catch { }
         },
         [toggleReaction]
     );
@@ -979,18 +986,25 @@ export default function ConversationScreen() {
             Alert.alert("Message Options", "", [
                 { text: "Copy Text", onPress: () => { Clipboard.setStringAsync(msg.text); } },
                 ...(isOwn ? [{ text: "Edit", onPress: () => { setEditingMsg(msg); setEditText(msg.text); } }] : []),
-                { text: msg.is_pinned ? "Unpin" : "Pin", onPress: () => { togglePin(msg.id.toString()).catch(() => {}); } },
-                ...(isOwn ? [{ text: "Delete", style: "destructive" as const, onPress: () => {
-                    Alert.alert("Delete Message", "Delete this message for everyone?", [
-                        { text: "Cancel", style: "cancel" },
-                        { text: "Delete", style: "destructive", onPress: () => { deleteMessage(msg._id, "everyone").catch(() => {}); } },
-                    ]);
-                }}] : []),
+                { text: msg.is_pinned ? "Unpin" : "Pin", onPress: () => { togglePin(msg.id.toString()).catch(() => { }); } },
+                ...(isOwn ? [{
+                    text: "Delete", style: "destructive" as const, onPress: () => {
+                        Alert.alert("Delete Message", "Delete this message for everyone?", [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Delete", style: "destructive", onPress: () => { deleteMessage(msg._id, "everyone").catch(() => { }); } },
+                        ]);
+                    }
+                }] : []),
                 { text: "Cancel", style: "cancel" },
             ]);
         },
         [currentUserId, togglePin, deleteMessage]
     );
+
+    const handleDateFilterChange = useCallback((start: Date | null, end: Date | null) => {
+        setDateFilterStart(start);
+        setDateFilterEnd(end);
+    }, []);
 
     // Derive current room from rooms list (setCurrentRoom is never called)
     const currentRoom = useMemo(
@@ -999,10 +1013,22 @@ export default function ConversationScreen() {
     );
 
     // Group messages by date for display
-    const filteredMessages = search.trim()
+    let filteredMessages = search.trim()
         ? filterMessagesByText(state.messages, search)
         : state.messages;
 
+    if (dateFilterStart && dateFilterEnd) {
+        const startOfDay = new Date(dateFilterStart);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(dateFilterEnd);
+        endOfDay.setHours(23, 59, 59, 999);
+        const startMs = startOfDay.getTime();
+        const endMs = endOfDay.getTime();
+        filteredMessages = filteredMessages.filter((m) => {
+            const msgDate = new Date(m.createdAt).getTime();
+            return msgDate >= startMs && msgDate <= endMs;
+        });
+    }
 
     const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 10 }).current;
 
@@ -1088,23 +1114,23 @@ export default function ConversationScreen() {
 
                 {/* ── Filter Chips ── */}
                 {!searchOpen && (
-                    <ScrollView 
-                        horizontal 
+                    <ScrollView
+                        horizontal
                         showsHorizontalScrollIndicator={false}
                         contentContainerStyle={styles.filterRow}
                         style={{ flexGrow: 0 }}
                     >
                         <TouchableOpacity
-                            style={[styles.filterChip, activeFilter === "date" && styles.filterChipActive]}
+                            style={[styles.filterChip, (activeFilter === "date" || dateFilterStart !== null) && styles.filterChipActive]}
                             activeOpacity={0.75}
                             onPress={() => toggleFilter("date")}
                         >
                             <Ionicons
                                 name="calendar-outline"
                                 size={11}
-                                color={activeFilter === "date" ? "#fff" : "#6B7280"}
+                                color={(activeFilter === "date" || dateFilterStart !== null) ? "#fff" : "#6B7280"}
                             />
-                            <Text style={[styles.filterChipText, activeFilter === "date" && styles.filterChipTextActive]}>
+                            <Text style={[styles.filterChipText, (activeFilter === "date" || dateFilterStart !== null) && styles.filterChipTextActive]}>
                                 Date
                             </Text>
                         </TouchableOpacity>
@@ -1162,7 +1188,7 @@ export default function ConversationScreen() {
                 {/* ── Date / Attachments / Post Type panel ── */}
                 {!searchOpen && activeFilter === "date" && (
                     <View style={styles.panelWrapper}>
-                        <DateFilterPanel />
+                        <DateFilterPanel onFilterChange={handleDateFilterChange} />
                     </View>
                 )}
                 {!searchOpen && activeFilter === "attachments" && (
@@ -1203,7 +1229,7 @@ export default function ConversationScreen() {
                                     : `User #${perm.userId}`;
                                 const initials = memberInfo
                                     ? (memberInfo.first_name?.charAt(0) ?? "") +
-                                      (memberInfo.last_name?.charAt(0) ?? "")
+                                    (memberInfo.last_name?.charAt(0) ?? "")
                                     : String(perm.userId).charAt(0);
                                 return (
                                     <View key={perm.userId} style={styles.memberRow}>
@@ -1331,6 +1357,13 @@ export default function ConversationScreen() {
                                     <Ionicons name="search-outline" size={32} color="#D1D5DB" />
                                     <Text style={{ fontSize: 13, color: "#9CA3AF", fontFamily: "SF_Pro_Regular", marginTop: 8, textAlign: "center" }}>
                                         No messages matching "{search}"
+                                    </Text>
+                                </View>
+                            ) : (dateFilterStart && dateFilterEnd) && state.messages.length > 0 && filteredMessages.length === 0 ? (
+                                <View style={{ padding: 40, alignItems: "center" }}>
+                                    <Ionicons name="calendar-outline" size={32} color="#D1D5DB" />
+                                    <Text style={{ fontSize: 13, color: "#9CA3AF", fontFamily: "SF_Pro_Regular", marginTop: 8, textAlign: "center" }}>
+                                        No messages found for this date range.
                                     </Text>
                                 </View>
                             ) : filteredMessages.length === 0 ? (
@@ -1493,8 +1526,8 @@ export default function ConversationScreen() {
                                             <Ionicons name="mic" size={18} color="#1D1D1D" />
                                         </TouchableOpacity>
                                         {isChannel && postTypes.length > 0 && (
-                                            <TouchableOpacity 
-                                                activeOpacity={0.75} 
+                                            <TouchableOpacity
+                                                activeOpacity={0.75}
                                                 style={[
                                                     styles.inputActionBtn,
                                                     styles.postTypeToggle,
@@ -1559,7 +1592,7 @@ export default function ConversationScreen() {
                 onSearch={(query) => setSearchQuery(query)}
                 onInviteUsers={handleAddPeopleInvite}
             />
-            
+
 
             {/* ── Emoji Picker (rn-emoji-keyboard) ── */}
             <EmojiPicker

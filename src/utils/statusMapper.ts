@@ -16,6 +16,7 @@ export type MappedTaskRow = {
   assignedToAvatar?: string;
   dueDate: string;
   status: UiTaskStatus;
+  priorityName: string;
   project: string;
   extraCount?: number;
   _raw: TaskListItem;
@@ -75,6 +76,7 @@ export function mapTaskListItem(item: TaskListItem): MappedTaskRow {
     assignedToAvatar: item.task_assigned_to?.image,
     dueDate: formatDate(item.due_date),
     status: apiStatusToUi(item.status),
+    priorityName: item.priority_name,
     project: "",
     extraCount: item.subtask_count > 0 ? item.subtask_count : undefined,
     _raw: item,

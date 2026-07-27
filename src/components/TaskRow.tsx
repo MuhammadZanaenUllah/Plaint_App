@@ -8,7 +8,8 @@ export type StatusType =
   | "Rejected"
   | "Completed"
   | "Pending-Approval"
-  | "Recurring";
+  | "Recurring"
+  | "On-Hold";
 
 export type TaskRowProps = {
   id?: string;
@@ -21,6 +22,7 @@ export type TaskRowProps = {
   assignedToAvatar?: string;
   dueDate: string;
   status: StatusType;
+  priorityName?: string;
   comment?: string;
   project?: string;
   extraCount?: number;
@@ -37,6 +39,13 @@ export const STATUS_COLORS: Record<StatusType, { bg: string; text: string }> = {
   Completed: { bg: "#D1FAE5", text: "#059669" },
   "Pending-Approval": { bg: "#EDE9FE", text: "#7C3AED" },
   Recurring: { bg: "#F0FDF4", text: "#16A34A" },
+  "On-Hold": { bg: "#0DDFD820", text: "#0DDFD8" },
+};
+
+export const PRIORITY_ACCENT_COLORS: Record<string, string> = {
+  High: "#CB5F00",
+  Medium: "#F5A623",
+  Low: "#00DEAB",
 };
 
 const ALL_STATUSES: StatusType[] = [
@@ -46,6 +55,7 @@ const ALL_STATUSES: StatusType[] = [
   "Completed",
   "Pending-Approval",
   "Recurring",
+  "On-Hold",
 ];
 
 export const COL_WIDTHS = {
@@ -67,6 +77,7 @@ export default function TaskRow({
   assignedToInitials,
   dueDate,
   status: initialStatus,
+  priorityName,
   project,
   extraCount,
   isOpen = false,
@@ -77,6 +88,7 @@ export default function TaskRow({
   const [status, setStatus] = useState<StatusType>(initialStatus);
   const { bg, text } = STATUS_COLORS[status];
   const isCompleted = status === "Completed";
+  const accentColor = PRIORITY_ACCENT_COLORS[priorityName ?? ""] ?? "#00DEAB";
 
   // Left offset of the status cell inside the row
   const statusLeft =
@@ -90,7 +102,7 @@ export default function TaskRow({
     <View style={styles.wrap}>
       {/* ── Row ── */}
       <View style={styles.row}>
-        <View style={styles.accent} />
+        <View style={[styles.accent, { backgroundColor: accentColor }]} />
 
         {/* Check / Checkbox */}
         <View style={{ width: COL_WIDTHS.spacer - 3, alignItems: "center" }}>
@@ -170,7 +182,7 @@ export default function TaskRow({
           }}
           activeOpacity={0.8}
         >
-          <Text style={[styles.statusText, { color: text }]}>{status}</Text>
+          <Text style={[styles.statusText, { color: text }]} numberOfLines={2}>{status.replace("Pending-Approval", "Pending-\nApproval")}</Text>
           <Ionicons
             name={isOpen ? "chevron-up" : "chevron-down"}
             size={15}
@@ -196,7 +208,7 @@ export default function TaskRow({
         <View
           style={[
             styles.dropdown,
-            { left: statusLeft, width: COL_WIDTHS.status },
+            { left: statusLeft, width: 100 },
           ]}
         >
           {ALL_STATUSES.map((s) => (
@@ -222,7 +234,7 @@ export default function TaskRow({
                   color: STATUS_COLORS[s].text,
                 }}
               >
-                {s}
+                {s.replace("Pending-Approval", "Pending-\nApproval")}
               </Text>
               {s === status && (
                 <Ionicons
@@ -253,7 +265,7 @@ const styles = StyleSheet.create({
     width: 3.5,
     height: 28,
     borderRadius: 4,
-    backgroundColor: "#00cb76ff",
+    marginRight: 6,
   },
   checkCircle: {
     width: 17,

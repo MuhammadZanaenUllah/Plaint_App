@@ -157,7 +157,7 @@ export default function TasksScreen() {
     } as any);
   }, [companyId]);
 
-  const statuses = ["Pending", "In-Progress", "Rejected", "Pending-Approval", "Completed", "Recurring"];
+  const statuses = ["Pending", "In-Progress", "Rejected", "Pending-Approval", "Completed", "Recurring", "On-Hold"];
   const priorities = ["Low", "Medium", "High"];
   const priorityColors: Record<string, string> = {
     Low: "#0DDFD8",
@@ -170,6 +170,7 @@ export default function TasksScreen() {
     Rejected: "#FF0000",
     "Pending-Approval": "#1D1D1D",
     Completed: "#1CB333",
+    "On-Hold": "#0DDFD8",
   };
 
   const mapRowWithRaw = useCallback(
@@ -182,6 +183,7 @@ export default function TasksScreen() {
       assignedToInitials: row.assignedToInitials,
       dueDate: row.dueDate,
       status: row.status,
+      priorityName: row.priorityName,
       project: row.project,
       extraCount: row.extraCount,
       _raw: row._raw,

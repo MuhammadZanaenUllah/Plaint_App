@@ -19,7 +19,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
-import { STATUS_COLORS, StatusType, TaskRowProps } from "./TaskRow";
+import { STATUS_COLORS, StatusType, TaskRowProps, PRIORITY_ACCENT_COLORS } from "./TaskRow";
 
 const { FilterIconBlack } = Icons;
 
@@ -50,9 +50,11 @@ const GRIP_CHEVRONS = [0, 1, 2, 3, 4, 5];
 const ALL_STATUSES: StatusType[] = [
   "Pending",
   "In-Progress",
+  "On-Hold",
   "Rejected",
   "Completed",
   "Pending-Approval",
+ 
 ];
 
 function getTaskKey(task: TaskRowProps, index: number) {
@@ -492,10 +494,11 @@ const LeadingCell = memo(function LeadingCell({
   onToggle: () => void;
 }) {
   const isCompleted = item.status === "Completed";
+  const accentColor = PRIORITY_ACCENT_COLORS[item.priorityName ?? ""] ?? "#00DEAB";
 
   return (
     <View style={[styles.leadingCell, { width }]}>
-      <View style={styles.accent} />
+      <View style={[styles.accent, { backgroundColor: accentColor }]} />
       <TouchableOpacity
         style={styles.checkboxWrap}
         onPress={onToggle}
@@ -601,8 +604,8 @@ const TaskStatusDropdown = memo(function TaskStatusDropdown({
             onPress={() => onSelect(status)}
             activeOpacity={0.8}
           >
-            <View style={[styles.dot, { backgroundColor: color }]} />
-            <Text style={[styles.dropdownText, { color }]} numberOfLines={1}>
+            {/* <View style={[styles.dot, { backgroundColor: color }]} /> */}
+            <Text style={[styles.dropdownText, { color }]} numberOfLines={1} adjustsFontSizeToFit>
               {status}
             </Text>
             {isActive ? (
@@ -684,6 +687,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
           <Text
             style={[styles.actionStatusBoxText, { color: colors.text }]}
             numberOfLines={1}
+            adjustsFontSizeToFit
           >
             {item.status}
           </Text>
@@ -739,6 +743,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
             <Text
               style={[styles.swipeStatusText, { color: colors.text }]}
               numberOfLines={1}
+              adjustsFontSizeToFit
             >
               {item.status}
             </Text>
@@ -885,7 +890,6 @@ const styles = StyleSheet.create({
     width: 3.5,
     height: 25,
     borderRadius: 4,
-    backgroundColor: "#CB5F00",
   },
   checkboxWrap: {
     flex: 1,
@@ -1056,11 +1060,12 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: ACTION_STRIP_HEIGHT + 4,
     right: 8,
-    height: 24,
+    minHeight: 27,
     borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 10,
+    paddingVertical: 3,
   },
   actionStatusBoxText: {
     fontSize: 11.5,
@@ -1138,9 +1143,10 @@ const styles = StyleSheet.create({
     paddingRight: 6,
   },
   swipeStatusCell: {
-    height: 30,
+    minHeight: 30,
     borderRadius: 6,
     paddingHorizontal: 8,
+    paddingVertical: 4,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -1180,7 +1186,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 52,
     left: 95,
-    width: 160,
+    width: 130,
     zIndex: 9999,
     elevation: 9999,
     backgroundColor: "#fff",
@@ -1198,7 +1204,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    // paddingVertical: 2,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },

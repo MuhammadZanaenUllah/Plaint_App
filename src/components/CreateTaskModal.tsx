@@ -5,12 +5,12 @@ import { useRef, useState, useEffect } from "react";
 import {
   Alert,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { useAuth } from "@/hooks/useAuth";
@@ -19,6 +19,8 @@ import { extractErrorMessage } from "@/utils/errorHandler";
 import { uiStatusToApi } from "@/utils/statusMapper";
 import type { UiTaskStatus, RecurringPeriod } from "@/types/task.types";
 import { getSocket, onSocketEvent, type UserUpdatePayload } from "@/services/socket/socketService";
+import DocumentPickerButton from "@/features/attachments/components/DocumentPickerButton";
+import type { SelectedFile } from "@/features/attachments/types/attachment.types";
 
 type Props = { visible: boolean; onClose: () => void };
 
@@ -55,7 +57,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
   const [titleFocused, setTitleFocused] = useState(false);
   const [description, setDescription] = useState("");
   const [descFocused, setDescFocused] = useState(false);
-  const [attachments, setAttachments] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<SelectedFile[]>([]);
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignSearch, setAssignSearch] = useState("");
   const [assignFocused, setAssignFocused] = useState(false);
@@ -92,6 +94,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     { label: "Completed", color: "#1CB333" },
     { label: "Rejected", color: "#FF0000" },
     { label: "Pending-Approval", color: "#1D1D1D" },
+    { label: "On-Hold", color: "#0DDFD8" },
   ];
 
   const RECURRING_PERIODS: { value: RecurringPeriod; label: string }[] = [
@@ -113,9 +116,8 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     return fullName.includes(assignSearch.toLowerCase());
   });
 
-  const handleAttach = () => {
-    const fakeFile = `Attached File ${attachments.length + 1}.pdf`;
-    setAttachments((prev) => [...prev, fakeFile]);
+  const handlePickFiles = (files: SelectedFile[]) => {
+    setAttachments((prev) => [...prev, ...files]);
   };
 
   const removeAttachment = (index: number) => {
@@ -205,14 +207,21 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
 
   return (
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
-       <TouchableWithoutFeedback onPress={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.sheet}>
+      <Pressable style={styles.overlay} onPress={onClose}>
+        <Pressable onPress={() => {}} style={styles.sheet}>
           <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
             <Ionicons name="close" size={18} color="#fff" />
           </TouchableOpacity>
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="always">
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="always"
+            style={styles.outerScroll}
+            decelerationRate="fast"
+            bounces
+            overScrollMode="never"
+          >
             <View style={[styles.titleInputWrap, titleFloated && styles.titleInputWrapActive]}>
               <Text style={[styles.floatLabel, titleFloated && styles.floatLabelActive]}>
                 Enter a task title
@@ -482,9 +491,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
             </View>
 
             <View style={styles.attachRow}>
-              <TouchableOpacity style={styles.attachBtn} onPress={handleAttach}>
-                <Ionicons name="link-outline" size={20} color="#1D1D1D" />
-              </TouchableOpacity>
+              <DocumentPickerButton onPick={handlePickFiles} />
               {attachments.length > 0 && (
                 <TouchableOpacity style={styles.attachBtn}>
                   <Ionicons name="download-outline" size={20} color="#1D1D1D" />
@@ -493,17 +500,32 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
             </View>
 
             {attachments.length > 0 && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tagsScroll}>
-                {attachments.map((a, i) => (
-                  <View key={i} style={styles.tag}>
-                    <Ionicons name="download-outline" size={13} color="#0DDFAB" />
-                    <Text style={styles.tagText}>{a}</Text>
-                    <TouchableOpacity onPress={() => removeAttachment(i)}>
-                      <Ionicons name="close" size={13} color="#0DDFAB" />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </ScrollView>
+              <View style={{ overflow: "visible", marginBottom: 0 }}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={[styles.tagsScroll, { overflow: "visible" }]}
+                  contentContainerStyle={styles.tagsScrollContent}
+                  decelerationRate="fast"
+                  bounces
+                  overScrollMode="never"
+                  nestedScrollEnabled={false}
+                >
+                  {attachments.map((file, i) => (
+                    <View key={`${file.name}-${i}`} style={styles.tag}>
+                      <Ionicons name="download-outline" size={14} color="#0DDFAB" />
+                      <Text style={styles.tagText} numberOfLines={1}>{file.name}</Text>
+                      <TouchableOpacity
+                        onPress={() => removeAttachment(i)}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                        style={styles.tagClose}
+                      >
+                        <Text style={styles.tagCloseText}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
             )}
           </ScrollView>
 
@@ -515,9 +537,9 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
           >
             <Text style={styles.createBtnText}>{loading ? "Creating..." : "+   Create Task"}</Text>
           </TouchableOpacity>
-        </View>
-      </View>
-      </TouchableWithoutFeedback>
+        </Pressable>
+        </Pressable>
+      {/* </Pressable> */}
     </Modal>
   );
 }
@@ -534,6 +556,7 @@ const styles = StyleSheet.create({
     maxHeight: "90%",
   },
   scrollContent: { paddingBottom: 0, paddingTop: 10 },
+  outerScroll: {overflow:'visible'},
   closeBtn: {
     alignSelf: "flex-end",
     width: 32, height: 32, borderRadius: 16,
@@ -624,19 +647,52 @@ const styles = StyleSheet.create({
   },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   statusLabel: { fontSize: 13, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
-  attachRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  attachRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
   attachBtn: {
-    width: 35, height: 35, borderWidth: 1,
-    borderColor: "#E6E6E6", backgroundColor: "#E6E6E6",
-    borderRadius: 5, justifyContent: "center", alignItems: "center",
+    width: 38, height: 38,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#F9FAFB",
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  tagsScroll: { marginBottom: 8 },
+  tagsScrollWrapper: {
+    marginBottom: 8,
+    overflow: "visible",
+  },
+  tagsScroll: { flexGrow: 0, marginBottom: 8, overflow: "visible" },
+  tagsScrollContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 8,
+  },
   tag: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    backgroundColor: "#1D1D1D", borderRadius: 20,
-    paddingHorizontal: 12, paddingVertical: 6, marginRight: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#1D1D1D",
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginRight: 8,
+    maxWidth: 220,
   },
-  tagText: { fontSize: 12, color: "#0DDFAB", fontFamily: "SF_Pro_Regular" },
+  tagText: {
+    flex: 1,
+    fontSize: 12.5,
+    color: "#0DDFAB",
+    fontFamily: "SF_Pro_Regular",
+  },
+  tagClose: {
+    marginLeft: 4,
+  },
+  tagCloseText: {
+    fontSize: 13,
+    color: "#0DDFAB",
+    fontFamily: "SF_Pro_Regular",
+    lineHeight: 16,
+  },
   createBtn: {
     backgroundColor: "#00DEAB", borderRadius: 5,
     paddingVertical: 16, alignItems: "center",
