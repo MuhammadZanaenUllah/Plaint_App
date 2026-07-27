@@ -556,7 +556,7 @@ const styles = StyleSheet.create({
     maxHeight: "90%",
   },
   scrollContent: { paddingBottom: 0, paddingTop: 10 },
-  outerScroll: {overflow:'visible'},
+  // outerScroll: {overflow:'visible'},
   closeBtn: {
     alignSelf: "flex-end",
     width: 32, height: 32, borderRadius: 16,
