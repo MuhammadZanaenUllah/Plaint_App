@@ -119,7 +119,6 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     { label: "Completed", color: "#1CB333" },
     { label: "Rejected", color: "#FF0000" },
     { label: "Pending-Approval", color: "#1D1D1D" },
-    { label: "On-Hold", color: "#0DDFD8" },
   ];
 
   const RECURRING_PERIODS: { value: RecurringPeriod; label: string }[] = [
@@ -247,12 +246,15 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
         company_identifier: companyIdentifier,
         company_id: companyId,
         assign_to: assignedUserId,
-        due_date: dueDateIso,
-        priority: selectedPriorityId,
+        due_date: startDate ? startDate.toISOString() : null,
+        task_priority: "normal",
+        bump_to_front: false,
         approval_required: selectedApproval === "Yes" ? 1 : 0,
         status: uiStatusToApi((selectedStatus as UiTaskStatus) ?? "Pending"),
         description: descriptionHtml ?? description,
         project_id: 0,
+        sprint_id: null,
+        parent_id: 0,
         is_recurring: isRecurring,
         recurring_period: isRecurring ? recurringPeriod : null,
         recurring_time: isRecurring && recurringTime ? recurringTime : null,
@@ -262,7 +264,9 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
         recurring_month_date: null,
         recurring_annual_month: null,
         recurring_annual_date: null,
-        dependency_ids: selectedDependencies.length > 0 ? selectedDependencies : undefined,
+        effort_hours: 0,
+        effort_unit: "minutes",
+        depends_on: [],
       });
 
       showSuccess("Success", "Task created successfully.");
@@ -1034,71 +1038,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 10,
     fontSize: 14, color: "#1D1D1D", fontFamily: "SF_Pro_Regular",
   },
-
-  // Dependencies
-  depPanel: {
-    marginTop: 8,
-    marginBottom: 4,
-    borderWidth: 1,
-    borderColor: "#E6E6E6",
-    borderRadius: 12,
-    overflow: "hidden",
-    backgroundColor: "#fff",
-  },
-  depSearchWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-    gap: 8,
-  },
-  depSearchIcon: { flexShrink: 0 },
-  depSearchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: "#1D1D1D",
-    fontFamily: "SF_Pro_Regular",
-    padding: 0,
-  },
-  depList: { maxHeight: 200 },
-  depEmpty: {
-    paddingVertical: 20,
-    alignItems: "center",
-  },
-  depEmptyText: {
-    fontSize: 13,
-    color: "#AAAAAA",
-    fontFamily: "SF_Pro_Regular",
-  },
-  depTaskRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  depTaskRowSelected: { backgroundColor: "#F0FDF9" },
-  depTaskAvatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    justifyContent: "center",
-    alignItems: "center",
-    flexShrink: 0,
-  },
-  depTaskAvatarText: {
-    fontSize: 11,
-    fontFamily: "SF_Pro_Semibold",
-    color: "#fff",
-  },
-  depTaskTitle: {
-    flex: 1,
-    fontSize: 13,
-    color: "#1D1D1D",
-    fontFamily: "SF_Pro_Regular",
+  outerScroll: {
+    maxHeight: "85%",
   },
 });

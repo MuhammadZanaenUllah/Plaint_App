@@ -8,8 +8,7 @@ export type StatusType =
   | "Rejected"
   | "Completed"
   | "Pending-Approval"
-  | "Recurring"
-  | "On-Hold";
+  | "Recurring";
 
 export type TaskRowProps = {
   id?: string;
@@ -39,7 +38,6 @@ export const STATUS_COLORS: Record<StatusType, { bg: string; text: string }> = {
   Completed: { bg: "#D1FAE5", text: "#059669" },
   "Pending-Approval": { bg: "#EDE9FE", text: "#7C3AED" },
   Recurring: { bg: "#F0FDF4", text: "#16A34A" },
-  "On-Hold": { bg: "#0DDFD820", text: "#0DDFD8" },
 };
 
 export const PRIORITY_ACCENT_COLORS: Record<string, string> = {
@@ -59,7 +57,6 @@ const ALL_STATUSES: StatusType[] = [
   "Completed",
   "Pending-Approval",
   "Recurring",
-  "On-Hold",
 ];
 
 export const COL_WIDTHS = {

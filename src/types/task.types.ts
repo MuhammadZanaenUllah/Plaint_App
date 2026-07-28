@@ -1,6 +1,6 @@
-export type TaskStatus = "Pending" | "In-Progress" | "Complete" | "Pending-Approval" | "Rejected" | "Recurring" | "On-Hold";
+export type TaskStatus = "Pending" | "In-Progress" | "Complete" | "Pending-Approval" | "Rejected" | "Recurring";
 
-export type UiTaskStatus = "Pending" | "In-Progress" | "Completed" | "Pending-Approval" | "Rejected" | "Recurring" | "On-Hold";
+export type UiTaskStatus = "Pending" | "In-Progress" | "Completed" | "Pending-Approval" | "Rejected" | "Recurring";
 
 export type RecurringPeriod = "daily" | "weekly" | "monthly" | "annually" | "quarterly" | "semi-annually";
 
@@ -17,16 +17,18 @@ export type TaskOwner = {
   id: number;
   first_name: string;
   last_name: string;
-  email: string;
-  company_id: number;
-  image: string;
+  full_name: string;
+  email?: string;
+  company_id?: number;
+  image: string | null;
 };
 
 export type TaskPriority = {
   id: number;
   name: string;
   color: string;
-  company_id: number;
+  order: number | null;
+  company_id?: number;
 };
 
 export type TaskPerson = {
@@ -43,6 +45,7 @@ export type TaskListItem = {
   status: TaskStatus;
   due_date: string;
   priority: number;
+  task_priority: "normal" | "critical";
   assignee: number;
   asigned_to: number;
   parent_id: number;
@@ -52,13 +55,7 @@ export type TaskListItem = {
   created_by: number;
   module: string;
   project_id: number;
-  sprint_id: number;
-  updatedAt: string;
-  createdAt?: string;
-  task_assignee: TaskPerson;
-  task_assigned_to: TaskPerson;
-  priority_color: string;
-  priority_name: string;
+  sprint_id: number | null;
   subtask_count: number;
   notes_count: number;
   can_edit: boolean;
@@ -66,6 +63,14 @@ export type TaskListItem = {
   can_edit_subtask: boolean;
   description?: string;
   rejection_reason?: string;
+  task_assignee: TaskPerson;
+  task_assigned_to: TaskPerson;
+  priority_color: string;
+  priority_name: string;
+  updatedAt: string;
+  createdAt?: string;
+  effort_hours?: number;
+  effort_unit?: string;
 };
 
 export type TaskListResponse = {
@@ -77,30 +82,72 @@ export type TaskListResponse = {
   all_other_tasks: TaskListItem[];
 };
 
-export type TaskDetailData = {
+export type TaskNote = {
+  id: number;
+  notes: string;
+  user_id: number;
+  user_name: string;
+  user_image: string;
+  pin_top: number;
+  is_edited: number;
+  reactions: { user_id: number; user_name: string; emoji: string }[];
+  reply_to: { note_id: number; user_id: number; content: string } | null;
+  created_at: string;
+};
+
+export type TaskAttachment = {
+  id: number;
+  attachment: string;
+  company_id?: number;
+  created_at?: string;
+};
+
+export type SubTask = {
   id: number;
   title: string;
-  company_id: number;
-  asigned_to: number;
-  due_date: string;
-  priority: number;
-  approval_required: number;
   status: TaskStatus;
-  description: string;
-  created_by: number;
-  assignee: number;
-  module: string;
-  parent_id: number;
-  is_recurring: boolean;
-  recurring_period: RecurringPeriod | null;
-  recurring_time: string | null;
-  recurring_total_count: number;
-  recurring_completed_count?: number;
-  project_id: number;
-  sprint_id?: number;
-  createdAt: string;
-  updatedAt: string;
-  rejection_reason?: string;
+  due_date: string;
+  subtask_count: number;
+};
+
+export type ViewTaskData = {
+  task: {
+    id: number;
+    title: string;
+    asigned_to: number;
+    created_by: number;
+    due_date: string;
+    start_date: string;
+    priority: string;
+    task_priority: "normal" | "critical";
+    status: TaskStatus;
+    description: string;
+    is_recurring: boolean;
+    recurring_period: RecurringPeriod | null;
+    recurring_time: string | null;
+    recurring_total_count: number;
+    recurring_exclude_days: string[];
+    recurring_week_day: string | null;
+    recurring_month_date: string | null;
+    recurring_annual_month: string | null;
+    recurring_annual_date: string | null;
+    project_id: number;
+    project_name: string | null;
+    sprint_id: number | null;
+    sprint_name: string | null;
+    parent_id: number;
+    subtask_count: number;
+    sub_tasks: SubTask[];
+    approval_required: number;
+    effort_hours: number;
+    effort_unit: string;
+    can_edit: boolean;
+    can_edit_status: boolean;
+    task_notes: TaskNote[];
+    task_notifications: any[];
+    task_notes_attachments: any[];
+    task_attachments: TaskAttachment[];
+  };
 };
 
 export type CreateTaskRequest = {
@@ -108,12 +155,11 @@ export type CreateTaskRequest = {
   company_identifier: string;
   company_id: number;
   assign_to: number;
-  due_date: string;
-  priority: number;
-  approval_required: number;
+  due_date: string | null;
+  task_priority: "normal" | "critical";
+  bump_to_front: boolean;
   status: string;
   description: string;
-  project_id: number;
   is_recurring: boolean;
   recurring_period: RecurringPeriod | null;
   recurring_time: string | null;
@@ -123,18 +169,22 @@ export type CreateTaskRequest = {
   recurring_month_date: number | null;
   recurring_annual_month: number | null;
   recurring_annual_date: number | null;
-  /** IDs of tasks this task depends on */
-  dependency_ids?: number[];
+  approval_required: number;
+  project_id: number;
+  sprint_id: number | null;
+  parent_id: number;
+  effort_hours: number;
+  effort_unit: string;
+  depends_on: number[];
 };
 
 export type UpdateTaskRequest = {
-  title: string;
   company_id: number;
   company_identifier: string;
-  asigned_to: number;
-  due_date: string;
+  title: string;
+  assign_to: number;
+  due_date: string | null;
   priority: number;
-  approval_required: number;
   status: string;
   description: string;
   is_recurring: boolean;
@@ -143,7 +193,12 @@ export type UpdateTaskRequest = {
   recurring_total_count: number;
   recurring_exclude_days: string[];
   project_id: number;
-  sprint_id?: number;
+  sprint_id: number | null;
+  approval_required: number;
+  effort_hours: number;
+  effort_unit: string;
+  task_priority: "normal" | "critical";
+  bump_to_front: boolean;
 };
 
 export type UpdateTaskStatusRequest = {
@@ -153,13 +208,22 @@ export type UpdateTaskStatusRequest = {
 };
 
 export type UpdateAssigneeRequest = {
+  asigned_to: number;
   company_id: number;
   company_identifier: string;
   assignee: number;
 };
 
 export type RejectTaskRequest = {
-  rejection_reason: string;
+  company_id: number;
+  company_identifier: string;
+  reason: string;
+  additional_hours: number;
+};
+
+export type ApproveTaskRequest = {
+  company_id: number;
+  company_identifier: string;
 };
 
 export type UpdateDueDateRequest = {
@@ -170,6 +234,7 @@ export type UpdateDueDateRequest = {
 
 export type UpdateProjectRequest = {
   project_id: number;
+  sprint_id?: number;
   company_id: number;
   company_identifier: string;
 };
@@ -180,27 +245,11 @@ export type UpdateLeadSourceRequest = {
   company_identifier: string;
 };
 
-export type TaskNote = {
-  id: number;
-  module: string;
-  company_id: number;
-  mod_id: number;
-  notes: string;
-  pin_top: number;
-  user_id: number;
-  user_name: string;
-  user_image: string;
-  attachment_file: string | null;
-  extension: string | null;
-  created_at: string;
-  reply_to: { note_id: number; user_id: number } | null;
-};
-
 export type AddNoteRequest = {
   notes: string;
   company_id: number;
   company_identifier: string;
-  reply_to?: { note_id: number; user_id: number };
+  reply_to?: { id: number; user_name: string; content: string };
 };
 
 export type UpdateNoteRequest = {
@@ -221,21 +270,71 @@ export type DeleteNoteRequest = {
 };
 
 export type NoteReactionRequest = {
-  reaction: string;
+  emoji: string;
   company_id: number;
-  company_identifier: string;
-};
-
-export type TaskAttachment = {
-  id: number;
-  mod_id: number;
-  module: string;
-  attachment_file: string;
-  company_id: number;
-  created_at: string;
+  user_id: number;
+  user_name: string;
 };
 
 export type DeleteAttachmentRequest = {
   company_id: number;
   company_identifier: string;
+};
+
+export type RecalculateScheduleRequest = {
+  company_id: number;
+  company_identifier: string;
+  completed_at?: string;
+};
+
+export type DependencyData = {
+  task_id: number;
+  title: string;
+  task_priority: string;
+  due_date: string;
+  status: string;
+  assigned_to: { full_name: string; image: string | null };
+  created_by: { full_name: string; image: string | null };
+  priority_color: string;
+  priority_name: string;
+};
+
+export type AddDependencyRequest = {
+  task_id: number;
+  depends_on: number;
+  company_id: number;
+  company_identifier: string;
+};
+
+export type RemoveDependencyRequest = {
+  task_id: number;
+  depends_on: number;
+  company_id: number;
+  company_identifier: string;
+};
+
+export type ReorderCriticalRequest = {
+  orderedIds: (number | string)[];
+  company_id: number;
+};
+
+export type ReorderCriticalResponse = {
+  Good: boolean;
+  blockedTasks: { id: number; title: string }[];
+};
+
+export type RescheduleReopenedRequest = {
+  company_id: number;
+  company_identifier: string;
+  effort_hours: number;
+};
+
+export type ReopenTaskRequest = {
+  company_id: number;
+  company_identifier: string;
+  status: string;
+  priority: string;
+  effort_hours: number;
+  effort_unit: string;
+  bump_to_front: boolean;
 };

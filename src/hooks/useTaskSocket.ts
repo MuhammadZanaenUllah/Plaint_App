@@ -14,11 +14,13 @@ import {
  * Listens for task-related Socket.io events and keeps TaskContext in sync.
  *
  * Events handled:
- * - `task_update` — all task CRUD, notes, attachments (filtered by company_id,
- *   triggers full task list refetch per the reference doc's "re-fetch" strategy)
+ * - `task_update` — all task CRUD, notes, attachments, schedule updates
+ *   (filtered by company_id, triggers full task list refetch)
  * - `priority_update` — company priority dropdown list changes (create/update/delete)
  * - `jobstatus_update` — company status dropdown list changes (create/update/delete)
+ * - `project_update` — project changes (create/due_date_update), triggers task refetch
  * - `user_update` — user directory changed (used by CreateTaskModal assignee picker)
+ * - `task_scheduling_settings_update` — scheduling settings changed
  *
  * No task-specific room-joining exists — every event is a global company-wide broadcast.
  * The client always filters by `company_id` first.
@@ -63,6 +65,8 @@ export function useTaskSocket(): void {
           const p = payload as TaskUpdatePayload;
           if (String(p?.company_id) !== String(companyIdRef.current)) return;
           if (!p?.action) return;
+          // All task_update actions (create, update, status_update, delete,
+          // add_note, delete_note, schedule_update, etc.) trigger a full refetch
           fetchRef.current(companyIdRef.current!);
         })
       );
@@ -87,11 +91,31 @@ export function useTaskSocket(): void {
         })
       );
 
+      // ─── project_update — project created/due_date changed ──────────────
+      cleanupFns.push(
+        onSocketEvent("project_update", (payload: unknown) => {
+          const p = payload as { company_id?: number; action?: string; data?: any };
+          if (String(p?.company_id) !== String(companyIdRef.current)) return;
+          // Any project change triggers task refetch (tasks may have project_id)
+          fetchRef.current(companyIdRef.current!);
+        })
+      );
+
       // ─── user_update — user directory changed ────────────────────────────
       cleanupFns.push(
         onSocketEvent("user_update", (payload: unknown) => {
           const p = payload as UserUpdatePayload;
           if (String(p?.company_id) !== String(companyIdRef.current)) return;
+          fetchRef.current(companyIdRef.current!);
+        })
+      );
+
+      // ─── task_scheduling_settings_update — scheduling config changed ─────
+      cleanupFns.push(
+        onSocketEvent("task_scheduling_settings_update", (payload: unknown) => {
+          const p = payload as { company_id?: number };
+          if (String(p?.company_id) !== String(companyIdRef.current)) return;
+          // Scheduling settings changed — refetch tasks to pick up any schedule changes
           fetchRef.current(companyIdRef.current!);
         })
       );

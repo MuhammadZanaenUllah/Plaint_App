@@ -6,7 +6,7 @@ import { StatusType, TaskRowProps } from "@/components/TaskRow";
 import TaskTable from "@/components/TaskTable";
 import Icons from "@/constants/icons";
 import { MaterialIcons } from "@expo/vector-icons";
-import { getTaskDetail } from "@/services/api/tasks.service";
+import { viewTask } from "@/services/api/tasks.service";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import { useTaskSocket } from "@/hooks/useTaskSocket";
@@ -129,10 +129,17 @@ export default function TasksScreen() {
     const raw = (task as any)._raw;
     if (!raw) return;
     let description = raw.description ?? "";
+    let effortHours: number | undefined;
+    let effortUnit: string | undefined;
+    let projectName: string | undefined;
     try {
-      const detailRes = await getTaskDetail(raw.id);
-      if (detailRes.Good && detailRes.data?.priority?.[0]) {
-        description = detailRes.data.priority[0].description ?? description;
+      const detailRes = await viewTask(Number(raw.id), companyId ?? 0);
+      if (detailRes.Good && detailRes.data) {
+        const td = detailRes.data.task;
+        description = td?.description ?? description;
+        effortHours = td?.effort_hours ?? undefined;
+        effortUnit = td?.effort_unit ?? undefined;
+        projectName = td?.project_name ?? undefined;
       }
     } catch {
       // fall back to list description
@@ -154,11 +161,14 @@ export default function TasksScreen() {
       taskId: raw.id,
       companyId: companyId ?? 0,
       canEditStatus: raw.can_edit_status,
+      effortHours,
+      effortUnit,
+      projectName,
     } as any);
   }, [companyId]);
 
-  const statuses = ["Pending", "In-Progress", "Rejected", "Pending-Approval", "Completed", "Recurring", "On-Hold"];
-  const priorities = ["Normal", "Critical"];
+  const statuses = ["Pending", "In-Progress", "Rejected", "Pending-Approval", "Completed", "Recurring"];
+  const priorities = ["Low", "Medium", "High"];
   const priorityColors: Record<string, string> = {
     Normal: "#0DDFAB",
     Critical: "#FF4444",
@@ -169,7 +179,6 @@ export default function TasksScreen() {
     Rejected: "#FF0000",
     "Pending-Approval": "#1D1D1D",
     Completed: "#1CB333",
-    "On-Hold": "#0DDFD8",
   };
 
   const mapRowWithRaw = useCallback(

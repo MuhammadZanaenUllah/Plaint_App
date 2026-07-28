@@ -1,6 +1,6 @@
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
-import { TaskNote } from "@/types/task.types";
+import { TaskNote, ViewTaskData, DependencyData, TaskAttachment, SubTask } from "@/types/task.types";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -18,7 +18,7 @@ import {
 import { STATUS_COLORS, StatusType } from "./TaskRow";
 import { getSocket, onSocketEvent, type TaskUpdatePayload } from "@/services/socket/socketService";
 
-export type SubTask = { title: string; createdBy: string; dueDate: string };
+export type SubTaskDisplay = { title: string; createdBy: string; dueDate: string };
 
 export type TaskDetail = {
   title: string;
@@ -30,14 +30,17 @@ export type TaskDetail = {
   approvalRequired: string;
   status: StatusType;
   recurringTask: string;
-  subtasks: SubTask[];
-  dependencies: SubTask[];
+  subtasks: SubTaskDisplay[];
+  dependencies: SubTaskDisplay[];
   description: string;
   attachments: string[];
   subtaskCount?: number;
   taskId?: number;
   companyId?: number;
   canEditStatus?: boolean;
+  projectName?: string;
+  effortHours?: number;
+  effortUnit?: string;
 };
 
 type Props = { visible: boolean; onClose: () => void; task: TaskDetail | null };
@@ -51,7 +54,7 @@ const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
 
 const COL = { title: 160, createdBy: 130, dueDate: 110 };
 
-function SectionTable({ title, rows, showAdd }: { title: string; rows: SubTask[]; showAdd?: boolean }) {
+function SectionTable({ title, rows, showAdd }: { title: string; rows: SubTaskDisplay[]; showAdd?: boolean }) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -105,9 +108,7 @@ function CommentBubble({
   index?: number;
 }) {
   const isOwn = comment.user_id === currentUserId;
-  // const isPinned = comment.pin_top === 1 || index === 0;
   const isPinned = comment.pin_top === 1;
-  // const isSelected = index === 2;
   const initials = (comment.user_name ?? "U")
     .trim()
     .split(/\s+/)
@@ -120,7 +121,7 @@ function CommentBubble({
   const formatDate = (dateStr: string) => {
     try {
       const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return "25, April, 2026 | 10.00AM";
+      if (isNaN(d.getTime())) return "";
       return (
         d.toLocaleDateString("en-US", {
           day: "numeric",
@@ -134,7 +135,7 @@ function CommentBubble({
         })
       );
     } catch {
-      return "25, April, 2026 | 10.00AM";
+      return "";
     }
   };
 
@@ -143,12 +144,11 @@ function CommentBubble({
       style={[
         styles.bubble,
         isPinned && styles.bubblePinned,
-        // isSelected && styles.bubbleSelected,
       ]}
     >
       <View style={styles.bubbleHeader}>
         <View style={styles.bubbleAvatar}>
-          <Text style={styles.bubbleAvatarText}>{initials || "MJ"}</Text>
+          <Text style={styles.bubbleAvatarText}>{initials || "U"}</Text>
         </View>
         <View style={styles.bubbleNameRow}>
           <Text style={styles.bubbleName}>{comment.user_name}</Text>
@@ -166,46 +166,16 @@ function CommentBubble({
 
       <Text style={styles.bubbleText}>{comment.notes}</Text>
 
-      {/* {!isPinned && (
-        <View style={styles.bubbleActions}>
-          <TouchableOpacity style={styles.actionBtn}>
-            <Ionicons name="thumbs-up-outline" size={15} color="#9CA3AF" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtn}>
-            <Ionicons name="happy-outline" size={15} color="#9CA3AF" />
-          </TouchableOpacity>
-          {isSelected && (
-            <>
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => onPin?.(comment)}
-              >
-                <MaterialCommunityIcons
-                  name="pin-outline"
-                  size={15}
-                  color="#9CA3AF"
-                />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionBtn}>
-                <Ionicons name="pencil-outline" size={15} color="#9CA3AF" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionBtn}>
-                <Ionicons name="arrow-undo-outline" size={15} color="#9CA3AF" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => onDelete?.(comment)}
-              >
-                <Ionicons
-                  name="ellipsis-vertical"
-                  size={15}
-                  color="#9CA3AF"
-                />
-              </TouchableOpacity>
-            </>
-          )}
+      {comment.reactions && comment.reactions.length > 0 && (
+        <View style={styles.reactionsRow}>
+          {comment.reactions.map((r, i) => (
+            <View key={i} style={styles.reactionBadge}>
+              <Text style={styles.reactionText}>{r.emoji}</Text>
+              <Text style={styles.reactionCount}>{r.user_name.split(" ")[0]}</Text>
+            </View>
+          ))}
         </View>
-      )} */}
+      )}
 
       {!isPinned && (
         <View style={styles.bubbleActions}>
@@ -252,45 +222,20 @@ function CommentBubble({
   );
 }
 
-// const SAMPLE_NOTES: TaskNote[] = [
-//   {
-//     id: 1,
-//     task_id: 1,
-//     company_id: 1,
-//     user_id: 1,
-//     user_name: "Muhammad Junaid",
-//     notes:
-//       "Lorem Ipsum is simply dummy text of the printing and typesetting...",
-//     pin_top: 1,
-//     created_at: "2026-04-25T10:00:00Z",
-//   },
-//   {
-//     id: 2,
-//     task_id: 1,
-//     company_id: 1,
-//     user_id: 2,
-//     user_name: "Muhammad Haris",
-//     notes:
-//       "Lorem Ipsum is simply dummy text of the printing and typesetting...",
-//     pin_top: 0,
-//     created_at: "2026-04-25T10:00:00Z",
-//   },
-//   {
-//     id: 3,
-//     task_id: 1,
-//     company_id: 1,
-//     user_id: 1,
-//     user_name: "Muhammad Junaid",
-//     notes:
-//       "Lorem Ipsum is simply dummy text of the printing and typesetting...",
-//     pin_top: 0,
-//     created_at: "2026-04-25T10:00:00Z",
-//   },
-// ];
+function formatApiDate(dateStr: string): string {
+  if (!dateStr) return "-";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return `${d.getDate()}, ${d.toLocaleString("en-US", { month: "short" })}`;
+  } catch {
+    return dateStr;
+  }
+}
 
 export default function TaskDetailModal({ visible, onClose, task }: Props) {
   const { state: authState } = useAuth();
-  const { addNote, fetchNotes, deleteNote, pinNote } = useTasks();
+  const { addNote, fetchNotes, deleteNote, pinNote, viewTask: viewTaskApi, getDependencies } = useTasks();
 
   const [activeTab, setActiveTab] = useState<"details" | "comments">("details");
   const [commentText, setCommentText] = useState("");
@@ -298,9 +243,37 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
   const [notes, setNotes] = useState<TaskNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [sendingNote, setSendingNote] = useState(false);
+  const [taskDetail, setTaskDetail] = useState<ViewTaskData | null>(null);
+  const [dependencies, setDependencies] = useState<DependencyData[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const companyId = task?.companyId ?? authState.company?.company_id ?? 0;
   const companyIdentifier = authState.company?.company_identifier ?? "";
+
+  const loadTaskDetail = useCallback(async () => {
+    if (!task?.taskId) return;
+    setDetailLoading(true);
+    try {
+      const detail = await viewTaskApi(task.taskId);
+      if (detail) {
+        setTaskDetail(detail);
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [task?.taskId, viewTaskApi]);
+
+  const loadDependencies = useCallback(async () => {
+    if (!task?.taskId) return;
+    try {
+      const deps = await getDependencies(task.taskId, companyId);
+      setDependencies(deps);
+    } catch {
+      // silently fail
+    }
+  }, [task?.taskId, companyId, getDependencies]);
 
   const loadNotes = useCallback(async () => {
     if (!task?.taskId) return;
@@ -322,8 +295,14 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
   useEffect(() => {
     if (visible) {
       setActiveTab("details");
+      setTaskDetail(null);
+      setDependencies([]);
+      if (task?.taskId) {
+        loadTaskDetail();
+        loadDependencies();
+      }
     }
-  }, [visible]);
+  }, [visible, task?.taskId, loadTaskDetail, loadDependencies]);
 
   useEffect(() => {
     if (visible && activeTab === "comments" && task?.taskId) {
@@ -339,6 +318,9 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
 
   const loadNotesRef = useRef(loadNotes);
   loadNotesRef.current = loadNotes;
+
+  const loadTaskDetailRef = useRef(loadTaskDetail);
+  loadTaskDetailRef.current = loadTaskDetail;
 
   useEffect(() => {
     const socket = getSocket();
@@ -357,10 +339,14 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
     const cleanup = onSocketEvent("task_update", (payload: unknown) => {
       const p = payload as TaskUpdatePayload;
       if (String(p?.company_id) !== String(companyIdRef.current)) return;
-      if (!p?.action || !NOTE_ACTIONS.has(p.action)) return;
+      if (!p?.action) return;
       const eventTaskId = (p.data as Record<string, unknown>)?.task_id ?? (p.data as Record<string, unknown>)?.id;
       if (eventTaskId != null && Number(eventTaskId) === taskIdRef.current) {
-        loadNotesRef.current();
+        if (NOTE_ACTIONS.has(p.action)) {
+          loadNotesRef.current();
+        }
+        // Refresh task detail on any update to this task
+        loadTaskDetailRef.current();
       }
     });
 
@@ -412,8 +398,27 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
   };
   const currentUserId = authState.user?.id ?? 0;
 
-  // const displayNotes = notes.length > 0 ? notes : SAMPLE_NOTES;
   const displayNotes = notes;
+
+  // Use taskDetail data if available, otherwise fall back to props
+  const apiTask = taskDetail?.task;
+  const subtasks: SubTaskDisplay[] = apiTask?.sub_tasks?.map((st) => ({
+    title: st.title,
+    createdBy: "",
+    dueDate: formatApiDate(st.due_date),
+  })) ?? task.subtasks;
+
+  const depDisplay: SubTaskDisplay[] = dependencies.length > 0
+    ? dependencies.map((d) => ({
+        title: d.title,
+        createdBy: d.assigned_to?.full_name ?? "",
+        dueDate: formatApiDate(d.due_date),
+      }))
+    : task.dependencies;
+
+  const attachmentFiles: string[] = apiTask?.task_attachments?.map((a) => a.attachment) ?? task.attachments;
+  const effortDisplay = apiTask ? `${apiTask.effort_hours} ${apiTask.effort_unit}` : (task.effortHours ? `${task.effortHours} ${task.effortUnit ?? "minutes"}` : "-");
+  const projectDisplay = apiTask?.project_name ?? task.projectName ?? "-";
 
   const INFO_ROWS = [
     {
@@ -468,17 +473,27 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
       value: <Text style={styles.infoValue}>{task.recurringTask}</Text>,
     },
     {
+      icon: "briefcase-outline",
+      label: "Project:",
+      value: <Text style={styles.infoValue}>{projectDisplay}</Text>,
+    },
+    {
+      icon: "time-outline",
+      label: "Effort:",
+      value: <Text style={styles.infoValue}>{effortDisplay}</Text>,
+    },
+    {
       icon: "git-branch-outline",
       label: "Subtask:",
       value:
-        task.subtasks.length > 0 ? (
+        subtasks.length > 0 ? (
           <View style={styles.cntBadgeGray}>
             <MaterialCommunityIcons
               name="file-tree-outline"
               size={14}
               color="#fff"
             />
-            <Text style={styles.cntBadgeText}>+{task.subtasks.length}</Text>
+            <Text style={styles.cntBadgeText}>+{subtasks.length}</Text>
           </View>
         ) : (
           <Text style={styles.infoValue}>-</Text>
@@ -488,8 +503,8 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
       icon: "git-compare-outline",
       label: "Dependencies:",
       value:
-        task.dependencies.length > 0 ? (
-          <Text style={styles.depLink}>{task.dependencies[0].title}</Text>
+        depDisplay.length > 0 ? (
+          <Text style={styles.depLink}>{depDisplay[0].title}</Text>
         ) : (
           <Text style={styles.infoValue}>-</Text>
         ),
@@ -554,127 +569,131 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
 
             {activeTab === "details" && (
               <View style={styles.tabContent}>
-                <ScrollView
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={styles.detailsScroll}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {task.subtasks.length > 0 && (
-                    <View style={styles.cntBadge}>
-                      <MaterialCommunityIcons
-                        name="file-tree-outline"
-                        size={14}
-                        color="#fff"
-                      />
-                      <Text style={styles.cntBadgeText}>
-                        +{task.subtasks.length}
-                      </Text>
-                    </View>
-                  )}
-                  <Text style={styles.taskTitle}>{task.title}</Text>
-
-                  {INFO_ROWS.map((row, i) => (
-                    <View key={i} style={styles.infoRow}>
-                      <View style={styles.infoLabelWrap}>
-                        <Ionicons
-                          name={row.icon as any}
-                          size={16}
-                          color="#AAAAAA"
-                          style={{ marginRight: 6 }}
+                {detailLoading ? (
+                  <ActivityIndicator size="small" color="#00DEAB" style={{ marginTop: 40 }} />
+                ) : (
+                  <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={styles.detailsScroll}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {subtasks.length > 0 && (
+                      <View style={styles.cntBadge}>
+                        <MaterialCommunityIcons
+                          name="file-tree-outline"
+                          size={14}
+                          color="#fff"
                         />
-                        <Text style={styles.infoLabel}>{row.label}</Text>
+                        <Text style={styles.cntBadgeText}>
+                          +{subtasks.length}
+                        </Text>
                       </View>
-                      <View style={styles.infoValueWrap}>{row.value}</View>
-                    </View>
-                  ))}
+                    )}
+                    <Text style={styles.taskTitle}>{task.title}</Text>
 
-                  <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Description</Text>
-                    <Text style={styles.descText}>
-                      {task.description.replace(/<[^>]*>/g, "")}
-                    </Text>
-                    <View style={styles.descBadgesRow}>
-                      {task.subtasks.length > 0 && (
-                        <View style={styles.descBadge}>
-                          <MaterialCommunityIcons
-                            name="file-tree-outline"
-                            size={13}
-                            color="#00DFAB"
-                          />
-                          <Text
-                            style={[
-                              styles.descBadgeText,
-                              { color: "#00DFAB" },
-                            ]}
-                          >
-                            +{task.subtasks.length}
-                          </Text>
-                        </View>
-                      )}
-                      {task.attachments.length > 0 && (
-                        <View style={styles.descBadge}>
+                    {INFO_ROWS.map((row, i) => (
+                      <View key={i} style={styles.infoRow}>
+                        <View style={styles.infoLabelWrap}>
                           <Ionicons
-                            name="link-outline"
-                            size={13}
-                            color="#fff"
+                            name={row.icon as any}
+                            size={16}
+                            color="#AAAAAA"
+                            style={{ marginRight: 6 }}
                           />
-                          <Text style={styles.descBadgeText}>
-                            +{task.attachments.length}
-                          </Text>
+                          <Text style={styles.infoLabel}>{row.label}</Text>
                         </View>
-                      )}
-                    </View>
-                  </View>
-
-                  {task.subtasks.length > 0 && (
-                    <SectionTable
-                      title="Subtask"
-                      rows={task.subtasks}
-                      showAdd
-                    />
-                  )}
-
-                  {task.dependencies.length > 0 && (
-                    <SectionTable
-                      title="Dependencies"
-                      rows={task.dependencies}
-                    />
-                  )}
-
-                  {task.attachments.length > 0 && (
-                    <View style={styles.section}>
-                      <View style={styles.attachHeader}>
-                        <Text style={styles.sectionTitle}>Attachments</Text>
-                        <View style={styles.cntBadgeGray}>
-                          <MaterialCommunityIcons
-                            name="file-tree-outline"
-                            size={13}
-                            color="#fff"
-                          />
-                          <Text style={styles.cntBadgeText}>
-                            +{task.attachments.length}
-                          </Text>
-                        </View>
+                        <View style={styles.infoValueWrap}>{row.value}</View>
                       </View>
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                      >
-                        {task.attachments.map((a, i) => (
-                          <View key={i} style={styles.attachTag}>
-                            <Ionicons
-                              name="download-outline"
+                    ))}
+
+                    <View style={styles.section}>
+                      <Text style={styles.sectionTitle}>Description</Text>
+                      <Text style={styles.descText}>
+                        {(apiTask?.description ?? task.description).replace(/<[^>]*>/g, "")}
+                      </Text>
+                      <View style={styles.descBadgesRow}>
+                        {subtasks.length > 0 && (
+                          <View style={styles.descBadge}>
+                            <MaterialCommunityIcons
+                              name="file-tree-outline"
                               size={13}
-                              color="#00DEAB"
+                              color="#00DFAB"
                             />
-                            <Text style={styles.attachTagText}>{a}</Text>
-                            <Ionicons name="close" size={13} color="#00DEAB" />
+                            <Text
+                              style={[
+                                styles.descBadgeText,
+                                { color: "#00DFAB" },
+                              ]}
+                            >
+                              +{subtasks.length}
+                            </Text>
                           </View>
-                        ))}
-                      </ScrollView>
+                        )}
+                        {attachmentFiles.length > 0 && (
+                          <View style={styles.descBadge}>
+                            <Ionicons
+                              name="link-outline"
+                              size={13}
+                              color="#fff"
+                            />
+                            <Text style={styles.descBadgeText}>
+                              +{attachmentFiles.length}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
                     </View>
-                  )}
-                </ScrollView>
+
+                    {subtasks.length > 0 && (
+                      <SectionTable
+                        title="Subtask"
+                        rows={subtasks}
+                        showAdd
+                      />
+                    )}
+
+                    {depDisplay.length > 0 && (
+                      <SectionTable
+                        title="Dependencies"
+                        rows={depDisplay}
+                      />
+                    )}
+
+                    {attachmentFiles.length > 0 && (
+                      <View style={styles.section}>
+                        <View style={styles.attachHeader}>
+                          <Text style={styles.sectionTitle}>Attachments</Text>
+                          <View style={styles.cntBadgeGray}>
+                            <MaterialCommunityIcons
+                              name="file-tree-outline"
+                              size={13}
+                              color="#fff"
+                            />
+                            <Text style={styles.cntBadgeText}>
+                              +{attachmentFiles.length}
+                            </Text>
+                          </View>
+                        </View>
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                        >
+                          {attachmentFiles.map((a, i) => (
+                            <View key={i} style={styles.attachTag}>
+                              <Ionicons
+                                name="download-outline"
+                                size={13}
+                                color="#00DEAB"
+                              />
+                              <Text style={styles.attachTagText}>{a}</Text>
+                              <Ionicons name="close" size={13} color="#00DEAB" />
+                            </View>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+                  </ScrollView>
+                )}
               </View>
             )}
 
@@ -686,25 +705,6 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                   showsVerticalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"
                 >
-                  {/* {notesLoading ? (
-                    <ActivityIndicator
-                      size="small"
-                      color="#00DEAB"
-                      style={{ marginTop: 20 }}
-                    />
-                  ) : (
-                    displayNotes.map((c, i) => (
-                      <CommentBubble
-                        key={c.id ?? i}
-                        comment={c}
-                        currentUserId={currentUserId}
-                        onPin={handlePinNote}
-                        onDelete={handleDeleteNote}
-                        index={i}
-                      />
-                    ))
-                  )} */}
-
                   {notesLoading ? (
                     <ActivityIndicator
                       size="small"
@@ -735,9 +735,6 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                     borderColor: isFocused ? "#1D1D1D" : "#E5E7EB",
                   },
                 ]}>
-                  {/* <View style={styles.inputLabelWrap}>
-                    <Text style={styles.inputLabelText}>Comment</Text>
-                  </View> */}
                   {(isFocused || commentText.length > 0) && (
                     <View style={styles.inputLabelWrap}>
                       <Text style={styles.inputLabelText}>Comment</Text>
@@ -1056,11 +1053,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#E6FBF6",
     borderColor: "#E6FBF6",
   },
-  bubbleSelected: {
-    borderColor: "#374151",
-    borderWidth: 1.5,
-    backgroundColor: "#FFFFFF",
-  },
   bubbleHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1091,7 +1083,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: "#D1D5DB",
     fontFamily: "SF_Pro_Regular",
-    // marginLeft: 4,
   },
   pinIcon: { marginLeft: "auto" },
   bubbleText: {
@@ -1109,10 +1100,27 @@ const styles = StyleSheet.create({
     borderTopColor: "#F3F4F6",
     gap: 12,
   },
+  reactionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 8,
+    flexWrap: "wrap",
+  },
+  reactionBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  reactionText: { fontSize: 12 },
+  reactionCount: { fontSize: 10, color: "#6B7280", fontFamily: "SF_Pro_Regular" },
   actionBtn: { padding: 2 },
   inputBox: {
     borderWidth: 1,
-    // borderColor: "#1D1D1D",
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingTop: 12,
@@ -1178,7 +1186,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 100,
   },
-
   emptyCommentsText: {
     fontSize: 16,
     fontFamily: "SF_Pro_Regular",

@@ -2,12 +2,13 @@ import { apiGet, apiPost, apiDelete, apiUpload } from "./client";
 import { ApiResponse } from "@/types/api.types";
 import {
   TaskListResponse,
-  TaskDetailData,
+  ViewTaskData,
   CreateTaskRequest,
   UpdateTaskRequest,
   UpdateTaskStatusRequest,
   UpdateAssigneeRequest,
   RejectTaskRequest,
+  ApproveTaskRequest,
   TaskNote,
   AddNoteRequest,
   UpdateNoteRequest,
@@ -18,14 +19,23 @@ import {
   UpdateDueDateRequest,
   UpdateProjectRequest,
   TaskFilter,
+  RecalculateScheduleRequest,
+  DependencyData,
+  AddDependencyRequest,
+  RemoveDependencyRequest,
+  ReorderCriticalRequest,
+  ReorderCriticalResponse,
+  RescheduleReopenedRequest,
+  ReopenTaskRequest,
 } from "@/types/task.types";
 
 export async function getAllTasks(
-  companyId: number
+  companyId: number,
+  params?: { skipTasks?: boolean }
 ): Promise<ApiResponse<TaskListResponse>> {
-  return apiGet<ApiResponse<TaskListResponse>>("/tasks/all", {
-    company_id: companyId,
-  });
+  const query: Record<string, any> = { company_id: companyId };
+  if (params?.skipTasks) query.skipTasks = "true";
+  return apiGet<ApiResponse<TaskListResponse>>("/tasks/all", query);
 }
 
 export async function getDueTodayTasks(
@@ -46,12 +56,13 @@ export async function getFilteredTasks(
   });
 }
 
-export async function getTaskDetail(
-  taskId: number
-): Promise<ApiResponse<{ priority: TaskDetailData[] }>> {
-  return apiGet<ApiResponse<{ priority: TaskDetailData[] }>>(
-    `/tasks/${taskId}`
-  );
+export async function viewTask(
+  taskId: number,
+  companyId: number
+): Promise<ApiResponse<ViewTaskData>> {
+  return apiPost<ApiResponse<ViewTaskData>>(`/tasks/view/${taskId}`, {
+    company_id: companyId,
+  });
 }
 
 export async function createTask(
@@ -104,9 +115,10 @@ export async function deleteTask(
 }
 
 export async function approveTask(
-  taskId: number
+  taskId: number,
+  data: ApproveTaskRequest
 ): Promise<ApiResponse<string>> {
-  return apiPost<ApiResponse<string>>(`/tasks/approve/${taskId}`, {});
+  return apiPost<ApiResponse<string>>(`/tasks/approve/${taskId}`, data);
 }
 
 export async function rejectTask(
@@ -114,12 +126,6 @@ export async function rejectTask(
   data: RejectTaskRequest
 ): Promise<ApiResponse<string>> {
   return apiPost<ApiResponse<string>>(`/tasks/reject/${taskId}`, data);
-}
-
-export async function viewTask(
-  taskId: number
-): Promise<ApiResponse<TaskDetailData>> {
-  return apiPost<ApiResponse<TaskDetailData>>(`/tasks/view/${taskId}`, {});
 }
 
 export async function updateTaskDueDate(
@@ -150,6 +156,80 @@ export async function updateLeadSource(
     `/tasks/updateleadsource/${taskId}`,
     data
   );
+}
+
+export async function recalculateSchedule(
+  taskId: number,
+  data: RecalculateScheduleRequest
+): Promise<ApiResponse<string>> {
+  return apiPost<ApiResponse<string>>(
+    `/tasks/recalculate/${taskId}`,
+    data
+  );
+}
+
+export async function getDependencies(
+  taskId: number,
+  companyId: number
+): Promise<ApiResponse<DependencyData[]>> {
+  return apiGet<ApiResponse<DependencyData[]>>(
+    `/tasks/dependencies/${taskId}`,
+    { company_id: companyId }
+  );
+}
+
+export async function addDependency(
+  data: AddDependencyRequest
+): Promise<ApiResponse<string>> {
+  return apiPost<ApiResponse<string>>("/tasks/dependencies/add", data);
+}
+
+export async function removeDependency(
+  data: RemoveDependencyRequest
+): Promise<ApiResponse<string>> {
+  return apiPost<ApiResponse<string>>("/tasks/dependencies/remove", data);
+}
+
+export async function reorderCritical(
+  data: ReorderCriticalRequest
+): Promise<ApiResponse<ReorderCriticalResponse>> {
+  return apiPost<ApiResponse<ReorderCriticalResponse>>(
+    "/tasks/reorder-critical",
+    data
+  );
+}
+
+export async function rescheduleReopened(
+  taskId: number,
+  data: RescheduleReopenedRequest
+): Promise<ApiResponse<string>> {
+  return apiPost<ApiResponse<string>>(
+    `/tasks/reschedule-reopened/${taskId}`,
+    data
+  );
+}
+
+export async function reopenTask(
+  taskId: number,
+  data: ReopenTaskRequest
+): Promise<ApiResponse<string>> {
+  return apiPost<ApiResponse<string>>(`/tasks/reopen/${taskId}`, data);
+}
+
+export async function migratePriorities(
+  companyId: number
+): Promise<ApiResponse<any>> {
+  return apiPost<ApiResponse<any>>("/tasks/migrate-priorities", {
+    company_id: companyId,
+  });
+}
+
+export async function migrateEffortToMinutes(
+  companyId: number
+): Promise<ApiResponse<any>> {
+  return apiPost<ApiResponse<any>>("/tasks/migrate-effort-to-minutes", {
+    company_id: companyId,
+  });
 }
 
 export async function addNote(
@@ -212,11 +292,10 @@ export async function deleteNote(
 export async function updateNoteReaction(
   noteId: number,
   data: NoteReactionRequest
-): Promise<ApiResponse<string>> {
-  return apiPost<ApiResponse<string>>(
-    `/tasks/updatenotereaction/${noteId}`,
-    data
-  );
+): Promise<ApiResponse<{ reactions: { user_id: number; user_name: string; emoji: string }[] }>> {
+  return apiPost<
+    ApiResponse<{ reactions: { user_id: number; user_name: string; emoji: string }[] }>
+  >(`/tasks/updatenotereaction/${noteId}`, data);
 }
 
 export async function uploadAttachment(

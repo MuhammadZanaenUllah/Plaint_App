@@ -17,6 +17,16 @@ import {
   TaskFilter,
   CreateTaskRequest,
   UpdateTaskStatusRequest,
+  ViewTaskData,
+  DependencyData,
+  AddDependencyRequest,
+  RemoveDependencyRequest,
+  ReorderCriticalRequest,
+  RecalculateScheduleRequest,
+  RescheduleReopenedRequest,
+  ReopenTaskRequest,
+  ApproveTaskRequest,
+  RejectTaskRequest,
 } from "@/types/task.types";
 import { MappedTaskRow, mapTaskListResponse } from "@/utils/statusMapper";
 import { extractErrorMessage } from "@/utils/errorHandler";
@@ -151,6 +161,7 @@ export type TaskContextValue = {
   updateTaskStatusLocal: (taskId: string, status: string) => void;
   updateTaskStatusApi: (taskId: number, data: UpdateTaskStatusRequest) => Promise<void>;
   refreshTasks: (companyId: number) => Promise<void>;
+  viewTask: (taskId: number) => Promise<ViewTaskData | null>;
   addNote: (
     taskId: number,
     data: { notes: string; company_id: number; company_identifier: string },
@@ -172,9 +183,16 @@ export type TaskContextValue = {
     companyId: number,
     companyIdentifier: string
   ) => Promise<void>;
-  approveTask: (taskId: number) => Promise<void>;
-  rejectTask: (taskId: number, reason: string) => Promise<void>;
+  approveTask: (taskId: number, companyId: number, companyIdentifier: string) => Promise<void>;
+  rejectTask: (taskId: number, companyId: number, companyIdentifier: string, reason: string, additionalHours: number) => Promise<void>;
   deleteTask: (taskId: number) => Promise<void>;
+  recalculateSchedule: (taskId: number, data: RecalculateScheduleRequest) => Promise<void>;
+  getDependencies: (taskId: number, companyId: number) => Promise<DependencyData[]>;
+  addDependency: (data: AddDependencyRequest) => Promise<void>;
+  removeDependency: (data: RemoveDependencyRequest) => Promise<void>;
+  reorderCritical: (data: ReorderCriticalRequest) => Promise<{ blockedTasks: { id: number; title: string }[] }>;
+  rescheduleReopened: (taskId: number, data: RescheduleReopenedRequest) => Promise<void>;
+  reopenTask: (taskId: number, data: ReopenTaskRequest) => Promise<void>;
   applyPriorityUpdate: (
     action: "create" | "update" | "delete",
     data: { id: number; name?: string; color?: string; order?: number; company_id?: number }
@@ -197,18 +215,42 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   const companyId = authState.company?.company_id ?? null;
 
   const mappedAssignedToMe = useMemo(
-    () => mapTaskListResponse({ tasks_assigned_to_me: state.assignedToMe, tasksByme: [], all_other_tasks: [], task_owner: [], priority: [], status: [] }).assignedToMe,
-    [state.assignedToMe]
+    () =>
+      mapTaskListResponse({
+        tasks_assigned_to_me: state.assignedToMe,
+        tasksByme: [],
+        all_other_tasks: [],
+        task_owner: state.taskOwners,
+        priority: [],
+        status: [],
+      }).assignedToMe,
+    [state.assignedToMe, state.taskOwners]
   );
 
   const mappedCreatedByMe = useMemo(
-    () => mapTaskListResponse({ tasks_assigned_to_me: [], tasksByme: state.createdByMe, all_other_tasks: [], task_owner: [], priority: [], status: [] }).createdByMe,
-    [state.createdByMe]
+    () =>
+      mapTaskListResponse({
+        tasks_assigned_to_me: [],
+        tasksByme: state.createdByMe,
+        all_other_tasks: [],
+        task_owner: state.taskOwners,
+        priority: [],
+        status: [],
+      }).createdByMe,
+    [state.createdByMe, state.taskOwners]
   );
 
   const mappedAllOtherTasks = useMemo(
-    () => mapTaskListResponse({ tasks_assigned_to_me: [], tasksByme: [], all_other_tasks: state.allOtherTasks, task_owner: [], priority: [], status: [] }).allOtherTasks,
-    [state.allOtherTasks]
+    () =>
+      mapTaskListResponse({
+        tasks_assigned_to_me: [],
+        tasksByme: [],
+        all_other_tasks: state.allOtherTasks,
+        task_owner: state.taskOwners,
+        priority: [],
+        status: [],
+      }).allOtherTasks,
+    [state.allOtherTasks, state.taskOwners]
   );
 
   const allMappedTasks = useMemo(() => {
@@ -216,13 +258,13 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       tasks_assigned_to_me: state.assignedToMe,
       tasksByme: state.createdByMe,
       all_other_tasks: state.allOtherTasks,
-      task_owner: [],
+      task_owner: state.taskOwners,
       priority: [],
       status: [],
     };
     const mapped = mapTaskListResponse(response);
     return [...mapped.assignedToMe, ...mapped.createdByMe, ...mapped.allOtherTasks];
-  }, [state.assignedToMe, state.createdByMe, state.allOtherTasks]);
+  }, [state.assignedToMe, state.createdByMe, state.allOtherTasks, state.taskOwners]);
 
   const totalCount = allMappedTasks.length;
 
@@ -333,6 +375,18 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     [fetchAllTasks]
   );
 
+  const viewTaskAction = useCallback(
+    async (taskId: number): Promise<ViewTaskData | null> => {
+      const cId = companyId ?? 0;
+      const res = await tasksService.viewTask(taskId, cId);
+      if (res.Good && res.data) {
+        return res.data;
+      }
+      return null;
+    },
+    [companyId]
+  );
+
   const addNoteToTask = useCallback(
     async (
       taskId: number,
@@ -398,16 +452,22 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
-  const approveTaskById = useCallback(async (taskId: number) => {
-    const res = await tasksService.approveTask(taskId);
+  const approveTaskById = useCallback(async (taskId: number, companyId: number, companyIdentifier: string) => {
+    const res = await tasksService.approveTask(taskId, {
+      company_id: companyId,
+      company_identifier: companyIdentifier,
+    });
     if (!res.Good) {
       throw new Error(typeof res.data === "string" ? res.data : "Failed to approve task");
     }
   }, []);
 
-  const rejectTaskById = useCallback(async (taskId: number, reason: string) => {
+  const rejectTaskById = useCallback(async (taskId: number, companyId: number, companyIdentifier: string, reason: string, additionalHours: number) => {
     const res = await tasksService.rejectTask(taskId, {
-      rejection_reason: reason,
+      company_id: companyId,
+      company_identifier: companyIdentifier,
+      reason,
+      additional_hours: additionalHours,
     });
     if (!res.Good) {
       throw new Error(typeof res.data === "string" ? res.data : "Failed to reject task");
@@ -418,6 +478,58 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     const res = await tasksService.deleteTask(taskId);
     if (!res.Good) {
       throw new Error(typeof res.data === "string" ? res.data : "Failed to delete task");
+    }
+  }, []);
+
+  const recalculateScheduleById = useCallback(async (taskId: number, data: RecalculateScheduleRequest) => {
+    try {
+      await tasksService.recalculateSchedule(taskId, data);
+    } catch {
+      // fire-and-forget, scheduling result arrives via socket
+    }
+  }, []);
+
+  const getDependenciesByTaskId = useCallback(async (taskId: number, companyId: number): Promise<DependencyData[]> => {
+    const res = await tasksService.getDependencies(taskId, companyId);
+    if (res.Good && Array.isArray(res.data)) {
+      return res.data;
+    }
+    return [];
+  }, []);
+
+  const addDependencyAction = useCallback(async (data: AddDependencyRequest) => {
+    const res = await tasksService.addDependency(data);
+    if (!res.Good) {
+      throw new Error(typeof res.data === "string" ? res.data : "Failed to add dependency");
+    }
+  }, []);
+
+  const removeDependencyAction = useCallback(async (data: RemoveDependencyRequest) => {
+    const res = await tasksService.removeDependency(data);
+    if (!res.Good) {
+      throw new Error(typeof res.data === "string" ? res.data : "Failed to remove dependency");
+    }
+  }, []);
+
+  const reorderCriticalAction = useCallback(async (data: ReorderCriticalRequest) => {
+    const res = await tasksService.reorderCritical(data);
+    if (res.Good && res.data) {
+      return { blockedTasks: (res.data as any).blockedTasks ?? [] };
+    }
+    return { blockedTasks: [] };
+  }, []);
+
+  const rescheduleReopenedAction = useCallback(async (taskId: number, data: RescheduleReopenedRequest) => {
+    const res = await tasksService.rescheduleReopened(taskId, data);
+    if (!res.Good) {
+      throw new Error(typeof res.data === "string" ? res.data : "Failed to reschedule task");
+    }
+  }, []);
+
+  const reopenTaskAction = useCallback(async (taskId: number, data: ReopenTaskRequest) => {
+    const res = await tasksService.reopenTask(taskId, data);
+    if (!res.Good) {
+      throw new Error(typeof res.data === "string" ? res.data : "Failed to reopen task");
     }
   }, []);
 
@@ -434,6 +546,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
               id: data.id,
               name: data.name ?? "",
               color: data.color ?? "#999999",
+              order: data.order ?? null,
               company_id: data.company_id ?? 0,
             },
           });
@@ -445,6 +558,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
               id: data.id,
               name: data.name ?? "",
               color: data.color ?? "#999999",
+              order: data.order ?? null,
               company_id: data.company_id ?? 0,
             },
           });
@@ -510,6 +624,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       updateTaskStatusLocal,
       updateTaskStatusApi,
       refreshTasks,
+      viewTask: viewTaskAction,
       addNote: addNoteToTask,
       fetchNotes,
       deleteNote: deleteNoteById,
@@ -517,6 +632,13 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       approveTask: approveTaskById,
       rejectTask: rejectTaskById,
       deleteTask: deleteTaskById,
+      recalculateSchedule: recalculateScheduleById,
+      getDependencies: getDependenciesByTaskId,
+      addDependency: addDependencyAction,
+      removeDependency: removeDependencyAction,
+      reorderCritical: reorderCriticalAction,
+      rescheduleReopened: rescheduleReopenedAction,
+      reopenTask: reopenTaskAction,
       applyPriorityUpdate,
       applyJobStatusUpdate,
       logout,
@@ -539,6 +661,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       updateTaskStatusLocal,
       updateTaskStatusApi,
       refreshTasks,
+      viewTaskAction,
       addNoteToTask,
       fetchNotes,
       deleteNoteById,
@@ -546,6 +669,13 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       approveTaskById,
       rejectTaskById,
       deleteTaskById,
+      recalculateScheduleById,
+      getDependenciesByTaskId,
+      addDependencyAction,
+      removeDependencyAction,
+      reorderCriticalAction,
+      rescheduleReopenedAction,
+      reopenTaskAction,
       applyPriorityUpdate,
       applyJobStatusUpdate,
       logout,

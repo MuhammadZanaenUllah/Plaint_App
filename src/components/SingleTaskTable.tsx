@@ -50,11 +50,10 @@ const GRIP_CHEVRONS = [0, 1, 2, 3, 4, 5];
 const ALL_STATUSES: StatusType[] = [
   "Pending",
   "In-Progress",
-  "On-Hold",
   "Rejected",
   "Completed",
   "Pending-Approval",
- 
+  "Recurring",
 ];
 
 function getTaskKey(task: TaskRowProps, index: number) {

@@ -3,6 +3,7 @@ import {
   UiTaskStatus,
   TaskListItem,
   TaskListResponse,
+  TaskOwner,
 } from "@/types/task.types";
 
 export type MappedTaskRow = {
@@ -22,6 +23,13 @@ export type MappedTaskRow = {
   _raw: TaskListItem;
 };
 
+type PersonLike = {
+  first_name?: string;
+  last_name?: string;
+  full_name?: string;
+  image?: string | null;
+};
+
 export function apiStatusToUi(status: TaskStatus): UiTaskStatus {
   if (status === "Complete") return "Completed";
   return status as UiTaskStatus;
@@ -36,6 +44,35 @@ function getInitials(firstName: string, lastName: string): string {
   return ((firstName?.[0] ?? "") + (lastName?.[0] ?? "")).toUpperCase();
 }
 
+function getDisplayName(person?: PersonLike | null): string {
+  if (!person) return "";
+  const full = person.full_name?.trim();
+  if (full) return full;
+  return `${person.first_name ?? ""} ${person.last_name ?? ""}`.trim();
+}
+
+function getInitialsFromPerson(person?: PersonLike | null): string {
+  if (!person) return "";
+  if (person.first_name || person.last_name) {
+    return getInitials(person.first_name ?? "", person.last_name ?? "");
+  }
+  const parts = person.full_name?.trim().split(/\s+/) ?? [];
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return parts[0]?.[0]?.toUpperCase() ?? "";
+}
+
+function findOwner(taskOwners: TaskOwner[], id?: number) {
+  if (!id) return undefined;
+  return taskOwners.find((owner) => owner.id === id);
+}
+
+function truncateName(name: string): string {
+  const first = name.split(/\s+/)[0] ?? "";
+  return first || (name.length > 14 ? `${name.slice(0, 14)}...` : name);
+}
+
 function formatDate(dateStr: string): string {
   if (!dateStr) return "";
   try {
@@ -48,32 +85,27 @@ function formatDate(dateStr: string): string {
   }
 }
 
-export function mapTaskListItem(item: TaskListItem): MappedTaskRow {
-  const assigneeFirstName = item.task_assigned_to?.first_name ?? "";
-  const assigneeName = item.task_assigned_to
-    ? `${item.task_assigned_to.first_name} ${item.task_assigned_to.last_name}`.trim()
-    : "";
-  const assigneeInitials = item.task_assigned_to
-    ? getInitials(item.task_assigned_to.first_name, item.task_assigned_to.last_name)
-    : "";
+export function mapTaskListItem(
+  item: TaskListItem,
+  taskOwners: TaskOwner[] = []
+): MappedTaskRow {
+  const creator =
+    item.task_assignee ?? findOwner(taskOwners, item.created_by);
+  const assignee =
+    item.task_assigned_to ?? findOwner(taskOwners, item.asigned_to);
 
-  const creatorFirstName = item.task_assignee?.first_name ?? "";
-  const creatorName = item.task_assignee
-    ? `${item.task_assignee.first_name} ${item.task_assignee.last_name}`.trim()
-    : "";
-  const creatorInitials = item.task_assignee
-    ? getInitials(item.task_assignee.first_name, item.task_assignee.last_name)
-    : "";
+  const creatorName = getDisplayName(creator);
+  const assigneeName = getDisplayName(assignee);
 
   return {
     id: String(item.id),
     title: item.title,
-    createdBy: creatorFirstName || (creatorName.length > 14 ? creatorName.slice(0, 14) + "..." : creatorName),
-    createdByInitials: creatorInitials,
-    createdByAvatar: item.task_assignee?.image,
-    assignedTo: assigneeFirstName || (assigneeName.length > 14 ? assigneeName.slice(0, 14) + "..." : assigneeName),
-    assignedToInitials: assigneeInitials,
-    assignedToAvatar: item.task_assigned_to?.image,
+    createdBy: truncateName(creatorName),
+    createdByInitials: getInitialsFromPerson(creator),
+    createdByAvatar: creator?.image ?? undefined,
+    assignedTo: truncateName(assigneeName),
+    assignedToInitials: getInitialsFromPerson(assignee),
+    assignedToAvatar: assignee?.image ?? undefined,
     dueDate: formatDate(item.due_date),
     status: apiStatusToUi(item.status),
     priorityName: item.priority_name,
@@ -90,9 +122,15 @@ export function mapTaskListResponse(
   createdByMe: MappedTaskRow[];
   allOtherTasks: MappedTaskRow[];
 } {
+  const owners = response.task_owner ?? [];
+
   return {
-    assignedToMe: response.tasks_assigned_to_me.map(mapTaskListItem),
-    createdByMe: response.tasksByme.map(mapTaskListItem),
-    allOtherTasks: response.all_other_tasks.map(mapTaskListItem),
+    assignedToMe: response.tasks_assigned_to_me.map((item) =>
+      mapTaskListItem(item, owners)
+    ),
+    createdByMe: response.tasksByme.map((item) => mapTaskListItem(item, owners)),
+    allOtherTasks: response.all_other_tasks.map((item) =>
+      mapTaskListItem(item, owners)
+    ),
   };
 }
