@@ -32,6 +32,7 @@ import {
     View
 } from "react-native";
 import EmojiPicker from "rn-emoji-keyboard";
+import { showInfo, showError } from "@/utils/toast";
 
 let Audio: typeof import("expo-av").Audio | null = null;
 try {
@@ -53,7 +54,7 @@ function VoiceNotePlayer({ audioUrl }: { audioUrl: string }) {
 
     const handlePlayPause = async () => {
         if (!Audio) {
-            Alert.alert("Audio Unavailable", "Voice playback is unavailable in this environment.");
+            showInfo("Audio Unavailable", "Voice playback is unavailable in this environment.");
             return;
         }
         if (sound) {
@@ -728,13 +729,13 @@ export default function ConversationScreen() {
 
     const startRecording = useCallback(async () => {
         if (!Audio) {
-            Alert.alert("Audio Unavailable", "Audio recording requires a custom native build with expo-av module.");
+            showInfo("Audio Unavailable", "Audio recording requires a custom native build with expo-av module.");
             return;
         }
         try {
             const permission = await Audio.requestPermissionsAsync();
             if (permission.status !== "granted") {
-                Alert.alert("Permission Required", "Microphone access is required to record voice notes.");
+                showInfo("Permission Required", "Microphone access is required to record voice notes.");
                 return;
             }
             await Audio.setAudioModeAsync({
@@ -754,7 +755,7 @@ export default function ConversationScreen() {
             }, 1000);
         } catch (err) {
             console.log("[Audio] Start recording error:", err);
-            Alert.alert("Error", "Could not start audio recording");
+            showError("Error", "Could not start audio recording");
         }
     }, []);
 
@@ -791,7 +792,7 @@ export default function ConversationScreen() {
             }
         } catch (err) {
             console.log("[Audio] Send voice note error:", err);
-            Alert.alert("Error", "Failed to send voice note");
+            showError("Error", "Failed to send voice note");
         } finally {
             setSending(false);
         }
@@ -955,7 +956,7 @@ export default function ConversationScreen() {
                 setForwardOpen(false);
                 setForwardMsg(null);
             } catch {
-                Alert.alert("Error", "Failed to forward message");
+                showError("Error", "Failed to forward message");
             } finally {
                 setForwarding(false);
             }
@@ -974,7 +975,7 @@ export default function ConversationScreen() {
             setEditingMsg(null);
             setEditText("");
         } catch {
-            Alert.alert("Error", "Failed to edit message");
+            showError("Error", "Failed to edit message");
         } finally {
             setEditing(false);
         }

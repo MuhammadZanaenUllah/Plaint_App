@@ -9,6 +9,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { useContext, useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import Toast from "react-native-toast-message";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -86,6 +87,7 @@ export default function RootLayout() {
         <ChatProvider>
           <NotificationProvider>
             <RootNavigator />
+            <Toast />
           </NotificationProvider>
         </ChatProvider>
       </TaskProvider>

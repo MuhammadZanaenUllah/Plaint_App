@@ -5,7 +5,6 @@ import { router } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Keyboard,
   Pressable,
@@ -17,6 +16,7 @@ import {
 import Images from "@/constants/images";
 import { useAuth } from "@/hooks/useAuth";
 import { extractErrorMessage } from "@/utils/errorHandler";
+import { showInfo, showError, showSuccess } from "@/utils/toast";
 
 export default function InitialPasswordReset() {
   const [newPassword, setNewPassword] = useState("");
@@ -28,27 +28,26 @@ export default function InitialPasswordReset() {
 
   const handleReset = async () => {
     if (!newPassword.trim() || !confirmPassword.trim()) {
-      Alert.alert("Validation", "All fields are required.");
+      showInfo("Validation", "All fields are required.");
       return;
     }
     if (newPassword !== confirmPassword) {
-      Alert.alert("Validation", "Passwords do not match.");
+      showInfo("Validation", "Passwords do not match.");
       return;
     }
     if (newPassword.length < 6) {
-      Alert.alert("Validation", "Password must be at least 6 characters.");
+      showInfo("Validation", "Password must be at least 6 characters.");
       return;
     }
 
     setLoading(true);
     try {
       await setInitialPassword(email, newPassword, confirmPassword);
-      Alert.alert("Success", "Password updated. Please login with your new password.", [
-        { text: "OK", onPress: () => router.replace("/(auth)/login") },
-      ]);
+      showSuccess("Success", "Password updated. Please login with your new password.");
+      setTimeout(() => router.replace("/(auth)/login"), 2000);
     } catch (error) {
       const msg = extractErrorMessage(error);
-      Alert.alert("Error", msg);
+      showError("Error", msg);
     } finally {
       setLoading(false);
     }

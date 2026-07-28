@@ -2,7 +2,6 @@ import FloatingInput from "@/components/FloatingInput";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Keyboard,
   Pressable,
@@ -18,6 +17,7 @@ import { router } from "expo-router";
 import Images from "@/constants/images";
 import { useAuth } from "@/hooks/useAuth";
 import { extractErrorMessage } from "@/utils/errorHandler";
+import { showInfo, showError } from "@/utils/toast";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -27,7 +27,7 @@ export default function Login() {
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
-      Alert.alert("Validation", "Email and password are required.");
+      showInfo("Validation", "Email and password are required.");
       return;
     }
 
@@ -36,7 +36,7 @@ export default function Login() {
       await login(email.trim(), password);
     } catch (error) {
       const msg = extractErrorMessage(error);
-      Alert.alert("Login Failed", msg);
+      showError("Login Failed", msg);
     } finally {
       setLoading(false);
     }

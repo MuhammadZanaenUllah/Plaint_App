@@ -5,7 +5,6 @@ import { router } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Keyboard,
   Pressable,
@@ -17,6 +16,7 @@ import {
 } from "react-native";
 import Images from "@/constants/images";
 import { extractErrorMessage } from "@/utils/errorHandler";
+import { showInfo, showError } from "@/utils/toast";
 import * as authService from "@/services/api/auth.service";
 
 export default function ForgetPassword() {
@@ -26,7 +26,7 @@ export default function ForgetPassword() {
 
   const handleSendReset = async () => {
     if (!emailAddress.trim()) {
-      Alert.alert("Validation", "Email is required.");
+      showInfo("Validation", "Email is required.");
       return;
     }
 
@@ -36,7 +36,7 @@ export default function ForgetPassword() {
       setSent(true);
     } catch (error) {
       const msg = extractErrorMessage(error);
-      Alert.alert("Error", msg);
+      showError("Error", msg);
     } finally {
       setLoading(false);
     }

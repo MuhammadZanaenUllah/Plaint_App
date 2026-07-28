@@ -1,10 +1,9 @@
-import CalendarPicker from "@/components/CalendarPicker";
 import RichTextEditor, { RichTextEditorRef } from "@/components/texteditor";
 import { Ionicons } from "@expo/vector-icons";
 import { useRef, useState, useEffect } from "react";
 import {
-  Alert,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,23 +15,35 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import { extractErrorMessage } from "@/utils/errorHandler";
+import { showInfo, showError, showSuccess } from "@/utils/toast";
 import { uiStatusToApi } from "@/utils/statusMapper";
 import type { UiTaskStatus, RecurringPeriod } from "@/types/task.types";
 import { getSocket, onSocketEvent, type UserUpdatePayload } from "@/services/socket/socketService";
 import DocumentPickerButton from "@/features/attachments/components/DocumentPickerButton";
 import type { SelectedFile } from "@/features/attachments/types/attachment.types";
+import * as Sharing from "expo-sharing";
+import * as FileSystem from "expo-file-system/legacy";
+
+type DurationUnit = "Minutes" | "Hours" | "Days";
 
 type Props = { visible: boolean; onClose: () => void };
 
 const TOP_CHIPS = [
   { id: "assigned", icon: "people-outline", label: "Assigned to" },
-  { id: "duedate", icon: "calendar-outline", label: "Due Date" },
+  { id: "duration", icon: "time-outline", label: "Duration" },
   { id: "priority", icon: "star-outline", label: "Priority" },
+];
+
+const DURATION_UNITS: DurationUnit[] = ["Minutes", "Hours", "Days"];
+
+const PRIORITY_OPTIONS = [
+  { label: "Normal", dot: "#0DDFAB", selectedBg: "#0DDFAB", selectedBorder: "#0DDFAB" },
+  { label: "Critical", dot: "#FF4444", selectedBg: "#FF4444", selectedBorder: "#FF4444" },
 ];
 
 export default function CreateTaskModal({ visible, onClose }: Props) {
   const { state: authState } = useAuth();
-  const { state: taskState, createTask, fetchAllTasks } = useTasks();
+  const { state: taskState, createTask, fetchAllTasks, allMappedTasks } = useTasks();
 
   const companyIdRef = useRef(authState.company?.company_id ?? 0);
   companyIdRef.current = authState.company?.company_id ?? 0;
@@ -63,11 +74,15 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
   const [assignFocused, setAssignFocused] = useState(false);
   const [assignedUserId, setAssignedUserId] = useState<number | null>(null);
   const [assignedUserName, setAssignedUserName] = useState<string>("");
-  const [dueDateOpen, setDueDateOpen] = useState(false);
-  const [startDate, setStartDate] = useState<Date | null>(null);
-  const [endDate, setEndDate] = useState<Date | null>(null);
+
+  // Duration state (replaces Due Date)
+  const [durationOpen, setDurationOpen] = useState(false);
+  const [durationValue, setDurationValue] = useState<string>("");
+  const [durationUnit, setDurationUnit] = useState<DurationUnit>("Minutes");
+  const [durationUnitOpen, setDurationUnitOpen] = useState(false);
+
   const [priorityOpen, setPriorityOpen] = useState(false);
-  const [selectedPriority, setSelectedPriority] = useState<string | null>(null);
+  const [selectedPriority, setSelectedPriority] = useState<string>("Normal");
   const [selectedPriorityId, setSelectedPriorityId] = useState<number | null>(null);
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [selectedApproval, setSelectedApproval] = useState<string | null>(null);
@@ -77,15 +92,25 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
   const [recurringPeriod, setRecurringPeriod] = useState<RecurringPeriod | null>(null);
   const [recurringTime, setRecurringTime] = useState<string>("");
   const [recurringTotalCount, setRecurringTotalCount] = useState<number>(1);
+
+  // Dependencies state
+  const [dependenciesOpen, setDependenciesOpen] = useState(false);
+  const [depSearch, setDepSearch] = useState("");
+  const [depFocused, setDepFocused] = useState(false);
+  const [selectedDependencies, setSelectedDependencies] = useState<number[]>([]);
+
   const [loading, setLoading] = useState(false);
 
-  const togglePanel = (panel: "assign" | "duedate" | "priority" | "approval" | "status" | "recurring") => {
+  const togglePanel = (panel: "assign" | "duration" | "priority" | "approval" | "status" | "recurring" | "dependencies") => {
     setAssignOpen(panel === "assign" ? !assignOpen : false);
-    setDueDateOpen(panel === "duedate" ? !dueDateOpen : false);
+    setDurationOpen(panel === "duration" ? !durationOpen : false);
     setPriorityOpen(panel === "priority" ? !priorityOpen : false);
     setApprovalOpen(panel === "approval" ? !approvalOpen : false);
     setStatusOpen(panel === "status" ? !statusOpen : false);
     setRecurringOpen(panel === "recurring" ? !recurringOpen : false);
+    setDependenciesOpen(panel === "dependencies" ? !dependenciesOpen : false);
+    // Close unit dropdown when closing duration panel
+    if (panel !== "duration") setDurationUnitOpen(false);
   };
 
   const STATUSES = [
@@ -102,8 +127,8 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     { value: "weekly", label: "Weekly" },
     { value: "monthly", label: "Monthly" },
     { value: "annually", label: "Annually" },
-    { value: "quarterly", label: "Quarterly" },
-    { value: "semi-annually", label: "Semi-Annually" },
+    // { value: "quarterly", label: "Quarterly" },
+    // { value: "semi-annually", label: "Semi-Annually" },
   ];
 
   const descriptionEditorRef = useRef<RichTextEditorRef>(null);
@@ -116,6 +141,13 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     return fullName.includes(assignSearch.toLowerCase());
   });
 
+  // All global tasks available for dependencies (excluding any that could be the current task)
+  const availableTasksForDeps = allMappedTasks.filter((t) =>
+    depSearch.trim().length === 0
+      ? true
+      : t.title.toLowerCase().includes(depSearch.toLowerCase())
+  );
+
   const handlePickFiles = (files: SelectedFile[]) => {
     setAttachments((prev) => [...prev, ...files]);
   };
@@ -124,21 +156,80 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const handleDownloadAttachment = async (file: SelectedFile) => {
+    try {
+      if (Platform.OS === "web") {
+        const response = await fetch(file.uri);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = file.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      const dest = `${FileSystem.cacheDirectory}${file.name}`;
+      const existing = await FileSystem.getInfoAsync(dest);
+      if (existing.exists) {
+        await FileSystem.deleteAsync(dest, { idempotent: true });
+      }
+      const response = await fetch(file.uri);
+      const blob = await response.blob();
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          resolve(dataUrl.split(",")[1]);
+        };
+        reader.onerror = () => reject(new Error("Failed to read file"));
+        reader.readAsDataURL(blob);
+      });
+      await FileSystem.writeAsStringAsync(dest, base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(dest, {
+          mimeType: file.mimeType,
+          dialogTitle: `Save ${file.name}`,
+        });
+      } else {
+        showInfo("Download", "Sharing is not available on this device.");
+      }
+    } catch {
+      showError("Error", "Failed to download file.");
+    }
+  };
+
+  // Compute the due_date ISO string from duration
+  const computeDueDateFromDuration = (): string => {
+    const val = parseFloat(durationValue) || 0;
+    let ms = 0;
+    if (durationUnit === "Minutes") ms = val * 60 * 1000;
+    else if (durationUnit === "Hours") ms = val * 60 * 60 * 1000;
+    else if (durationUnit === "Days") ms = val * 24 * 60 * 60 * 1000;
+    return new Date(Date.now() + ms).toISOString();
+  };
+
   const handleCreateTask = async () => {
     if (!title.trim()) {
-      Alert.alert("Validation", "Task title is required.");
+      showInfo("Validation", "Task title is required.");
       return;
     }
     if (!assignedUserId) {
-      Alert.alert("Validation", "Please assign a user.");
+      showInfo("Validation", "Please assign a user.");
       return;
     }
-    if (!startDate) {
-      Alert.alert("Validation", "Due date is required.");
+    if (!durationValue || parseFloat(durationValue) <= 0) {
+      showInfo("Validation", "Duration is required.");
       return;
     }
     if (!selectedPriorityId) {
-      Alert.alert("Validation", "Priority is required.");
+      showInfo("Validation", "Priority is required.");
       return;
     }
 
@@ -149,13 +240,14 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       const companyIdentifier = authState.company?.company_identifier ?? "";
 
       const isRecurring = recurringPeriod !== null;
+      const dueDateIso = computeDueDateFromDuration();
 
       await createTask({
         title: title.trim(),
         company_identifier: companyIdentifier,
         company_id: companyId,
         assign_to: assignedUserId,
-        due_date: startDate.toISOString(),
+        due_date: dueDateIso,
         priority: selectedPriorityId,
         approval_required: selectedApproval === "Yes" ? 1 : 0,
         status: uiStatusToApi((selectedStatus as UiTaskStatus) ?? "Pending"),
@@ -170,31 +262,41 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
         recurring_month_date: null,
         recurring_annual_month: null,
         recurring_annual_date: null,
+        dependency_ids: selectedDependencies.length > 0 ? selectedDependencies : undefined,
       });
 
-      Alert.alert("Success", "Task created successfully.");
-      setTitle("");
-      setDescription("");
-      setAssignedUserId(null);
-      setAssignedUserName("");
-      setStartDate(null);
-      setEndDate(null);
-      setSelectedPriority(null);
-      setSelectedPriorityId(null);
-      setSelectedApproval(null);
-      setSelectedStatus(null);
-      setRecurringOpen(false);
-      setRecurringPeriod(null);
-      setRecurringTime("");
-      setRecurringTotalCount(1);
-      setAttachments([]);
+      showSuccess("Success", "Task created successfully.");
+      resetForm();
       onClose();
     } catch (error) {
       const msg = extractErrorMessage(error);
-      Alert.alert("Error", msg);
+      showError("Error", msg);
     } finally {
       setLoading(false);
     }
+  };
+
+  const resetForm = () => {
+    setTitle("");
+    setDescription("");
+    setAssignedUserId(null);
+    setAssignedUserName("");
+    setDurationValue("");
+    setDurationUnit("Minutes");
+    setDurationOpen(false);
+    setDurationUnitOpen(false);
+    setSelectedPriority("Normal");
+    setSelectedPriorityId(null);
+    setSelectedApproval(null);
+    setSelectedStatus(null);
+    setRecurringOpen(false);
+    setRecurringPeriod(null);
+    setRecurringTime("");
+    setRecurringTotalCount(1);
+    setAttachments([]);
+    setSelectedDependencies([]);
+    setDepSearch("");
+    setDependenciesOpen(false);
   };
 
   const handleSelectPriority = (label: string) => {
@@ -203,6 +305,28 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       (p) => p.name.toLowerCase() === label.toLowerCase()
     );
     setSelectedPriorityId(priority?.id ?? null);
+  };
+
+  // Set Normal as default priority when modal opens
+  useEffect(() => {
+    if (visible && !selectedPriorityId) {
+      const normalPriority = taskState.priorities.find(
+        (p) => p.name.toLowerCase() === "normal"
+      );
+      if (normalPriority) {
+        setSelectedPriority("Normal");
+        setSelectedPriorityId(normalPriority.id);
+      }
+    }
+  }, [visible, taskState.priorities]);
+
+  const handleToggleDependency = (taskId: number) => {
+    setSelectedDependencies((prev) => {
+      if (prev.includes(taskId)) {
+        return prev.filter((id) => id !== taskId);
+      }
+      return [...prev, taskId];
+    });
   };
 
   return (
@@ -217,7 +341,6 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="always"
-            style={styles.outerScroll}
             decelerationRate="fast"
             bounces
             overScrollMode="never"
@@ -256,70 +379,140 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
               </TouchableOpacity>
             )}
 
+            {/* ── Top chips row: Assigned / Duration / Priority ── */}
             <View style={styles.chipsRow}>
               {TOP_CHIPS.map((chip) => {
                 const isAssign = chip.id === "assigned";
-                const isDueDate = chip.id === "duedate";
+                const isDuration = chip.id === "duration";
                 const isPriority = chip.id === "priority";
-                const active = (isAssign && assignOpen) || (isDueDate && dueDateOpen) || (isPriority && priorityOpen);
+                const active =
+                  (isAssign && assignOpen) ||
+                  (isDuration && durationOpen) ||
+                  (isPriority && priorityOpen);
                 const hasUser = isAssign && assignedUserName;
-                const hasDate = isDueDate && startDate;
+                const hasDuration = isDuration && durationValue;
                 const hasPriority = isPriority && selectedPriority;
+
+                if (isDuration) {
+                  // Duration chip — special inline UI with number input + unit dropdown
+                  return (
+                    <View key={chip.id} style={styles.durationChipWrap}>
+                      <TouchableOpacity
+                        style={[styles.chip, (durationOpen || hasDuration) && styles.chipActive]}
+                        onPress={() => togglePanel("duration")}
+                      >
+                        <Ionicons name="time-outline" size={16} color={(durationOpen || hasDuration) ? "#fff" : "#AAAAAA"} />
+                        {durationOpen || hasDuration ? (
+                          <View style={styles.durationInner}>
+                            <TextInput
+                              style={styles.durationNumInput}
+                              value={durationValue}
+                              onChangeText={(t) => {
+                                const cleaned = t.replace(/[^0-9.]/g, "");
+                                setDurationValue(cleaned);
+                              }}
+                              keyboardType="numeric"
+                              placeholder="0"
+                              placeholderTextColor="rgba(255,255,255,0.5)"
+                              onFocus={() => {
+                                if (!durationOpen) setDurationOpen(true);
+                              }}
+                              hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                            />
+                            <TouchableOpacity
+                              style={styles.durationUnitBtn}
+                              onPress={(e) => {
+                                e.stopPropagation();
+                                setDurationUnitOpen((prev) => !prev);
+                              }}
+                            >
+                              <Text style={styles.durationUnitText}>
+                                {durationUnit === "Minutes" ? "Mins" : durationUnit === "Hours" ? "Hrs" : "Days"}
+                              </Text>
+                              <Ionicons name="chevron-down" size={10} color="#fff" />
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <Text style={[styles.chipLabel]}>Duration</Text>
+                        )}
+                      </TouchableOpacity>
+
+                      {/* Unit dropdown */}
+                      {durationUnitOpen && (
+                        <View style={styles.unitDropdown}>
+                          {DURATION_UNITS.map((unit) => (
+                            <TouchableOpacity
+                              key={unit}
+                              style={[
+                                styles.unitDropdownItem,
+                                durationUnit === unit && styles.unitDropdownItemActive,
+                              ]}
+                              onPress={() => {
+                                setDurationUnit(unit);
+                                setDurationUnitOpen(false);
+                              }}
+                            >
+                              <Text
+                                style={[
+                                  styles.unitDropdownText,
+                                  durationUnit === unit && styles.unitDropdownTextActive,
+                                ]}
+                              >
+                                {unit}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  );
+                }
+
                 return (
                   <TouchableOpacity
                     key={chip.id}
                     style={[styles.chip, active && styles.chipActive]}
                     onPress={() => {
                       if (isAssign) togglePanel("assign");
-                      if (isDueDate) togglePanel("duedate");
                       if (isPriority) togglePanel("priority");
                     }}
                   >
                     <Ionicons name={chip.icon as any} size={16} color={active ? "#fff" : "#AAAAAA"} />
                     <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>
                       {hasUser ? assignedUserName
-                        : hasDate ? `${startDate!.getDate()}, ${startDate!.toLocaleString("default", { month: "short" })}`
-                          : hasPriority ? selectedPriority!
-                            : chip.label}
+                        : hasPriority ? selectedPriority!
+                          : chip.label}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
 
+            {/* ── Priority panel ── */}
             {priorityOpen && (
               <View style={styles.priorityRow}>
-                {[
-                  { label: "Low", dot: "#0DDFAB", selected: selectedPriority === "Low" },
-                  { label: "Medium", dot: "#1D1D1D", selected: selectedPriority === "Medium" },
-                  { label: "High", dot: "#FF0000", selected: selectedPriority === "High" },
-                ].map((p) => (
-                  <TouchableOpacity
-                    key={p.label}
-                    style={[styles.priorityChip, p.selected && { backgroundColor: "#0DDFAB", borderColor: "#0DDFAB" }]}
-                    onPress={() => { handleSelectPriority(p.label); setPriorityOpen(false); }}
-                  >
-                    {p.selected
-                      ? <Ionicons name="checkmark" size={14} color="#fff" />
-                      : <View style={[styles.priorityDot, { backgroundColor: p.dot }]} />}
-                    <Text style={[styles.priorityLabel, p.selected && { color: "#fff" }]}>{p.label}</Text>
-                  </TouchableOpacity>
-                ))}
+                {PRIORITY_OPTIONS.map((p) => {
+                  const isSelected = selectedPriority === p.label;
+                  return (
+                    <TouchableOpacity
+                      key={p.label}
+                      style={[
+                        styles.priorityChip,
+                        isSelected && { backgroundColor: p.selectedBg, borderColor: p.selectedBorder },
+                      ]}
+                      onPress={() => { handleSelectPriority(p.label); setPriorityOpen(false); }}
+                    >
+                      {isSelected
+                        ? <Ionicons name="checkmark" size={14} color="#fff" />
+                        : <View style={[styles.priorityDot, { backgroundColor: p.dot }]} />}
+                      <Text style={[styles.priorityLabel, isSelected && { color: "#fff" }]}>{p.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             )}
 
-            <View style={{ marginBottom: dueDateOpen ? 10 : 0 }}>
-              {dueDateOpen && (
-                <CalendarPicker
-                  startDate={startDate}
-                  endDate={endDate}
-                  onSelectStart={setStartDate}
-                  onSelectEnd={setEndDate}
-                  onDone={() => setDueDateOpen(false)}
-                />
-              )}
-            </View>
-
+            {/* ── Assign panel ── */}
             {assignOpen && (
               <View style={styles.assignPanel}>
                 <View style={[
@@ -369,6 +562,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
               </View>
             )}
 
+            {/* ── Second chips row: Approval / Status / Recurring / Dependencies ── */}
             <View style={styles.chipsRow}>
               <TouchableOpacity
                 style={[styles.chip, approvalOpen && styles.chipActive]}
@@ -406,7 +600,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
               >
                 <Ionicons name="radio-button-off-outline" size={16} color={statusOpen ? "#fff" : "#AAAAAA"} />
                 <Text style={[styles.chipLabel, statusOpen && styles.chipLabelActive]}>
-                  {selectedStatus ? selectedStatus : "Task Status"}
+                  {selectedStatus ? selectedStatus : "Pending"}
                 </Text>
               </TouchableOpacity>
 
@@ -465,7 +659,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
 
                   <View style={styles.recurringRow}>
                     <View style={styles.recurringInputWrap}>
-                      <Text style={styles.recurringLabel}>Time (optional)</Text>
+                      <Text style={styles.recurringLabel}>Time </Text>
                       <TextInput
                         style={styles.recurringInput}
                         placeholder="e.g. 09:00"
@@ -475,7 +669,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
                       />
                     </View>
                     <View style={styles.recurringInputWrap}>
-                      <Text style={styles.recurringLabel}>Total Count</Text>
+                      <Text style={styles.recurringLabel}>No. of Recurrences</Text>
                       <TextInput
                         style={styles.recurringInput}
                         placeholder="1"
@@ -488,15 +682,91 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
                   </View>
                 </View>
               )}
+
+              {/* ── Dependencies chip ── */}
+              <TouchableOpacity
+                style={[styles.chip, dependenciesOpen && styles.chipActive]}
+                onPress={() => togglePanel("dependencies")}
+              >
+                <Ionicons name="git-merge-outline" size={16} color={dependenciesOpen ? "#fff" : "#AAAAAA"} />
+                <Text style={[styles.chipLabel, dependenciesOpen && styles.chipLabelActive]}>
+                  {selectedDependencies.length > 0
+                    ? `Dependencies (${selectedDependencies.length})`
+                    : "Dependencies"}
+                </Text>
+              </TouchableOpacity>
+
+              {/* ── Dependencies panel ── */}
+              {dependenciesOpen && (
+                <View style={[styles.depPanel, { width: "100%" }]}>
+                  {/* Search bar */}
+                  <View style={[styles.depSearchWrap, depFocused && styles.searchWrapActive]}>
+                    <Ionicons
+                      name="search-outline"
+                      size={16}
+                      color={depFocused || depSearch.length > 0 ? "#1D1D1D" : "#AAAAAA"}
+                      style={styles.depSearchIcon}
+                    />
+                    <TextInput
+                      style={styles.depSearchInput}
+                      value={depSearch}
+                      onChangeText={setDepSearch}
+                      onFocus={() => setDepFocused(true)}
+                      onBlur={() => setDepFocused(false)}
+                      placeholder="Search tasks..."
+                      placeholderTextColor="#AAAAAA"
+                    />
+                  </View>
+
+                  {/* Task list */}
+                  {availableTasksForDeps.length === 0 ? (
+                    <View style={styles.depEmpty}>
+                      <Text style={styles.depEmptyText}>No tasks found</Text>
+                    </View>
+                  ) : (
+                    <ScrollView
+                      style={styles.depList}
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator={false}
+                    >
+                      {availableTasksForDeps.map((task) => {
+                        const taskId = Number(task.id);
+                        const isSelected = selectedDependencies.includes(taskId);
+                        // Initials from the first letter of the first two words of the task title
+                        const titleWords = task.title.trim().split(/\s+/);
+                        const initials = (
+                          (titleWords[0]?.[0] ?? "") +
+                          (titleWords[1]?.[0] ?? "")
+                        ).toUpperCase() || task.assignedToInitials || "?";
+                        // Avatar always uses #0DDFAB
+                        const avatarColor = "#0DDFAB";
+
+                        return (
+                          <TouchableOpacity
+                            key={task.id}
+                            style={[styles.depTaskRow, isSelected && styles.depTaskRowSelected]}
+                            onPress={() => handleToggleDependency(taskId)}
+                          >
+                            <View style={[styles.depTaskAvatar, { backgroundColor: avatarColor }]}>
+                              <Text style={styles.depTaskAvatarText}>{initials}</Text>
+                            </View>
+                            <Text style={styles.depTaskTitle} numberOfLines={1}>
+                              {task.title}
+                            </Text>
+                            {isSelected && (
+                              <Ionicons name="checkmark-circle" size={18} color="#0DDFAB" />
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
+                </View>
+              )}
             </View>
 
             <View style={styles.attachRow}>
               <DocumentPickerButton onPick={handlePickFiles} />
-              {attachments.length > 0 && (
-                <TouchableOpacity style={styles.attachBtn}>
-                  <Ionicons name="download-outline" size={20} color="#1D1D1D" />
-                </TouchableOpacity>
-              )}
             </View>
 
             {attachments.length > 0 && (
@@ -513,7 +783,12 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
                 >
                   {attachments.map((file, i) => (
                     <View key={`${file.name}-${i}`} style={styles.tag}>
-                      <Ionicons name="download-outline" size={14} color="#0DDFAB" />
+                      <TouchableOpacity
+                        onPress={() => handleDownloadAttachment(file)}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      >
+                        <Ionicons name="download-outline" size={14} color="#0DDFAB" />
+                      </TouchableOpacity>
                       <Text style={styles.tagText} numberOfLines={1}>{file.name}</Text>
                       <TouchableOpacity
                         onPress={() => removeAttachment(i)}
@@ -585,6 +860,46 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: "#1D1D1D", borderColor: "#1D1D1D" },
   chipLabel: { fontSize: 13, color: "#AAAAAA", fontFamily: "SF_Pro_Regular" },
   chipLabelActive: { color: "#fff" },
+
+  // Duration chip
+  durationChipWrap: { position: "relative" },
+  durationInner: { flexDirection: "row", alignItems: "center", gap: 4 },
+  durationNumInput: {
+    fontSize: 13, color: "#fff", fontFamily: "SF_Pro_Regular",
+    padding: 0, minWidth: 24, maxWidth: 40,
+  },
+  durationUnitBtn: { flexDirection: "row", alignItems: "center", gap: 3 },
+  durationUnitText: { fontSize: 13, color: "#fff", fontFamily: "SF_Pro_Regular" },
+
+  // Unit dropdown
+  unitDropdown: {
+    position: "absolute",
+    top: 40,
+    left: 0,
+    zIndex: 9999,
+    elevation: 9999,
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    minWidth: 100,
+    overflow: "hidden",
+  },
+  unitDropdownItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  unitDropdownItemActive: { backgroundColor: "#F0FDF9" },
+  unitDropdownText: { fontSize: 14, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+  unitDropdownTextActive: { fontFamily: "SF_Pro_Semibold", color: "#0DDFAB" },
+
+  // Priority
   priorityRow: { flexDirection: "row", gap: 8, marginBottom: 5 },
   priorityChip: {
     flexDirection: "row", alignItems: "center", gap: 6,
@@ -593,6 +908,8 @@ const styles = StyleSheet.create({
   },
   priorityDot: { width: 8, height: 8, borderRadius: 4 },
   priorityLabel: { fontSize: 13, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+
+  // Assign panel
   assignPanel: { marginTop: 10, marginBottom: 10 },
   searchWrap: {
     borderWidth: 1,
@@ -630,6 +947,8 @@ const styles = StyleSheet.create({
   },
   userAvatarText: { color: "#fff", fontSize: 14, fontFamily: "SF_Pro_Semibold" },
   userName: { fontSize: 14, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+
+  // Approval
   approvalRow: { flexDirection: "row", gap: 8, marginBottom: 4 },
   approvalChip: {
     flexDirection: "row", alignItems: "center", gap: 6,
@@ -639,6 +958,8 @@ const styles = StyleSheet.create({
   approvalChipSelected: { backgroundColor: "#0DDFAB", borderColor: "#0DDFAB" },
   approvalLabel: { fontSize: 13, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
   approvalLabelSelected: { color: "#fff" },
+
+  // Status
   statusScroll: { marginBottom: 5 },
   statusChip: {
     flexDirection: "row", alignItems: "center", gap: 6,
@@ -647,6 +968,8 @@ const styles = StyleSheet.create({
   },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   statusLabel: { fontSize: 13, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+
+  // Attachments
   attachRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
   attachBtn: {
     width: 38, height: 38,
@@ -693,12 +1016,16 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Regular",
     lineHeight: 16,
   },
+
+  // Create button
   createBtn: {
     backgroundColor: "#00DEAB", borderRadius: 5,
     paddingVertical: 16, alignItems: "center",
     marginTop: 12, marginBottom: 30,
   },
   createBtnText: { fontSize: 16, color: "#1D1D1D", fontFamily: "SF_Pro_Semibold" },
+
+  // Recurring
   recurringLabel: { fontSize: 13, color: "#1D1D1D", fontFamily: "SF_Pro_Regular", marginBottom: 6 },
   recurringRow: { flexDirection: "row", gap: 10, marginTop: 8 },
   recurringInputWrap: { flex: 1 },
@@ -706,5 +1033,72 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "#E6E6E6", borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 10,
     fontSize: 14, color: "#1D1D1D", fontFamily: "SF_Pro_Regular",
+  },
+
+  // Dependencies
+  depPanel: {
+    marginTop: 8,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: "#E6E6E6",
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: "#fff",
+  },
+  depSearchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+    gap: 8,
+  },
+  depSearchIcon: { flexShrink: 0 },
+  depSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Regular",
+    padding: 0,
+  },
+  depList: { maxHeight: 200 },
+  depEmpty: {
+    paddingVertical: 20,
+    alignItems: "center",
+  },
+  depEmptyText: {
+    fontSize: 13,
+    color: "#AAAAAA",
+    fontFamily: "SF_Pro_Regular",
+  },
+  depTaskRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  depTaskRowSelected: { backgroundColor: "#F0FDF9" },
+  depTaskAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    flexShrink: 0,
+  },
+  depTaskAvatarText: {
+    fontSize: 11,
+    fontFamily: "SF_Pro_Semibold",
+    color: "#fff",
+  },
+  depTaskTitle: {
+    flex: 1,
+    fontSize: 13,
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Regular",
   },
 });

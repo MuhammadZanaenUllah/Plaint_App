@@ -123,6 +123,8 @@ export type CreateTaskRequest = {
   recurring_month_date: number | null;
   recurring_annual_month: number | null;
   recurring_annual_date: number | null;
+  /** IDs of tasks this task depends on */
+  dependency_ids?: number[];
 };
 
 export type UpdateTaskRequest = {

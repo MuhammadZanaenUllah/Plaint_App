@@ -27,6 +27,7 @@ import TaskBlackIcon    from "@/assets/icons/tabicons/taskblack";
 import TaskWhiteIcon    from "@/assets/icons/tabicons/taskwhite";
 import ChannelBtn from "@/assets/icons/channelsbtn";
 import IndoxBtn from "@/assets/icons/inboxbtn";
+import LinkIcon from "@/assets/icons/linkicon";
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
 const Icons =   {
@@ -46,6 +47,7 @@ const Icons =   {
     ChannelIcon,
     ChannelBtn,
     IndoxBtn,
+    LinkIcon,
 
     // Tab
     ChannelTabIcon,

@@ -19,13 +19,13 @@ import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     ActivityIndicator,
-    Alert,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
     View,
 } from "react-native";
+import { showSuccess, showError } from "@/utils/toast";
 const { ChatIcon: MainChatIcon, ChannelTabIcon } = Icons;
 
 // ─── Chip Config ──────────────────────────────────────────────────────────────
@@ -300,7 +300,7 @@ export default function ChatScreen() {
                     if (directAdded > 0) parts.push(`${directAdded} member(s) added`);
                     if (failed > 0) parts.push(`${failed} failed`);
                     if (parts.length > 0) {
-                        Alert.alert("Channel Created", `"${room.name}" created.\n${parts.join(", ")}.`);
+                        showSuccess("Channel Created", `"${room.name}" created.\n${parts.join(", ")}.`);
                     }
 
                     // Refresh rooms to show updated member lists
@@ -319,7 +319,7 @@ export default function ChatScreen() {
                     });
                 } catch (err) {
                     console.log("[Chat] Channel creation error:", err);
-                    Alert.alert("Error", "Failed to create channel. Please try again.");
+                    showError("Error", "Failed to create channel. Please try again.");
                 }
                 setNewChannelName("");
                 setProjectContext(null);

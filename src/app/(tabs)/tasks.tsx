@@ -158,11 +158,10 @@ export default function TasksScreen() {
   }, [companyId]);
 
   const statuses = ["Pending", "In-Progress", "Rejected", "Pending-Approval", "Completed", "Recurring", "On-Hold"];
-  const priorities = ["Low", "Medium", "High"];
+  const priorities = ["Normal", "Critical"];
   const priorityColors: Record<string, string> = {
-    Low: "#0DDFD8",
-    Medium: "#737373",
-    High: "#DF0D0D",
+    Normal: "#0DDFAB",
+    Critical: "#FF4444",
   };
   const statusColors: Record<string, string> = {
     Pending: "#DFA70D",
@@ -312,6 +311,23 @@ export default function TasksScreen() {
     [allMappedTasks, mappedCreatedByMe, mappedAssignedToMe, mapRowWithRaw]
   );
 
+  // Stable sort: Critical tasks first, Normal (and others) after. Preserves relative order within each group.
+  const sortByCritical = useCallback(
+    (tasks: (TaskRowProps & { _raw: import("@/types/task.types").TaskListItem })[]) => {
+      const criticals: typeof tasks = [];
+      const others: typeof tasks = [];
+      for (const t of tasks) {
+        if (t._raw?.priority_name?.toLowerCase() === "critical") {
+          criticals.push(t);
+        } else {
+          others.push(t);
+        }
+      }
+      return [...criticals, ...others];
+    },
+    []
+  );
+
   const displayedTasks = useMemo(() => {
     let tasks = getTabCategoryScope(activeTab);
     console.log(`[TasksScreen] Calculating displayedTasks for activeTab="${activeTab}". Base category tasks count:`, tasks.length);
@@ -372,7 +388,8 @@ export default function TasksScreen() {
       console.log(`[TasksScreen] After date range filter:`, tasks.length);
     }
 
-    return tasks;
+    // Always sort Critical tasks to the top, preserving relative order within each group
+    return sortByCritical(tasks);
   }, [
     activeTab,
     getTabCategoryScope,
@@ -380,6 +397,7 @@ export default function TasksScreen() {
     activePriorityFilter,
     activeStartDateFilter,
     activeEndDateFilter,
+    sortByCritical,
   ]);
 
   const statsList = useMemo(() => {

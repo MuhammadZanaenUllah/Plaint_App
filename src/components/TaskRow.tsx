@@ -43,6 +43,10 @@ export const STATUS_COLORS: Record<StatusType, { bg: string; text: string }> = {
 };
 
 export const PRIORITY_ACCENT_COLORS: Record<string, string> = {
+  // New priority system
+  Normal: "#0DDFAB",
+  Critical: "#FF4444",
+  // Legacy priority names (kept for backward compatibility)
   High: "#CB5F00",
   Medium: "#F5A623",
   Low: "#00DEAB",

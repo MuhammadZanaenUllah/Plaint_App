@@ -1,8 +1,10 @@
 import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
-import { Alert, StyleSheet, TouchableOpacity } from "react-native";
+import { StyleSheet, TouchableOpacity } from "react-native";
 import type { SelectedFile } from "../types/attachment.types";
 import { isExtensionAllowed, getFileExtension } from "../utils/fileValidation";
+import Icons from "@/constants/icons";
+import { showInfo, showError } from "@/utils/toast";
 
 type Props = {
   onPick: (files: SelectedFile[]) => void;
@@ -29,7 +31,7 @@ export default function DocumentPickerButton({ onPick, multiple = false }: Props
         const extension = getFileExtension(asset.name);
 
         if (!isExtensionAllowed(extension)) {
-          Alert.alert(
+          showInfo(
             "Unsupported File",
             `"${asset.name}" is not supported.\n\nAllowed formats: ${ALLOWED_LIST}`
           );
@@ -49,13 +51,14 @@ export default function DocumentPickerButton({ onPick, multiple = false }: Props
         onPick(validFiles);
       }
     } catch {
-      Alert.alert("Error", "Failed to pick document. Please try again.");
+      showError("Error", "Failed to pick document. Please try again.");
     }
   };
 
   return (
     <TouchableOpacity style={styles.button} onPress={handlePress} activeOpacity={0.7}>
-      <Ionicons name="link-outline" size={20} color="#1D1D1D" />
+      {/* <Ionicons name="link-outline" size={20} color="#1D1D1D" /> */}
+      <Icons.LinkIcon/>
     </TouchableOpacity>
   );
 }
