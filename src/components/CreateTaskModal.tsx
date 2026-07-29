@@ -730,12 +730,12 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
 
               {/* ── Dependencies panel ── */}
               {dependenciesOpen && (
-                <View style={[styles.depPanel, { width: "100%" }]}>
+                <View style={styles.depPanel}>
                   {/* Search bar */}
                   <View style={[styles.depSearchWrap, depFocused && styles.searchWrapActive]}>
                     <Ionicons
                       name="search-outline"
-                      size={16}
+                      size={18}
                       color={depFocused || depSearch.length > 0 ? "#1D1D1D" : "#AAAAAA"}
                       style={styles.depSearchIcon}
                     />
@@ -761,25 +761,27 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
                       nestedScrollEnabled
                       showsVerticalScrollIndicator={false}
                     >
-                      {availableTasksForDeps.map((task) => {
+                      {availableTasksForDeps.map((task, index) => {
                         const taskId = Number(task.id);
                         const isSelected = selectedDependencies.includes(taskId);
-                        // Initials from the first letter of the first two words of the task title
                         const titleWords = task.title.trim().split(/\s+/);
                         const initials = (
                           (titleWords[0]?.[0] ?? "") +
                           (titleWords[1]?.[0] ?? "")
-                        ).toUpperCase() || task.assignedToInitials || "?";
-                        // Avatar always uses #0DDFAB
-                        const avatarColor = "#0DDFAB";
+                        ).toUpperCase() || task.assignedToInitials || "SB";
+                        const isLast = index === availableTasksForDeps.length - 1;
 
                         return (
                           <TouchableOpacity
                             key={task.id}
-                            style={[styles.depTaskRow, isSelected && styles.depTaskRowSelected]}
+                            style={[
+                              styles.depTaskRow,
+                              isLast && { borderBottomWidth: 0 },
+                              isSelected && styles.depTaskRowSelected,
+                            ]}
                             onPress={() => handleToggleDependency(taskId)}
                           >
-                            <View style={[styles.depTaskAvatar, { backgroundColor: avatarColor }]}>
+                            <View style={styles.depTaskAvatar}>
                               <Text style={styles.depTaskAvatarText}>{initials}</Text>
                             </View>
                             <Text style={styles.depTaskTitle} numberOfLines={1}>
@@ -973,11 +975,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 12,
   },
   userAvatar: {
-    width: 36, height: 36, borderRadius: 8,
+    width: 30, height: 30, borderRadius: 5,
     backgroundColor: "#0DDFAB",
     justifyContent: "center", alignItems: "center",
   },
-  userAvatarText: { color: "#fff", fontSize: 14, fontFamily: "SF_Pro_Semibold" },
+  userAvatarText: { color: "#fff", fontSize: 12, fontFamily: "SF_Pro_Semibold" },
   userName: { fontSize: 14, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
 
   // Approval
@@ -1000,6 +1002,83 @@ const styles = StyleSheet.create({
   },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   statusLabel: { fontSize: 13, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+
+  // Dependencies Panel
+  depPanel: {
+    width: "100%",
+    marginTop: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#E6E6E6",
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+  },
+  depSearchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    height: 44,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+    backgroundColor: "#FFFFFF",
+  },
+  depSearchIcon: {
+    marginRight: 8,
+  },
+  depSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Regular",
+    padding: 0,
+    height: "100%",
+  },
+  depEmpty: {
+    paddingVertical: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  depEmptyText: {
+    fontSize: 13,
+    color: "#AAAAAA",
+    fontFamily: "SF_Pro_Regular",
+  },
+  depList: {
+    maxHeight: 220,
+  },
+  depTaskRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+    backgroundColor: "#FFFFFF",
+    gap: 12,
+  },
+  depTaskRowSelected: {
+    backgroundColor: "#F9FAF9",
+  },
+  depTaskAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 5,
+    backgroundColor: "#00DEAB",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  depTaskAvatarText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontFamily: "SF_Pro_Semibold",
+  },
+  depTaskTitle: {
+    flex: 1,
+    fontSize: 14,
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Regular",
+  },
 
   // Attachments
   attachRow: { flexDirection: "row", gap: 8, marginBottom: 10 },

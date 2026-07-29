@@ -16,7 +16,7 @@ import {
   View
 } from "react-native";
 import { STATUS_COLORS, StatusType } from "./TaskRow";
-import { getSocket, onSocketEvent } from "@/services/socket/socketService";
+import { getSocket, onSocketEvent, type TaskUpdatePayload } from "@/services/socket/socketService";
 
 export type SubTaskDisplay = { title: string; createdBy: string; dueDate: string };
 
@@ -258,12 +258,7 @@ function CommentBubble({
     (comment as any).created;
 
   return (
-    <View
-      style={[
-        styles.bubble,
-        isPinned && styles.bubblePinned,
-      ]}
-    >
+    <View style={styles.bubble}>
       <View style={styles.bubbleHeader}>
         <View style={styles.bubbleAvatar}>
           <Text style={styles.bubbleAvatarText}>{initials || "U"}</Text>
