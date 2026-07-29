@@ -41,13 +41,11 @@ export const STATUS_COLORS: Record<StatusType, { bg: string; text: string }> = {
 };
 
 export const PRIORITY_ACCENT_COLORS: Record<string, string> = {
-  // New priority system
   Normal: "#0DDFAB",
   Critical: "#FF4444",
-  // Legacy priority names (kept for backward compatibility)
-  High: "#CB5F00",
-  Medium: "#F5A623",
-  Low: "#00DEAB",
+  // High: "#CB5F00",
+  // Medium: "#F5A623",
+  // Low: "#00DEAB",
 };
 
 const ALL_STATUSES: StatusType[] = [
@@ -89,7 +87,8 @@ export default function TaskRow({
   const [status, setStatus] = useState<StatusType>(initialStatus);
   const { bg, text } = STATUS_COLORS[status];
   const isCompleted = status === "Completed";
-  const accentColor = PRIORITY_ACCENT_COLORS[priorityName ?? ""] ?? "#00DEAB";
+  const normKey = (priorityName ?? "").charAt(0).toUpperCase() + (priorityName ?? "").slice(1).toLowerCase();
+  const accentColor = PRIORITY_ACCENT_COLORS[normKey] ?? "#00DEAB";
 
   // Left offset of the status cell inside the row
   const statusLeft =

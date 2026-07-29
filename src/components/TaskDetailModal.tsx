@@ -16,7 +16,7 @@ import {
   View
 } from "react-native";
 import { STATUS_COLORS, StatusType } from "./TaskRow";
-import { getSocket, onSocketEvent, type TaskUpdatePayload } from "@/services/socket/socketService";
+import { getSocket, onSocketEvent } from "@/services/socket/socketService";
 
 export type SubTaskDisplay = { title: string; createdBy: string; dueDate: string };
 
@@ -96,6 +96,136 @@ function SectionTable({ title, rows, showAdd }: { title: string; rows: SubTaskDi
   );
 }
 
+function formatNoteDate(dateInput?: any): string {
+  if (!dateInput) {
+    const now = new Date();
+    const day = now.getDate();
+    const month = now.toLocaleDateString("en-US", { month: "long" });
+    const year = now.getFullYear();
+    let hours = now.getHours();
+    const minutes = now.getMinutes().toString().padStart(2, "0");
+    const ampm = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12 || 12;
+    return `${day}, ${month}, ${year} | ${hours}.${minutes}${ampm}`;
+  }
+
+  const dateStr = String(dateInput).trim();
+
+  if (dateStr.includes("|")) {
+    return dateStr;
+  }
+
+  let d: Date | null = null;
+
+  const normalizedStr =
+    dateStr.includes(" ") && !dateStr.includes("T")
+      ? dateStr.replace(" ", "T")
+      : dateStr;
+  const directDate = new Date(normalizedStr);
+
+  if (!isNaN(directDate.getTime())) {
+    d = directDate;
+  } else {
+    let match = dateStr.match(
+      /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/
+    );
+    if (match) {
+      const [, year, month, day, hour = "0", minute = "0", second = "0"] = match;
+      d = new Date(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        Number(hour),
+        Number(minute),
+        Number(second)
+      );
+    } else {
+      match = dateStr.match(
+        /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/
+      );
+      if (match) {
+        const [, day, month, year, hour = "0", minute = "0", second = "0"] = match;
+        d = new Date(
+          Number(year),
+          Number(month) - 1,
+          Number(day),
+          Number(hour),
+          Number(minute),
+          Number(second)
+        );
+      }
+    }
+  }
+
+  if (!d || isNaN(d.getTime())) {
+    return dateStr;
+  }
+
+  const day = d.getDate();
+  const month = d.toLocaleDateString("en-US", { month: "long" });
+  const year = d.getFullYear();
+
+  let hours = d.getHours();
+  const minutes = d.getMinutes().toString().padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12 || 12;
+
+  const formattedTime = `${hours}.${minutes}${ampm}`;
+
+  return `${day}, ${month}, ${year} | ${formattedTime}`;
+}
+
+function PinnedCommentCard({
+  comment,
+  onUnpin,
+}: {
+  comment: TaskNote;
+  onUnpin: (note: TaskNote) => void;
+}) {
+  const initials = (comment.user_name ?? "U")
+    .trim()
+    .split(/\s+/)
+    .map((w: string) => w[0])
+    .filter(Boolean)
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+
+  const rawDate =
+    comment.created_at ||
+    (comment as any).createdAt ||
+    (comment as any).created_date ||
+    (comment as any).date ||
+    (comment as any).created;
+
+  return (
+    <View style={styles.pinnedCard}>
+      <View style={styles.bubbleHeader}>
+        <View style={styles.bubbleAvatar}>
+          <Text style={styles.bubbleAvatarText}>{initials || "MJ"}</Text>
+        </View>
+        <View style={styles.bubbleNameRow}>
+          <Text style={styles.bubbleName}>{comment.user_name}</Text>
+          <Text style={styles.bubbleTime}>{formatNoteDate(rawDate)}</Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => onUnpin(comment)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <MaterialCommunityIcons
+            name="pin"
+            size={18}
+            color="#00DEAB"
+            style={styles.pinIcon}
+          />
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.bubbleText}>{comment.notes}</Text>
+    </View>
+  );
+}
+
 function CommentBubble({
   comment,
   currentUserId,
@@ -120,26 +250,12 @@ function CommentBubble({
     .toUpperCase()
     .slice(0, 2);
 
-  const formatDate = (dateStr: string) => {
-    try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return "";
-      return (
-        d.toLocaleDateString("en-US", {
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-        }) +
-        " | " +
-        d.toLocaleTimeString("en-US", {
-          hour: "numeric",
-          minute: "2-digit",
-        })
-      );
-    } catch {
-      return "";
-    }
-  };
+  const rawDate =
+    comment.created_at ||
+    (comment as any).createdAt ||
+    (comment as any).created_date ||
+    (comment as any).date ||
+    (comment as any).created;
 
   return (
     <View
@@ -154,16 +270,8 @@ function CommentBubble({
         </View>
         <View style={styles.bubbleNameRow}>
           <Text style={styles.bubbleName}>{comment.user_name}</Text>
-          <Text style={styles.bubbleTime}>{formatDate(comment.created_at)}</Text>
+          <Text style={styles.bubbleTime}>{formatNoteDate(rawDate)}</Text>
         </View>
-        {isPinned && (
-          <MaterialCommunityIcons
-            name="pin"
-            size={18}
-            color="#00DEAB"
-            style={styles.pinIcon}
-          />
-        )}
       </View>
 
       <Text style={styles.bubbleText}>{comment.notes}</Text>
@@ -179,47 +287,46 @@ function CommentBubble({
         </View>
       )}
 
-      {!isPinned && (
-        <View style={styles.bubbleActions}>
+      <View style={styles.bubbleActions}>
           <TouchableOpacity style={styles.actionBtn}>
             <Ionicons name="thumbs-up-outline" size={15} color="#9CA3AF" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionBtn}>
-            <Ionicons name="happy-outline" size={15} color="#9CA3AF" />
-          </TouchableOpacity>
+        <TouchableOpacity style={styles.actionBtn}>
+          <Ionicons name="happy-outline" size={15} color="#9CA3AF" />
+        </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() => onPin?.(comment)}
-          >
-            <MaterialCommunityIcons
-              name="pin-outline"
-              size={15}
-              color="#9CA3AF"
-            />
-          </TouchableOpacity>
+        {/* Pin / Unpin toggle icon — green #00DEAB when pinned, default gray #9CA3AF when unpinned */}
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={() => onPin?.(comment)}
+        >
+          <MaterialCommunityIcons
+            name={isPinned ? "pin" : "pin-outline"}
+            size={15}
+            color={isPinned ? "#00DEAB" : "#9CA3AF"}
+          />
+        </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionBtn}>
-            <Ionicons name="pencil-outline" size={15} color="#9CA3AF" />
-          </TouchableOpacity>
+        <TouchableOpacity style={styles.actionBtn}>
+          <Ionicons name="pencil-outline" size={15} color="#9CA3AF" />
+        </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionBtn}>
-            <Ionicons name="arrow-undo-outline" size={15} color="#9CA3AF" />
-          </TouchableOpacity>
+        <TouchableOpacity style={styles.actionBtn}>
+          <Ionicons name="arrow-undo-outline" size={15} color="#9CA3AF" />
+        </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() => onDelete?.(comment)}
-          >
-            <Ionicons
-              name="ellipsis-vertical"
-              size={15}
-              color="#9CA3AF"
-            />
-          </TouchableOpacity>
-        </View>
-      )}
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={() => onDelete?.(comment)}
+        >
+          <Ionicons
+            name="ellipsis-vertical"
+            size={15}
+            color="#9CA3AF"
+          />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -299,7 +406,21 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
         companyId,
         companyIdentifier,
       );
-      setNotes(fetched);
+      // Remove any pin-based ordering from backend so comments are always in normal/original order
+      const originalOrdered = [...fetched].sort((a, b) => a.id - b.id);
+      
+      // Ensure only ONE message is marked as pinned if backend returned multiple
+      const pinnedList = originalOrdered.filter((n) => n.pin_top === 1);
+      if (pinnedList.length > 1) {
+        const latestPinnedId = pinnedList[pinnedList.length - 1].id;
+        const sanitized = originalOrdered.map((n) => ({
+          ...n,
+          pin_top: n.id === latestPinnedId ? 1 : 0,
+        }));
+        setNotes(sanitized);
+      } else {
+        setNotes(originalOrdered);
+      }
     } catch {
       // silently fail
     } finally {
@@ -396,24 +517,51 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
   };
 
   const handlePinNote = async (note: TaskNote) => {
+    const isCurrentlyPinned = note.pin_top === 1;
+    const newPinnedState = isCurrentlyPinned ? 0 : 1;
+    const previousNotes = [...notes];
+
+    // Find previously pinned note if pinning a new one
+    const previouslyPinnedNote = newPinnedState === 1
+      ? notes.find((n) => n.pin_top === 1 && n.id !== note.id)
+      : null;
+
+    // Optimistically update local state ensuring ONLY one note is pinned
+    // and automatically unpinning any previous note (updating pin icon colors)
+    setNotes((prev) =>
+      prev.map((n) => {
+        if (n.id === note.id) {
+          return { ...n, pin_top: newPinnedState };
+        }
+        return newPinnedState === 1 ? { ...n, pin_top: 0 } : n;
+      })
+    );
+
     try {
-      await pinNote(note.id, note.pin_top !== 1, companyId, companyIdentifier);
-      await loadNotes();
+      // Unpin previous note on backend if pinning a new message
+      if (previouslyPinnedNote) {
+        pinNote(previouslyPinnedNote.id, false, companyId, companyIdentifier).catch(() => {});
+      }
+      await pinNote(note.id, newPinnedState === 1, companyId, companyIdentifier);
     } catch {
-      // silently fail
+      // Revert on error
+      setNotes(previousNotes);
     }
   };
 
   if (!task) return null;
 
-  const statusStyle = STATUS_COLORS[task.status];
+  const statusStyle = STATUS_COLORS[task.status] ?? {
+    bg: "#E5E7EB",
+    text: "#374151",
+  };
   const priorityStyle = PRIORITY_COLORS[task.priority] ?? {
     bg: "#E5E7EB",
     text: "#374151",
   };
   const currentUserId = authState.user?.id ?? 0;
 
-  const displayNotes = notes;
+  const pinnedNotes = notes.filter((n) => n.pin_top === 1);
 
   // Use taskDetail data from ViewTask API response, fall back to props
   const apiTask = taskDetail?.task;
@@ -497,7 +645,7 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
     },
     {
       icon: "calendar-outline",
-      label: "Expected Completion:",
+      label: "Est. Completion:",
       value: <Text style={styles.infoValue}>{dueDateDisplay}</Text>,
     },
     {
@@ -755,6 +903,15 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
 
             {activeTab === "comments" && (
               <View style={[styles.commentsContainer, styles.tabComment]}>
+                {/* Sticky pinned message */}
+                {pinnedNotes.length > 0 && (
+                  <PinnedCommentCard
+                    comment={pinnedNotes[0]}
+                    onUnpin={handlePinNote}
+                  />
+                )}
+
+                {/* Only comments scroll */}
                 <ScrollView
                   style={styles.commentsList}
                   contentContainerStyle={styles.commentsListContent}
@@ -1105,9 +1262,17 @@ const styles = StyleSheet.create({
     padding: 12,
     backgroundColor: "#FFFFFF",
   },
-  bubblePinned: {
+  pinnedCard: {
     backgroundColor: "#E6FBF6",
     borderColor: "#E6FBF6",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+  pinnedBottomPin: {
+    marginTop: 10,
+    alignSelf: "flex-start",
   },
   bubbleHeader: {
     flexDirection: "row",
@@ -1247,4 +1412,5 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Regular",
     color: "#9CA3AF",
   },
+
 });

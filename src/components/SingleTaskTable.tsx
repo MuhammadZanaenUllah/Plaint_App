@@ -493,7 +493,8 @@ const LeadingCell = memo(function LeadingCell({
   onToggle: () => void;
 }) {
   const isCompleted = item.status === "Completed";
-  const accentColor = PRIORITY_ACCENT_COLORS[item.priorityName ?? ""] ?? "#00DEAB";
+  const normKey = (item.priorityName ?? "").charAt(0).toUpperCase() + (item.priorityName ?? "").slice(1).toLowerCase();
+  const accentColor = PRIORITY_ACCENT_COLORS[normKey] ?? "#00DEAB";
 
   return (
     <View style={[styles.leadingCell, { width }]}>
@@ -828,19 +829,19 @@ const styles = StyleSheet.create({
   },
   filterBadge: {
     position: "absolute",
-    top: -4,
-    right: -4,
+    top: -14,
+    right: -14,
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: "#FF3B30",
+    backgroundColor: "#1D1D1D",
     alignItems: "center",
     justifyContent: "center",
   },
   filterBadgeText: {
     fontSize: 9,
     fontFamily: "SF_Pro_Bold",
-    color: "#fff",
+    color: "#0DDFAB",
   },
   tableHeader: {
     height: 31,
