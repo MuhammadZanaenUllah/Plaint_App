@@ -114,8 +114,8 @@ export type ViewTaskData = {
   task: {
     id: number;
     title: string;
-    asigned_to: number;
-    created_by: number;
+    asigned_to: number | { id: number; first_name?: string; last_name?: string; full_name?: string; image?: string | null };
+    created_by: number | { id: number; first_name?: string; last_name?: string; full_name?: string; image?: string | null };
     due_date: string;
     start_date: string;
     priority: string;
@@ -131,7 +131,7 @@ export type ViewTaskData = {
     recurring_month_date: string | null;
     recurring_annual_month: string | null;
     recurring_annual_date: string | null;
-    project_id: number;
+  project_id: number | null;
     project_name: string | null;
     sprint_id: number | null;
     sprint_name: string | null;
@@ -170,7 +170,7 @@ export type CreateTaskRequest = {
   recurring_annual_month: number | null;
   recurring_annual_date: number | null;
   approval_required: number;
-  project_id: number;
+  project_id: number | null;
   sprint_id: number | null;
   parent_id: number;
   effort_hours: number;

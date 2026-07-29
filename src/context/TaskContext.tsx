@@ -269,11 +269,18 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   const totalCount = allMappedTasks.length;
 
   const fetchAllTasks = useCallback(async (companyId: number) => {
+    console.log(`[TaskContext] fetchAllTasks called with companyId=${companyId}`);
     dispatch({ type: "SET_LOADING", loading: true });
     setFilteredMappedTasks([]);
     try {
       const res = await tasksService.getAllTasks(companyId);
+      console.log(`[TaskContext] getAllTasks response Good=${res.Good}, data keys:`, res.data ? Object.keys(res.data) : "null");
       if (res.Good && res.data) {
+        const taskCount = (res.data.tasks_assigned_to_me?.length ?? 0) +
+          (res.data.tasksByme?.length ?? 0) +
+          (res.data.all_other_tasks?.length ?? 0);
+        console.log(`[TaskContext] Loaded ${taskCount} tasks total (assigned_to_me: ${res.data.tasks_assigned_to_me?.length ?? 0}, by_me: ${res.data.tasksByme?.length ?? 0}, other: ${res.data.all_other_tasks?.length ?? 0})`);
+
         dispatch({ type: "LOAD_SUCCESS", data: res.data });
         dispatch({ type: "SET_FILTER", filter: null });
         const todayRes = await tasksService.getDueTodayTasks(companyId);
@@ -285,9 +292,11 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
           );
         }
       } else {
+        console.error(`[TaskContext] getAllTasks failed:`, res.message);
         dispatch({ type: "SET_ERROR", error: res.message ?? "Failed to load tasks" });
       }
     } catch (error) {
+      console.error(`[TaskContext] fetchAllTasks error:`, error);
       dispatch({ type: "SET_ERROR", error: extractErrorMessage(error) });
     }
   }, []);

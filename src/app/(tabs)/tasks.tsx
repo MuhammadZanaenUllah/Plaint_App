@@ -53,10 +53,15 @@ export default function TasksScreen() {
 
   useEffect(() => {
     if (companyId) {
+      console.log(`[TasksScreen] Initial fetchAllTasks with companyId=${companyId}`);
       fetchAllTasks(companyId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId]);
+
+  useEffect(() => {
+    console.log(`[TasksScreen] allMappedTasks updated — count: ${allMappedTasks.length}, ids: [${allMappedTasks.map(t => t.id).join(", ")}]`);
+  }, [allMappedTasks]);
 
   const handleTabPress = useCallback(
     (tabId: string) => {
@@ -168,7 +173,7 @@ export default function TasksScreen() {
   }, [companyId]);
 
   const statuses = ["Pending", "In-Progress", "Rejected", "Pending-Approval", "Completed", "Recurring"];
-  const priorities = ["Low", "Medium", "High"];
+  const priorities = ["Normal", "Critical"];
   const priorityColors: Record<string, string> = {
     Normal: "#0DDFAB",
     Critical: "#FF4444",
@@ -340,6 +345,12 @@ export default function TasksScreen() {
   const displayedTasks = useMemo(() => {
     let tasks = getTabCategoryScope(activeTab);
     console.log(`[TasksScreen] Calculating displayedTasks for activeTab="${activeTab}". Base category tasks count:`, tasks.length);
+    if (tasks.length > 0) {
+      const ids = tasks.map(t => t.id ?? "no-id").slice(0, 5);
+      console.log(`[TasksScreen] First 5 task ids in displayedTasks: [${ids.join(", ")}]`);
+      const raw572 = tasks.find(t => t.id === "572");
+      console.log(`[TasksScreen] Task id=572 found in displayedTasks: ${!!raw572}, title: "${raw572?.title}"`);
+    }
 
     if (activeStatusFilter) {
       if (activeStatusFilter === "Recurring") {

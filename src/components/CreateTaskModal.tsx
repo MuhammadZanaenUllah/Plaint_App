@@ -227,7 +227,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       showInfo("Validation", "Duration is required.");
       return;
     }
-    if (!selectedPriorityId) {
+    if (!selectedPriority) {
       showInfo("Validation", "Priority is required.");
       return;
     }
@@ -239,20 +239,19 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       const companyIdentifier = authState.company?.company_identifier ?? "";
 
       const isRecurring = recurringPeriod !== null;
-      const dueDateIso = computeDueDateFromDuration();
 
-      await createTask({
+      const newTaskId = await createTask({
         title: title.trim(),
         company_identifier: companyIdentifier,
         company_id: companyId,
         assign_to: assignedUserId,
-        due_date: startDate ? startDate.toISOString() : null,
-        task_priority: "normal",
+        due_date: computeDueDateFromDuration(),
+        task_priority: selectedPriority.toLowerCase() as "normal" | "critical",
         bump_to_front: false,
         approval_required: selectedApproval === "Yes" ? 1 : 0,
         status: uiStatusToApi((selectedStatus as UiTaskStatus) ?? "Pending"),
         description: descriptionHtml ?? description,
-        project_id: 0,
+        project_id: null,
         sprint_id: null,
         parent_id: 0,
         is_recurring: isRecurring,
@@ -264,12 +263,20 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
         recurring_month_date: null,
         recurring_annual_month: null,
         recurring_annual_date: null,
-        effort_hours: 0,
-        effort_unit: "minutes",
+        effort_hours: parseFloat(durationValue) || 0,
+        effort_unit: durationUnit.toLowerCase(),
         depends_on: [],
       });
 
+      console.log(`[CreateTaskModal] Task created successfully with id=${newTaskId}. Refetching task list...`);
       showSuccess("Success", "Task created successfully.");
+
+      // Immediately refresh the task list so the new task appears in the table.
+      // This is a fallback in case the socket task_update event doesn't arrive.
+      fetchAllTasks(companyId).catch((err) =>
+        console.error("[CreateTaskModal] fetchAllTasks after create failed:", err)
+      );
+
       resetForm();
       onClose();
     } catch (error) {

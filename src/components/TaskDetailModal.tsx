@@ -46,6 +46,8 @@ export type TaskDetail = {
 type Props = { visible: boolean; onClose: () => void; task: TaskDetail | null };
 
 const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
+  Normal: { bg: "#0DDFAB", text: "#1D1D1D" },
+  Critical: { bg: "#FF4444", text: "#fff" },
   Urgent: { bg: "#CB5F00", text: "#fff" },
   High: { bg: "#EF4444", text: "#fff" },
   Medium: { bg: "#F59E0B", text: "#fff" },
@@ -233,9 +235,22 @@ function formatApiDate(dateStr: string): string {
   }
 }
 
+function formatApiDateTime(dateStr: string): string {
+  if (!dateStr) return "-";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const date = `${d.getDate()}, ${d.toLocaleString("en-US", { month: "short" })}`;
+    const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    return `${date} ${time}`;
+  } catch {
+    return dateStr;
+  }
+}
+
 export default function TaskDetailModal({ visible, onClose, task }: Props) {
   const { state: authState } = useAuth();
-  const { addNote, fetchNotes, deleteNote, pinNote, viewTask: viewTaskApi, getDependencies } = useTasks();
+  const { state: taskState, addNote, fetchNotes, deleteNote, pinNote, viewTask: viewTaskApi, getDependencies } = useTasks();
 
   const [activeTab, setActiveTab] = useState<"details" | "comments">("details");
   const [commentText, setCommentText] = useState("");
@@ -400,8 +415,30 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
 
   const displayNotes = notes;
 
-  // Use taskDetail data if available, otherwise fall back to props
+  // Use taskDetail data from ViewTask API response, fall back to props
   const apiTask = taskDetail?.task;
+
+  // Resolve user names — created_by/asigned_to can be a number (lookup in taskOwners) or an object (inline user info)
+  const resolveUserName = (idOrObj: number | { id?: number; first_name?: string; last_name?: string; full_name?: string } | null | undefined): string => {
+    if (!idOrObj) return "-";
+    if (typeof idOrObj === "object") {
+      const u = idOrObj;
+      return u.full_name || [u.first_name, u.last_name].filter(Boolean).join(" ") || `User #${u.id ?? "?"}`;
+    }
+    const owner = taskState.taskOwners?.find((o) => o.id === idOrObj);
+    if (owner) return owner.full_name || `${owner.first_name} ${owner.last_name}`.trim();
+    return `User #${idOrObj}`;
+  };
+
+  const createdByName = apiTask ? resolveUserName(apiTask.created_by) : "-";
+  const assignedToName = apiTask ? resolveUserName(apiTask.asigned_to) : task.assignedTo;
+  const assignedToInitials = apiTask
+    ? (assignedToName.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "??")
+    : task.assignedToInitials;
+
+  const dueDateDisplay = apiTask ? formatApiDateTime(apiTask.due_date) : task.dueDate;
+  const startDateDisplay = apiTask ? (apiTask.start_date ? formatApiDateTime(apiTask.start_date) : "-") : "-";
+
   const subtasks: SubTaskDisplay[] = apiTask?.sub_tasks?.map((st) => ({
     title: st.title,
     createdBy: "",
@@ -420,45 +457,57 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
   const effortDisplay = apiTask ? `${apiTask.effort_hours} ${apiTask.effort_unit}` : (task.effortHours ? `${task.effortHours} ${task.effortUnit ?? "minutes"}` : "-");
   const projectDisplay = apiTask?.project_name ?? task.projectName ?? "-";
 
-  const INFO_ROWS = [
+  // Recurring detail string from API
+  const recurringDetail = apiTask
+    ? apiTask.is_recurring
+      ? [
+          apiTask.recurring_period && `Period: ${apiTask.recurring_period}`,
+          apiTask.recurring_time && `Time: ${apiTask.recurring_time}`,
+          apiTask.recurring_total_count > 0 && `Count: ${apiTask.recurring_total_count}`,
+        ]
+          .filter(Boolean)
+          .join(", ") || "Yes"
+      : "No"
+    : task.recurringTask;
+
+  const priorityDisplayName = apiTask?.priority ?? task.priority;
+  const taskPriorityDisplay = apiTask?.task_priority ?? null;
+
+  const INFO_ROWS: {
+    icon: string;
+    label: string;
+    value: React.ReactNode;
+  }[] = [
+    {
+      icon: "person-outline",
+      label: "Created By:",
+      value: <Text style={styles.infoValue}>{createdByName}</Text>,
+    },
     {
       icon: "people-outline",
-      label: "Assigned to:",
+      label: "Assigned To:",
       value: (
         <View style={styles.assignedRow}>
           <View style={styles.initials}>
-            <Text style={styles.initialsText}>{task.assignedToInitials}</Text>
+            <Text style={styles.initialsText}>{assignedToInitials}</Text>
           </View>
-          <Text style={styles.infoValue}>{task.assignedTo}</Text>
+          <Text style={styles.infoValue}>{assignedToName}</Text>
         </View>
       ),
     },
     {
       icon: "calendar-outline",
-      label: "Due Date:",
-      value: <Text style={styles.infoValue}>{task.dueDate}</Text>,
+      label: "Expected Completion:",
+      value: <Text style={styles.infoValue}>{dueDateDisplay}</Text>,
     },
     {
-      icon: "star-outline",
-      label: "Priority:",
-      value: (
-        <View
-          style={[styles.badge, { backgroundColor: priorityStyle.bg }]}
-        >
-          <Text style={[styles.badgeText, { color: priorityStyle.text }]}>
-            {task.priority}
-          </Text>
-        </View>
-      ),
+      icon: "calendar-outline",
+      label: "Start Time:",
+      value: <Text style={styles.infoValue}>{startDateDisplay}</Text>,
     },
     {
       icon: "checkmark-done-outline",
-      label: "Approval Required:",
-      value: <Text style={styles.infoValue}>{task.approvalRequired}</Text>,
-    },
-    {
-      icon: "sync-circle-outline",
-      label: "Task Status:",
+      label: "Status:",
       value: (
         <View style={[styles.badge, { backgroundColor: statusStyle.bg }]}>
           <Text style={[styles.badgeText, { color: statusStyle.text }]}>
@@ -468,14 +517,17 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
       ),
     },
     {
-      icon: "camera-outline",
-      label: "Recurring Task:",
-      value: <Text style={styles.infoValue}>{task.recurringTask}</Text>,
-    },
-    {
-      icon: "briefcase-outline",
-      label: "Project:",
-      value: <Text style={styles.infoValue}>{projectDisplay}</Text>,
+      icon: "star-outline",
+      label: "Task Priority:",
+      value: taskPriorityDisplay ? (
+        <View style={[styles.badge, { backgroundColor: taskPriorityDisplay === "critical" ? "#FF4444" : "#0DDFAB" }]}>
+          <Text style={[styles.badgeText, { color: "#fff" }]}>
+            {taskPriorityDisplay === "critical" ? "Critical" : "Normal"}
+          </Text>
+        </View>
+      ) : (
+        <Text style={styles.infoValue}>-</Text>
+      ),
     },
     {
       icon: "time-outline",
@@ -483,31 +535,35 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
       value: <Text style={styles.infoValue}>{effortDisplay}</Text>,
     },
     {
-      icon: "git-branch-outline",
-      label: "Subtask:",
-      value:
-        subtasks.length > 0 ? (
-          <View style={styles.cntBadgeGray}>
-            <MaterialCommunityIcons
-              name="file-tree-outline"
-              size={14}
-              color="#fff"
-            />
-            <Text style={styles.cntBadgeText}>+{subtasks.length}</Text>
-          </View>
-        ) : (
-          <Text style={styles.infoValue}>-</Text>
-        ),
+      icon: "checkmark-circle-outline",
+      label: "Approval Required:",
+      value: <Text style={styles.infoValue}>{apiTask ? (apiTask.approval_required ? "Yes" : "No") : task.approvalRequired}</Text>,
+    },
+    {
+      icon: "sync-circle-outline",
+      label: "Recurring:",
+      value: <Text style={styles.infoValue}>{recurringDetail}</Text>,
+    },
+    {
+      icon: "link-outline",
+      label: "Attachments:",
+      value: apiTask ? (
+        <View style={styles.cntBadgeGray}>
+          <Ionicons name="link-outline" size={14} color="#fff" />
+          <Text style={styles.cntBadgeText}>+{apiTask.task_attachments.length}</Text>
+        </View>
+      ) : (
+        <Text style={styles.infoValue}>-</Text>
+      ),
     },
     {
       icon: "git-compare-outline",
       label: "Dependencies:",
-      value:
-        depDisplay.length > 0 ? (
-          <Text style={styles.depLink}>{depDisplay[0].title}</Text>
-        ) : (
-          <Text style={styles.infoValue}>-</Text>
-        ),
+      value: depDisplay.length > 0 ? (
+        <Text style={styles.depLink}>{depDisplay[0].title}</Text>
+      ) : (
+        <Text style={styles.infoValue}>-</Text>
+      ),
     },
   ];
 

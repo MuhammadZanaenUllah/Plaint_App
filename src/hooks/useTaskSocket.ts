@@ -46,7 +46,10 @@ export function useTaskSocket(): void {
   jobStatusRef.current = applyJobStatusUpdate;
 
   useEffect(() => {
-    if (!companyId) return;
+    if (!companyId) {
+      console.log(`[useTaskSocket] No companyId, skipping socket setup`);
+      return;
+    }
 
     let cleanupFns: Array<() => void> = [];
     let cancelled = false;
@@ -54,7 +57,10 @@ export function useTaskSocket(): void {
     function registerListeners() {
       if (cancelled) return;
       const socket = getSocket();
-      if (!socket) return;
+      if (!socket) {
+        console.log(`[useTaskSocket] Socket not available yet, will retry on connect`);
+        return;
+      }
 
       cleanupFns.forEach((fn) => fn());
       cleanupFns = [];
@@ -63,8 +69,13 @@ export function useTaskSocket(): void {
       cleanupFns.push(
         onSocketEvent("task_update", (payload: unknown) => {
           const p = payload as TaskUpdatePayload;
+          console.log(`[useTaskSocket] task_update received: action="${p?.action}", company_id=${p?.company_id}, our_company=${companyIdRef.current}`);
           if (String(p?.company_id) !== String(companyIdRef.current)) return;
-          if (!p?.action) return;
+          if (!p?.action) {
+            console.log(`[useTaskSocket] task_update ignored — no action field`);
+            return;
+          }
+          console.log(`[useTaskSocket] task_update matched — refetching tasks (action: "${p.action}")`);
           // All task_update actions (create, update, status_update, delete,
           // add_note, delete_note, schedule_update, etc.) trigger a full refetch
           fetchRef.current(companyIdRef.current!);
