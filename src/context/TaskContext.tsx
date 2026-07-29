@@ -273,17 +273,39 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "SET_LOADING", loading: true });
     setFilteredMappedTasks([]);
     try {
-      const res = await tasksService.getAllTasks(companyId);
+      const [res, todayRes] = await Promise.all([
+        tasksService.getAllTasks(companyId),
+        tasksService.getDueTodayTasks(companyId),
+      ]);
       console.log(`[TaskContext] getAllTasks response Good=${res.Good}, data keys:`, res.data ? Object.keys(res.data) : "null");
-      if (res.Good && res.data) {
-        const taskCount = (res.data.tasks_assigned_to_me?.length ?? 0) +
-          (res.data.tasksByme?.length ?? 0) +
-          (res.data.all_other_tasks?.length ?? 0);
-        console.log(`[TaskContext] Loaded ${taskCount} tasks total (assigned_to_me: ${res.data.tasks_assigned_to_me?.length ?? 0}, by_me: ${res.data.tasksByme?.length ?? 0}, other: ${res.data.all_other_tasks?.length ?? 0})`);
+      console.log(`[TaskContext] getDueTodayTasks response Good=${todayRes.Good}`);
 
-        dispatch({ type: "LOAD_SUCCESS", data: res.data });
+      if (res.Good && res.data) {
+        // Merge tasks from both endpoints (all excludes today, duetoday has today only)
+        const mergeArrays = (a: TaskListItem[] = [], b: TaskListItem[] = []) => {
+          const map = new Map<number, TaskListItem>();
+          const rawA = a ?? [];
+          const rawB = b ?? [];
+          for (const t of rawA) map.set(t.id, t);
+          for (const t of rawB) if (!map.has(t.id)) map.set(t.id, t);
+          return [...map.values()];
+        };
+
+        const mergedData: TaskListResponse = {
+          ...res.data,
+          tasks_assigned_to_me: mergeArrays(res.data.tasks_assigned_to_me, todayRes.data?.tasks_assigned_to_me),
+          tasksByme: mergeArrays(res.data.tasksByme, todayRes.data?.tasksByme),
+          all_other_tasks: mergeArrays(res.data.all_other_tasks, todayRes.data?.all_other_tasks),
+        };
+
+        const taskCount = (mergedData.tasks_assigned_to_me?.length ?? 0) +
+          (mergedData.tasksByme?.length ?? 0) +
+          (mergedData.all_other_tasks?.length ?? 0);
+        console.log(`[TaskContext] Loaded ${taskCount} tasks total (assigned_to_me: ${mergedData.tasks_assigned_to_me?.length ?? 0}, by_me: ${mergedData.tasksByme?.length ?? 0}, other: ${mergedData.all_other_tasks?.length ?? 0})`);
+
+        dispatch({ type: "LOAD_SUCCESS", data: mergedData });
         dispatch({ type: "SET_FILTER", filter: null });
-        const todayRes = await tasksService.getDueTodayTasks(companyId);
+
         if (todayRes.Good && todayRes.data) {
           setDueTodayCount(
             todayRes.data.tasks_assigned_to_me.length +

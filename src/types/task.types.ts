@@ -46,6 +46,7 @@ export type TaskListItem = {
   due_date: string;
   priority: number;
   task_priority: "normal" | "critical";
+  critical_order: number | null;
   assignee: number;
   asigned_to: number;
   parent_id: number;

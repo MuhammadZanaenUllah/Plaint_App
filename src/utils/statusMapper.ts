@@ -18,6 +18,8 @@ export type MappedTaskRow = {
   dueDate: string;
   status: UiTaskStatus;
   priorityName: string;
+  taskPriority: "normal" | "critical";
+  criticalOrder: number | null;
   project: string;
   extraCount?: number;
   _raw: TaskListItem;
@@ -109,6 +111,8 @@ export function mapTaskListItem(
     dueDate: formatDate(item.due_date),
     status: apiStatusToUi(item.status),
     priorityName: item.priority_name,
+    taskPriority: item.task_priority,
+    criticalOrder: item.critical_order ?? null,
     project: "",
     extraCount: item.subtask_count > 0 ? item.subtask_count : undefined,
     _raw: item,

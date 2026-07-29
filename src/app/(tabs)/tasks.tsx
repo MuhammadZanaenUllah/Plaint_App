@@ -197,6 +197,7 @@ export default function TasksScreen() {
       dueDate: row.dueDate,
       status: row.status,
       priorityName: row.priorityName,
+      taskPriority: row.taskPriority,
       project: row.project,
       extraCount: row.extraCount,
       _raw: row._raw,
@@ -325,18 +326,24 @@ export default function TasksScreen() {
     [allMappedTasks, mappedCreatedByMe, mappedAssignedToMe, mapRowWithRaw]
   );
 
-  // Stable sort: Critical tasks first, Normal (and others) after. Preserves relative order within each group.
+  // Sort: Critical tasks first (by critical_order ascending), then normal tasks (by due_date).
   const sortByCritical = useCallback(
     (tasks: (TaskRowProps & { _raw: import("@/types/task.types").TaskListItem })[]) => {
       const criticals: typeof tasks = [];
       const others: typeof tasks = [];
       for (const t of tasks) {
-        if (t._raw?.priority_name?.toLowerCase() === "critical") {
+        if (t._raw?.task_priority === "critical") {
           criticals.push(t);
         } else {
           others.push(t);
         }
       }
+      criticals.sort((a, b) => {
+        const orderA = a._raw?.critical_order ?? 999;
+        const orderB = b._raw?.critical_order ?? 999;
+        if (orderA !== orderB) return orderA - orderB;
+        return new Date(a._raw.due_date || 0).getTime() - new Date(b._raw.due_date || 0).getTime();
+      });
       return [...criticals, ...others];
     },
     []

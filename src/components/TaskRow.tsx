@@ -22,6 +22,7 @@ export type TaskRowProps = {
   dueDate: string;
   status: StatusType;
   priorityName?: string;
+  taskPriority?: "normal" | "critical";
   comment?: string;
   project?: string;
   extraCount?: number;
@@ -77,6 +78,7 @@ export default function TaskRow({
   dueDate,
   status: initialStatus,
   priorityName,
+  taskPriority,
   project,
   extraCount,
   isOpen = false,
@@ -87,8 +89,7 @@ export default function TaskRow({
   const [status, setStatus] = useState<StatusType>(initialStatus);
   const { bg, text } = STATUS_COLORS[status];
   const isCompleted = status === "Completed";
-  const normKey = (priorityName ?? "").charAt(0).toUpperCase() + (priorityName ?? "").slice(1).toLowerCase();
-  const accentColor = PRIORITY_ACCENT_COLORS[normKey] ?? "#00DEAB";
+  const accentColor = taskPriority === "critical" ? "#FF4D4F" : "#0DDFAB";
 
   // Left offset of the status cell inside the row
   const statusLeft =

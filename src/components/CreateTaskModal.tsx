@@ -240,14 +240,24 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
 
       const isRecurring = recurringPeriod !== null;
 
-      const newTaskId = await createTask({
+      const priority = selectedPriority.toLowerCase() as "normal" | "critical";
+
+      // Convert effort to minutes as backend stores it as-is (always in minutes)
+      const rawEffort = durationValue ? parseInt(durationValue, 10) : 0;
+      const effortInMinutes = durationUnit === "Hours"
+        ? rawEffort * 60
+        : durationUnit === "Days"
+          ? rawEffort * 8 * 60
+          : rawEffort;  // Minutes
+
+      const requestPayload = {
         title: title.trim(),
         company_identifier: companyIdentifier,
         company_id: companyId,
         assign_to: assignedUserId,
         due_date: computeDueDateFromDuration(),
-        task_priority: selectedPriority.toLowerCase() as "normal" | "critical",
-        bump_to_front: false,
+        task_priority: priority,
+        bump_to_front: priority === "critical",
         approval_required: selectedApproval === "Yes" ? 1 : 0,
         status: uiStatusToApi((selectedStatus as UiTaskStatus) ?? "Pending"),
         description: descriptionHtml ?? description,
@@ -263,12 +273,23 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
         recurring_month_date: null,
         recurring_annual_month: null,
         recurring_annual_date: null,
-        effort_hours: parseFloat(durationValue) || 0,
+        effort_hours: effortInMinutes,
         effort_unit: durationUnit.toLowerCase(),
         depends_on: [],
-      });
+      };
+      console.log(`[CreateTaskModal] FULL PAYLOAD:`, JSON.stringify(requestPayload, null, 2));
+      console.log(`[CreateTaskModal] effort_hours=${requestPayload.effort_hours} (${effortInMinutes} minutes), effort_unit="${requestPayload.effort_unit}" (raw durationValue="${durationValue}", durationUnit="${durationUnit}")`);
 
-      console.log(`[CreateTaskModal] Task created successfully with id=${newTaskId}. Refetching task list...`);
+      const response = await createTask(requestPayload);
+
+      const taskId = response;
+      console.log(`[CreateTaskModal] BACKEND RESPONSE:`, JSON.stringify(response, null, 2));
+      console.log(`[CreateTaskModal] Task created successfully with id=${taskId}.`);
+
+      // Note: For critical tasks, bump_to_front: true already sets position 1 in the queue.
+      // reorderCritical is only needed for custom drag-and-drop reordering (future Critical tab feature).
+      // The backend handles automatic ordering — no extra call needed here.
+
       showSuccess("Success", "Task created successfully.");
 
       // Immediately refresh the task list so the new task appears in the table.

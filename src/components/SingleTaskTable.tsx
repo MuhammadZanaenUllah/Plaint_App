@@ -19,7 +19,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
-import { STATUS_COLORS, StatusType, TaskRowProps, PRIORITY_ACCENT_COLORS } from "./TaskRow";
+import { STATUS_COLORS, StatusType, TaskRowProps } from "./TaskRow";
 
 const { FilterIconBlack } = Icons;
 
@@ -493,8 +493,7 @@ const LeadingCell = memo(function LeadingCell({
   onToggle: () => void;
 }) {
   const isCompleted = item.status === "Completed";
-  const normKey = (item.priorityName ?? "").charAt(0).toUpperCase() + (item.priorityName ?? "").slice(1).toLowerCase();
-  const accentColor = PRIORITY_ACCENT_COLORS[normKey] ?? "#00DEAB";
+  const accentColor = item.taskPriority === "critical" ? "#FF4D4F" : "#0DDFAB";
 
   return (
     <View style={[styles.leadingCell, { width }]}>
