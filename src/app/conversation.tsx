@@ -34,12 +34,11 @@ import {
 import EmojiPicker from "rn-emoji-keyboard";
 import { showInfo, showError } from "@/utils/toast";
 
-let Audio: typeof import("expo-av").Audio | null = null;
+let ExpoAudio: typeof import("expo-audio") | null = null;
 try {
-    const expoAv = require("expo-av");
-    Audio = expoAv?.Audio ?? null;
+    ExpoAudio = require("expo-audio");
 } catch (e) {
-    console.log("[Audio] ExponentAV native module not available:", e);
+    console.log("[Audio] expo-audio native module not available:", e);
 }
 
 const { ChatIcon: MainChatIcon } = Icons;
@@ -47,42 +46,29 @@ const { ChatIcon: MainChatIcon } = Icons;
 // ─── Voice Note Player Component ─────────────────────────────────────────────
 
 function VoiceNotePlayer({ audioUrl }: { audioUrl: string }) {
-    const [sound, setSound] = useState<any>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [position, setPosition] = useState(0);
     const [duration, setDuration] = useState(0);
+    const playerRef = useRef<any>(null);
 
     const handlePlayPause = async () => {
-        if (!Audio) {
+        if (!ExpoAudio) {
             showInfo("Audio Unavailable", "Voice playback is unavailable in this environment.");
             return;
         }
-        if (sound) {
+        if (playerRef.current) {
             if (isPlaying) {
-                await sound.pauseAsync();
+                playerRef.current.pause();
                 setIsPlaying(false);
             } else {
-                await sound.playAsync();
+                playerRef.current.play();
                 setIsPlaying(true);
             }
         } else {
             try {
-                const { sound: newSound } = await Audio.Sound.createAsync(
-                    { uri: audioUrl },
-                    { shouldPlay: true },
-                    (status: any) => {
-                        if (status.isLoaded) {
-                            setPosition(status.positionMillis);
-                            setDuration(status.durationMillis ?? 0);
-                            setIsPlaying(status.isPlaying);
-                            if (status.didJustFinish) {
-                                setIsPlaying(false);
-                                setPosition(0);
-                            }
-                        }
-                    }
-                );
-                setSound(newSound);
+                const newPlayer = ExpoAudio.createAudioPlayer(audioUrl);
+                playerRef.current = newPlayer;
+                newPlayer.play();
                 setIsPlaying(true);
             } catch (err) {
                 console.log("[Audio] Failed to play voice note:", err);
@@ -92,11 +78,13 @@ function VoiceNotePlayer({ audioUrl }: { audioUrl: string }) {
 
     useEffect(() => {
         return () => {
-            if (sound) {
-                sound.unloadAsync();
+            if (playerRef.current) {
+                try {
+                    playerRef.current.pause();
+                } catch { }
             }
         };
-    }, [sound]);
+    }, []);
 
     const progress = duration > 0 ? (position / duration) * 100 : 0;
     const posSec = Math.floor(position / 1000);
@@ -728,24 +716,24 @@ export default function ConversationScreen() {
     const [dateFilterEnd, setDateFilterEnd] = useState<Date | null>(null);
 
     const startRecording = useCallback(async () => {
-        if (!Audio) {
-            showInfo("Audio Unavailable", "Audio recording requires a custom native build with expo-av module.");
+        if (!ExpoAudio) {
+            showInfo("Audio Unavailable", "Audio recording requires expo-audio module.");
             return;
         }
         try {
-            const permission = await Audio.requestPermissionsAsync();
+            const permission = await ExpoAudio.requestRecordingPermissionsAsync();
             if (permission.status !== "granted") {
                 showInfo("Permission Required", "Microphone access is required to record voice notes.");
                 return;
             }
-            await Audio.setAudioModeAsync({
-                allowsRecordingIOS: true,
-                playsInSilentModeIOS: true,
+            await ExpoAudio.setAudioModeAsync({
+                allowsRecording: true,
+                playsInSilentMode: true,
             });
-            const { recording } = await Audio.Recording.createAsync(
-                Audio.RecordingOptionsPresets.HIGH_QUALITY
-            );
-            setRecordingInstance(recording);
+            const recorder = new (ExpoAudio as any).AudioRecorder((ExpoAudio as any).RecordingPresets?.HIGH_QUALITY);
+            await recorder.prepareToRecordAsync();
+            recorder.record();
+            setRecordingInstance(recorder);
             setIsRecording(true);
             setRecordingDuration(0);
 
@@ -767,11 +755,11 @@ export default function ConversationScreen() {
         }
         setSending(true);
         try {
-            await recordingInstance.stopAndUnloadAsync();
-            if (Audio) {
-                await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+            await recordingInstance.stop();
+            if (ExpoAudio) {
+                await ExpoAudio.setAudioModeAsync({ allowsRecording: false });
             }
-            const uri = recordingInstance.getURI();
+            const uri = recordingInstance.uri;
             setRecordingInstance(null);
             setIsRecording(false);
             setRecordingDuration(0);
@@ -805,9 +793,9 @@ export default function ConversationScreen() {
         }
         if (recordingInstance) {
             try {
-                await recordingInstance.stopAndUnloadAsync();
-                if (Audio) {
-                    await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+                await recordingInstance.stop();
+                if (ExpoAudio) {
+                    await ExpoAudio.setAudioModeAsync({ allowsRecording: false });
                 }
             } catch { }
         }
@@ -1026,7 +1014,7 @@ export default function ConversationScreen() {
         const startMs = startOfDay.getTime();
         const endMs = endOfDay.getTime();
         filteredMessages = filteredMessages.filter((m) => {
-            const msgDate = new Date(m.createdAt).getTime();
+            const msgDate = new Date(m.createdAt ?? 0).getTime();
             return msgDate >= startMs && msgDate <= endMs;
         });
     }

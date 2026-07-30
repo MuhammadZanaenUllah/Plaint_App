@@ -1,3 +1,4 @@
+//this is the splash screen 
 import { useEffect, useRef } from "react";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";

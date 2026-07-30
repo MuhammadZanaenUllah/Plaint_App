@@ -1,3 +1,4 @@
+//this is the onboarding screen 
 import TopMintGlow from "@/components/gradientheader";
 import { Colors } from "@/theme/root";
 import useAppFonts from "@/theme/useAppFonts";

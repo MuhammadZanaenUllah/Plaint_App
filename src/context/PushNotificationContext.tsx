@@ -125,7 +125,7 @@ export function PushNotificationProvider({
             importance: Notifications.AndroidImportance.HIGH,
             vibrationPattern: [0, 250, 250, 250],
             lightColor: "#00DEAB",
-            sound: "default",
+            sound: "notification.mp3",
           }
         );
       }
