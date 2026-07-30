@@ -1,17 +1,65 @@
 import { AuthContext, AuthProvider } from "@/context/AuthContext";
 import { ChatProvider } from "@/context/ChatContext";
 import { NotificationProvider } from "@/context/NotificationContext";
+import { PushNotificationProvider, usePushNotifications } from "@/context/PushNotificationContext";
 import { TaskProvider } from "@/context/TaskContext";
 import useAppFonts from "@/theme/useAppFonts";
 import { connectSocket, disconnectSocket } from "@/services/socket/socketService";
+import { AppState } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useContext, useEffect } from "react";
+import { useCallback, useContext, useEffect, useRef } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Toast from "react-native-toast-message";
 
 SplashScreen.preventAutoHideAsync();
+
+function PushNotificationLifecycle() {
+  const { registerForPushNotifications, unregisterDevice, resetBadge } = usePushNotifications();
+  const authCtx = useContext(AuthContext);
+  const state = authCtx?.state ?? { isAuthenticated: false, isDefaultPassword: false, loading: true };
+  const prevAuthRef = useRef(false);
+  const prevCompanyRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const isAuthed = state.isAuthenticated && !state.isDefaultPassword && !state.loading;
+    const justLoggedIn = isAuthed && !prevAuthRef.current;
+    const companyId = authCtx?.state.company?.company_id ?? null;
+
+    if (isAuthed && justLoggedIn && companyId) {
+      registerForPushNotifications(companyId).catch(() => {});
+    }
+
+    if (prevAuthRef.current && !state.isAuthenticated && !state.loading) {
+      if (prevCompanyRef.current) {
+        unregisterDevice(prevCompanyRef.current).catch(() => {});
+      }
+    }
+
+    prevAuthRef.current = isAuthed;
+    if (companyId) prevCompanyRef.current = companyId;
+  }, [state.isAuthenticated, state.isDefaultPassword, state.loading, authCtx, registerForPushNotifications, unregisterDevice]);
+
+  useEffect(() => {
+    if (state.loading) return;
+
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (nextAppState === "active") {
+        const companyId = authCtx?.state.company?.company_id;
+        if (companyId) {
+          resetBadge(companyId).catch(() => {});
+        }
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [state.loading, authCtx, resetBadge]);
+
+  return null;
+}
 
 function RootNavigator() {
   const authCtx = useContext(AuthContext);
@@ -42,7 +90,6 @@ function RootNavigator() {
     const inTabGroup = segments[0] === "(tabs)";
     const isFirstRoute = (segments[0] as string) === "" || (segments[0] as string) === "index";
     const isOnboarding = (segments[0] as string) === "splashscreem";
-    // Top-level screens that are valid destinations for authenticated users
     const inAuthenticatedScreen = ["conversation", "profile", "explore"].includes(segments[0] as string);
 
     if (isFirstRoute || isOnboarding) return;
@@ -56,9 +103,6 @@ function RootNavigator() {
     }
   }, [state.isAuthenticated, state.isDefaultPassword, state.loading, segments, fontsLoaded, router]);
 
-  // ── App-level socket lifecycle ────────────────────────────────────────────
-  // Connect when authenticated, disconnect on logout.
-  // connectSocket() is idempotent — safe to call multiple times.
   useEffect(() => {
     if (state.isAuthenticated && !state.isDefaultPassword && !state.loading) {
       connectSocket().catch((err) => {
@@ -86,8 +130,11 @@ export default function RootLayout() {
       <TaskProvider>
         <ChatProvider>
           <NotificationProvider>
-            <RootNavigator />
-            <Toast />
+            <PushNotificationProvider>
+              <PushNotificationLifecycle />
+              <RootNavigator />
+              <Toast />
+            </PushNotificationProvider>
           </NotificationProvider>
         </ChatProvider>
       </TaskProvider>
