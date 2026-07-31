@@ -315,6 +315,7 @@ export default function ChatScreen() {
                         emailSent++;
                     } else {
                         await chatService.addMember(room._id, userId);
+                        await chatService.updatePermission({ roomId: room._id, userId, permission }).catch(() => {});
                         directAdded++;
                     }
                 } catch {
@@ -360,10 +361,15 @@ export default function ChatScreen() {
             const room = createdRoomRef.current;
             if (!room) return null;
             try {
+                const allowedUserIds = forAllUsers
+                    ? []
+                    : pendingInviteUsers
+                        .map((u) => parseInt(u.id, 10))
+                        .filter((id) => !isNaN(id));
                 const res = await chatService.generateLink({
                     roomId: room._id,
                     permission,
-                    forAllUsers,
+                    allowedUserIds,
                 });
                 return (res as any)?.data?.inviteLink ?? (res as any)?.inviteLink ?? null;
             } catch (err) {
@@ -371,7 +377,7 @@ export default function ChatScreen() {
                 return null;
             }
         },
-        []
+        [pendingInviteUsers]
     );
 
     const handleUpdateChannelPermission = useCallback(

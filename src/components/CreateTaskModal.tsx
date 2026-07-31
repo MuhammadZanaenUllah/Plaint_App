@@ -297,9 +297,10 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
 
     // ── Check for critical-task conflict ──────────────────────────────────────
     if (priority === "critical") {
-      // Look for existing active critical tasks assigned to this user
+      // Look for existing active critical tasks assigned to this user across all lists
       const activeCritical = [
         ...taskState.assignedToMe,
+        ...taskState.createdByMe,
         ...taskState.allOtherTasks,
       ].filter(
         (t) =>
@@ -352,7 +353,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
 
   // ── Critical popup handlers ───────────────────────────────────────────────
 
-  /** Option 1: Stop current task → create with bump_to_front: true → open reorder modal */
+  /** Option 1: Stop current task → create with bump_to_front: true */
   const handleStopAndStart = async () => {
     setCriticalPopupVisible(false);
     if (!pendingPayloadRef.current) return;
@@ -360,11 +361,12 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     setLoading(true);
     try {
       console.log(`[CreateTaskModal] Critical Option 1 PAYLOAD:`, JSON.stringify(payload, null, 2));
-      const newTaskId = await createTask(payload as any);
+      await createTask(payload as any);
+      showSuccess("Success", "Critical task created and scheduled at top priority.");
       fetchAllTasks(authState.company?.company_id ?? 0).catch(() => {});
-      // Open reorder modal — newTaskId is the just-created task's id
-      pendingPayloadRef.current = { ...payload, _newTaskId: newTaskId };
-      setTimeout(() => setOrderModalVisible(true), 300);
+      pendingPayloadRef.current = null;
+      resetForm();
+      onClose();
     } catch (error) {
       showError("Error", extractErrorMessage(error));
     } finally {

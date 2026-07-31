@@ -355,9 +355,7 @@ export type GetRoomPermissionsResponse = {
   created_by: number;
 };
 
-// ─── Permission Helpers ───────────────────────────────────────────────────────
-
-export type ChatPermission = "Full edit" | "Can edit" | "View only";
+export type ChatPermission = "Full edit" | "Edit" | "Comment" | "View Only";
 
 // ─── Chat Context State ──────────────────────────────────────────────────────
 

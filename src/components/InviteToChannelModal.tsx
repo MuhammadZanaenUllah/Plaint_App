@@ -91,6 +91,10 @@ export interface InviteToChannelModalProps {
   members: ChannelMember[];
   /** Current user's id — used to derive "Owner" label */
   currentUserId: number;
+  /** Room creator user id (owner) */
+  roomCreator?: number | null;
+  /** Current caller's permission in the channel */
+  callerPermission?: ChannelPermission;
   onClose: () => void;
   /** Called when the invite button is pressed */
   onInvite: (
@@ -541,7 +545,9 @@ export default function InviteToChannelModal({
                 </Text>
                 {members.map((member) => {
                   const isOwner =
-                    member.isOwner || member.id === currentUserId;
+                    member.isOwner || (roomCreator ? member.id === roomCreator : false);
+                  const canCallerEdit =
+                    currentUserId === roomCreator || callerPermission === "Full edit";
                   const currentPerm =
                     memberPerms[member.id] ??
                     (member.permission as ChannelPermission) ??
@@ -559,7 +565,7 @@ export default function InviteToChannelModal({
                       </Text>
                       {isOwner ? (
                         <Text style={modal.ownerTag}>Owner</Text>
-                      ) : onUpdatePermission ? (
+                      ) : canCallerEdit && onUpdatePermission ? (
                         <PermissionDropdown
                           value={currentPerm as ChannelPermission}
                           onChange={(p) => handleMemberPermChange(member.id, p)}
