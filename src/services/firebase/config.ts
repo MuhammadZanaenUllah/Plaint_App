@@ -19,3 +19,11 @@ export const firebaseConfig = {
     default: "1:545626786844:android:d21ba04c2486225126e3d9",
   }),
 };
+
+console.log("🔥 [Firebase Config] Verified Firebase Client SDK configuration:", {
+  projectId: firebaseConfig.projectId,
+  messagingSenderId: firebaseConfig.messagingSenderId,
+  appId: firebaseConfig.appId,
+  platform: Platform.OS,
+});
+

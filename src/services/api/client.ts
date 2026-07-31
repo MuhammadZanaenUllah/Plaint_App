@@ -21,6 +21,9 @@ function buildHeaders(token?: string | null, isFormData = false): HeadersInit {
   if (token) {
     headers["x-access-token"] = token;
     headers["authToken"] = token;
+    console.log("📡 [API Header] Full Access Token attached:", token);
+  } else {
+    console.log("📡 [API Header] WARNING: Request dispatched without Access Token!");
   }
   return headers;
 }

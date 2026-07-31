@@ -19,27 +19,29 @@ function PushNotificationLifecycle() {
   const { registerForPushNotifications, unregisterDevice, resetBadge } = usePushNotifications();
   const authCtx = useContext(AuthContext);
   const state = authCtx?.state ?? { isAuthenticated: false, isDefaultPassword: false, loading: true };
-  const prevAuthRef = useRef(false);
-  const prevCompanyRef = useRef<number | null>(null);
+  const registeredCompanyRef = useRef<number | null>(null);
 
   useEffect(() => {
     const isAuthed = state.isAuthenticated && !state.isDefaultPassword && !state.loading;
-    const justLoggedIn = isAuthed && !prevAuthRef.current;
     const companyId = authCtx?.state.company?.company_id ?? null;
 
-    if (isAuthed && justLoggedIn && companyId) {
-      registerForPushNotifications(companyId).catch(() => {});
+    if (isAuthed && companyId && registeredCompanyRef.current !== companyId) {
+      registeredCompanyRef.current = companyId;
+      console.log(`🚀 [PushNotificationLifecycle] Authenticated user session active (Company ID: ${companyId}). Fetching push tokens and registering device...`);
+      registerForPushNotifications(companyId).catch((err) => {
+        console.error("🚀 [PushNotificationLifecycle] Push registration error:", err);
+      });
     }
 
-    if (prevAuthRef.current && !state.isAuthenticated && !state.loading) {
-      if (prevCompanyRef.current) {
-        unregisterDevice(prevCompanyRef.current).catch(() => {});
-      }
+    if (!state.isAuthenticated && !state.loading && registeredCompanyRef.current !== null) {
+      const oldCompany = registeredCompanyRef.current;
+      registeredCompanyRef.current = null;
+      console.log(`🚀 [PushNotificationLifecycle] User logged out. Unregistering push notifications for Company ID: ${oldCompany}...`);
+      unregisterDevice(oldCompany).catch((err) => {
+        console.error("🚀 [PushNotificationLifecycle] Push unregistration error:", err);
+      });
     }
-
-    prevAuthRef.current = isAuthed;
-    if (companyId) prevCompanyRef.current = companyId;
-  }, [state.isAuthenticated, state.isDefaultPassword, state.loading, authCtx, registerForPushNotifications, unregisterDevice]);
+  }, [state.isAuthenticated, state.isDefaultPassword, state.loading, authCtx?.state.company?.company_id, registerForPushNotifications, unregisterDevice]);
 
   useEffect(() => {
     if (state.loading) return;
