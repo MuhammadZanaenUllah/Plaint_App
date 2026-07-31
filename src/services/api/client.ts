@@ -21,9 +21,9 @@ function buildHeaders(token?: string | null, isFormData = false): HeadersInit {
   if (token) {
     headers["x-access-token"] = token;
     headers["authToken"] = token;
-    console.log("📡 [API Header] Full Access Token attached:", token);
+    // console.log("📡 [API Header] Full Access Token attached:", token);
   } else {
-    console.log("📡 [API Header] WARNING: Request dispatched without Access Token!");
+    // console.log("📡 [API Header] WARNING: Request dispatched without Access Token!");
   }
   return headers;
 }
@@ -43,14 +43,29 @@ async function handleResponse<T>(res: Response): Promise<T> {
   }
 
   if (!res.ok) {
-    console.log("[API] Error response:", { status: res.status, url: res.url, body: JSON.stringify(body).slice(0, 500) });
-    const errBody = body as ApiErrorEnvelope;
-    const msg =
-      (typeof errBody === "object" && errBody !== null
-        ? (errBody.message ??
-          (typeof errBody.data === "string" ? errBody.data : null))
-        : null) ?? `Request failed (${res.status})`;
-    throw new Error(msg);
+    console.log("[API] Error response:", {
+      status: res.status,
+      url: res.url,
+      body: typeof body === "string" ? body.slice(0, 500) : JSON.stringify(body).slice(0, 500),
+    });
+
+    let msg: string | null = null;
+    if (typeof body === "object" && body !== null) {
+      const errObj = body as Record<string, unknown>;
+      if (typeof errObj.message === "string" && errObj.message.trim()) {
+        msg = errObj.message.trim();
+      } else if (typeof errObj.msg === "string" && errObj.msg.trim()) {
+        msg = errObj.msg.trim();
+      } else if (typeof errObj.error === "string" && errObj.error.trim()) {
+        msg = errObj.error.trim();
+      } else if (typeof errObj.data === "string" && errObj.data.trim()) {
+        msg = errObj.data.trim();
+      }
+    } else if (typeof body === "string" && body.trim().length > 0) {
+      msg = body.trim();
+    }
+
+    throw new Error(msg || `Request failed (${res.status})`);
   }
 
   return body as T;

@@ -31,7 +31,6 @@ if (!isExpoGo) {
     if (Notif.setNotificationHandler) {
       Notif.setNotificationHandler({
         handleNotification: async () => ({
-          shouldShowAlert: true,
           shouldPlaySound: true,
           shouldSetBadge: true,
           shouldShowBanner: true,
@@ -144,43 +143,29 @@ export function PushNotificationProvider({
         );
       }
 
-      let nativeFcmToken: string | null = null;
       let expoPushToken: string | null = null;
 
-      // 1. Fetch Native Device Push Token (FCM / APNs) as required by FCM HTTP v1 backend
-      try {
-        console.log("📲 [PushNotification] Fetching Native Device Push Token (FCM/APNs)...");
-        const deviceTokenData = await Notifications.getDevicePushTokenAsync();
-        nativeFcmToken = deviceTokenData.data;
-        console.log("=========================================");
-        console.log("🔑 [NATIVE FCM/APNS DEVICE TOKEN OBTAINED]:");
-        console.log(nativeFcmToken);
-        console.log("=========================================");
-      } catch (deviceErr) {
-        console.warn("📲 [PushNotification] Could not fetch Device Push Token:", deviceErr);
-      }
-
-      // 2. Fetch Expo Push Token (for Expo Orbit / Expo Push Notification Tool)
+      // Fetch Expo Push Token (Notifications.getExpoPushTokenAsync)
       try {
         const projectId = Constants.expoConfig?.extra?.eas?.projectId || Constants.easConfig?.projectId;
         console.log(`📲 [PushNotification] Fetching Expo Push Token (EAS Project ID: ${projectId || "default"})...`);
         const expoTokenData = await Notifications.getExpoPushTokenAsync(
           projectId ? { projectId } : undefined
         );
-        expoPushToken = expoTokenData.data;
+        if (expoTokenData && expoTokenData.data && typeof expoTokenData.data === "string") {
+          expoPushToken = expoTokenData.data;
+        }
         console.log("==================================================================");
-        console.log("🚀 EXPO PUSH TOKEN (USE THIS FOR EXPO ORBIT / EXPO.DEV TOOL):");
+        console.log("🚀 [EXPO PUSH TOKEN OBTAINED]:");
         console.log(expoPushToken);
         console.log("==================================================================");
       } catch (expoErr) {
-        console.warn("📲 [PushNotification] Could not fetch Expo Push Token directly:", expoErr);
+        console.warn("📲 [PushNotification] Could not fetch Expo Push Token:", expoErr);
       }
 
-      // Use native FCM token primary for backend, fallback to Expo Push Token if native is unavailable
-      const primaryToken = nativeFcmToken || expoPushToken;
-      return primaryToken;
+      return expoPushToken;
     } catch (err) {
-      console.error("📲 [PushNotification] Error while checking permissions or getting push tokens:", err);
+      console.warn("📲 [PushNotification] Error while checking permissions or getting push tokens:", err);
       return null;
     }
   }, []);
@@ -194,8 +179,8 @@ export function PushNotificationProvider({
       }
       try {
         const token = await requestPermissions();
-        if (!token) {
-          console.warn("📲 [PushNotification] Registration aborted: Push token is null.");
+        if (!token || typeof token !== "string" || !token.trim()) {
+          console.warn("📲 [PushNotification] Registration aborted: Push token is null or empty.");
           return null;
         }
 
@@ -204,15 +189,18 @@ export function PushNotificationProvider({
         const platform: Platform =
           RNPlatform.OS === "ios" ? "ios" : "android";
 
-        console.log("📲 [PushNotification] Sending registration request to backend:", {
+        console.log("📲 [PushNotification] Sending Expo registration request to backend:", {
           company_id: companyId,
           platform,
+          token_type: "expo",
           device_name: Device.modelName,
           token_preview: `${token.substring(0, 25)}...`,
         });
 
         const res = await pushService.registerDevice({
           fcm_token: token,
+          expo_push_token: token,
+          token_type: "expo",
           platform,
           device_name: Device.modelName || undefined,
           company_id: companyId,
@@ -220,7 +208,7 @@ export function PushNotificationProvider({
 
         console.log("📲 [PushNotification] Device registration API response:", res);
 
-        if (res.Good) {
+        if (res && res.Good) {
           console.log(`📲 [PushNotification] Device registered successfully with backend. Device ID: ${res.device_id}`);
           setState((prev) => ({
             ...prev,
@@ -229,14 +217,14 @@ export function PushNotificationProvider({
             deviceId: res.device_id,
           }));
         } else {
-          console.warn("📲 [PushNotification] Device registration API returned Good: false");
+          console.warn("📲 [PushNotification] Device registration API returned Good: false", res);
         }
 
         return token;
       } catch (error) {
-        console.error(
-          "📲 [PushNotification] Registration failed with error:",
-          error
+        console.warn(
+          "📲 [PushNotification] Device registration failed:",
+          error instanceof Error ? error.message : error
         );
         return null;
       }

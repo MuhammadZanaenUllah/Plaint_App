@@ -142,9 +142,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const successRes = res as import("@/types/auth.types").LoginSuccessResponse;
       console.log("=========================================");
-      console.log("🔑 [FULL ACCESS TOKEN ON LOGIN]:");
-      console.log(successRes.authToken);
-      console.log("=========================================");
+      // console.log("🔑 [FULL ACCESS TOKEN ON LOGIN]:");
+      // console.log(successRes.authToken);
+      // console.log("=========================================");
       await setStoredToken(successRes.authToken);
       await setStoredUser(successRes.user.userdata);
       await setStoredCompany(successRes.user.company);

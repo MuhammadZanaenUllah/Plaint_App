@@ -8,25 +8,25 @@ export async function getStoredToken(): Promise<string | null> {
   const token = await SecureStore.getItemAsync(TOKEN_KEY);
   if (token) {
     console.log("=========================================");
-    console.log("🔐 [FULL JWT ACCESS TOKEN RETRIEVED]:");
-    console.log(token);
-    console.log("=========================================");
+    // console.log("🔐 [FULL JWT ACCESS TOKEN RETRIEVED]:");
+    // console.log(token);
+    // console.log("=========================================");
   } else {
-    console.log("🔐 [ACCESS TOKEN] No stored token found in SecureStore.");
+    // console.log("🔐 [ACCESS TOKEN] No stored token found in SecureStore.");
   }
   return token;
 }
 
 export async function setStoredToken(token: string): Promise<void> {
   console.log("=========================================");
-  console.log("🔐 [FULL JWT ACCESS TOKEN STORED ON LOGIN]:");
-  console.log(token);
-  console.log("=========================================");
+  // console.log("🔐 [FULL JWT ACCESS TOKEN STORED ON LOGIN]:");
+  // console.log(token);
+  // console.log("=========================================");
   await SecureStore.setItemAsync(TOKEN_KEY, token);
 }
 
 export async function removeStoredToken(): Promise<void> {
-  console.log("🔐 [ACCESS TOKEN] Removed JWT Access Token from SecureStore.");
+  // console.log("🔐 [ACCESS TOKEN] Removed JWT Access Token from SecureStore.");
   await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
 

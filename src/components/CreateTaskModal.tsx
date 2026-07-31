@@ -23,6 +23,11 @@ import DocumentPickerButton from "@/features/attachments/components/DocumentPick
 import type { SelectedFile } from "@/features/attachments/types/attachment.types";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
+import {
+  CriticalTaskPopUpModal,
+  OrderCriticalTasksModal,
+  type CriticalTask,
+} from "@/components/CriticalTaskModal";
 
 type DurationUnit = "Minutes" | "Hours" | "Days";
 
@@ -43,7 +48,7 @@ const PRIORITY_OPTIONS = [
 
 export default function CreateTaskModal({ visible, onClose }: Props) {
   const { state: authState } = useAuth();
-  const { state: taskState, createTask, fetchAllTasks, allMappedTasks } = useTasks();
+  const { state: taskState, createTask, fetchAllTasks, allMappedTasks, reorderCritical } = useTasks();
 
   const companyIdRef = useRef(authState.company?.company_id ?? 0);
   companyIdRef.current = authState.company?.company_id ?? 0;
@@ -100,6 +105,18 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
   const [selectedDependencies, setSelectedDependencies] = useState<number[]>([]);
 
   const [loading, setLoading] = useState(false);
+
+  // ── Critical-task conflict flow ───────────────────────────────────────────
+  // criticalPopupVisible: shown when assignee already has active critical tasks
+  const [criticalPopupVisible, setCriticalPopupVisible] = useState(false);
+  // orderModalVisible: shown after user picks "stop & start immediately"
+  const [orderModalVisible, setOrderModalVisible] = useState(false);
+  // pendingPayload: the task payload waiting to be created once user resolves conflict
+  const pendingPayloadRef = useRef<Record<string, any> | null>(null);
+  // existingCriticalTasks for the selected assignee
+  const [assigneeCriticalTasks, setAssigneeCriticalTasks] = useState<CriticalTask[]>([]);
+  // placeholder for the new task in the order modal (actual id set after creation)
+  const PENDING_NEW_TASK_ID = -1;
 
   const togglePanel = (panel: "assign" | "duration" | "priority" | "approval" | "status" | "recurring" | "dependencies") => {
     setAssignOpen(panel === "assign" ? !assignOpen : false);
@@ -214,6 +231,11 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     return new Date(Date.now() + ms).toISOString();
   };
 
+  /**
+   * Builds and validates the task payload, then either:
+   *   A) Shows the critical-conflict popup (if priority=critical AND assignee already has active critical tasks)
+   *   B) Directly creates the task (all other cases)
+   */
   const handleCreateTask = async () => {
     if (!title.trim()) {
       showInfo("Validation", "Task title is required.");
@@ -232,72 +254,92 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       return;
     }
 
-    setLoading(true);
-    try {
-      const descriptionHtml = await descriptionEditorRef.current?.getContentHtml();
-      const companyId = authState.company?.company_id ?? 0;
-      const companyIdentifier = authState.company?.company_identifier ?? "";
-
-      const isRecurring = recurringPeriod !== null;
-
-      const priority = selectedPriority.toLowerCase() as "normal" | "critical";
-
-      // Convert effort to minutes as backend stores it as-is (always in minutes)
-      const rawEffort = durationValue ? parseInt(durationValue, 10) : 0;
-      const effortInMinutes = durationUnit === "Hours"
+    const descriptionHtml = await descriptionEditorRef.current?.getContentHtml();
+    const companyId = authState.company?.company_id ?? 0;
+    const companyIdentifier = authState.company?.company_identifier ?? "";
+    const isRecurring = recurringPeriod !== null;
+    const priority = selectedPriority.toLowerCase() as "normal" | "critical";
+    const rawEffort = durationValue ? parseInt(durationValue, 10) : 0;
+    const effortInMinutes =
+      durationUnit === "Hours"
         ? rawEffort * 60
         : durationUnit === "Days"
-          ? rawEffort * 8 * 60
-          : rawEffort;  // Minutes
+        ? rawEffort * 8 * 60
+        : rawEffort;
 
-      const requestPayload = {
-        title: title.trim(),
-        company_identifier: companyIdentifier,
-        company_id: companyId,
-        assign_to: assignedUserId,
-        due_date: computeDueDateFromDuration(),
-        task_priority: priority,
-        bump_to_front: priority === "critical",
-        approval_required: selectedApproval === "Yes" ? 1 : 0,
-        status: uiStatusToApi((selectedStatus as UiTaskStatus) ?? "Pending"),
-        description: descriptionHtml ?? description,
-        project_id: null,
-        sprint_id: null,
-        parent_id: 0,
-        is_recurring: isRecurring,
-        recurring_period: isRecurring ? recurringPeriod : null,
-        recurring_time: isRecurring && recurringTime ? recurringTime : null,
-        recurring_total_count: isRecurring ? recurringTotalCount : 0,
-        recurring_exclude_days: [],
-        recurring_week_day: null,
-        recurring_month_date: null,
-        recurring_annual_month: null,
-        recurring_annual_date: null,
-        effort_hours: effortInMinutes,
-        effort_unit: durationUnit.toLowerCase(),
-        depends_on: [],
-      };
-      console.log(`[CreateTaskModal] FULL PAYLOAD:`, JSON.stringify(requestPayload, null, 2));
-      console.log(`[CreateTaskModal] effort_hours=${requestPayload.effort_hours} (${effortInMinutes} minutes), effort_unit="${requestPayload.effort_unit}" (raw durationValue="${durationValue}", durationUnit="${durationUnit}")`);
+    const requestPayload = {
+      title: title.trim(),
+      company_identifier: companyIdentifier,
+      company_id: companyId,
+      assign_to: assignedUserId,
+      due_date: computeDueDateFromDuration(),
+      task_priority: priority,
+      bump_to_front: priority === "critical", // default; overridden per popup choice
+      approval_required: selectedApproval === "Yes" ? 1 : 0,
+      status: uiStatusToApi((selectedStatus as UiTaskStatus) ?? "Pending"),
+      description: descriptionHtml ?? description,
+      project_id: null,
+      sprint_id: null,
+      parent_id: 0,
+      is_recurring: isRecurring,
+      recurring_period: isRecurring ? recurringPeriod : null,
+      recurring_time: isRecurring && recurringTime ? recurringTime : null,
+      recurring_total_count: isRecurring ? recurringTotalCount : 0,
+      recurring_exclude_days: [],
+      recurring_week_day: null,
+      recurring_month_date: null,
+      recurring_annual_month: null,
+      recurring_annual_date: null,
+      effort_hours: effortInMinutes,
+      effort_unit: durationUnit.toLowerCase(),
+      depends_on: [],
+    };
 
-      const response = await createTask(requestPayload);
-
-      const taskId = response;
-      console.log(`[CreateTaskModal] BACKEND RESPONSE:`, JSON.stringify(response, null, 2));
-      console.log(`[CreateTaskModal] Task created successfully with id=${taskId}.`);
-
-      // Note: For critical tasks, bump_to_front: true already sets position 1 in the queue.
-      // reorderCritical is only needed for custom drag-and-drop reordering (future Critical tab feature).
-      // The backend handles automatic ordering — no extra call needed here.
-
-      showSuccess("Success", "Task created successfully.");
-
-      // Immediately refresh the task list so the new task appears in the table.
-      // This is a fallback in case the socket task_update event doesn't arrive.
-      fetchAllTasks(companyId).catch((err) =>
-        console.error("[CreateTaskModal] fetchAllTasks after create failed:", err)
+    // ── Check for critical-task conflict ──────────────────────────────────────
+    if (priority === "critical") {
+      // Look for existing active critical tasks assigned to this user
+      const activeCritical = [
+        ...taskState.assignedToMe,
+        ...taskState.allOtherTasks,
+      ].filter(
+        (t) =>
+          t.asigned_to === assignedUserId &&
+          t.task_priority === "critical" &&
+          t.status !== "Complete" &&
+          t.status !== "Rejected"
       );
 
+      if (activeCritical.length > 0) {
+        // Stash the payload and show the conflict popup
+        pendingPayloadRef.current = requestPayload;
+        setAssigneeCriticalTasks(
+          activeCritical.map((t) => ({
+            id: t.id,
+            title: t.title,
+            dueDate: t.due_date ?? undefined,
+            status: t.status,
+          }))
+        );
+        setCriticalPopupVisible(true);
+        return; // wait for user choice
+      }
+    }
+
+    // ── No conflict — create directly ─────────────────────────────────────────
+    await doCreateTask(requestPayload);
+  };
+
+  /** Actually calls the API and handles success/error UI */
+  const doCreateTask = async (payload: Record<string, any>) => {
+    setLoading(true);
+    try {
+      console.log(`[CreateTaskModal] FULL PAYLOAD:`, JSON.stringify(payload, null, 2));
+      const response = await createTask(payload as any);
+      console.log(`[CreateTaskModal] BACKEND RESPONSE:`, JSON.stringify(response, null, 2));
+      showSuccess("Success", "Task created successfully.");
+      fetchAllTasks(payload.company_id as number).catch((err) =>
+        console.error("[CreateTaskModal] fetchAllTasks after create failed:", err)
+      );
       resetForm();
       onClose();
     } catch (error) {
@@ -305,6 +347,58 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       showError("Error", msg);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ── Critical popup handlers ───────────────────────────────────────────────
+
+  /** Option 1: Stop current task → create with bump_to_front: true → open reorder modal */
+  const handleStopAndStart = async () => {
+    setCriticalPopupVisible(false);
+    if (!pendingPayloadRef.current) return;
+    const payload = { ...pendingPayloadRef.current, bump_to_front: true };
+    setLoading(true);
+    try {
+      console.log(`[CreateTaskModal] Critical Option 1 PAYLOAD:`, JSON.stringify(payload, null, 2));
+      const newTaskId = await createTask(payload as any);
+      fetchAllTasks(authState.company?.company_id ?? 0).catch(() => {});
+      // Open reorder modal — newTaskId is the just-created task's id
+      pendingPayloadRef.current = { ...payload, _newTaskId: newTaskId };
+      setTimeout(() => setOrderModalVisible(true), 300);
+    } catch (error) {
+      showError("Error", extractErrorMessage(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** Option 2: Wait → create with bump_to_front: false, close normally */
+  const handleWaitAndSchedule = async () => {
+    setCriticalPopupVisible(false);
+    if (!pendingPayloadRef.current) return;
+    const payload = { ...pendingPayloadRef.current, bump_to_front: false };
+    await doCreateTask(payload);
+    pendingPayloadRef.current = null;
+  };
+
+  /** Reorder modal confirmed: call POST /tasks/reorder-critical then close */
+  const handleConfirmOrder = async (orderedIds: number[]) => {
+    const companyId = authState.company?.company_id ?? 0;
+    try {
+      // Replace placeholder id -1 with the real new task id
+      const newTaskId = pendingPayloadRef.current?._newTaskId as number | undefined;
+      const resolvedIds = orderedIds.map((id) =>
+        id === PENDING_NEW_TASK_ID && newTaskId ? newTaskId : id
+      );
+      await reorderCritical({ orderedIds: resolvedIds, company_id: companyId });
+      fetchAllTasks(companyId).catch(() => {});
+    } catch (error) {
+      showError("Reorder Error", extractErrorMessage(error));
+    } finally {
+      setOrderModalVisible(false);
+      pendingPayloadRef.current = null;
+      resetForm();
+      onClose();
     }
   };
 
@@ -362,6 +456,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
   };
 
   return (
+    <>
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable onPress={() => {}} style={styles.sheet}>
@@ -850,6 +945,36 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
         </Pressable>
       {/* </Pressable> */}
     </Modal>
+
+      {/* ── Critical Task: Conflict Popup ── */}
+      <CriticalTaskPopUpModal
+        visible={criticalPopupVisible}
+        onClose={() => {
+          setCriticalPopupVisible(false);
+          pendingPayloadRef.current = null;
+        }}
+        onStopAndStart={handleStopAndStart}
+        onWaitAndSchedule={handleWaitAndSchedule}
+      />
+
+      {/* ── Critical Task: Reorder Modal ── */}
+      <OrderCriticalTasksModal
+        visible={orderModalVisible}
+        newTask={{
+          id: PENDING_NEW_TASK_ID,
+          title: pendingPayloadRef.current?.title ?? "New Critical Task",
+          assignedTo: assignedUserName,
+        }}
+        existingCriticalTasks={assigneeCriticalTasks}
+        onClose={() => {
+          setOrderModalVisible(false);
+          pendingPayloadRef.current = null;
+          resetForm();
+          onClose();
+        }}
+        onConfirm={handleConfirmOrder}
+      />
+    </>
   );
 }
 

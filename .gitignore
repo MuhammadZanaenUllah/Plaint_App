@@ -52,6 +52,8 @@ apis_documents/
 prompts/
 AGENT_API_INTEGRATION.md
 ModulesMdFiles/
+assets/implementationScreenshots
+
 
 # Firebase Admin Keys (Security)
 *firebase-adminsdk*.json

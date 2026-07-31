@@ -1,5 +1,6 @@
 import AddPeopleModal from "@/components/AddPeopleModal";
 import CreateChannelModal from "@/components/CreateChannelModal";
+import InviteToChannelModal, { type ChannelPermission, type ChannelMember } from "@/components/InviteToChannelModal";
 import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
@@ -16,7 +17,7 @@ import {
 } from "@/utils/chatHelpers";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
     ScrollView,
@@ -26,6 +27,7 @@ import {
     View,
 } from "react-native";
 import { showSuccess, showError } from "@/utils/toast";
+import * as chatService from "@/services/api/chat.service";
 const { ChatIcon: MainChatIcon, ChannelTabIcon } = Icons;
 
 // ─── Chip Config ──────────────────────────────────────────────────────────────
@@ -62,6 +64,13 @@ export default function ChatScreen() {
     const [projectContext, setProjectContext] = useState<Room | null>(null);
     // Track expanded projects in the Projects chip view
     const [expandedProjects, setExpandedProjects] = useState<Set<number>>(new Set());
+
+    // ── InviteToChannelModal state ─────────────────────────────────────────────
+    const [inviteModalVisible, setInviteModalVisible] = useState(false);
+    // Room that was just created (for the invite modal to use)
+    const createdRoomRef = useRef<Room | null>(null);
+    // Pending users selected from AddPeopleModal (to pre-fill invite modal)
+    const [pendingInviteUsers, setPendingInviteUsers] = useState<Array<{ id: string; name: string; email?: string }>>([]); 
 
     // Fetch rooms on mount
     useEffect(() => {
@@ -267,66 +276,124 @@ export default function ChatScreen() {
                     const room = await getOrCreateRoom(createRoomReq);
                     console.log("[Chat] Channel created:", room.id, room.name);
 
-                    // ── Invite/Add each selected user ──
-                    let emailSent = 0;
-                    let directAdded = 0;
-                    let failed = 0;
-
-                    for (const user of users) {
-                        const userId = parseInt(user.id, 10);
-                        if (isNaN(userId)) continue;
-
-                        try {
-                            if (user.email) {
-                                // Has email → send invite via POST /chat/invite (sends email)
-                                await inviteUser(room._id, user.email, userId, "Full edit");
-                                emailSent++;
-                                console.log(`[Chat] Invite email sent to ${user.email}`);
-                            } else {
-                                // No email → add directly via POST /chat/add-member
-                                await addMember(room._id, userId);
-                                directAdded++;
-                                console.log(`[Chat] Member added directly: ${user.name}`);
-                            }
-                        } catch (err) {
-                            failed++;
-                            console.log(`[Chat] Failed to invite/add ${user.name}:`, err);
-                        }
-                    }
-
-                    // Show feedback
-                    const parts: string[] = [];
-                    if (emailSent > 0) parts.push(`${emailSent} invite email(s) sent`);
-                    if (directAdded > 0) parts.push(`${directAdded} member(s) added`);
-                    if (failed > 0) parts.push(`${failed} failed`);
-                    if (parts.length > 0) {
-                        showSuccess("Channel Created", `"${room.name}" created.\n${parts.join(", ")}.`);
-                    }
-
-                    // Refresh rooms to show updated member lists
+                    // ── Store the created room and selected users, show InviteToChannelModal ──
+                    createdRoomRef.current = room as unknown as Room;
+                    setPendingInviteUsers(users);
                     fetchRooms();
+                    setTimeout(() => setInviteModalVisible(true), 300);
 
-                    // Navigate to the new channel
-                    router.push({
-                        pathname: "/conversation",
-                        params: {
-                            roomId: room._id,
-                            name: room.name,
-                            initials: room.name.charAt(0).toUpperCase(),
-                            isChannel: "true",
-                            roomType: "channel",
-                        },
-                    });
+                    setNewChannelName("");
+                    setProjectContext(null);
                 } catch (err) {
                     console.log("[Chat] Channel creation error:", err);
                     showError("Error", "Failed to create channel. Please try again.");
+                    setNewChannelName("");
+                    setProjectContext(null);
                 }
-                setNewChannelName("");
-                setProjectContext(null);
             }
         },
-        [newChannelName, projectContext, getOrCreateRoom, inviteUser, addMember, fetchRooms]
+        [newChannelName, projectContext, getOrCreateRoom, fetchRooms]
     );
+
+    // ── InviteToChannelModal handlers ──────────────────────────────────────────
+
+    const handleChannelInvite = useCallback(
+        async (emails: string[], permission: ChannelPermission) => {
+            const room = createdRoomRef.current;
+            if (!room) return;
+            let emailSent = 0;
+            let directAdded = 0;
+            let failed = 0;
+
+            // First invite the pending users selected from AddPeopleModal
+            for (const user of pendingInviteUsers) {
+                const userId = parseInt(user.id, 10);
+                if (isNaN(userId)) continue;
+                try {
+                    if (user.email) {
+                        await chatService.inviteUser({ roomId: room._id, email: user.email, userId, permission });
+                        emailSent++;
+                    } else {
+                        await chatService.addMember(room._id, userId);
+                        directAdded++;
+                    }
+                } catch {
+                    failed++;
+                }
+            }
+
+            // Then send invite emails to the typed email addresses
+            for (const email of emails) {
+                try {
+                    await chatService.inviteUser({ roomId: room._id, email, permission });
+                    emailSent++;
+                } catch {
+                    failed++;
+                }
+            }
+
+            fetchRooms();
+
+            const parts: string[] = [];
+            if (emailSent > 0) parts.push(`${emailSent} invite(s) sent`);
+            if (directAdded > 0) parts.push(`${directAdded} member(s) added`);
+            if (failed > 0) parts.push(`${failed} failed`);
+            if (parts.length > 0) showSuccess("Channel Ready", `"${room.name}": ${parts.join(", ")}.`);
+
+            // Navigate to the new channel
+            router.push({
+                pathname: "/conversation",
+                params: {
+                    roomId: room._id,
+                    name: room.name,
+                    initials: room.name.charAt(0).toUpperCase(),
+                    isChannel: "true",
+                    roomType: "channel",
+                },
+            });
+        },
+        [pendingInviteUsers, fetchRooms]
+    );
+
+    const handleGenerateChannelLink = useCallback(
+        async (permission: ChannelPermission, forAllUsers: boolean): Promise<string | null> => {
+            const room = createdRoomRef.current;
+            if (!room) return null;
+            try {
+                const res = await chatService.generateLink({
+                    roomId: room._id,
+                    permission,
+                    forAllUsers,
+                });
+                return (res as any)?.data?.inviteLink ?? (res as any)?.inviteLink ?? null;
+            } catch (err) {
+                console.error("[Chat] generateLink error:", err);
+                return null;
+            }
+        },
+        []
+    );
+
+    const handleUpdateChannelPermission = useCallback(
+        async (memberId: number, permission: ChannelPermission) => {
+            const room = createdRoomRef.current;
+            if (!room) return;
+            await chatService.updatePermission({ roomId: room._id, userId: memberId, permission });
+        },
+        []
+    );
+
+    // Build current room members for the InviteToChannelModal "Who has access" list
+    const currentChannelMembers = useMemo<ChannelMember[]>(() => {
+        const room = createdRoomRef.current;
+        if (!room) return [];
+        return (room.members ?? []).map((m: any) => ({
+            id: m.id,
+            name: `${m.first_name || ""} ${m.last_name || ""}`.trim() || `User #${m.id}`,
+            isOwner: m.id === currentUserId,
+        }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [inviteModalVisible, currentUserId]);
 
     // Handler for creating a channel under a specific project
     const handleProjectAddChannel = useCallback(
@@ -719,6 +786,22 @@ export default function ChatScreen() {
                 }}
                 onNext={handleChannelCreate}
                 title={projectContext ? `Add Channel to "${projectContext.name}"` : "Create Channel"}
+            />
+
+            {/* ── InviteToChannelModal ── */}
+            <InviteToChannelModal
+                visible={inviteModalVisible}
+                roomId={createdRoomRef.current?._id ?? ""}
+                members={currentChannelMembers}
+                currentUserId={currentUserId}
+                onClose={() => {
+                    setInviteModalVisible(false);
+                    createdRoomRef.current = null;
+                    setPendingInviteUsers([]);
+                }}
+                onInvite={handleChannelInvite}
+                onGenerateLink={handleGenerateChannelLink}
+                onUpdatePermission={handleUpdateChannelPermission}
             />
         </View>
     );

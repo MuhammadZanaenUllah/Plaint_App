@@ -2,6 +2,8 @@ export type Platform = "android" | "ios";
 
 export type RegisterDeviceRequest = {
   fcm_token: string;
+  expo_push_token?: string;
+  token_type?: "fcm" | "expo";
   platform: Platform;
   device_name?: string;
   company_id: number;

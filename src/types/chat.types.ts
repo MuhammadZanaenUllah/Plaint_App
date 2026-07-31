@@ -303,7 +303,7 @@ export type MarkUnreadResponse = {
 export type InviteRequest = {
   roomId: string;
   email: string;
-  userId: number;
+  userId?: number;
   permission: string;
 };
 
@@ -315,7 +315,9 @@ export type InviteResponse = {
 export type GenerateLinkRequest = {
   roomId: string;
   permission: string;
-  allowedUserIds: number[];
+  /** If true, any user with the link can join; otherwise only allowedUserIds */
+  forAllUsers?: boolean;
+  allowedUserIds?: number[];
 };
 
 export type GenerateLinkResponse = {
