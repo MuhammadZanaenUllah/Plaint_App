@@ -34,6 +34,7 @@ import {
 } from "react-native";
 import EmojiPicker from "rn-emoji-keyboard";
 import { showInfo, showError } from "@/utils/toast";
+import * as socketService from "@/services/socket/socketService";
 
 let ExpoAudio: typeof import("expo-audio") | null = null;
 try {
@@ -680,9 +681,14 @@ export default function ConversationScreen() {
         roomPermissions,
         roomCreator,
         setSearchQuery,
+        typingUsers,
     } = useChat();
     const authState = useAuth();
     const currentUserId = authState?.state?.user?.id ?? 0;
+    const currentUserName = authState?.state?.user
+        ? `${authState.state.user.first_name} ${authState.state.user.last_name}`.trim() ||
+        `User #${currentUserId}`
+        : `User #${currentUserId}`;
 
     // ── Room-level permission gating ──────────────────────────────────────
     // Room permissions come from GET /chat/room-permissions/:roomId
@@ -882,6 +888,34 @@ export default function ConversationScreen() {
         }
     }, [roomId, isChannel, fetchMessages, fetchPostTypes, fetchRoomPermissions]);
 
+    // Emit a "messagesRead" socket event whenever the user opens a room
+    // so the sender can mark these messages as read on their side.
+    useEffect(() => {
+        if (roomId && currentUserId) {
+            socketService.emitMessagesRead(roomId, currentUserId);
+        }
+    }, [roomId, currentUserId]);
+
+    // Broadcast typing state to the room (only when the user may send).
+    const handleTextChange = useCallback(
+        (text: string) => {
+            setMessage(text);
+            if (!roomId || !currentUserId || !canSendMessage) return;
+            if (text.trim().length > 0) {
+                socketService.startTypingWithTimeout(roomId, currentUserId, currentUserName);
+            } else {
+                socketService.emitStopTyping(roomId, currentUserId, currentUserName);
+            }
+        },
+        [roomId, currentUserId, canSendMessage, currentUserName]
+    );
+
+    // Names of other members currently typing in this room.
+    const typingNames = useMemo(() => {
+        const roomMap = typingUsers.get(roomId ?? "") ?? new Map<number, string>();
+        return Array.from(roomMap.values());
+    }, [typingUsers, roomId]);
+
     // Auto-scroll to bottom on new messages
     useEffect(() => {
         if (state.messages.length > 0) {
@@ -898,6 +932,7 @@ export default function ConversationScreen() {
     const handleSend = useCallback(async () => {
         if (!message.trim() || !roomId || sending) return;
 
+        socketService.emitStopTyping(roomId, currentUserId, currentUserName);
         const text = message.trim();
         setMessage("");
         setSending(true);
@@ -917,7 +952,7 @@ export default function ConversationScreen() {
         } finally {
             setSending(false);
         }
-    }, [message, roomId, sending, replyTo, sendMessage]);
+    }, [message, roomId, sending, replyTo, sendMessage, currentUserId, currentUserName]);
 
     const handleReact = useCallback(
         async (msg: ChatMessage) => {
@@ -1488,6 +1523,20 @@ export default function ConversationScreen() {
                         </View>
                     )}
 
+                    {/* ── Typing Indicator ── */}
+                    {typingNames.length > 0 && (
+                        <View style={styles.typingIndicator}>
+                            <View style={styles.typingDots}>
+                                <View style={styles.typingDot} />
+                                <View style={[styles.typingDot, styles.typingDotMid]} />
+                                <View style={styles.typingDot} />
+                            </View>
+                            <Text style={styles.typingText} numberOfLines={1}>
+                                {typingNames.join(", ")} {typingNames.length === 1 ? "is" : "are"} typing…
+                            </Text>
+                        </View>
+                    )}
+
                     {/* ── Bottom Input Bar ── */}
                     <View style={styles.inputBar}>
                         {canSendMessage ? (
@@ -1530,7 +1579,7 @@ export default function ConversationScreen() {
                                         placeholder="Type anything..."
                                         placeholderTextColor="#9CA3AF"
                                         value={message}
-                                        onChangeText={setMessage}
+                                        onChangeText={handleTextChange}
                                         multiline
                                         maxLength={2000}
                                     />
@@ -2108,6 +2157,36 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         borderTopWidth: 1,
         borderTopColor: "#F3F4F6",
+    },
+    typingIndicator: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingHorizontal: 16,
+        paddingTop: 8,
+        paddingBottom: 2,
+    },
+    typingDots: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 3,
+    },
+    typingDot: {
+        width: 5,
+        height: 5,
+        borderRadius: 2.5,
+        backgroundColor: TEAL,
+        opacity: 0.9,
+    },
+    typingDotMid: {
+        opacity: 0.5,
+    },
+    typingText: {
+        fontSize: 12,
+        fontFamily: "SF_Pro_Regular",
+        color: "#9CA3AF",
+        fontStyle: "italic",
+        flex: 1,
     },
     viewOnlyBar: {
         flexDirection: "row",

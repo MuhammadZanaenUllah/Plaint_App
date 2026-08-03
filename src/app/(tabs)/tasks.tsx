@@ -52,9 +52,9 @@ export default function TasksScreen() {
 
   const companyId = authState.company?.company_id;
 
-  // Create-task visibility is driven by the logged-in user's permission keys
-  // (`userdata.user_permissions` from the login payload). Users without
-  // "tasks-create" never see the create-task FAB.
+  // Create-task visibility is driven by the logged-in user's `is_head`
+  // attribute (`userdata.is_head` from the login payload). Only department
+  // heads ever see the create-task FAB.
   const canCreate = useMemo(
     () => canCreateTask(authState.user),
     [authState.user]

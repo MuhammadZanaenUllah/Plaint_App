@@ -7,6 +7,7 @@ const SOCKET_URL =
 
 let socket: Socket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingListeners: Array<{ event: string; callback: (...args: unknown[]) => void }> = [];
 
 // ─── Task Socket Types ───────────────────────────────────────────────────────
 
@@ -133,6 +134,14 @@ export async function connectSocket(): Promise<Socket> {
     auth: token ? { token } : undefined,
   });
 
+  // Apply listeners that were registered before the socket existed
+  if (pendingListeners.length > 0) {
+    pendingListeners.forEach(({ event, callback }) => {
+      socket?.on(event as never, callback as never);
+    });
+    pendingListeners = [];
+  }
+
   return socket;
 }
 
@@ -146,6 +155,7 @@ export function disconnectSocket(): void {
     socket.disconnect();
     socket = null;
   }
+  pendingListeners = [];
 }
 
 export function getSocket(): Socket | null {
@@ -165,9 +175,9 @@ export function joinChatRoom(roomId: string): void {
   socket.emit("joinChatRoom", roomId);
 }
 
-export function leaveChatRoom(roomId: string): void {
+export function leaveChatRoom(roomId: string, userId?: number | string): void {
   if (!socket?.connected) return;
-  socket.emit("userLeftRoom", { roomId, userId: "" });
+  socket.emit("userLeftRoom", { roomId, userId: userId ? String(userId) : "" });
 }
 
 // ─── Typing ───────────────────────────────────────────────────────────────────
@@ -301,10 +311,21 @@ export function onSocketEvent<K extends string>(
   event: K,
   callback: (...args: unknown[]) => void
 ): () => void {
-  if (!socket) return () => {};
-  socket.on(event as never, callback as never);
+  if (socket) {
+    socket.on(event as never, callback as never);
+  } else {
+    pendingListeners.push({ event, callback });
+  }
+  let removed = false;
   return () => {
-    socket?.off(event as never, callback as never);
+    if (removed) return;
+    removed = true;
+    if (socket) {
+      socket.off(event as never, callback as never);
+    }
+    pendingListeners = pendingListeners.filter(
+      (l) => !(l.event === event && l.callback === callback)
+    );
   };
 }
 
@@ -312,10 +333,17 @@ export function offSocketEvent<K extends string>(
   event: K,
   callback?: (...args: unknown[]) => void
 ): void {
-  if (!socket) return;
   if (callback) {
-    socket.off(event as never, callback as never);
+    if (socket) {
+      socket.off(event as never, callback as never);
+    }
+    pendingListeners = pendingListeners.filter(
+      (l) => !(l.event === event && l.callback === callback)
+    );
   } else {
-    socket.off(event as never);
+    if (socket) {
+      socket.off(event as never);
+    }
+    pendingListeners = pendingListeners.filter((l) => l.event !== event);
   }
 }

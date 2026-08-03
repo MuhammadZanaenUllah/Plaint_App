@@ -389,6 +389,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (!res.Good) {
       throw new Error(res.message ?? "Failed to delete room");
     }
+    socketService.emitRoomDeleted(roomId);
     dispatch({ type: "REMOVE_ROOM", roomId });
   }, []);
 
@@ -397,6 +398,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (!res.Good) {
       throw new Error(res.message ?? "Failed to leave room");
     }
+    socketService.leaveChatRoom(roomId, userIdRef.current);
     dispatch({ type: "REMOVE_ROOM", roomId });
   }, []);
 
@@ -429,6 +431,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (!res.Good) {
       throw new Error(res.message ?? "Failed to clear messages");
     }
+    socketService.emitChatCleared(roomId);
     dispatch({ type: "LOAD_MESSAGES", messages: [], hasMore: false, append: false });
   }, []);
 
@@ -546,6 +549,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const formData = buildEditMessageFormData(params);
       const res = await chatService.editMessage(formData);
       if (res.Good && res.message) {
+        socketService.emitMessageUpdated(params.messageId, params.text, res.message.room_id);
         dispatch({ type: "UPDATE_MESSAGE", message: res.message });
         return res.message;
       }
@@ -563,6 +567,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (deleteFor === "self") {
         dispatch({ type: "REMOVE_MESSAGE", messageId });
       }
+      if (deleteFor === "everyone") {
+        const roomId = stateRef.current.messages.find(
+          (m) => m._id === messageId || m.id.toString() === messageId
+        )?.room_id;
+        if (roomId) {
+          socketService.emitMessageDeleted(messageId, roomId);
+        }
+      }
     },
     []
   );
@@ -573,6 +585,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     async (messageId: string, emoji: string) => {
       const res = await chatService.toggleReaction(messageId, emoji);
       if (res.Good && res.reactions) {
+        const roomId = stateRef.current.messages.find(
+          (m) => m._id === messageId || m.id.toString() === messageId
+        )?.room_id;
+        if (roomId) {
+          socketService.emitMessageReaction(roomId, messageId, res.reactions);
+        }
         dispatch({
           type: "SET_REACTIONS",
           messageId,
@@ -590,6 +608,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (!res.Good) {
       throw new Error("Failed to toggle pin");
     }
+    socketService.emitMessagePinned(
+      res.message.room_id,
+      messageId,
+      res.is_pinned,
+      res.message
+    );
     // Update message in state
     dispatch({ type: "UPDATE_MESSAGE", message: res.message });
   }, []);
@@ -608,6 +632,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const res = await chatService.addMember(roomId, userId);
       if (!res.Good) {
         throw new Error(res.message ?? "Failed to add member");
+      }
+      const room = stateRef.current.rooms.find((r) => r._id === roomId);
+      if (room && res.user) {
+        socketService.emitMemberJoined({
+          ...room,
+          members: [...room.members, res.user],
+        });
       }
     },
     []
@@ -921,24 +952,40 @@ const cleanupUserOffline = socketService.onSocketEvent("userOffline", (userIdDat
   setOnlineUserIds((prev) => prev.filter((id) => id !== uid));
 });
 
-const cleanupUserTyping = socketService.onSocketEvent("userTyping", (data) => {
-  const typed = data as { user_id: number; user_name: string; isTyping: boolean };
+const handleOnlineUsersEvent = (data: unknown) => {
+  const ids = Array.isArray(data)
+    ? data.map((id) => String(id))
+    : typeof data === "object" && data !== null && Array.isArray((data as { userIds?: unknown[] }).userIds)
+      ? (data as { userIds: unknown[] }).userIds.map((id) => String(id))
+      : [];
+  if (ids.length === 0) return;
+  setOnlineUserIds(ids);
+  dispatch({ type: "SET_ONLINE_USERS", userIds: ids });
+};
+
+const cleanupOnlineUsers = socketService.onSocketEvent("onlineUsers", handleOnlineUsersEvent);
+const cleanupOnlineUsersList = socketService.onSocketEvent("onlineUsersList", handleOnlineUsersEvent);
+
+const handleTypingEvent = (data: unknown) => {
+  const typed = data as { room_id?: string; user_id: number; user_name: string; isTyping: boolean };
+  const roomId = typed.room_id;
+  if (!roomId) return;
   if (typed.user_id === userIdRef.current) return;
   setTypingUsers((prev) => {
     const next = new Map(prev);
-    const cur = stateRef.current.currentRoom;
-    if (cur) {
-      const roomMap = new Map(next.get(cur.id.toString()) || []);
-      if (typed.isTyping) {
-        roomMap.set(typed.user_id, typed.user_name);
-      } else {
-        roomMap.delete(typed.user_id);
-      }
-      next.set(cur.id.toString(), roomMap);
+    const roomMap = new Map(next.get(roomId) || []);
+    if (typed.isTyping) {
+      roomMap.set(typed.user_id, typed.user_name);
+    } else {
+      roomMap.delete(typed.user_id);
     }
+    next.set(roomId, roomMap);
     return next;
   });
-});
+};
+
+const cleanupUserTyping = socketService.onSocketEvent("userTyping", handleTypingEvent);
+const cleanupTyping = socketService.onSocketEvent("typing", handleTypingEvent);
 
 const cleanupMessageReaction = socketService.onSocketEvent(
   "messageReaction",
@@ -1116,7 +1163,10 @@ socketCleanupRef.current = [
   cleanupReceiveMessage,
   cleanupUserOnline,
   cleanupUserOffline,
+  cleanupOnlineUsers,
+  cleanupOnlineUsersList,
   cleanupUserTyping,
+  cleanupTyping,
   cleanupMessageReaction,
   cleanupMessagePinned,
   cleanupMessageUpdated,

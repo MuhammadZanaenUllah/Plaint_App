@@ -2,12 +2,18 @@ import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useReducer,
 } from "react";
 import * as chatService from "@/services/api/chat.service";
 import { NotificationItem } from "@/types/chat.types";
 import { extractErrorMessage } from "@/utils/errorHandler";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  connectSocket,
+  onSocketEvent,
+} from "@/services/socket/socketService";
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
@@ -108,6 +114,10 @@ export function NotificationProvider({
 }) {
   const [state, dispatch] = useReducer(notificationReducer, initialState);
 
+  const { state: authState } = useAuth();
+  const currentUserId = authState?.user?.id ?? 0;
+  const currentCompanyId = authState?.company?.company_id ?? 0;
+
   const fetchNotifications = useCallback(
     async (companyId: number, includeRead = false) => {
       dispatch({ type: "SET_LOADING", loading: true });
@@ -127,6 +137,30 @@ export function NotificationProvider({
     },
     []
   );
+
+  // ─── Live notifications via socket ──────────────────────────────────────
+  // The `notification` socket event is scoped by the recipient user id
+  // (payload: `{ assigned_to }`). On receipt we refresh the list from REST so
+  // the bell badge and the inbox stay in sync. Socket creation is idempotent,
+  // and socketService queues this listener until the socket exists.
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    connectSocket().catch(() => {});
+
+    return onSocketEvent("notification", (payload: unknown) => {
+      const typed = payload as { assigned_to?: number; company_id?: number };
+      if (typed.assigned_to !== undefined && String(typed.assigned_to) !== String(currentUserId)) {
+        return;
+      }
+      if (typed.company_id !== undefined && typed.company_id !== currentCompanyId) {
+        return;
+      }
+      if (currentCompanyId) {
+        fetchNotifications(currentCompanyId, true);
+      }
+    });
+  }, [currentUserId, currentCompanyId, fetchNotifications]);
 
   const markRead = useCallback(async (notificationId: number) => {
     try {
