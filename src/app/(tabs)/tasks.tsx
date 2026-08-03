@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import { useTaskSocket } from "@/hooks/useTaskSocket";
 import { uiStatusToApi } from "@/utils/statusMapper";
+import { canCreateTask } from "@/utils/permissions";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ScrollView,
@@ -50,6 +51,14 @@ export default function TasksScreen() {
   const [activeEndDateFilter, setActiveEndDateFilter] = useState<Date | null>(null);
 
   const companyId = authState.company?.company_id;
+
+  // Create-task visibility is driven by the logged-in user's permission keys
+  // (`userdata.user_permissions` from the login payload). Users without
+  // "tasks-create" never see the create-task FAB.
+  const canCreate = useMemo(
+    () => canCreateTask(authState.user),
+    [authState.user]
+  );
 
   useEffect(() => {
     if (companyId) {
@@ -200,6 +209,7 @@ export default function TasksScreen() {
       taskPriority: row.taskPriority,
       project: row.project,
       extraCount: row.extraCount,
+      canEditStatus: row._raw.can_edit_status ?? true,
       _raw: row._raw,
     }),
     []
@@ -502,11 +512,15 @@ export default function TasksScreen() {
         </View>
       </View>
 
-      <TouchableOpacity style={styles.fab} activeOpacity={0.85} onPress={() => setCreateVisible(true)}>
-        <MaterialIcons name="add" size={35} color="black" />
-      </TouchableOpacity>
+      {canCreate ? (
+        <TouchableOpacity style={styles.fab} activeOpacity={0.85} onPress={() => setCreateVisible(true)}>
+          <MaterialIcons name="add" size={35} color="black" />
+        </TouchableOpacity>
+      ) : null}
 
-      <CreateTaskModal visible={createVisible} onClose={() => setCreateVisible(false)} />
+      {canCreate ? (
+        <CreateTaskModal visible={createVisible} onClose={() => setCreateVisible(false)} />
+      ) : null}
       <TaskDetailModal visible={!!selectedTask} onClose={() => setSelectedTask(null)} task={selectedTask} />
     </View>
   );

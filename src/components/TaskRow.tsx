@@ -26,6 +26,7 @@ export type TaskRowProps = {
   comment?: string;
   project?: string;
   extraCount?: number;
+  canEditStatus?: boolean;
   isOpen?: boolean;
   onOpenRequest?: () => void;
   onClose?: () => void;

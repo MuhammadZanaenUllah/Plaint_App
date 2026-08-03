@@ -132,16 +132,16 @@ export function getLastMessagePreview(message: ChatMessage): string {
 
 /** Check if a user can perform an action based on their permission level. */
 export function canPerformAction(
-  permission: ChatPermission,
+  permission: ChatPermission | undefined,
   action: "view" | "comment" | "edit" | "delete" | "manage"
 ): boolean {
   switch (action) {
     case "view":
       return true;
     case "comment":
-      return permission === "Full edit" || permission === "Can edit";
+      return permission === "Full edit" || permission === "Edit" || permission === "Comment";
     case "edit":
-      return permission === "Full edit" || permission === "Can edit";
+      return permission === "Full edit" || permission === "Edit";
     case "delete":
       return permission === "Full edit";
     case "manage":

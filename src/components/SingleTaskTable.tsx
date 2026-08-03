@@ -123,6 +123,7 @@ function SingleTaskTable({
 
   const handleStatusChange = useCallback(
     (task: TaskRowProps, rowIndex: number, nextStatus: StatusType) => {
+      if (task.canEditStatus === false) return;
       setStatusOverrides((previous) => ({
         ...previous,
         [getTaskKey(task, rowIndex)]: nextStatus,
@@ -134,6 +135,7 @@ function SingleTaskTable({
 
   const handleToggleComplete = useCallback(
     (task: TaskRowProps, rowIndex: number) => {
+      if (task.canEditStatus === false) return;
       handleStatusChange(
         task,
         rowIndex,
@@ -645,6 +647,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
   };
   const actionStatusLabel = item.status;
   const actionStatusColor = colors.text;
+  const canChangeStatus = item.canEditStatus !== false;
 
   if (stage === "actions") {
     return (
@@ -734,24 +737,36 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
         </View>
 
         <View style={styles.swipeStatusColumn}>
-          <TouchableOpacity
-            style={[styles.swipeStatusCell, { backgroundColor: colors.bg }]}
-            onPress={() => setStatusPickerOpen((value) => !value)}
-            activeOpacity={0.8}
-          >
-            <Text
-              style={[styles.swipeStatusText, { color: colors.text }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
+          {canChangeStatus ? (
+            <TouchableOpacity
+              style={[styles.swipeStatusCell, { backgroundColor: colors.bg }]}
+              onPress={() => setStatusPickerOpen((value) => !value)}
+              activeOpacity={0.8}
             >
-              {item.status}
-            </Text>
-            <Ionicons
-              name={statusPickerOpen ? "chevron-up" : "chevron-down"}
-              size={13}
-              color={colors.text}
-            />
-          </TouchableOpacity>
+              <Text
+                style={[styles.swipeStatusText, { color: colors.text }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {item.status}
+              </Text>
+              <Ionicons
+                name={statusPickerOpen ? "chevron-up" : "chevron-down"}
+                size={13}
+                color={colors.text}
+              />
+            </TouchableOpacity>
+          ) : (
+            <View style={[styles.swipeStatusCell, { backgroundColor: colors.bg }]}>
+              <Text
+                style={[styles.swipeStatusText, { color: colors.text }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {item.status}
+              </Text>
+            </View>
+          )}
         </View>
 
         <View style={[styles.swipeCommentCell, styles.swipeCommentColumn]}>

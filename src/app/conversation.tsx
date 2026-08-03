@@ -3,8 +3,9 @@ import CalendarPicker from "@/components/CalendarPicker";
 import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
-import { ChatMessage, Room, RoomMember } from "@/types/chat.types";
+import { ChatMessage, Room, RoomMember, ChatPermission } from "@/types/chat.types";
 import {
+    canPerformAction,
     filterMessagesByText,
     formatMessageTime,
     getMessageInitials,
@@ -683,6 +684,44 @@ export default function ConversationScreen() {
     const authState = useAuth();
     const currentUserId = authState?.state?.user?.id ?? 0;
 
+    // ── Room-level permission gating ──────────────────────────────────────
+    // Room permissions come from GET /chat/room-permissions/:roomId
+    // (per-member: "Full edit" | "Edit" | "Comment" | "View Only").
+    // The room creator always holds the highest permission.
+    const callerPermission = useMemo<ChatPermission | undefined>(() => {
+        if (currentUserId === roomCreator) return "Full edit";
+        const found = (roomPermissions ?? []).find(
+            (p) => p.userId === currentUserId
+        );
+        return found?.permission as ChatPermission | undefined;
+    }, [currentUserId, roomCreator, roomPermissions]);
+
+    // "View Only" members (and channel non-members) may read but not send.
+    const canSendMessage = useMemo(() => {
+        if (!isChannel) return true;
+        if (!callerPermission) return true;
+        return canPerformAction(callerPermission, "comment");
+    }, [isChannel, callerPermission]);
+
+    // Reactions require at least comment-level access.
+    const canReact = useMemo(() => {
+        if (!isChannel) return true;
+        if (!callerPermission) return true;
+        return canPerformAction(callerPermission, "comment");
+    }, [isChannel, callerPermission]);
+
+    // Only Edit / Full edit may tag messages with a post type.
+    const canManagePostTypes = useMemo(() => {
+        if (!callerPermission) return false;
+        return canPerformAction(callerPermission, "edit");
+    }, [callerPermission]);
+
+    // Only the room creator / Full edit may add people to a channel.
+    const canManageMembers = useMemo(() => {
+        if (!callerPermission) return false;
+        return canPerformAction(callerPermission, "manage");
+    }, [callerPermission]);
+
     const [message, setMessage] = useState("");
     const scrollRef = useRef<any>(null);
     const [postTypeOpen, setPostTypeOpen] = useState(false);
@@ -882,6 +921,7 @@ export default function ConversationScreen() {
 
     const handleReact = useCallback(
         async (msg: ChatMessage) => {
+            if (!canReact) return;
             if (!roomId) return;
             try {
                 await toggleReaction(msg._id, "👍");
@@ -889,11 +929,12 @@ export default function ConversationScreen() {
                 // Silent fail
             }
         },
-        [roomId, toggleReaction]
+        [roomId, toggleReaction, canReact]
     );
 
     const handleReactEmoji = useCallback(
         async (msg: ChatMessage, emoji: string) => {
+            if (!canReact) return;
             if (!roomId) return;
             try {
                 await toggleReaction(msg._id, emoji);
@@ -901,7 +942,7 @@ export default function ConversationScreen() {
                 // Silent fail
             }
         },
-        [roomId, toggleReaction]
+        [roomId, toggleReaction, canReact]
     );
 
     const handleAddPeopleInvite = useCallback(
@@ -972,11 +1013,13 @@ export default function ConversationScreen() {
     const handleMore = useCallback(
         (msg: ChatMessage) => {
             const isOwn = isOwnMessage(msg, currentUserId);
+            const canEditOthers = canPerformAction(callerPermission, "edit");
+            const canDeleteOthers = canPerformAction(callerPermission, "delete");
             Alert.alert("Message Options", "", [
                 { text: "Copy Text", onPress: () => { Clipboard.setStringAsync(msg.text); } },
-                ...(isOwn ? [{ text: "Edit", onPress: () => { setEditingMsg(msg); setEditText(msg.text); } }] : []),
+                ...(isOwn || canEditOthers ? [{ text: "Edit", onPress: () => { setEditingMsg(msg); setEditText(msg.text); } }] : []),
                 { text: msg.is_pinned ? "Unpin" : "Pin", onPress: () => { togglePin(msg.id.toString()).catch(() => { }); } },
-                ...(isOwn ? [{
+                ...(isOwn || canDeleteOthers ? [{
                     text: "Delete", style: "destructive" as const, onPress: () => {
                         Alert.alert("Delete Message", "Delete this message for everyone?", [
                             { text: "Cancel", style: "cancel" },
@@ -987,7 +1030,7 @@ export default function ConversationScreen() {
                 { text: "Cancel", style: "cancel" },
             ]);
         },
-        [currentUserId, togglePin, deleteMessage]
+        [currentUserId, callerPermission, togglePin, deleteMessage]
     );
 
     const handleDateFilterChange = useCallback((start: Date | null, end: Date | null) => {
@@ -1275,6 +1318,7 @@ export default function ConversationScreen() {
                                         members={currentRoom?.members}
                                         onReact={() => handleReact(item)}
                                         onEmoji={() => {
+                                            if (!canReact) return;
                                             setEmojiPickerMsg(item);
                                             setEmojiPickerOpen(true);
                                         }}
@@ -1312,7 +1356,7 @@ export default function ConversationScreen() {
                                         ? "Group keep your team's conversations\norganized by topic."
                                         : "A place just for you to capture ideas, draft messages,\nand keep everything organized for later."}
                                 </Text>
-                                {isChannel && (
+                                {isChannel && canManageMembers && (
                                     <TouchableOpacity
                                         style={styles.addPeopleChannelBtn}
                                         activeOpacity={0.8}
@@ -1446,6 +1490,8 @@ export default function ConversationScreen() {
 
                     {/* ── Bottom Input Bar ── */}
                     <View style={styles.inputBar}>
+                        {canSendMessage ? (
+                        <>
                         {isRecording ? (
                             <View style={styles.recordingBar}>
                                 <View style={styles.recordingLiveIndicator}>
@@ -1514,7 +1560,7 @@ export default function ConversationScreen() {
                                         >
                                             <Ionicons name="mic" size={18} color="#1D1D1D" />
                                         </TouchableOpacity>
-                                        {isChannel && postTypes.length > 0 && (
+                                        {isChannel && postTypes.length > 0 && canManagePostTypes && (
                                             <TouchableOpacity
                                                 activeOpacity={0.75}
                                                 style={[
@@ -1565,6 +1611,15 @@ export default function ConversationScreen() {
                                 )}
                             </View>
                         )}
+                        </>
+                    ) : (
+                        <View style={styles.viewOnlyBar}>
+                            <Ionicons name="eye-outline" size={16} color="#9CA3AF" />
+                            <Text style={styles.viewOnlyText}>
+                                View only — you can read but not send messages.
+                            </Text>
+                        </View>
+                    )}
                     </View>
                 </KeyboardAvoidingView>
             </SafeAreaView>
@@ -2053,6 +2108,22 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         borderTopWidth: 1,
         borderTopColor: "#F3F4F6",
+    },
+    viewOnlyBar: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        borderWidth: 1,
+        borderColor: "#E6E6E6",
+        borderRadius: 8,
+        paddingVertical: 12,
+        backgroundColor: "#F9FAFB",
+    },
+    viewOnlyText: {
+        fontSize: 12,
+        fontFamily: "SF_Pro_Regular",
+        color: "#6B7280",
     },
     inputContainer: {
         borderWidth: 1,
