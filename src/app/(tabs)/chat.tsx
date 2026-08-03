@@ -44,9 +44,9 @@ const CHIP_DATA = [
 
 export default function ChatScreen() {
     const {
-        state, fetchRooms, getOrCreateRoom, markRead, searchUsers,
-        setSearchQuery, initSocket, cleanupChatListeners, inviteUser, addMember,
-        createProjectWithChannels,
+        state, fetchRooms, getOrCreateRoom, markRead,
+        setSearchQuery, initSocket, cleanupChatListeners,
+        roomCreator, roomPermissions,
     } = useChat();
     const authState = useAuth();
     const { state: taskState } = useTasks();
@@ -277,6 +277,8 @@ export default function ChatScreen() {
                     console.log("[Chat] Channel created:", room.id, room.name);
 
                     // ── Store the created room and selected users, show InviteToChannelModal ──
+                    // NOTE: No invitations are sent here — they are deferred until the
+                    // user confirms permissions via "Invite & Generate Link".
                     createdRoomRef.current = room as unknown as Room;
                     setPendingInviteUsers(users);
                     fetchRooms();
@@ -301,32 +303,60 @@ export default function ChatScreen() {
         async (emails: string[], permission: ChannelPermission) => {
             const room = createdRoomRef.current;
             if (!room) return;
+
+            // Final email list comes from the modal's Email Address field, which
+            // was pre-filled with the selected members' emails (and is editable).
+            // Normalize + dedupe so we never send the same invitation twice.
+            const finalEmails = Array.from(
+                new Set(
+                    emails
+                        .map((e) => e.trim().toLowerCase())
+                        .filter(Boolean)
+                )
+            );
+            const emailSet = new Set(finalEmails);
+
+            // Map known member emails → user ids so email invitations include the
+            // selected member's userId (matches the POST /chat/invite contract).
+            const userIdByEmail = new Map<string, number>();
+            for (const user of pendingInviteUsers) {
+                const memberEmail = (user.email ?? "").trim().toLowerCase();
+                if (memberEmail) {
+                    userIdByEmail.set(memberEmail, parseInt(user.id, 10));
+                }
+            }
+
             let emailSent = 0;
             let directAdded = 0;
             let failed = 0;
 
-            // First invite the pending users selected from AddPeopleModal
+            // Selected members who are NOT covered by the final email list (no
+            // email address, or their address was removed from the field) are
+            // added directly as members with the chosen permission instead —
+            // this avoids duplicate invitations for the same person.
             for (const user of pendingInviteUsers) {
                 const userId = parseInt(user.id, 10);
                 if (isNaN(userId)) continue;
+                const userEmail = (user.email ?? "").trim().toLowerCase();
+                if (userEmail && emailSet.has(userEmail)) continue;
                 try {
-                    if (user.email) {
-                        await chatService.inviteUser({ roomId: room._id, email: user.email, userId, permission });
-                        emailSent++;
-                    } else {
-                        await chatService.addMember(room._id, userId);
-                        await chatService.updatePermission({ roomId: room._id, userId, permission }).catch(() => {});
-                        directAdded++;
-                    }
+                    await chatService.addMember(room._id, userId);
+                    await chatService.updatePermission({ roomId: room._id, userId, permission }).catch(() => {});
+                    directAdded++;
                 } catch {
                     failed++;
                 }
             }
 
-            // Then send invite emails to the typed email addresses
-            for (const email of emails) {
+            // Send exactly one invitation per final email address.
+            for (const email of finalEmails) {
                 try {
-                    await chatService.inviteUser({ roomId: room._id, email, permission });
+                    await chatService.inviteUser({
+                        roomId: room._id,
+                        email,
+                        userId: userIdByEmail.get(email),
+                        permission,
+                    });
                     emailSent++;
                 } catch {
                     failed++;
@@ -388,6 +418,12 @@ export default function ChatScreen() {
         },
         []
     );
+
+    // Derive the current user's permission for the invite modal
+    const callerPermission = useMemo<ChannelPermission | undefined>(() => {
+        const found = (roomPermissions ?? []).find((p) => p.userId === currentUserId);
+        return found?.permission as ChannelPermission | undefined;
+    }, [roomPermissions, currentUserId]);
 
     // Build current room members for the InviteToChannelModal "Who has access" list
     const currentChannelMembers = useMemo<ChannelMember[]>(() => {
@@ -800,6 +836,11 @@ export default function ChatScreen() {
                 roomId={createdRoomRef.current?._id ?? ""}
                 members={currentChannelMembers}
                 currentUserId={currentUserId}
+                roomCreator={roomCreator}
+                callerPermission={callerPermission}
+                initialEmails={pendingInviteUsers
+                    .map((u) => u.email)
+                    .filter((e): e is string => !!e)}
                 onClose={() => {
                     setInviteModalVisible(false);
                     createdRoomRef.current = null;

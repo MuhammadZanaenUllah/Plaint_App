@@ -25,8 +25,6 @@ import * as Clipboard from "expo-clipboard";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Animated,
-  FlatList,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -95,6 +93,8 @@ export interface InviteToChannelModalProps {
   roomCreator?: number | null;
   /** Current caller's permission in the channel */
   callerPermission?: ChannelPermission;
+  /** Emails to pre-fill the Email Address field with (from the selected members) */
+  initialEmails?: string[];
   onClose: () => void;
   /** Called when the invite button is pressed */
   onInvite: (
@@ -356,6 +356,9 @@ export default function InviteToChannelModal({
   roomId,
   members,
   currentUserId,
+  roomCreator,
+  callerPermission,
+  initialEmails,
   onClose,
   onInvite,
   onGenerateLink,
@@ -370,15 +373,19 @@ export default function InviteToChannelModal({
   const [memberPerms, setMemberPerms] =
     useState<Record<number, ChannelPermission>>({});
 
-  // Reset when modal opens
+  // Reset when modal opens. The Email Address field is pre-filled with the
+  // emails of the members selected on the previous screen (still editable).
+  const wasVisibleRef = useRef(visible);
   useEffect(() => {
-    if (visible) {
-      setEmailInput("");
+    const justOpened = visible && !wasVisibleRef.current;
+    if (justOpened) {
+      setEmailInput((initialEmails ?? []).filter(Boolean).join(", "));
       setPermission("Comment");
       setForAllUsers(true);
       setInviteLink(null);
     }
-  }, [visible]);
+    wasVisibleRef.current = visible;
+  }, [visible, initialEmails]);
 
   // Generate link when link-type changes
   const handleGenerateLink = useCallback(async () => {
@@ -413,6 +420,11 @@ export default function InviteToChannelModal({
 
     setInviting(true);
     try {
+      // "Invite & Generate Link" — ensure the invite link is ready before the
+      // invitation is sent, so both always reflect the selected permission.
+      if (!inviteLink) {
+        await handleGenerateLink();
+      }
       await onInvite(emails, permission);
       setEmailInput("");
       showSuccess("Invite Sent", `Invitation sent to ${emails.length} user(s).`);
@@ -454,137 +466,156 @@ export default function InviteToChannelModal({
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
-        <View style={modal.overlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            style={{ width: "100%", maxWidth: 460, alignSelf: "center" }}
-          >
-            <View style={modal.sheet}>
-              {/* Header */}
-              <View style={modal.header}>
-                <Text style={modal.title}>Invite to Channel</Text>
-                <TouchableOpacity
-                  style={modal.closeBtn}
-                  onPress={onClose}
-                  hitSlop={8}
+      {/*
+       * KeyboardAvoidingView must be the direct child of Modal with flex:1
+       * so it correctly calculates available space on both iOS and Android.
+       */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1 }}
+      >
+        {/* Backdrop tap → dismiss keyboard only (not close modal) */}
+        <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
+          <View style={modal.overlay}>
+            {/*
+             * Inner TouchableWithoutFeedback stops the backdrop press from
+             * propagating through the sheet.
+             */}
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={modal.sheet}>
+
+                {/* ── Header ── */}
+                <View style={modal.header}>
+                  <Text style={modal.title}>Invite to Channel</Text>
+                  <TouchableOpacity
+                    style={modal.closeBtn}
+                    onPress={onClose}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="close" size={18} color="#6B7280" />
+                  </TouchableOpacity>
+                </View>
+
+                {/*
+                 * ScrollView: do NOT put flex:1 on style — use contentContainerStyle
+                 * with flexGrow:1 so Android renders correctly when parent has maxHeight.
+                 */}
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 }}
                 >
-                  <Ionicons name="close" size={18} color="#6B7280" />
-                </TouchableOpacity>
-              </View>
 
-              <ScrollView
-                style={{ flex: 1 }}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                {/* ── Email + Permission row ── */}
-                <View style={modal.emailRow}>
-                  <View style={modal.emailInputWrap}>
-                    <Text style={modal.floatLabel}>Email Address</Text>
-                    <TextInput
-                      style={modal.emailInput}
-                      value={emailInput}
-                      onChangeText={setEmailInput}
-                      placeholder="email@example.com"
-                      placeholderTextColor="#C4C4C4"
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      returnKeyType="done"
-                    />
-                  </View>
-                  <PermissionDropdown
-                    value={permission}
-                    onChange={setPermission}
-                    compact
-                  />
-                  <TouchableOpacity
-                    style={[modal.inviteBtn, inviting && { opacity: 0.7 }]}
-                    activeOpacity={0.85}
-                    onPress={handleInvite}
-                    disabled={inviting}
-                  >
-                    {inviting ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <Text style={modal.inviteBtnText}>Invite</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-
-                {/* ── Generate Link For ── */}
-                <Text style={modal.sectionLabel}>GENERATE LINK FOR</Text>
-                <LinkTypeToggle forAll={forAllUsers} onChange={setForAllUsers} />
-
-                {/* ── Invite Link ── */}
-                <View style={modal.linkRow}>
-                  {generatingLink ? (
-                    <ActivityIndicator color="#00DEAB" style={{ marginRight: 10 }} />
-                  ) : null}
-                  <Text
-                    style={modal.linkText}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {inviteLink ?? "Generating…"}
-                  </Text>
-                  <TouchableOpacity
-                    style={modal.copyBtn}
-                    onPress={handleCopyLink}
-                    activeOpacity={0.7}
-                    disabled={!inviteLink}
-                  >
-                    <Text style={modal.copyBtnText}>Copy</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* ── Who Has Access ── */}
-                <Text style={[modal.sectionLabel, { marginTop: 20 }]}>
-                  Who has access
-                </Text>
-                {members.map((member) => {
-                  const isOwner =
-                    member.isOwner || (roomCreator ? member.id === roomCreator : false);
-                  const canCallerEdit =
-                    currentUserId === roomCreator || callerPermission === "Full edit";
-                  const currentPerm =
-                    memberPerms[member.id] ??
-                    (member.permission as ChannelPermission) ??
-                    "Comment";
-                  const initial = member.initials ?? getInitial(member.name);
-                  const bg = avatarColor(member.name);
-
-                  return (
-                    <View key={member.id} style={modal.memberRow}>
-                      <View style={[modal.memberAvatar, { backgroundColor: bg }]}>
-                        <Text style={modal.memberInitial}>{initial}</Text>
-                      </View>
-                      <Text style={modal.memberName} numberOfLines={1}>
-                        {member.name}
-                      </Text>
-                      {isOwner ? (
-                        <Text style={modal.ownerTag}>Owner</Text>
-                      ) : canCallerEdit && onUpdatePermission ? (
-                        <PermissionDropdown
-                          value={currentPerm as ChannelPermission}
-                          onChange={(p) => handleMemberPermChange(member.id, p)}
-                          compact
-                        />
-                      ) : (
-                        <Text style={modal.permTag}>{currentPerm}</Text>
-                      )}
+                  {/* ── Email + Permission row ── */}
+                  <View style={modal.emailRow}>
+                    <View style={modal.emailInputWrap}>
+                      <Text style={modal.floatLabel}>Email Address</Text>
+                      <TextInput
+                        style={modal.emailInput}
+                        value={emailInput}
+                        onChangeText={setEmailInput}
+                        placeholder="email@example.com"
+                        placeholderTextColor="#C4C4C4"
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        returnKeyType="done"
+                      />
                     </View>
-                  );
-                })}
+                    <PermissionDropdown
+                      value={permission}
+                      onChange={setPermission}
+                      compact
+                    />
+                    <TouchableOpacity
+                      style={[modal.inviteBtn, inviting && { opacity: 0.7 }]}
+                      activeOpacity={0.85}
+                      onPress={handleInvite}
+                      disabled={inviting}
+                    >
+                      {inviting ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Text style={modal.inviteBtnText}>
+                          Invite &amp; Generate Link
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
 
-                {/* Bottom padding */}
-                <View style={{ height: 24 }} />
-              </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
-      </TouchableWithoutFeedback>
+                  {/* ── Generate Link For ── */}
+                  <Text style={modal.sectionLabel}>GENERATE LINK FOR</Text>
+                  <LinkTypeToggle forAll={forAllUsers} onChange={setForAllUsers} />
+
+                  {/* ── Invite Link ── */}
+                  <View style={modal.linkRow}>
+                    {generatingLink ? (
+                      <ActivityIndicator color="#00DEAB" style={{ marginRight: 10 }} />
+                    ) : null}
+                    <Text
+                      style={modal.linkText}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
+                      {inviteLink ?? "Generating…"}
+                    </Text>
+                    <TouchableOpacity
+                      style={modal.copyBtn}
+                      onPress={handleCopyLink}
+                      activeOpacity={0.7}
+                      disabled={!inviteLink}
+                    >
+                      <Text style={modal.copyBtnText}>Copy</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* ── Who Has Access ── */}
+                  <Text style={[modal.sectionLabel, { marginTop: 20 }]}>
+                    Who has access
+                  </Text>
+                  {members.map((member) => {
+                    const isOwner =
+                      member.isOwner ||
+                      (roomCreator ? member.id === roomCreator : false);
+                    const canCallerEdit =
+                      currentUserId === roomCreator ||
+                      callerPermission === "Full edit";
+                    const currentPerm =
+                      memberPerms[member.id] ??
+                      (member.permission as ChannelPermission) ??
+                      "Comment";
+                    const initial = member.initials ?? getInitial(member.name);
+                    const bg = avatarColor(member.name);
+
+                    return (
+                      <View key={member.id} style={modal.memberRow}>
+                        <View style={[modal.memberAvatar, { backgroundColor: bg }]}>
+                          <Text style={modal.memberInitial}>{initial}</Text>
+                        </View>
+                        <Text style={modal.memberName} numberOfLines={1}>
+                          {member.name}
+                        </Text>
+                        {isOwner ? (
+                          <Text style={modal.ownerTag}>Owner</Text>
+                        ) : canCallerEdit && onUpdatePermission ? (
+                          <PermissionDropdown
+                            value={currentPerm as ChannelPermission}
+                            onChange={(p) => handleMemberPermChange(member.id, p)}
+                            compact
+                          />
+                        ) : (
+                          <Text style={modal.permTag}>{currentPerm}</Text>
+                        )}
+                      </View>
+                    );
+                  })}
+
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -611,6 +642,7 @@ const modal = StyleSheet.create({
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 8 },
     elevation: 14,
+    overflow: "hidden",
   },
   header: {
     flexDirection: "row",
@@ -668,15 +700,15 @@ const modal = StyleSheet.create({
   inviteBtn: {
     backgroundColor: "#00DEAB",
     borderRadius: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 10,
     paddingVertical: 11,
-    minWidth: 62,
+    minWidth: 150,
     alignItems: "center",
     justifyContent: "center",
   },
   inviteBtnText: {
     color: "#fff",
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: "SF_Pro_Semibold",
   },
   // Sections
