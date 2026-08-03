@@ -605,11 +605,16 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
     ? apiTask.is_recurring
       ? [
           apiTask.recurring_period && `Period: ${apiTask.recurring_period}`,
+          apiTask.recurring_exclude_days?.length ? `Excluded: ${apiTask.recurring_exclude_days.join(", ")}` : null,
+          apiTask.recurring_week_day && `Week Day: ${apiTask.recurring_week_day}`,
+          apiTask.recurring_month_date && `Month Date: ${apiTask.recurring_month_date}`,
+          (apiTask.recurring_annual_month || apiTask.recurring_annual_date) &&
+            `Annual: ${apiTask.recurring_annual_month ?? "-"}/${apiTask.recurring_annual_date ?? "-"}`,
           apiTask.recurring_time && `Time: ${apiTask.recurring_time}`,
           apiTask.recurring_total_count > 0 && `Count: ${apiTask.recurring_total_count}`,
         ]
           .filter(Boolean)
-          .join(", ") || "Yes"
+          .join(" | ") || "Yes"
       : "No"
     : task.recurringTask;
 

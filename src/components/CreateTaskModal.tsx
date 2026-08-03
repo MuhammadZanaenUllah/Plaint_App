@@ -7,6 +7,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -94,9 +95,16 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
   const [statusOpen, setStatusOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
   const [recurringOpen, setRecurringOpen] = useState(false);
+  const [isRecurringEnabled, setIsRecurringEnabled] = useState(false);
   const [recurringPeriod, setRecurringPeriod] = useState<RecurringPeriod | null>(null);
-  const [recurringTime, setRecurringTime] = useState<string>("");
-  const [recurringTotalCount, setRecurringTotalCount] = useState<number>(1);
+  const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
+  const [recurringTime, setRecurringTime] = useState<string>("09:00");
+  const [recurringTotalCount, setRecurringTotalCount] = useState<string>("");
+  const [recurringExcludeDays, setRecurringExcludeDays] = useState<string[]>([]);
+  const [recurringWeekDay, setRecurringWeekDay] = useState<string | null>(null);
+  const [recurringMonthDate, setRecurringMonthDate] = useState<string>("");
+  const [recurringAnnualMonth, setRecurringAnnualMonth] = useState<string>("");
+  const [recurringAnnualDate, setRecurringAnnualDate] = useState<string>("");
 
   // Dependencies state
   const [dependenciesOpen, setDependenciesOpen] = useState(false);
@@ -257,7 +265,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     const descriptionHtml = await descriptionEditorRef.current?.getContentHtml();
     const companyId = authState.company?.company_id ?? 0;
     const companyIdentifier = authState.company?.company_identifier ?? "";
-    const isRecurring = recurringPeriod !== null;
+    const isRecurring = isRecurringEnabled;
     const priority = selectedPriority.toLowerCase() as "normal" | "critical";
     const rawEffort = durationValue ? parseInt(durationValue, 10) : 0;
     const effortInMinutes =
@@ -266,6 +274,11 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
         : durationUnit === "Days"
         ? rawEffort * 8 * 60
         : rawEffort;
+
+    const totalCountNum = recurringTotalCount ? parseInt(recurringTotalCount, 10) : 0;
+    const monthDateNum = recurringMonthDate ? parseInt(recurringMonthDate, 10) : null;
+    const annualMonthNum = recurringAnnualMonth ? parseInt(recurringAnnualMonth, 10) : null;
+    const annualDateNum = recurringAnnualDate ? parseInt(recurringAnnualDate, 10) : null;
 
     const requestPayload = {
       title: title.trim(),
@@ -276,7 +289,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       task_priority: priority,
       bump_to_front: priority === "critical", // default; overridden per popup choice
       approval_required: selectedApproval === "Yes" ? 1 : 0,
-      status: uiStatusToApi((selectedStatus as UiTaskStatus) ?? "Pending"),
+      status: uiStatusToApi((selectedStatus as UiTaskStatus) ?? (isRecurring ? "Recurring" : "Pending")),
       description: descriptionHtml ?? description,
       project_id: null,
       sprint_id: null,
@@ -284,15 +297,15 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       is_recurring: isRecurring,
       recurring_period: isRecurring ? recurringPeriod : null,
       recurring_time: isRecurring && recurringTime ? recurringTime : null,
-      recurring_total_count: isRecurring ? recurringTotalCount : 0,
-      recurring_exclude_days: [],
-      recurring_week_day: null,
-      recurring_month_date: null,
-      recurring_annual_month: null,
-      recurring_annual_date: null,
+      recurring_total_count: isRecurring ? totalCountNum : 0,
+      recurring_exclude_days: isRecurring && recurringPeriod === "daily" ? recurringExcludeDays : [],
+      recurring_week_day: isRecurring && recurringPeriod === "weekly" ? recurringWeekDay : null,
+      recurring_month_date: isRecurring && recurringPeriod === "monthly" ? monthDateNum : null,
+      recurring_annual_month: isRecurring && recurringPeriod === "annually" ? annualMonthNum : null,
+      recurring_annual_date: isRecurring && recurringPeriod === "annually" ? annualDateNum : null,
       effort_hours: effortInMinutes,
       effort_unit: durationUnit.toLowerCase(),
-      depends_on: [],
+      depends_on: selectedDependencies,
     };
 
     // ── Check for critical-task conflict ──────────────────────────────────────
@@ -418,9 +431,16 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     setSelectedApproval(null);
     setSelectedStatus(null);
     setRecurringOpen(false);
+    setIsRecurringEnabled(false);
     setRecurringPeriod(null);
-    setRecurringTime("");
-    setRecurringTotalCount(1);
+    setPeriodDropdownOpen(false);
+    setRecurringTime("09:00");
+    setRecurringTotalCount("");
+    setRecurringExcludeDays([]);
+    setRecurringWeekDay(null);
+    setRecurringMonthDate("");
+    setRecurringAnnualMonth("");
+    setRecurringAnnualDate("");
     setAttachments([]);
     setSelectedDependencies([]);
     setDepSearch("");
@@ -755,60 +775,230 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
                 </View>
               )}
 
+              {/* ── Recurring Task chip ── */}
               <TouchableOpacity
                 style={[styles.chip, recurringOpen && styles.chipActive]}
                 onPress={() => togglePanel("recurring")}
               >
-                <Ionicons name="calendar-outline" size={16} color={recurringOpen ? "#fff" : "#AAAAAA"} />
+                <Ionicons name="repeat-outline" size={16} color={recurringOpen ? "#fff" : "#AAAAAA"} />
                 <Text style={[styles.chipLabel, recurringOpen && styles.chipLabelActive]}>
-                  Recurring Task
+                  {isRecurringEnabled && recurringPeriod
+                    ? `Recurring (${RECURRING_PERIODS.find((p) => p.value === recurringPeriod)?.label})`
+                    : "Recurring Task"}
                 </Text>
               </TouchableOpacity>
 
+              {/* ── Recurring Task Card Panel ── */}
               {recurringOpen && (
-                <View style={{ width: "100%", marginTop: 8 }}>
-                  <Text style={styles.recurringLabel}>Recurring Period</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.statusScroll}>
-                    {RECURRING_PERIODS.map((p) => {
-                      const selected = recurringPeriod === p.value;
-                      return (
-                        <TouchableOpacity
-                          key={p.value}
-                          style={[styles.statusChip, selected && { backgroundColor: "#16A34A", borderColor: "#16A34A" }]}
-                          onPress={() => setRecurringPeriod(selected ? null : p.value)}
-                        >
-                          {selected
-                            ? <Ionicons name="checkmark" size={13} color="#fff" />
-                            : <View style={[styles.statusDot, { backgroundColor: "#16A34A" }]} />}
-                          <Text style={[styles.statusLabel, selected && { color: "#fff" }]}>{p.label}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-
-                  <View style={styles.recurringRow}>
-                    <View style={styles.recurringInputWrap}>
-                      <Text style={styles.recurringLabel}>Time </Text>
-                      <TextInput
-                        style={styles.recurringInput}
-                        placeholder="e.g. 09:00"
-                        placeholderTextColor="#AAAAAA"
-                        value={recurringTime}
-                        onChangeText={setRecurringTime}
-                      />
-                    </View>
-                    <View style={styles.recurringInputWrap}>
-                      <Text style={styles.recurringLabel}>No. of Recurrences</Text>
-                      <TextInput
-                        style={styles.recurringInput}
-                        placeholder="1"
-                        placeholderTextColor="#AAAAAA"
-                        keyboardType="numeric"
-                        value={String(recurringTotalCount)}
-                        onChangeText={(t) => setRecurringTotalCount(Number(t) || 1)}
-                      />
-                    </View>
+                <View style={styles.recurringCard}>
+                  {/* Enable Recurring Switch Row */}
+                  <View style={styles.recurringCardHeader}>
+                    <Text style={styles.recurringCardTitle}>Enable Recurring</Text>
+                    <Switch
+                      trackColor={{ false: "#E5E7EB", true: "#0DDFAB" }}
+                      thumbColor="#fff"
+                      ios_backgroundColor="#E5E7EB"
+                      onValueChange={(val) => {
+                        setIsRecurringEnabled(val);
+                        if (!val) setPeriodDropdownOpen(false);
+                      }}
+                      value={isRecurringEnabled}
+                    />
                   </View>
+
+                  {isRecurringEnabled && (
+                    <View style={styles.recurringCardBody}>
+                      {/* 1. Recurrence Period Field */}
+                      <View style={styles.fieldRow}>
+                        <Ionicons name="calendar-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.fieldLabel}>Recurrence Period</Text>
+                          <TouchableOpacity
+                            style={styles.fieldSelectBtn}
+                            activeOpacity={0.7}
+                            onPress={() => setPeriodDropdownOpen((prev) => !prev)}
+                          >
+                            <Text
+                              style={[
+                                styles.fieldSelectText,
+                                !recurringPeriod && styles.fieldSelectPlaceholder,
+                              ]}
+                            >
+                              {recurringPeriod
+                                ? RECURRING_PERIODS.find((p) => p.value === recurringPeriod)?.label
+                                : "+ Add Period"}
+                            </Text>
+                            <Ionicons name="chevron-down" size={14} color="#6B7280" />
+                          </TouchableOpacity>
+
+                          {periodDropdownOpen && (
+                            <View style={styles.periodDropdownMenu}>
+                              {RECURRING_PERIODS.map((p) => (
+                                <TouchableOpacity
+                                  key={p.value}
+                                  style={styles.periodDropdownOption}
+                                  onPress={() => {
+                                    setRecurringPeriod(p.value);
+                                    setPeriodDropdownOpen(false);
+                                  }}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.periodOptionText,
+                                      recurringPeriod === p.value && styles.periodOptionTextSelected,
+                                    ]}
+                                  >
+                                    {p.label}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          )}
+                        </View>
+                      </View>
+
+                      {/* 2. Exclude Days (when Daily is selected) */}
+                      {recurringPeriod === "daily" && (
+                        <View style={styles.fieldRow}>
+                          <Ionicons name="ban-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.fieldLabel}>Exclude Days</Text>
+                            <View style={styles.daysPillRow}>
+                              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => {
+                                const selected = recurringExcludeDays.includes(day);
+                                return (
+                                  <TouchableOpacity
+                                    key={day}
+                                    style={[styles.dayPill, selected && styles.dayPillActive]}
+                                    onPress={() => {
+                                      if (selected) {
+                                        setRecurringExcludeDays(recurringExcludeDays.filter((d) => d !== day));
+                                      } else {
+                                        setRecurringExcludeDays([...recurringExcludeDays, day]);
+                                      }
+                                    }}
+                                  >
+                                    <Text style={[styles.dayPillText, selected && styles.dayPillTextActive]}>
+                                      {day}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+                          </View>
+                        </View>
+                      )}
+
+                      {/* 3. Week Day selector (when Weekly is selected) */}
+                      {recurringPeriod === "weekly" && (
+                        <View style={styles.fieldRow}>
+                          <Ionicons name="calendar-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.fieldLabel}>Week Day</Text>
+                            <View style={styles.daysPillRow}>
+                              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => {
+                                const selected = recurringWeekDay === day;
+                                return (
+                                  <TouchableOpacity
+                                    key={day}
+                                    style={[styles.dayPill, selected && styles.dayPillActive]}
+                                    onPress={() => setRecurringWeekDay(selected ? null : day)}
+                                  >
+                                    <Text style={[styles.dayPillText, selected && styles.dayPillTextActive]}>
+                                      {day}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+                          </View>
+                        </View>
+                      )}
+
+                      {/* 4. Month Date (when Monthly is selected) */}
+                      {recurringPeriod === "monthly" && (
+                        <View style={styles.fieldRow}>
+                          <Ionicons name="calendar-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.fieldLabel}>Day of Month (1-31)</Text>
+                            <TextInput
+                              style={styles.fieldInput}
+                              placeholder="e.g. 15"
+                              placeholderTextColor="#AAAAAA"
+                              keyboardType="numeric"
+                              value={recurringMonthDate}
+                              onChangeText={setRecurringMonthDate}
+                            />
+                          </View>
+                        </View>
+                      )}
+
+                      {/* 5. Annual Month & Date (when Annually is selected) */}
+                      {recurringPeriod === "annually" && (
+                        <>
+                          <View style={styles.fieldRow}>
+                            <Ionicons name="calendar-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.fieldLabel}>Month (1-12)</Text>
+                              <TextInput
+                                style={styles.fieldInput}
+                                placeholder="e.g. 12"
+                                placeholderTextColor="#AAAAAA"
+                                keyboardType="numeric"
+                                value={recurringAnnualMonth}
+                                onChangeText={setRecurringAnnualMonth}
+                              />
+                            </View>
+                          </View>
+                          <View style={styles.fieldRow}>
+                            <Ionicons name="calendar-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.fieldLabel}>Day of Month (1-31)</Text>
+                              <TextInput
+                                style={styles.fieldInput}
+                                placeholder="e.g. 25"
+                                placeholderTextColor="#AAAAAA"
+                                keyboardType="numeric"
+                                value={recurringAnnualDate}
+                                onChangeText={setRecurringAnnualDate}
+                              />
+                            </View>
+                          </View>
+                        </>
+                      )}
+
+                      {/* 6. Run Time */}
+                      <View style={styles.fieldRow}>
+                        <Ionicons name="time-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.fieldLabel}>Run Time</Text>
+                          <TextInput
+                            style={styles.fieldInput}
+                            placeholder="09:00"
+                            placeholderTextColor="#AAAAAA"
+                            value={recurringTime}
+                            onChangeText={setRecurringTime}
+                          />
+                        </View>
+                      </View>
+
+                      {/* 7. No. of Recurrences */}
+                      <View style={styles.fieldRow}>
+                        <Ionicons name="repeat-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.fieldLabel}>No. of Recurrences</Text>
+                          <TextInput
+                            style={styles.fieldInput}
+                            placeholder="+ Add No"
+                            placeholderTextColor="#AAAAAA"
+                            keyboardType="numeric"
+                            value={recurringTotalCount}
+                            onChangeText={setRecurringTotalCount}
+                          />
+                        </View>
+                      </View>
+                    </View>
+                  )}
                 </View>
               )}
 
@@ -1263,14 +1453,130 @@ const styles = StyleSheet.create({
   },
   createBtnText: { fontSize: 16, color: "#1D1D1D", fontFamily: "SF_Pro_Semibold" },
 
-  // Recurring
-  recurringLabel: { fontSize: 13, color: "#1D1D1D", fontFamily: "SF_Pro_Regular", marginBottom: 6 },
-  recurringRow: { flexDirection: "row", gap: 10, marginTop: 8 },
-  recurringInputWrap: { flex: 1 },
-  recurringInput: {
-    borderWidth: 1, borderColor: "#E6E6E6", borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 10,
-    fontSize: 14, color: "#1D1D1D", fontFamily: "SF_Pro_Regular",
+  // Recurring Card & Field Styles
+  recurringCard: {
+    width: "100%",
+    marginTop: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#E6E6E6",
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  recurringCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 2,
+  },
+  recurringCardTitle: {
+    fontSize: 15,
+    fontFamily: "SF_Pro_Semibold",
+    color: "#1D1D1D",
+  },
+  recurringCardBody: {
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+    paddingTop: 14,
+    gap: 14,
+  },
+  fieldRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  fieldIcon: {
+    marginTop: 2,
+  },
+  fieldLabel: {
+    fontSize: 14,
+    fontFamily: "SF_Pro_Semibold",
+    color: "#1D1D1D",
+    marginBottom: 4,
+  },
+  fieldSelectBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 6,
+  },
+  fieldSelectText: {
+    fontSize: 14,
+    fontFamily: "SF_Pro_Regular",
+    color: "#1D1D1D",
+  },
+  fieldSelectPlaceholder: {
+    color: "#9CA3AF",
+  },
+  periodDropdownMenu: {
+    marginTop: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  periodDropdownOption: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  periodOptionText: {
+    fontSize: 14,
+    fontFamily: "SF_Pro_Regular",
+    color: "#1D1D1D",
+  },
+  periodOptionTextSelected: {
+    fontFamily: "SF_Pro_Semibold",
+    color: "#0DDFAB",
+  },
+  daysPillRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 4,
+  },
+  dayPill: {
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: "#FFFFFF",
+  },
+  dayPillActive: {
+    borderColor: "#0DDFAB",
+    backgroundColor: "#F0FDF9",
+  },
+  dayPillText: {
+    fontSize: 12,
+    fontFamily: "SF_Pro_Regular",
+    color: "#6B7280",
+  },
+  dayPillTextActive: {
+    fontFamily: "SF_Pro_Semibold",
+    color: "#0DDFAB",
+  },
+  fieldInput: {
+    fontSize: 14,
+    fontFamily: "SF_Pro_Regular",
+    color: "#1D1D1D",
+    paddingVertical: 4,
+    paddingHorizontal: 0,
   },
   outerScroll: {
     maxHeight: "85%",
