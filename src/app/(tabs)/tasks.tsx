@@ -29,6 +29,16 @@ const pad = (n: number) => String(n).padStart(2, "0");
 // many tasks per tab while header counts always reflect the full dataset.
 const PAGE_SIZE = 20;
 
+const STANDARD_STATUSES = ["Pending", "In-Progress", "Rejected", "Pending-Approval", "Completed", "Recurring"];
+const STATUS_BASE_COLORS: Record<string, string> = {
+  Pending: "#DFA70D",
+  "In-Progress": "#607EF9",
+  Rejected: "#FF0000",
+  "Pending-Approval": "#1D1D1D",
+  Completed: "#1CB333",
+  Recurring: "#16A34A",
+};
+
 export default function TasksScreen() {
   const { state: authState } = useAuth();
   const {
@@ -124,6 +134,17 @@ export default function TasksScreen() {
     [companyId, companyIdentifier, updateTaskStatusApi, fetchAllTasks]
   );
 
+  // Restart the visible list at page 1 (and cancel any pending "load more") so
+  // the newly-filtered results start from the top.
+  const resetPagination = useCallback(() => {
+    if (loadMoreTimerRef.current) {
+      clearTimeout(loadMoreTimerRef.current);
+      loadMoreTimerRef.current = null;
+    }
+    setLoadingMore(false);
+    setVisibleCount(PAGE_SIZE);
+  }, []);
+
   const handleFilterApply = useCallback(
     (filters: {
       status: string | null;
@@ -141,8 +162,9 @@ export default function TasksScreen() {
       setActivePriorityFilter(filters.priority);
       setActiveStartDateFilter(filters.startDate ?? null);
       setActiveEndDateFilter(filters.endDate ?? null);
+      resetPagination();
     },
-    []
+    [resetPagination]
   );
 
   const handleFilterReset = useCallback(() => {
@@ -151,7 +173,8 @@ export default function TasksScreen() {
     setActivePriorityFilter(null);
     setActiveStartDateFilter(null);
     setActiveEndDateFilter(null);
-  }, []);
+    resetPagination();
+  }, [resetPagination]);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -203,18 +226,27 @@ export default function TasksScreen() {
     } as any);
   }, [companyId]);
 
-  const statuses = ["Pending", "In-Progress", "Rejected", "Pending-Approval", "Completed", "Recurring"];
+  // Filter options are derived from the actual loaded tasks so the chips always
+  // match the real statuses coming from the backend (custom statuses included).
+  // Standard statuses are kept first to preserve ordering; extras append after.
+  const statuses = useMemo(() => {
+    const merged = [...STANDARD_STATUSES];
+    for (const s of allMappedTasks) {
+      if (s.status && !merged.includes(s.status)) merged.push(s.status);
+    }
+    return merged;
+  }, [allMappedTasks]);
+
+  const statusColors = useMemo(() => {
+    const colors: Record<string, string> = {};
+    for (const s of statuses) colors[s] = STATUS_BASE_COLORS[s] ?? "#9CA3AF";
+    return colors;
+  }, [statuses]);
+
   const priorities = ["Normal", "Critical"];
   const priorityColors: Record<string, string> = {
     Normal: "#0DDFAB",
     Critical: "#FF4444",
-  };
-  const statusColors: Record<string, string> = {
-    Pending: "#DFA70D",
-    "In-Progress": "#607EF9",
-    Rejected: "#FF0000",
-    "Pending-Approval": "#1D1D1D",
-    Completed: "#1CB333",
   };
 
   const mapRowWithRaw = useCallback(
@@ -407,9 +439,10 @@ export default function TasksScreen() {
     }
 
     if (activePriorityFilter) {
-      tasks = tasks.filter(
-        (t) => t._raw?.priority_name?.toLowerCase() === activePriorityFilter.toLowerCase()
-      );
+      // Priority in this app is the scheduling tier (`task_priority`:
+      // "normal" | "critical"), NOT the free-form `priority_name` string.
+      const tier = activePriorityFilter.toLowerCase();
+      tasks = tasks.filter((t) => t._raw?.task_priority === tier);
       console.log(`[TasksScreen] After priority filter ("${activePriorityFilter}"):`, tasks.length);
     }
 
