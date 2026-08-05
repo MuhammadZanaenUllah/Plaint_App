@@ -21,7 +21,6 @@ export type MappedTaskRow = {
   taskPriority: "normal" | "critical";
   criticalOrder: number | null;
   project: string;
-  extraCount?: number;
   _raw: TaskListItem;
 };
 
@@ -114,7 +113,6 @@ export function mapTaskListItem(
     taskPriority: item.task_priority,
     criticalOrder: item.critical_order ?? null,
     project: "",
-    extraCount: item.subtask_count > 0 ? item.subtask_count : undefined,
     _raw: item,
   };
 }

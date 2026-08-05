@@ -89,9 +89,9 @@ export default function TasksScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId]);
 
-  useEffect(() => {
-    console.log(`[TasksScreen] allMappedTasks updated — count: ${allMappedTasks.length}, ids: [${allMappedTasks.map(t => t.id).join(", ")}]`);
-  }, [allMappedTasks]);
+  // useEffect(() => {
+  //   console.log(`[TasksScreen] allMappedTasks updated — count: ${allMappedTasks.length}, ids: [${allMappedTasks.map(t => t.id).join(", ")}]`);
+  // }, [allMappedTasks]);
 
   const handleTabPress = useCallback(
     (tabId: string) => {
@@ -213,7 +213,6 @@ export default function TasksScreen() {
       approvalRequired: raw.approval_required ? "Yes" : "No",
       status: task.status as any,
       recurringTask: raw.is_recurring ? "Yes" : "No",
-      subtasks: [],
       dependencies: [],
       description,
       attachments: [],
@@ -262,7 +261,6 @@ export default function TasksScreen() {
       priorityName: row.priorityName,
       taskPriority: row.taskPriority,
       project: row.project,
-      extraCount: row.extraCount,
       canEditStatus: row._raw.can_edit_status ?? true,
       _raw: row._raw,
     }),
@@ -584,6 +582,7 @@ export default function TasksScreen() {
           initialEndDate={activeEndDateFilter}
           onApply={handleFilterApply}
           onReset={handleFilterReset}
+          loading={taskState.loading}
         />
 
         <ScrollView

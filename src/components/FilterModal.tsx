@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
@@ -12,6 +13,10 @@ import {
 } from "react-native";
 import CalendarPicker from "./CalendarPicker";
 import FloatingInput from "./FloatingInput";
+
+// Minimum time the Apply button stays in its loading state, so the spinner is
+// always visible even when the client-side filter resolves instantly.
+const MIN_APPLY_MS = 350;
 
 type Props = {
   visible: boolean;
@@ -58,6 +63,10 @@ type Props = {
 
   // Called when Reset is tapped (parent should clear its filter state)
   onReset?: () => void;
+
+  // While true (e.g. a backend task fetch is in flight), the Apply button shows
+  // a spinner and the modal waits for loading to finish before closing.
+  loading?: boolean;
 };
 
 export default function FilterModal({
@@ -89,6 +98,7 @@ export default function FilterModal({
   initialStartDate = null,
   initialEndDate = null,
   onReset,
+  loading = false,
 }: Props) {
   const [selectedStatus, setSelectedStatus] = useState<string | null>(initialStatus);
   const [selectedPriority, setSelectedPriority] = useState<string | null>(initialPriority);
@@ -97,15 +107,67 @@ export default function FilterModal({
   const [startDate, setStartDate] = useState<Date | null>(initialStartDate);
   const [endDate, setEndDate] = useState<Date | null>(initialEndDate);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [applying, setApplying] = useState(false);
+  // Non-reactive guard so a stale `applying` from a previous session can't
+  // close the modal right after it reopens. Only cleared by the apply/reset/
+  // close paths, never inside an effect.
+  const applyingSessionRef = useRef(0);
+  // True when Apply was tapped while a real backend load was in flight — the
+  // close-wait effect (below) then handles closing, otherwise a short timer
+  // closes the modal so the spinner is always visible.
+  const waitForRealLoadRef = useRef(false);
+  const applyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (visible) {
+      if (applyTimerRef.current) {
+        clearTimeout(applyTimerRef.current);
+        applyTimerRef.current = null;
+      }
+      waitForRealLoadRef.current = false;
       setSelectedStatus(initialStatus);
       setSelectedPriority(initialPriority);
       setStartDate(initialStartDate);
       setEndDate(initialEndDate);
+      setApplying(false);
     }
   }, [visible, initialStatus, initialPriority, initialStartDate, initialEndDate]);
+
+  // If Apply was tapped while tasks were still loading, keep the modal open
+  // (spinner in the button) and close it as soon as the load finishes.
+  useEffect(() => {
+    if (
+      visible &&
+      applying &&
+      waitForRealLoadRef.current &&
+      applyingSessionRef.current > 0 &&
+      !loading
+    ) {
+      waitForRealLoadRef.current = false;
+      applyingSessionRef.current = 0;
+      onClose?.();
+    }
+  }, [visible, applying, loading, onClose]);
+
+  useEffect(() => {
+    return () => {
+      if (applyTimerRef.current) {
+        clearTimeout(applyTimerRef.current);
+        applyTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleManualClose = () => {
+    if (applyTimerRef.current) {
+      clearTimeout(applyTimerRef.current);
+      applyTimerRef.current = null;
+    }
+    waitForRealLoadRef.current = false;
+    setApplying(false);
+    applyingSessionRef.current = 0;
+    onClose?.();
+  };
 
   const handleReset = () => {
     setSelectedStatus(null);
@@ -116,12 +178,19 @@ export default function FilterModal({
     setStartDate(null);
     setEndDate(null);
     setCalendarOpen(false);
+    if (applyTimerRef.current) {
+      clearTimeout(applyTimerRef.current);
+      applyTimerRef.current = null;
+    }
+    waitForRealLoadRef.current = false;
+    setApplying(false);
+    applyingSessionRef.current = 0;
     onReset?.();
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
-      <TouchableWithoutFeedback onPress={onClose}>
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={handleManualClose}>
+      <TouchableWithoutFeedback onPress={handleManualClose}>
         <View style={styles.overlay}>
           <View style={styles.sheet}>
             {/* Header row */}
@@ -130,7 +199,7 @@ export default function FilterModal({
                 <Text style={styles.resetText}>Reset</Text>
               </TouchableOpacity>
               <Text style={styles.titleText}>Filter</Text>
-              <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
+              <TouchableOpacity style={styles.closeBtn} onPress={handleManualClose}>
                 <Ionicons name="close" size={16} color="#fff" />
               </TouchableOpacity>
             </View>
@@ -345,8 +414,9 @@ export default function FilterModal({
 
             {/* Apply */}
             <TouchableOpacity
-              style={styles.applyBtn}
+              style={[styles.applyBtn, applying && styles.applyBtnDisabled]}
               activeOpacity={0.85}
+              disabled={applying}
               onPress={() => {
                 onApply?.({
                   status: selectedStatus,
@@ -354,10 +424,32 @@ export default function FilterModal({
                   startDate,
                   endDate,
                 });
-                onClose();
+                applyingSessionRef.current += 1;
+                setApplying(true);
+                if (loading) {
+                  // Real backend load in flight — wait for it to finish.
+                  waitForRealLoadRef.current = true;
+                } else {
+                  // Client-side filter resolves instantly, so show the spinner
+                  // for a brief moment before closing.
+                  waitForRealLoadRef.current = false;
+                  if (applyTimerRef.current) {
+                    clearTimeout(applyTimerRef.current);
+                  }
+                  applyTimerRef.current = setTimeout(() => {
+                    applyTimerRef.current = null;
+                    applyingSessionRef.current = 0;
+                    setApplying(false);
+                    onClose?.();
+                  }, MIN_APPLY_MS);
+                }
               }}
             >
-              <Text style={styles.applyText}>Apply</Text>
+              {applying ? (
+                <ActivityIndicator size="small" color="#1D1D1D" />
+              ) : (
+                <Text style={styles.applyText}>Apply</Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -497,6 +589,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 30,
   },
+  applyBtnDisabled: { opacity: 0.7 },
   applyText: {
     fontSize: 18,
     color: "#1D1D1D",

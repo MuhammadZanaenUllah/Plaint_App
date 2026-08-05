@@ -7,7 +7,7 @@ const COMPANY_KEY = "auth_company";
 export async function getStoredToken(): Promise<string | null> {
   const token = await SecureStore.getItemAsync(TOKEN_KEY);
   if (token) {
-    console.log("=========================================");
+    // console.log("=========================================");
     // console.log("🔐 [FULL JWT ACCESS TOKEN RETRIEVED]:");
     // console.log(token);
     // console.log("=========================================");
@@ -18,7 +18,7 @@ export async function getStoredToken(): Promise<string | null> {
 }
 
 export async function setStoredToken(token: string): Promise<void> {
-  console.log("=========================================");
+  // console.log("=========================================");
   // console.log("🔐 [FULL JWT ACCESS TOKEN STORED ON LOGIN]:");
   // console.log(token);
   // console.log("=========================================");

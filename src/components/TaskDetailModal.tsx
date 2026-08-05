@@ -1,6 +1,6 @@
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
-import { TaskNote, ViewTaskData, DependencyData, TaskAttachment, SubTask } from "@/types/task.types";
+import { TaskNote, ViewTaskData, DependencyData } from "@/types/task.types";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -18,7 +18,13 @@ import {
 import { STATUS_COLORS, StatusType } from "./TaskRow";
 import { getSocket, onSocketEvent, type TaskUpdatePayload } from "@/services/socket/socketService";
 
-export type SubTaskDisplay = { title: string; createdBy: string; dueDate: string };
+export type DependencyDisplay = {
+  title: string;
+  assignedTo: string;
+  createdBy: string;
+  status: string;
+  dueDate: string;
+};
 
 export type TaskDetail = {
   title: string;
@@ -30,11 +36,9 @@ export type TaskDetail = {
   approvalRequired: string;
   status: StatusType;
   recurringTask: string;
-  subtasks: SubTaskDisplay[];
-  dependencies: SubTaskDisplay[];
+  dependencies: DependencyDisplay[];
   description: string;
   attachments: string[];
-  subtaskCount?: number;
   taskId?: number;
   companyId?: number;
   canEditStatus?: boolean;
@@ -54,9 +58,15 @@ const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
   Low: { bg: "#10B981", text: "#fff" },
 };
 
-const COL = { title: 160, createdBy: 130, dueDate: 110 };
+const COL = { title: 150, assignedTo: 120, createdBy: 120, status: 100, dueDate: 110 };
 
-function SectionTable({ title, rows, showAdd }: { title: string; rows: SubTaskDisplay[]; showAdd?: boolean }) {
+function SectionTable({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: DependencyDisplay[];
+}) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -65,17 +75,24 @@ function SectionTable({ title, rows, showAdd }: { title: string; rows: SubTaskDi
           <View style={styles.tblHeader}>
             <View style={{ width: 14 }} />
             <Text style={[styles.tblHeadCell, { width: COL.title }]}>Task Title</Text>
+            <Text style={[styles.tblHeadCell, { width: COL.assignedTo }]}>Assigned To</Text>
             <Text style={[styles.tblHeadCell, { width: COL.createdBy }]}>Created By</Text>
+            <Text style={[styles.tblHeadCell, { width: COL.status }]}>Status</Text>
             <Text style={[styles.tblHeadCell, { width: COL.dueDate }]}>Due Date</Text>
           </View>
           {rows.map((row, i) => (
             <View key={i} style={styles.tblRow}>
               <View style={styles.tblAccent} />
               <Text style={[styles.tblCell, { width: COL.title }]} numberOfLines={1}>{row.title}</Text>
+              <View style={[styles.tblCreatedBy, { width: COL.assignedTo }]}>
+                <View style={styles.tblAvatar} />
+                <Text style={styles.tblCell}>{row.assignedTo}</Text>
+              </View>
               <View style={[styles.tblCreatedBy, { width: COL.createdBy }]}>
                 <View style={styles.tblAvatar} />
                 <Text style={styles.tblCell}>{row.createdBy}</Text>
               </View>
+              <Text style={[styles.tblCell, { width: COL.status }]} numberOfLines={1}>{row.status}</Text>
               <View style={[styles.tblDueDate, { width: COL.dueDate }]}>
                 <Ionicons name="calendar-outline" size={14} color="#00DEAB" style={{ marginRight: 4 }} />
                 <Text style={styles.tblCell}>{row.dueDate}</Text>
@@ -84,14 +101,6 @@ function SectionTable({ title, rows, showAdd }: { title: string; rows: SubTaskDi
           ))}
         </View>
       </ScrollView>
-      {showAdd && (
-        <View style={styles.addRow}>
-          <TouchableOpacity style={styles.addBtn}>
-            <Ionicons name="add" size={20} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.addRowText}>Touch the add for create a subtask</Text>
-        </View>
-      )}
     </View>
   );
 }
@@ -582,16 +591,12 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
   const dueDateDisplay = apiTask ? formatApiDateTime(apiTask.due_date) : task.dueDate;
   const startDateDisplay = apiTask ? (apiTask.start_date ? formatApiDateTime(apiTask.start_date) : "-") : "-";
 
-  const subtasks: SubTaskDisplay[] = apiTask?.sub_tasks?.map((st) => ({
-    title: st.title,
-    createdBy: "",
-    dueDate: formatApiDate(st.due_date),
-  })) ?? task.subtasks;
-
-  const depDisplay: SubTaskDisplay[] = dependencies.length > 0
+  const depDisplay: DependencyDisplay[] = dependencies.length > 0
     ? dependencies.map((d) => ({
         title: d.title,
-        createdBy: d.assigned_to?.full_name ?? "",
+        assignedTo: d.assigned_to?.full_name ?? "-",
+        createdBy: d.created_by?.full_name ?? "-",
+        status: d.status,
         dueDate: formatApiDate(d.due_date),
       }))
     : task.dependencies;
@@ -781,18 +786,6 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                     contentContainerStyle={styles.detailsScroll}
                     keyboardShouldPersistTaps="handled"
                   >
-                    {subtasks.length > 0 && (
-                      <View style={styles.cntBadge}>
-                        <MaterialCommunityIcons
-                          name="file-tree-outline"
-                          size={14}
-                          color="#fff"
-                        />
-                        <Text style={styles.cntBadgeText}>
-                          +{subtasks.length}
-                        </Text>
-                      </View>
-                    )}
                     <Text style={styles.taskTitle}>{task.title}</Text>
 
                     {INFO_ROWS.map((row, i) => (
@@ -816,23 +809,6 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                         {(apiTask?.description ?? task.description).replace(/<[^>]*>/g, "")}
                       </Text>
                       <View style={styles.descBadgesRow}>
-                        {subtasks.length > 0 && (
-                          <View style={styles.descBadge}>
-                            <MaterialCommunityIcons
-                              name="file-tree-outline"
-                              size={13}
-                              color="#00DFAB"
-                            />
-                            <Text
-                              style={[
-                                styles.descBadgeText,
-                                { color: "#00DFAB" },
-                              ]}
-                            >
-                              +{subtasks.length}
-                            </Text>
-                          </View>
-                        )}
                         {attachmentFiles.length > 0 && (
                           <View style={styles.descBadge}>
                             <Ionicons
@@ -847,14 +823,6 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                         )}
                       </View>
                     </View>
-
-                    {subtasks.length > 0 && (
-                      <SectionTable
-                        title="Subtask"
-                        rows={subtasks}
-                        showAdd
-                      />
-                    )}
 
                     {depDisplay.length > 0 && (
                       <SectionTable
@@ -1198,25 +1166,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#D1D5DB",
   },
   tblDueDate: { flexDirection: "row", alignItems: "center" },
-  addRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginTop: 12,
-  },
-  addBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#00DEAB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  addRowText: {
-    fontSize: 13,
-    color: "#C0C0C0",
-    fontFamily: "SF_Pro_Regular",
-  },
   attachHeader: {
     flexDirection: "row",
     alignItems: "center",

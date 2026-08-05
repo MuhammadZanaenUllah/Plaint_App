@@ -611,12 +611,6 @@ const TaskCellContent = memo(function TaskCellContent({
         >
           {item.title}
         </Text>
-        {item.extraCount ? (
-          <View style={styles.extraBadge}>
-            <Ionicons name="copy-outline" size={11} color="#6B7280" />
-            <Text style={styles.extraText}>+{item.extraCount}</Text>
-          </View>
-        ) : null}
       </TouchableOpacity>
     );
   }
@@ -839,9 +833,6 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
 
         <View style={[styles.swipeCommentCell, styles.swipeCommentColumn]}>
           <Ionicons name="chatbox-outline" size={16} color="#D1D5DB" />
-          {item.extraCount ? (
-            <Text style={styles.extraText}>+{item.extraCount}</Text>
-          ) : null}
         </View>
 
         <View style={[styles.swipeProjectCell, styles.swipeProjectColumn]}>
@@ -1011,21 +1002,6 @@ const styles = StyleSheet.create({
   strikethrough: {
     color: "#9CA3AF",
     textDecorationLine: "line-through",
-  },
-  extraBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F3F4F6",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginLeft: 6,
-  },
-  extraText: {
-    fontSize: 11,
-    color: "#6B7280",
-    marginLeft: 2,
-    fontFamily: "SF_Pro_Regular",
   },
   userCell: {
     minWidth: 0,

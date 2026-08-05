@@ -155,10 +155,10 @@ export function PushNotificationProvider({
         if (expoTokenData && expoTokenData.data && typeof expoTokenData.data === "string") {
           expoPushToken = expoTokenData.data;
         }
-        console.log("==================================================================");
+        // console.log("==================================================================");
         console.log("🚀 [EXPO PUSH TOKEN OBTAINED]:");
         console.log(expoPushToken);
-        console.log("==================================================================");
+        // console.log("==================================================================");
       } catch (expoErr) {
         console.warn("📲 [PushNotification] Could not fetch Expo Push Token:", expoErr);
       }

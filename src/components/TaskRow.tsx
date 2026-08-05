@@ -25,7 +25,6 @@ export type TaskRowProps = {
   taskPriority?: "normal" | "critical";
   comment?: string;
   project?: string;
-  extraCount?: number;
   canEditStatus?: boolean;
   isOpen?: boolean;
   onOpenRequest?: () => void;
@@ -81,7 +80,6 @@ export default function TaskRow({
   priorityName,
   taskPriority,
   project,
-  extraCount,
   isOpen = false,
   onOpenRequest,
   onClose,
@@ -129,12 +127,6 @@ export default function TaskRow({
           >
             {title}
           </Text>
-          {extraCount ? (
-            <View style={styles.extraBadge}>
-              <Ionicons name="copy-outline" size={11} color="#6B7280" />
-              <Text style={styles.extraText}>+{extraCount}</Text>
-            </View>
-          ) : null}
         </TouchableOpacity>
 
         {/* Created By */}
@@ -293,16 +285,6 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Medium",
   },
   strikethrough: { textDecorationLine: "line-through", color: "#9CA3AF" },
-  extraBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F3F4F6",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginLeft: 6,
-  },
-  extraText: { fontSize: 11, color: "#6B7280", marginLeft: 2 },
   userCell: { flexDirection: "row", alignItems: "center", paddingRight: 8 },
   initials: {
     width: 24,
