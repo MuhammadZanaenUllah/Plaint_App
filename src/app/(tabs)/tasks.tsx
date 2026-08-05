@@ -12,7 +12,7 @@ import { useTasks } from "@/hooks/useTasks";
 import { useTaskSocket } from "@/hooks/useTaskSocket";
 import { uiStatusToApi } from "@/utils/statusMapper";
 import { canCreateTask } from "@/utils/permissions";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -24,6 +24,10 @@ import {
 const { AllTaskIcon: AllTasksIcon, AssignIcon, CompletedIcon, CreatedIcon, DelayIcon, DueTodayIcon, RecurringIcon, SevenDayIcon: SevendayIcon } = Icons;
 
 const pad = (n: number) => String(n).padStart(2, "0");
+
+// Infinite pagination batch size — the visible list renders in chunks of this
+// many tasks per tab while header counts always reflect the full dataset.
+const PAGE_SIZE = 20;
 
 export default function TasksScreen() {
   const { state: authState } = useAuth();
@@ -50,6 +54,13 @@ export default function TasksScreen() {
   const [activeStartDateFilter, setActiveStartDateFilter] = useState<Date | null>(null);
   const [activeEndDateFilter, setActiveEndDateFilter] = useState<Date | null>(null);
 
+  // Pagination state — how many tasks of the current tab's dataset are visible.
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
+  const loadMoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const companyId = authState.company?.company_id;
 
   // Create-task visibility is driven by the logged-in user's `is_head`
@@ -75,7 +86,18 @@ export default function TasksScreen() {
   const handleTabPress = useCallback(
     (tabId: string) => {
       setActiveTab(tabId);
-      if (companyId) {
+      setVisibleCount(PAGE_SIZE);
+      // Cancel any in-flight "load more" so a late page increment can't bleed
+      // into the freshly-switched tab.
+      if (loadMoreTimerRef.current) {
+        clearTimeout(loadMoreTimerRef.current);
+        loadMoreTimerRef.current = null;
+      }
+      setLoadingMore(false);
+      // Tabs are client-side filters over the loaded dataset — only the "all"
+      // tab performs a backend refresh (per documented design). This avoids
+      // redundant full-list requests on every tab switch.
+      if (tabId === "all" && companyId) {
         fetchAllTasks(companyId);
       }
     },
@@ -437,9 +459,59 @@ export default function TasksScreen() {
     sortByCritical,
   ]);
 
+  // ─── Infinite pagination over the fully-filtered/sorted tab dataset ──────
+  const hasMore = visibleCount < displayedTasks.length;
+
+  const loadMore = useCallback(() => {
+    // Re-entrancy guard: only one page increment per render cycle. Prevents
+    // duplicate pagination calls from rapid onScroll / onContentSizeChange.
+    if (loadingMoreRef.current || loadingMore) return;
+    loadingMoreRef.current = true;
+    // Show the footer spinner briefly while the next batch "loads".
+    setLoadingMore(true);
+    loadMoreTimerRef.current = setTimeout(() => {
+      setVisibleCount((prev) => prev + PAGE_SIZE);
+      setLoadingMore(false);
+    }, 350);
+  }, [loadingMore]);
+
+  useEffect(() => {
+    loadingMoreRef.current = false;
+  }, [visibleCount]);
+
+  useEffect(() => {
+    return () => {
+      if (loadMoreTimerRef.current) {
+        clearTimeout(loadMoreTimerRef.current);
+        loadMoreTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const visibleTasks = useMemo(
+    () => displayedTasks.slice(0, visibleCount),
+    [displayedTasks, visibleCount]
+  );
+
+  const handleRefresh = useCallback(async () => {
+    if (!companyId) return;
+    if (loadMoreTimerRef.current) {
+      clearTimeout(loadMoreTimerRef.current);
+      loadMoreTimerRef.current = null;
+    }
+    setLoadingMore(false);
+    setRefreshing(true);
+    try {
+      await fetchAllTasks(companyId);
+      setVisibleCount(PAGE_SIZE);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [companyId, fetchAllTasks]);
+
   const statsList = useMemo(() => {
     return [
-      { label: "All Tasks", count: pad(taskState.loading ? 0 : tasksMap.all.length), iconName: <AllTasksIcon />, id: "all" },
+      { label: "All Tasks", count: pad(tasksMap.all.length), iconName: <AllTasksIcon />, id: "all" },
       { label: "Due Today", count: pad(tasksMap.today.length), iconName: <DueTodayIcon />, id: "today" },
       { label: "Due in 7 days", count: pad(tasksMap.week.length), iconName: <SevendayIcon />, id: "week" },
       { label: "Delayed", count: pad(tasksMap.overdue.length), iconName: <DelayIcon />, id: "overdue" },
@@ -502,12 +574,17 @@ export default function TasksScreen() {
         <View style={styles.tableShell}>
           <TaskTable
             sectionTitle={statsList.find((s) => s.id === activeTab)?.label ?? "All Tasks"}
-            tasks={displayedTasks}
+            tasks={visibleTasks}
             onTaskPress={handleTaskPress}
             onStatusChange={handleStatusChange}
             onFilterPress={() => setFilterVisible(true)}
             loading={taskState.loading}
             activeFilterCount={activeFilterCount}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            onLoadMore={loadMore}
+            onRefresh={handleRefresh}
+            refreshing={refreshing}
           />
         </View>
       </View>

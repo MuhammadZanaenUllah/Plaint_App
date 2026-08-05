@@ -4,7 +4,10 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -32,6 +35,11 @@ type Props = {
   loading?: boolean;
   emptyText?: string;
   activeFilterCount?: number;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
 };
 
 type SwipeStage = "actions" | "details";
@@ -103,6 +111,11 @@ function SingleTaskTable({
   loading = false,
   emptyText = "No tasks found.",
   activeFilterCount = 0,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
+  onRefresh,
+  refreshing = false,
 }: Props) {
   const { width: windowWidth } = useWindowDimensions();
   const metrics = useMemo(() => getTableMetrics(windowWidth), [windowWidth]);
@@ -156,6 +169,39 @@ function SingleTaskTable({
   const shouldEnableRowScroll =
     rowContentHeight > rowViewportHeight + 1 && !isSwipeDragging;
 
+  // Infinite scroll — fire onLoadMore when the user scrolls near the bottom.
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!hasMore || loadingMore || loading) return;
+      const { layoutMeasurement, contentOffset, contentSize } =
+        event.nativeEvent;
+      const threshold = 40;
+      if (
+        layoutMeasurement.height + contentOffset.y >=
+        contentSize.height - threshold
+      ) {
+        onLoadMore?.();
+      }
+    },
+    [hasMore, loadingMore, loading, onLoadMore]
+  );
+
+  // If the current page doesn't fill the viewport (e.g. tall screens), load the
+  // next page automatically so infinite scroll never dead-ends.
+  useEffect(() => {
+    if (
+      hasMore &&
+      !loadingMore &&
+      !loading &&
+      rowViewportHeight > 0 &&
+      rowContentHeight > 0 &&
+      rowContentHeight <= rowViewportHeight
+    ) {
+      onLoadMore?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowContentHeight, rowViewportHeight, hasMore, loading, loadingMore]);
+
   return (
     <View style={[styles.container, { width: metrics.tableWidth }]}>
       <View style={styles.sectionHeader}>
@@ -206,13 +252,25 @@ function SingleTaskTable({
         style={styles.rowsScroll}
         keyboardShouldPersistTaps="always"
         scrollEnabled={shouldEnableRowScroll}
-        bounces={shouldEnableRowScroll}
-        alwaysBounceVertical={false}
+        bounces={shouldEnableRowScroll || !!onRefresh}
+        alwaysBounceVertical={!!onRefresh}
         onLayout={(event) =>
           setRowViewportHeight(event.nativeEvent.layout.height)
         }
         onContentSizeChange={(_width, height) => setRowContentHeight(height)}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         nestedScrollEnabled
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={["#00DEAB"]}
+              tintColor="#00DEAB"
+            />
+          ) : undefined
+        }
       >
         {loading ? (
           <View style={styles.centeredState}>
@@ -246,6 +304,16 @@ function SingleTaskTable({
               />
             ))
           : null}
+
+        {!loading && augmentedTasks.length > 0 ? (
+          <View style={styles.footerState}>
+            {loadingMore ? (
+              <ActivityIndicator size="small" color="#00DEAB" />
+            ) : !hasMore ? (
+              <Text style={styles.footerText}>End of list</Text>
+            ) : null}
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -1243,6 +1311,16 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 13,
+    color: "#9CA3AF",
+    fontFamily: "SF_Pro_Regular",
+  },
+  footerState: {
+    paddingVertical: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  footerText: {
+    fontSize: 12,
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
   },
