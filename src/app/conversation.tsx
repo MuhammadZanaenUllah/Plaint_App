@@ -24,7 +24,6 @@ import {
     Modal,
     Platform,
     Pressable,
-    SafeAreaView,
     ScrollView,
     StyleSheet,
     Text,
@@ -32,6 +31,7 @@ import {
     TouchableOpacity,
     View
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import EmojiPicker from "rn-emoji-keyboard";
 import { showInfo, showError } from "@/utils/toast";
 import * as socketService from "@/services/socket/socketService";
@@ -530,23 +530,13 @@ function MessageBubble({
     message,
     currentUserId,
     members,
-    onReact,
-    onEmoji,
-    onForward,
-    onEdit,
-    onReply,
-    onMore,
+    onLongPress,
     onReactionPress,
 }: {
     message: ChatMessage;
     currentUserId: number;
     members?: RoomMember[];
-    onReact?: () => void;
-    onEmoji?: () => void;
-    onForward?: () => void;
-    onEdit?: () => void;
-    onReply?: () => void;
-    onMore?: () => void;
+    onLongPress?: (msg: ChatMessage) => void;
     onReactionPress?: (emoji: string) => void;
 }) {
     const own = isOwnMessage(message, currentUserId);
@@ -573,14 +563,18 @@ function MessageBubble({
                             {senderName}{" "}
                             <Text style={styles.timeMeta}>| {time}</Text>
                         </Text>
-                        <View style={styles.incomingBubble}>
+                        <Pressable
+                            onLongPress={() => onLongPress?.(message)}
+                            delayLongPress={250}
+                            style={styles.incomingBubble}
+                        >
                             {audioAtt ? (
                                 <VoiceNotePlayer audioUrl={audioAtt.url} />
                             ) : null}
                             {message.text && message.text !== "🎤 Voice message" ? (
                                 <Text style={styles.bubbleText}>{message.text}</Text>
                             ) : null}
-                        </View>
+                        </Pressable>
                         {message.reactions && message.reactions.length > 0 && (
                             <View style={styles.reactionsRow}>
                                 {message.reactions.map((r, idx) => (
@@ -597,7 +591,6 @@ function MessageBubble({
                                 ))}
                             </View>
                         )}
-                        <MessageActions isOwn={false} onReact={onReact} onEmoji={onEmoji} onForward={onForward} onEdit={onEdit} onReply={onReply} onMore={onMore} />
                     </View>
                     <View style={styles.avatar}>
                         <Text style={styles.avatarText}>{initials}</Text>
@@ -618,14 +611,18 @@ function MessageBubble({
                         {senderName}{" "}
                         <Text style={styles.timeMeta}>| {time}</Text>
                     </Text>
-                    <View style={styles.outgoingBubble}>
+                    <Pressable
+                        onLongPress={() => onLongPress?.(message)}
+                        delayLongPress={250}
+                        style={styles.outgoingBubble}
+                    >
                         {audioAtt ? (
                             <VoiceNotePlayer audioUrl={audioAtt.url} />
                         ) : null}
                         {message.text && message.text !== "🎤 Voice message" ? (
                             <Text style={styles.bubbleText}>{message.text}</Text>
                         ) : null}
-                    </View>
+                    </Pressable>
                     {message.reactions && message.reactions.length > 0 && (
                         <View style={styles.reactionsRow}>
                             {message.reactions.map((r, idx) => (
@@ -642,12 +639,255 @@ function MessageBubble({
                             ))}
                         </View>
                     )}
-                    <MessageActions isOwn={true} onReact={onReact} onEmoji={onEmoji} onForward={onForward} onEdit={onEdit} onReply={onReply} onMore={onMore} />
                 </View>
             </View>
         </View>
     );
 }
+
+const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+
+function WhatsAppMessageModal({
+    visible,
+    message,
+    currentUserId,
+    callerPermission,
+    onClose,
+    onReactionSelect,
+    onOpenEmojiPicker,
+    onReply,
+    onCopy,
+    onForward,
+    onPin,
+    onEdit,
+    onDelete,
+}: {
+    visible: boolean;
+    message: ChatMessage | null;
+    currentUserId: number;
+    callerPermission?: ChatPermission;
+    onClose: () => void;
+    onReactionSelect: (emoji: string) => void;
+    onOpenEmojiPicker: () => void;
+    onReply: () => void;
+    onCopy: () => void;
+    onForward: () => void;
+    onPin: () => void;
+    onEdit: () => void;
+    onDelete: () => void;
+}) {
+    if (!visible || !message) return null;
+
+    const own = isOwnMessage(message, currentUserId);
+    const canEditOthers = canPerformAction(callerPermission, "edit");
+    const canDeleteOthers = canPerformAction(callerPermission, "delete");
+    const allowEdit = own || canEditOthers;
+    const allowDelete = own || canDeleteOthers;
+
+    return (
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+            <Pressable style={waModalStyles.overlay} onPress={onClose}>
+                <Pressable style={waModalStyles.container} onPress={() => {}}>
+                    {/* Quick Emojis Bar */}
+                    <View style={waModalStyles.emojiBar}>
+                        {QUICK_EMOJIS.map((emoji) => (
+                            <TouchableOpacity
+                                key={emoji}
+                                style={waModalStyles.emojiItem}
+                                activeOpacity={0.7}
+                                onPress={() => {
+                                    onReactionSelect(emoji);
+                                    onClose();
+                                }}
+                            >
+                                <Text style={waModalStyles.emojiText}>{emoji}</Text>
+                            </TouchableOpacity>
+                        ))}
+                        <TouchableOpacity
+                            style={waModalStyles.emojiItemPlus}
+                            activeOpacity={0.7}
+                            onPress={() => {
+                                onClose();
+                                onOpenEmojiPicker();
+                            }}
+                        >
+                            <Ionicons name="add" size={20} color="#6B7280" />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Preview Message Box */}
+                    <View style={waModalStyles.previewBox}>
+                        <Text style={waModalStyles.previewSender}>
+                            {message.sender_name || "User"}
+                        </Text>
+                        <Text style={waModalStyles.previewText} numberOfLines={3}>
+                            {message.text || "Attachment"}
+                        </Text>
+                    </View>
+
+                    {/* Action Items List */}
+                    <View style={waModalStyles.menuCard}>
+                        <TouchableOpacity
+                            style={waModalStyles.menuItem}
+                            onPress={() => { onClose(); onReply(); }}
+                        >
+                            <Ionicons name="arrow-undo-outline" size={18} color="#1D1D1D" style={waModalStyles.menuIcon} />
+                            <Text style={waModalStyles.menuText}>Reply</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={waModalStyles.menuItem}
+                            onPress={() => { onClose(); onCopy(); }}
+                        >
+                            <Ionicons name="copy-outline" size={18} color="#1D1D1D" style={waModalStyles.menuIcon} />
+                            <Text style={waModalStyles.menuText}>Copy Text</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={waModalStyles.menuItem}
+                            onPress={() => { onClose(); onForward(); }}
+                        >
+                            <Ionicons name="arrow-redo-outline" size={18} color="#1D1D1D" style={waModalStyles.menuIcon} />
+                            <Text style={waModalStyles.menuText}>Forward</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={waModalStyles.menuItem}
+                            onPress={() => { onClose(); onPin(); }}
+                        >
+                            <Ionicons name="pin-outline" size={18} color="#1D1D1D" style={waModalStyles.menuIcon} />
+                            <Text style={waModalStyles.menuText}>
+                                {message.is_pinned ? "Unpin Message" : "Pin Message"}
+                            </Text>
+                        </TouchableOpacity>
+
+                        {allowEdit && (
+                            <TouchableOpacity
+                                style={waModalStyles.menuItem}
+                                onPress={() => { onClose(); onEdit(); }}
+                            >
+                                <Ionicons name="pencil-outline" size={18} color="#1D1D1D" style={waModalStyles.menuIcon} />
+                                <Text style={waModalStyles.menuText}>Edit Message</Text>
+                            </TouchableOpacity>
+                        )}
+
+                        {allowDelete && (
+                            <TouchableOpacity
+                                style={[waModalStyles.menuItem, waModalStyles.menuItemLast]}
+                                onPress={() => { onClose(); onDelete(); }}
+                            >
+                                <Ionicons name="trash-outline" size={18} color="#EF4444" style={waModalStyles.menuIcon} />
+                                <Text style={[waModalStyles.menuText, waModalStyles.menuTextDelete]}>Delete Message</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </Pressable>
+            </Pressable>
+        </Modal>
+    );
+}
+
+const waModalStyles = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.55)",
+        justifyContent: "center",
+        alignItems: "center",
+        paddingHorizontal: 24,
+    },
+    container: {
+        width: "100%",
+        maxWidth: 320,
+        gap: 12,
+    },
+    emojiBar: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        backgroundColor: "#FFFFFF",
+        borderRadius: 24,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        shadowColor: "#000",
+        shadowOpacity: 0.15,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 },
+        elevation: 8,
+    },
+    emojiItem: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    emojiText: {
+        fontSize: 20,
+    },
+    emojiItemPlus: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: "#F3F4F6",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    previewBox: {
+        backgroundColor: "#FFFFFF",
+        borderRadius: 12,
+        padding: 12,
+        borderLeftWidth: 4,
+        borderLeftColor: "#00DEAB",
+        shadowColor: "#000",
+        shadowOpacity: 0.1,
+        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 2 },
+        elevation: 4,
+    },
+    previewSender: {
+        fontSize: 12,
+        fontFamily: "SF_Pro_Semibold",
+        color: "#00DEAB",
+        marginBottom: 2,
+    },
+    previewText: {
+        fontSize: 13,
+        fontFamily: "SF_Pro_Regular",
+        color: "#1F2937",
+    },
+    menuCard: {
+        backgroundColor: "#FFFFFF",
+        borderRadius: 14,
+        overflow: "hidden",
+        shadowColor: "#000",
+        shadowOpacity: 0.15,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 },
+        elevation: 8,
+    },
+    menuItem: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 16,
+        paddingVertical: 13,
+        borderBottomWidth: 1,
+        borderBottomColor: "#F3F4F6",
+    },
+    menuItemLast: {
+        borderBottomWidth: 0,
+    },
+    menuIcon: {
+        marginRight: 14,
+    },
+    menuText: {
+        fontSize: 14,
+        fontFamily: "SF_Pro_Medium",
+        color: "#1F2937",
+    },
+    menuTextDelete: {
+        color: "#EF4444",
+    },
+});
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -746,6 +986,9 @@ export default function ConversationScreen() {
 
     // Filter tabs
     const [activeFilter, setActiveFilter] = useState<FilterTab>(null);
+
+    // WhatsApp style message modal
+    const [selectedMsgForModal, setSelectedMsgForModal] = useState<ChatMessage | null>(null);
 
     // Emoji picker
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -916,18 +1159,18 @@ export default function ConversationScreen() {
         return Array.from(roomMap.values());
     }, [typingUsers, roomId]);
 
-    // Auto-scroll to bottom on new messages
+    // Auto-scroll to bottom on room open and message updates
     useEffect(() => {
         if (state.messages.length > 0) {
             setTimeout(() => {
-                scrollRef.current?.scrollToEnd({ animated: true });
-            }, 100);
+                scrollRef.current?.scrollToEnd({ animated: false });
+            }, 50);
             const lastMsg = state.messages[state.messages.length - 1];
             if (lastMsg?.createdAt) {
                 setFirstVisibleDate(new Date(lastMsg.createdAt));
             }
         }
-    }, [state.messages.length]);
+    }, [state.messages.length, roomId]);
 
     const handleSend = useCallback(async () => {
         if (!message.trim() || !roomId || sending) return;
@@ -971,13 +1214,19 @@ export default function ConversationScreen() {
         async (msg: ChatMessage, emoji: string) => {
             if (!canReact) return;
             if (!roomId) return;
+            const existingUserReaction = (msg.reactions ?? []).find(
+                (r) => r.users && r.users.includes(currentUserId)
+            );
             try {
+                if (existingUserReaction && existingUserReaction.emoji !== emoji) {
+                    await toggleReaction(msg._id, existingUserReaction.emoji);
+                }
                 await toggleReaction(msg._id, emoji);
             } catch {
                 // Silent fail
             }
         },
-        [roomId, toggleReaction, canReact]
+        [roomId, toggleReaction, canReact, currentUserId]
     );
 
     const handleAddPeopleInvite = useCallback(
@@ -999,11 +1248,17 @@ export default function ConversationScreen() {
         async (msg: ChatMessage, emoji: string) => {
             setEmojiPickerOpen(false);
             setEmojiPickerMsg(null);
+            const existingUserReaction = (msg.reactions ?? []).find(
+                (r) => r.users && r.users.includes(currentUserId)
+            );
             try {
+                if (existingUserReaction && existingUserReaction.emoji !== emoji) {
+                    await toggleReaction(msg._id, existingUserReaction.emoji);
+                }
                 await toggleReaction(msg._id, emoji);
             } catch { }
         },
-        [toggleReaction]
+        [toggleReaction, currentUserId]
     );
 
     const handleForward = useCallback(
@@ -1339,6 +1594,12 @@ export default function ConversationScreen() {
                         style={styles.scroll}
                         data={filteredMessages}
                         keyExtractor={(item: ChatMessage) => item._id}
+                        onContentSizeChange={() => {
+                            scrollRef.current?.scrollToEnd({ animated: false });
+                        }}
+                        onLayout={() => {
+                            scrollRef.current?.scrollToEnd({ animated: false });
+                        }}
                         renderItem={({ item, index }: { item: ChatMessage; index: number }) => {
                             return (
                                 <View
@@ -1351,22 +1612,7 @@ export default function ConversationScreen() {
                                         message={item}
                                         currentUserId={currentUserId}
                                         members={currentRoom?.members}
-                                        onReact={() => handleReact(item)}
-                                        onEmoji={() => {
-                                            if (!canReact) return;
-                                            setEmojiPickerMsg(item);
-                                            setEmojiPickerOpen(true);
-                                        }}
-                                        onForward={() => {
-                                            setForwardMsg(item);
-                                            setForwardOpen(true);
-                                        }}
-                                        onEdit={() => {
-                                            setEditingMsg(item);
-                                            setEditText(item.text);
-                                        }}
-                                        onReply={() => setReplyTo(item)}
-                                        onMore={() => handleMore(item)}
+                                        onLongPress={(msg) => setSelectedMsgForModal(msg)}
                                         onReactionPress={(emoji: string) => handleReactEmoji(item, emoji)}
                                     />
                                 </View>
@@ -1686,6 +1932,61 @@ export default function ConversationScreen() {
                 onInviteUsers={handleAddPeopleInvite}
             />
 
+
+            {/* ── WhatsApp Style Long-Press Message Modal ── */}
+            <WhatsAppMessageModal
+                visible={!!selectedMsgForModal}
+                message={selectedMsgForModal}
+                currentUserId={currentUserId}
+                callerPermission={callerPermission}
+                onClose={() => setSelectedMsgForModal(null)}
+                onReactionSelect={(emoji) => {
+                    if (selectedMsgForModal) {
+                        handleReactEmoji(selectedMsgForModal, emoji);
+                    }
+                }}
+                onOpenEmojiPicker={() => {
+                    if (selectedMsgForModal) {
+                        setEmojiPickerMsg(selectedMsgForModal);
+                        setEmojiPickerOpen(true);
+                    }
+                }}
+                onReply={() => {
+                    if (selectedMsgForModal) setReplyTo(selectedMsgForModal);
+                }}
+                onCopy={() => {
+                    if (selectedMsgForModal) {
+                        Clipboard.setStringAsync(selectedMsgForModal.text);
+                        showInfo("Copied", "Message text copied to clipboard");
+                    }
+                }}
+                onForward={() => {
+                    if (selectedMsgForModal) {
+                        setForwardMsg(selectedMsgForModal);
+                        setForwardOpen(true);
+                    }
+                }}
+                onPin={() => {
+                    if (selectedMsgForModal) {
+                        togglePin(selectedMsgForModal.id.toString()).catch(() => {});
+                    }
+                }}
+                onEdit={() => {
+                    if (selectedMsgForModal) {
+                        setEditingMsg(selectedMsgForModal);
+                        setEditText(selectedMsgForModal.text);
+                    }
+                }}
+                onDelete={() => {
+                    if (selectedMsgForModal) {
+                        const msg = selectedMsgForModal;
+                        Alert.alert("Delete Message", "Delete this message for everyone?", [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Delete", style: "destructive", onPress: () => deleteMessage(msg._id, "everyone").catch(() => {}) },
+                        ]);
+                    }
+                }}
+            />
 
             {/* ── Emoji Picker (rn-emoji-keyboard) ── */}
             <EmojiPicker

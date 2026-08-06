@@ -267,9 +267,7 @@ export default function TasksScreen() {
     []
   );
 
-  const tasksMap = useMemo<Record<string, (TaskRowProps & { _raw: import("@/types/task.types").TaskListItem })[]>>(() => {
-    const all = allMappedTasks.map(mapRowWithRaw);
-
+  const tabCounts = useMemo(() => {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const tomorrowStart = new Date(todayStart);
@@ -277,62 +275,36 @@ export default function TasksScreen() {
     const weekEnd = new Date(tomorrowStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
 
-    const sortByDueDate = (tasks: (TaskRowProps & { _raw: import("@/types/task.types").TaskListItem })[]) =>
-      [...tasks].sort((a, b) => {
-        if (!a._raw?.due_date) return 1;
-        if (!b._raw?.due_date) return -1;
-        return new Date(a._raw.due_date).getTime() - new Date(b._raw.due_date).getTime();
-      });
+    let all = 0;
+    let today = 0;
+    let week = 0;
+    let overdue = 0;
+    let recurring = 0;
+    let completed = 0;
 
-    return {
-      all: sortByDueDate(all.filter((t) => t.status !== "Completed")),
-      today: all
-        .filter((t) => {
-          if (t.status === "Completed") return false;
-          if (!t._raw?.due_date) return false;
-          const d = new Date(t._raw.due_date);
-          return d >= todayStart && d < tomorrowStart;
-        })
-        .sort((a, b) => {
-          const timeA = new Date(a._raw.due_date).getTime() % 86400000;
-          const timeB = new Date(b._raw.due_date).getTime() % 86400000;
-          if (timeA !== timeB) return timeA - timeB;
-          const createdA = new Date(a._raw.createdAt || 0).getTime();
-          const createdB = new Date(b._raw.createdAt || 0).getTime();
-          return createdA - createdB;
-        }),
-      week: sortByDueDate(
-        all.filter((t) => {
-          if (t.status === "Completed") return false;
-          if (!t._raw?.due_date) return false;
-          const d = new Date(t._raw.due_date);
-          return d >= tomorrowStart && d < weekEnd;
-        })
-      ),
-      overdue: all
-        .filter((t) => {
-          if (t.status === "Completed") return false;
-          if (!t._raw?.due_date) return false;
-          const d = new Date(t._raw.due_date);
-          return d < todayStart;
-        })
-        .sort((a, b) => {
-          const dateA = new Date(a._raw.due_date).getTime();
-          const dateB = new Date(b._raw.due_date).getTime();
-          return dateA - dateB;
-        }),
-      created: sortByDueDate(mappedCreatedByMe.map(mapRowWithRaw).filter((t) => t.status !== "Completed")),
-      assigned: sortByDueDate(mappedAssignedToMe.map(mapRowWithRaw).filter((t) => t.status !== "Completed")),
-      recurring: sortByDueDate(
-        all.filter((t) => t._raw?.is_recurring === true && t.status !== "Completed")
-      ),
-      completed: [...all.filter((t) => t.status === "Completed")].sort((a, b) => {
-        const timeA = new Date(a._raw.updatedAt || a._raw.createdAt || 0).getTime();
-        const timeB = new Date(b._raw.updatedAt || b._raw.createdAt || 0).getTime();
-        return timeB - timeA;
-      }),
-    };
-  }, [allMappedTasks, mappedCreatedByMe, mappedAssignedToMe, mapRowWithRaw]);
+    for (const t of allMappedTasks) {
+      if (t.status === "Completed") {
+        completed++;
+        continue;
+      }
+      all++;
+      if (t._raw?.is_recurring === true) recurring++;
+      if (t._raw?.due_date) {
+        const d = new Date(t._raw.due_date);
+        const ms = d.getTime();
+        if (!isNaN(ms)) {
+          if (ms >= todayStart.getTime() && ms < tomorrowStart.getTime()) today++;
+          if (ms >= tomorrowStart.getTime() && ms < weekEnd.getTime()) week++;
+          if (ms < todayStart.getTime()) overdue++;
+        }
+      }
+    }
+
+    const created = mappedCreatedByMe.filter((t) => t.status !== "Completed").length;
+    const assigned = mappedAssignedToMe.filter((t) => t.status !== "Completed").length;
+
+    return { all, today, week, overdue, created, assigned, recurring, completed };
+  }, [allMappedTasks, mappedCreatedByMe, mappedAssignedToMe]);
 
   const getTabCategoryScope = useCallback(
     (tabId: string) => {
@@ -542,16 +514,16 @@ export default function TasksScreen() {
 
   const statsList = useMemo(() => {
     return [
-      { label: "All Tasks", count: pad(tasksMap.all.length), iconName: <AllTasksIcon />, id: "all" },
-      { label: "Due Today", count: pad(tasksMap.today.length), iconName: <DueTodayIcon />, id: "today" },
-      { label: "Due in 7 days", count: pad(tasksMap.week.length), iconName: <SevendayIcon />, id: "week" },
-      { label: "Delayed", count: pad(tasksMap.overdue.length), iconName: <DelayIcon />, id: "overdue" },
-      { label: "Created by me", count: pad(tasksMap.created.length), iconName: <CreatedIcon />, id: "created" },
-      { label: "Assigned to me", count: pad(tasksMap.assigned.length), iconName: <AssignIcon />, id: "assigned" },
-      { label: "Recurring", count: pad(tasksMap.recurring.length), iconName: <RecurringIcon />, id: "recurring" },
-      { label: "Completed", count: pad(tasksMap.completed.length), iconName: <CompletedIcon />, id: "completed" },
+      { label: "All Tasks", count: pad(tabCounts.all), iconName: <AllTasksIcon />, id: "all" },
+      { label: "Due Today", count: pad(tabCounts.today), iconName: <DueTodayIcon />, id: "today" },
+      { label: "Due in 7 days", count: pad(tabCounts.week), iconName: <SevendayIcon />, id: "week" },
+      { label: "Delayed", count: pad(tabCounts.overdue), iconName: <DelayIcon />, id: "overdue" },
+      { label: "Created by me", count: pad(tabCounts.created), iconName: <CreatedIcon />, id: "created" },
+      { label: "Assigned to me", count: pad(tabCounts.assigned), iconName: <AssignIcon />, id: "assigned" },
+      { label: "Recurring", count: pad(tabCounts.recurring), iconName: <RecurringIcon />, id: "recurring" },
+      { label: "Completed", count: pad(tabCounts.completed), iconName: <CompletedIcon />, id: "completed" },
     ];
-  }, [taskState.loading, totalCount, tasksMap]);
+  }, [tabCounts]);
 
   if (taskState.loading && totalCount === 0) {
     return (
@@ -644,7 +616,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 120,
+    paddingBottom: 0,
   },
   fab: {
     position: "absolute",

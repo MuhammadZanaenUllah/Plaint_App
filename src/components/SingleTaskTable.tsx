@@ -250,6 +250,7 @@ function SingleTaskTable({
       <ScrollView
         showsVerticalScrollIndicator={false}
         style={styles.rowsScroll}
+        contentContainerStyle={styles.rowsScrollContent}
         keyboardShouldPersistTaps="always"
         scrollEnabled={shouldEnableRowScroll}
         bounces={shouldEnableRowScroll || !!onRefresh}
@@ -932,6 +933,9 @@ const styles = StyleSheet.create({
   },
   rowsScroll: {
     flex: 1,
+  },
+  rowsScrollContent: {
+    paddingBottom: 110,
   },
   rowWrap: {
     position: "relative",
