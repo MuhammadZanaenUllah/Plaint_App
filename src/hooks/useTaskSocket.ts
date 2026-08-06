@@ -75,10 +75,10 @@ export function useTaskSocket(): void {
             console.log(`[useTaskSocket] task_update ignored — no action field`);
             return;
           }
-          console.log(`[useTaskSocket] task_update matched — refetching tasks (action: "${p.action}")`);
+          console.log(`[useTaskSocket] task_update matched — refetching tasks silently (action: "${p.action}")`);
           // All task_update actions (create, update, status_update, delete,
-          // add_note, delete_note, schedule_update, etc.) trigger a full refetch
-          fetchRef.current(companyIdRef.current!);
+          // add_note, delete_note, schedule_update, etc.) trigger a silent refetch
+          fetchRef.current(companyIdRef.current!, { silent: true });
         })
       );
 
@@ -108,7 +108,7 @@ export function useTaskSocket(): void {
           const p = payload as { company_id?: number; action?: string; data?: any };
           if (String(p?.company_id) !== String(companyIdRef.current)) return;
           // Any project change triggers task refetch (tasks may have project_id)
-          fetchRef.current(companyIdRef.current!);
+          fetchRef.current(companyIdRef.current!, { silent: true });
         })
       );
 
@@ -117,7 +117,7 @@ export function useTaskSocket(): void {
         onSocketEvent("user_update", (payload: unknown) => {
           const p = payload as UserUpdatePayload;
           if (String(p?.company_id) !== String(companyIdRef.current)) return;
-          fetchRef.current(companyIdRef.current!);
+          fetchRef.current(companyIdRef.current!, { silent: true });
         })
       );
 
@@ -127,7 +127,7 @@ export function useTaskSocket(): void {
           const p = payload as { company_id?: number };
           if (String(p?.company_id) !== String(companyIdRef.current)) return;
           // Scheduling settings changed — refetch tasks to pick up any schedule changes
-          fetchRef.current(companyIdRef.current!);
+          fetchRef.current(companyIdRef.current!, { silent: true });
         })
       );
     }

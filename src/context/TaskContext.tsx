@@ -153,7 +153,7 @@ export type TaskContextValue = {
   filteredMappedTasks: MappedTaskRow[];
   dueTodayCount: number;
   totalCount: number;
-  fetchAllTasks: (companyId: number) => Promise<void>;
+  fetchAllTasks: (companyId: number, options?: { silent?: boolean }) => Promise<void>;
   fetchDueToday: (companyId: number) => Promise<void>;
   fetchFiltered: (companyId: number, filter: TaskFilter) => Promise<void>;
   setActiveFilter: (filter: TaskFilter | null) => void;
@@ -268,10 +268,13 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 
   const totalCount = allMappedTasks.length;
 
-  const fetchAllTasks = useCallback(async (companyId: number) => {
-    console.log(`[TaskContext] fetchAllTasks called with companyId=${companyId}`);
-    dispatch({ type: "SET_LOADING", loading: true });
-    setFilteredMappedTasks([]);
+  const fetchAllTasks = useCallback(
+    async (companyId: number, options?: { silent?: boolean }) => {
+      console.log(`[TaskContext] fetchAllTasks called with companyId=${companyId}, silent=${options?.silent}`);
+      if (!options?.silent) {
+        dispatch({ type: "SET_LOADING", loading: true });
+      }
+      setFilteredMappedTasks([]);
     try {
       const [res, todayRes] = await Promise.all([
         tasksService.getAllTasks(companyId),
@@ -401,7 +404,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 
   const refreshTasks = useCallback(
     async (companyId: number) => {
-      await fetchAllTasks(companyId);
+      await fetchAllTasks(companyId, { silent: true });
     },
     [fetchAllTasks]
   );

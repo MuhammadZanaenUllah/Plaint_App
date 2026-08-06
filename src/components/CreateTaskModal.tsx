@@ -64,7 +64,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     const cleanup = onSocketEvent("user_update", (payload: unknown) => {
       const p = payload as UserUpdatePayload;
       if (String(p?.company_id) !== String(companyIdRef.current)) return;
-      fetchRef.current(companyIdRef.current);
+      fetchRef.current(companyIdRef.current, { silent: true });
     });
 
     return cleanup;
@@ -351,7 +351,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       const response = await createTask(payload as any);
       console.log(`[CreateTaskModal] BACKEND RESPONSE:`, JSON.stringify(response, null, 2));
       showSuccess("Success", "Task created successfully.");
-      fetchAllTasks(payload.company_id as number).catch((err) =>
+      fetchAllTasks(payload.company_id as number, { silent: true }).catch((err) =>
         console.error("[CreateTaskModal] fetchAllTasks after create failed:", err)
       );
       resetForm();
@@ -376,7 +376,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       console.log(`[CreateTaskModal] Critical Option 1 PAYLOAD:`, JSON.stringify(payload, null, 2));
       await createTask(payload as any);
       showSuccess("Success", "Critical task created and scheduled at top priority.");
-      fetchAllTasks(authState.company?.company_id ?? 0).catch(() => {});
+      fetchAllTasks(authState.company?.company_id ?? 0, { silent: true }).catch(() => {});
       pendingPayloadRef.current = null;
       resetForm();
       onClose();
@@ -406,7 +406,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
         id === PENDING_NEW_TASK_ID && newTaskId ? newTaskId : id
       );
       await reorderCritical({ orderedIds: resolvedIds, company_id: companyId });
-      fetchAllTasks(companyId).catch(() => {});
+      fetchAllTasks(companyId, { silent: true }).catch(() => {});
     } catch (error) {
       showError("Reorder Error", extractErrorMessage(error));
     } finally {

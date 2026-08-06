@@ -108,7 +108,7 @@ export default function TasksScreen() {
       // tab performs a backend refresh (per documented design). This avoids
       // redundant full-list requests on every tab switch.
       if (tabId === "all" && companyId) {
-        fetchAllTasks(companyId);
+        fetchAllTasks(companyId, { silent: true });
       }
     },
     [companyId, fetchAllTasks]
@@ -126,7 +126,7 @@ export default function TasksScreen() {
           company_id: companyId,
           company_identifier: companyIdentifier,
         });
-        fetchAllTasks(companyId);
+        fetchAllTasks(companyId, { silent: true });
       } catch {
         // status change failed silently
       }
@@ -533,7 +533,7 @@ export default function TasksScreen() {
     setLoadingMore(false);
     setRefreshing(true);
     try {
-      await fetchAllTasks(companyId);
+      await fetchAllTasks(companyId, { silent: true });
       setVisibleCount(PAGE_SIZE);
     } finally {
       setRefreshing(false);
