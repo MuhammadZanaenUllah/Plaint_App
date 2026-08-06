@@ -14,10 +14,6 @@ import {
 import CalendarPicker from "./CalendarPicker";
 import FloatingInput from "./FloatingInput";
 
-// Minimum time the Apply button stays in its loading state, so the spinner is
-// always visible even when the client-side filter resolves instantly.
-const MIN_APPLY_MS = 350;
-
 type Props = {
   visible: boolean;
   onClose: () => void;
@@ -26,6 +22,8 @@ type Props = {
   statuses?: string[];
   statusColors?: Record<string, string>;
   showStatus?: boolean;
+  // Section label for the status chip group (defaults to "Status")
+  statusLabel?: string;
 
   // Priority
   priorities?: string[];
@@ -76,6 +74,7 @@ export default function FilterModal({
   statuses = [],
   statusColors = {},
   showStatus = true,
+  statusLabel = "Status",
 
   priorities = [],
   priorityColors = {},
@@ -113,17 +112,11 @@ export default function FilterModal({
   // close paths, never inside an effect.
   const applyingSessionRef = useRef(0);
   // True when Apply was tapped while a real backend load was in flight — the
-  // close-wait effect (below) then handles closing, otherwise a short timer
-  // closes the modal so the spinner is always visible.
+  // close-wait effect (below) then closes the modal as soon as it finishes.
   const waitForRealLoadRef = useRef(false);
-  const applyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (visible) {
-      if (applyTimerRef.current) {
-        clearTimeout(applyTimerRef.current);
-        applyTimerRef.current = null;
-      }
       waitForRealLoadRef.current = false;
       setSelectedStatus(initialStatus);
       setSelectedPriority(initialPriority);
@@ -133,7 +126,7 @@ export default function FilterModal({
     }
   }, [visible, initialStatus, initialPriority, initialStartDate, initialEndDate]);
 
-  // If Apply was tapped while tasks were still loading, keep the modal open
+  // If Apply was tapped while data was still loading, keep the modal open
   // (spinner in the button) and close it as soon as the load finishes.
   useEffect(() => {
     if (
@@ -149,20 +142,7 @@ export default function FilterModal({
     }
   }, [visible, applying, loading, onClose]);
 
-  useEffect(() => {
-    return () => {
-      if (applyTimerRef.current) {
-        clearTimeout(applyTimerRef.current);
-        applyTimerRef.current = null;
-      }
-    };
-  }, []);
-
   const handleManualClose = () => {
-    if (applyTimerRef.current) {
-      clearTimeout(applyTimerRef.current);
-      applyTimerRef.current = null;
-    }
     waitForRealLoadRef.current = false;
     setApplying(false);
     applyingSessionRef.current = 0;
@@ -178,10 +158,6 @@ export default function FilterModal({
     setStartDate(null);
     setEndDate(null);
     setCalendarOpen(false);
-    if (applyTimerRef.current) {
-      clearTimeout(applyTimerRef.current);
-      applyTimerRef.current = null;
-    }
     waitForRealLoadRef.current = false;
     setApplying(false);
     applyingSessionRef.current = 0;
@@ -208,7 +184,7 @@ export default function FilterModal({
               {/* Status */}
               {showStatus && (
                 <>
-                  <Text style={styles.sectionLabel}>Status</Text>
+                  <Text style={styles.sectionLabel}>{statusLabel}</Text>
 
                   <View style={styles.chipsRow}>
                     {statuses.map((s) => {
@@ -424,24 +400,19 @@ export default function FilterModal({
                   startDate,
                   endDate,
                 });
-                applyingSessionRef.current += 1;
-                setApplying(true);
                 if (loading) {
-                  // Real backend load in flight — wait for it to finish.
+                  // Real backend load in flight — keep the modal open with a
+                  // spinner in the Apply button and close as soon as it
+                  // finishes.
                   waitForRealLoadRef.current = true;
+                  applyingSessionRef.current += 1;
+                  setApplying(true);
                 } else {
-                  // Client-side filter resolves instantly, so show the spinner
-                  // for a brief moment before closing.
-                  waitForRealLoadRef.current = false;
-                  if (applyTimerRef.current) {
-                    clearTimeout(applyTimerRef.current);
-                  }
-                  applyTimerRef.current = setTimeout(() => {
-                    applyTimerRef.current = null;
-                    applyingSessionRef.current = 0;
-                    setApplying(false);
-                    onClose?.();
-                  }, MIN_APPLY_MS);
+                  // Data is already loaded — the filter applies instantly, so
+                  // close the modal right away.
+                  applyingSessionRef.current = 0;
+                  setApplying(false);
+                  onClose?.();
                 }
               }}
             >

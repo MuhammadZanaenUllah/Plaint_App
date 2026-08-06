@@ -1,47 +1,87 @@
 import { AuthContext, AuthProvider } from "@/context/AuthContext";
 import { ChatProvider } from "@/context/ChatContext";
 import { NotificationProvider } from "@/context/NotificationContext";
-import { PushNotificationProvider, usePushNotifications } from "@/context/PushNotificationContext";
+import {
+  PushNotificationProvider,
+  usePushNotifications,
+} from "@/context/PushNotificationContext";
 import { TaskProvider } from "@/context/TaskContext";
+import {
+  connectSocket,
+  disconnectSocket,
+} from "@/services/socket/socketService";
 import useAppFonts from "@/theme/useAppFonts";
-import { connectSocket, disconnectSocket } from "@/services/socket/socketService";
-import { AppState } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useCallback, useContext, useEffect, useRef } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { useContext, useEffect, useRef } from "react";
+import { AppState, LogBox } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Toast from "react-native-toast-message";
 
 SplashScreen.preventAutoHideAsync();
 
+// Known upstream expo-router dev-only race: expo-router's `useLinking` calls a
+// state setter (`onUnhandledLinking`) from the async initial-URL promise before
+// the root has mounted, producing this warning on cold start in development.
+// It is harmless (no crash, prod unaffected) and cannot be fixed at app level.
+LogBox.ignoreLogs([
+  "Can't perform a React state update on a component that hasn't mounted yet",
+]);
+
 function PushNotificationLifecycle() {
-  const { registerForPushNotifications, unregisterDevice, resetBadge } = usePushNotifications();
+  const { registerForPushNotifications, unregisterDevice, resetBadge } =
+    usePushNotifications();
   const authCtx = useContext(AuthContext);
-  const state = authCtx?.state ?? { isAuthenticated: false, isDefaultPassword: false, loading: true };
+  const state = authCtx?.state ?? {
+    isAuthenticated: false,
+    isDefaultPassword: false,
+    loading: true,
+  };
   const registeredCompanyRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const isAuthed = state.isAuthenticated && !state.isDefaultPassword && !state.loading;
+    const isAuthed =
+      state.isAuthenticated && !state.isDefaultPassword && !state.loading;
     const companyId = authCtx?.state.company?.company_id ?? null;
 
     if (isAuthed && companyId && registeredCompanyRef.current !== companyId) {
       registeredCompanyRef.current = companyId;
-      console.log(`🚀 [PushNotificationLifecycle] Authenticated user session active (Company ID: ${companyId}). Fetching push tokens and registering device...`);
+      console.log(
+        `🚀 [PushNotificationLifecycle] Authenticated user session active (Company ID: ${companyId}). Fetching push tokens and registering device...`,
+      );
       registerForPushNotifications(companyId).catch((err) => {
-        console.error("🚀 [PushNotificationLifecycle] Push registration error:", err);
+        console.error(
+          "🚀 [PushNotificationLifecycle] Push registration error:",
+          err,
+        );
       });
     }
 
-    if (!state.isAuthenticated && !state.loading && registeredCompanyRef.current !== null) {
+    if (
+      !state.isAuthenticated &&
+      !state.loading &&
+      registeredCompanyRef.current !== null
+    ) {
       const oldCompany = registeredCompanyRef.current;
       registeredCompanyRef.current = null;
-      console.log(`🚀 [PushNotificationLifecycle] User logged out. Unregistering push notifications for Company ID: ${oldCompany}...`);
+      console.log(
+        `🚀 [PushNotificationLifecycle] User logged out. Unregistering push notifications for Company ID: ${oldCompany}...`,
+      );
       unregisterDevice(oldCompany).catch((err) => {
-        console.error("🚀 [PushNotificationLifecycle] Push unregistration error:", err);
+        console.error(
+          "🚀 [PushNotificationLifecycle] Push unregistration error:",
+          err,
+        );
       });
     }
-  }, [state.isAuthenticated, state.isDefaultPassword, state.loading, authCtx?.state.company?.company_id, registerForPushNotifications, unregisterDevice]);
+  }, [
+    state.isAuthenticated,
+    state.isDefaultPassword,
+    state.loading,
+    authCtx?.state.company?.company_id,
+    registerForPushNotifications,
+    unregisterDevice,
+  ]);
 
   useEffect(() => {
     if (state.loading) return;
@@ -65,7 +105,11 @@ function PushNotificationLifecycle() {
 
 function RootNavigator() {
   const authCtx = useContext(AuthContext);
-  const state = authCtx?.state ?? { isAuthenticated: false, isDefaultPassword: false, loading: true };
+  const state = authCtx?.state ?? {
+    isAuthenticated: false,
+    isDefaultPassword: false,
+    loading: true,
+  };
   const segments = useSegments();
   const router = useRouter();
   const [fontsLoaded, fontError] = useAppFonts();
@@ -90,20 +134,42 @@ function RootNavigator() {
     const inAuthGroup = segments[0] === "(auth)";
     const inInitialReset = (segments as string[]).includes("initial-reset");
     const inTabGroup = segments[0] === "(tabs)";
-    const isFirstRoute = (segments[0] as string) === "" || (segments[0] as string) === "index";
+    const isFirstRoute =
+      (segments[0] as string) === "" || (segments[0] as string) === "index";
     const isOnboarding = (segments[0] as string) === "splashscreem";
-    const inAuthenticatedScreen = ["conversation", "profile", "explore"].includes(segments[0] as string);
+    const inAuthenticatedScreen = [
+      "conversation",
+      "profile",
+      "explore",
+      "notifications",
+    ].includes(segments[0] as string);
 
     if (isFirstRoute || isOnboarding) return;
 
     if (!state.isAuthenticated && !inAuthGroup) {
       router.replace("/(auth)/login");
-    } else if (state.isAuthenticated && state.isDefaultPassword && !inInitialReset) {
+    } else if (
+      state.isAuthenticated &&
+      state.isDefaultPassword &&
+      !inInitialReset
+    ) {
       router.replace("/(auth)/initial-reset" as never);
-    } else if (state.isAuthenticated && !state.isDefaultPassword && !inTabGroup && !inAuthenticatedScreen) {
+    } else if (
+      state.isAuthenticated &&
+      !state.isDefaultPassword &&
+      !inTabGroup &&
+      !inAuthenticatedScreen
+    ) {
       router.replace("/(tabs)/tasks");
     }
-  }, [state.isAuthenticated, state.isDefaultPassword, state.loading, segments, fontsLoaded, router]);
+  }, [
+    state.isAuthenticated,
+    state.isDefaultPassword,
+    state.loading,
+    segments,
+    fontsLoaded,
+    router,
+  ]);
 
   useEffect(() => {
     if (state.isAuthenticated && !state.isDefaultPassword && !state.loading) {
@@ -120,27 +186,25 @@ function RootNavigator() {
     return null;
   }
 
-  return (
-    <Stack screenOptions={{ headerShown: false }} />
-  );
+  return <Stack screenOptions={{ headerShown: false }} />;
 }
 
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-    <AuthProvider>
-      <TaskProvider>
-        <ChatProvider>
-          <NotificationProvider>
-            <PushNotificationProvider>
-              <PushNotificationLifecycle />
-              <RootNavigator />
-              <Toast />
-            </PushNotificationProvider>
-          </NotificationProvider>
-        </ChatProvider>
-      </TaskProvider>
-    </AuthProvider>
+      <AuthProvider>
+        <TaskProvider>
+          <ChatProvider>
+            <NotificationProvider>
+              <PushNotificationProvider>
+                <PushNotificationLifecycle />
+                <RootNavigator />
+                <Toast />
+              </PushNotificationProvider>
+            </NotificationProvider>
+          </ChatProvider>
+        </TaskProvider>
+      </AuthProvider>
     </GestureHandlerRootView>
   );
 }

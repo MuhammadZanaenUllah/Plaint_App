@@ -17,6 +17,7 @@ import {
 } from "react-native";
 import { STATUS_COLORS, StatusType } from "./TaskRow";
 import { getSocket, onSocketEvent, type TaskUpdatePayload } from "@/services/socket/socketService";
+import { apiStatusToUi } from "@/utils/statusMapper";
 
 export type DependencyDisplay = {
   title: string;
@@ -357,6 +358,56 @@ function formatApiDateTime(dateStr: string): string {
   } catch {
     return dateStr;
   }
+}
+
+// Builds a TaskDetail payload for the modal from a `/tasks/view/:id` response.
+// Used when opening a task from a notification (no pre-mapped task row exists).
+export function buildTaskDetailFromViewTask(
+  viewData: ViewTaskData | null | undefined,
+  companyId: number
+): TaskDetail | null {
+  const t = viewData?.task;
+  if (!t) return null;
+
+  const priorityName = t.priority || "Normal";
+  const priorityStyle = PRIORITY_COLORS[priorityName] ?? {
+    bg: "#E5E7EB",
+    text: "#374151",
+  };
+
+  const assignedToName =
+    typeof t.asigned_to === "object" && t.asigned_to != null
+      ? t.asigned_to.full_name ||
+        [t.asigned_to.first_name, t.asigned_to.last_name].filter(Boolean).join(" ") ||
+        `User #${t.asigned_to.id ?? "?"}`
+      : `User #${t.asigned_to ?? "?"}`;
+
+  return {
+    title: t.title ?? "",
+    assignedTo: assignedToName,
+    assignedToInitials:
+      assignedToName
+        .split(" ")
+        .map((w) => w[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2) || "??",
+    dueDate: t.due_date ? formatApiDate(t.due_date) : "-",
+    priority: priorityName,
+    priorityColor: priorityStyle.bg,
+    approvalRequired: t.approval_required ? "Yes" : "No",
+    status: apiStatusToUi(t.status),
+    recurringTask: t.is_recurring ? "Yes" : "No",
+    dependencies: [],
+    description: t.description ?? "",
+    attachments: t.task_attachments?.map((a) => a.attachment) ?? [],
+    taskId: t.id,
+    companyId,
+    canEditStatus: t.can_edit_status,
+    projectName: t.project_name ?? undefined,
+    effortHours: t.effort_hours,
+    effortUnit: t.effort_unit,
+  };
 }
 
 export default function TaskDetailModal({ visible, onClose, task }: Props) {

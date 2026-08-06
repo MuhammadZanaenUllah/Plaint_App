@@ -89,7 +89,7 @@ export default function TabLayout() {
         />
       </View>
       <Tabs
-        screenOptions={{ headerShown: false, tabBarHideOnKeyboard: true }}
+        screenOptions={{ headerShown: false, tabBarHideOnKeyboard: true}}
         tabBar={(props) => <CustomTabBar {...props} />}
       >
         <Tabs.Screen name="tasks" />

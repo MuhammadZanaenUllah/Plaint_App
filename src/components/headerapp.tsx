@@ -1,8 +1,9 @@
 import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
+import { viewTask } from "@/services/api/tasks.service";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -12,6 +13,11 @@ import {
   View,
 } from "react-native";
 import InboxModal from "./InboxModal";
+import TaskDetailModal, {
+  TaskDetail,
+  buildTaskDetailFromViewTask,
+} from "./TaskDetailModal";
+import { NotificationItem } from "@/types/chat.types";
 
 const { BellIcon, FilterIcon, FilterIconBlack } = Icons;
 
@@ -40,6 +46,7 @@ export default function AppHeader({
   const [search, setSearch] = useState("");
   const [inboxOpen, setInboxOpen] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
 
   const userInitials = (() => {
     const user = authState.user;
@@ -52,6 +59,28 @@ export default function AppHeader({
     await logout();
     router.replace("/(auth)/login");
   };
+
+  const handleNotificationPress = useCallback(
+    async (item: NotificationItem) => {
+      if (!item.task_id || item.task_id === 0) return;
+      const companyId = authState.company?.company_id ?? 0;
+      try {
+        const res = await viewTask(item.task_id, companyId);
+        const detail = buildTaskDetailFromViewTask(res?.data, companyId);
+        if (detail) {
+          setSelectedTask(detail);
+        }
+      } catch {
+        // silently fail — just mark read + close the popup
+      }
+    },
+    [authState.company?.company_id],
+  );
+
+  const handleViewAll = useCallback(() => {
+    setInboxOpen(false);
+    router.push("/notifications");
+  }, []);
 
   return (
     <Pressable style={styles.headerContainer} onPress={() => searchOpen && setSearchOpen(false)}>
@@ -140,7 +169,17 @@ export default function AppHeader({
         </Pressable>
       )}
 
-      <InboxModal visible={inboxOpen} onClose={() => setInboxOpen(false)} />
+      <InboxModal
+        visible={inboxOpen}
+        onClose={() => setInboxOpen(false)}
+        onNotificationPress={handleNotificationPress}
+        onViewAll={handleViewAll}
+      />
+      <TaskDetailModal
+        visible={!!selectedTask}
+        onClose={() => setSelectedTask(null)}
+        task={selectedTask}
+      />
     </Pressable>
   );
 }
