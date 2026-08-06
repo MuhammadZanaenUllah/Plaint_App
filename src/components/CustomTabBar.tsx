@@ -34,21 +34,21 @@ const TABS: TabItem[] = [
     activeIcon: TaskIconBlack,
     inactiveIcon: TaskIconsWhite,
   },
-  {
-    name: "home",
-    activeIcon: HomeIconBlack,
-    inactiveIcon: HomeIconWhite,
-  },
-  {
-    name: "leaves",
-    activeIcon: LeaveIconBlack,
-    inactiveIcon: LeaveIconWhite,
-  },
-  {
-    name: "performance",
-    activeIcon: PEIconBlack,
-    inactiveIcon: PEIconWhite,
-  },
+  // {
+  //   name: "home",
+  //   activeIcon: HomeIconBlack,
+  //   inactiveIcon: HomeIconWhite,
+  // },
+  // {
+  //   name: "leaves",
+  //   activeIcon: LeaveIconBlack,
+  //   inactiveIcon: LeaveIconWhite,
+  // },
+  // {
+  //   name: "performance",
+  //   activeIcon: PEIconBlack,
+  //   inactiveIcon: PEIconWhite,
+  // },
 
   {
     name: "chat",

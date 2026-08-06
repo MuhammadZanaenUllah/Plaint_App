@@ -93,12 +93,12 @@ export default function TabLayout() {
         tabBar={(props) => <CustomTabBar {...props} />}
       >
         <Tabs.Screen name="tasks" />
-        <Tabs.Screen name="leaves" />
-        <Tabs.Screen name="performance" />
-        <Tabs.Screen name="home" />
+        {/* <Tabs.Screen name="leaves" /> */}
+        {/* <Tabs.Screen name="performance" /> */}
+        {/* <Tabs.Screen name="home" /> */}
         <Tabs.Screen name="chat" />
-        <Tabs.Screen name="biometric" />
-        <Tabs.Screen name="grid" />
+        {/* <Tabs.Screen name="biometric" /> */}
+        {/* <Tabs.Screen name="grid" /> */}
       </Tabs>
     </View>
   );
