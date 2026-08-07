@@ -96,7 +96,7 @@ function notificationReducer(
 
 export type NotificationContextValue = {
   state: NotificationState;
-  fetchNotifications: (companyId: number, includeRead?: boolean) => Promise<void>;
+  fetchNotifications: (companyId: number, includeRead?: boolean, silent?: boolean) => Promise<void>;
   markRead: (notificationId: number) => Promise<void>;
   markAllRead: (companyId: number) => Promise<void>;
   addNotification: (notification: NotificationItem) => void;
@@ -119,8 +119,10 @@ export function NotificationProvider({
   const currentCompanyId = authState?.company?.company_id ?? 0;
 
   const fetchNotifications = useCallback(
-    async (companyId: number, includeRead = false) => {
-      dispatch({ type: "SET_LOADING", loading: true });
+    async (companyId: number, includeRead = false, silent = false) => {
+      if (!silent) {
+        dispatch({ type: "SET_LOADING", loading: true });
+      }
       try {
         const res = await chatService.getNotifications(companyId, includeRead);
         if (res.Good) {
@@ -140,24 +142,31 @@ export function NotificationProvider({
 
   // ─── Live notifications via socket ──────────────────────────────────────
   // The `notification` socket event is scoped by the recipient user id
-  // (payload: `{ assigned_to }`). On receipt we refresh the list from REST so
-  // the bell badge and the inbox stay in sync. Socket creation is idempotent,
-  // and socketService queues this listener until the socket exists.
+  // (payload: `{ assigned_to }`, possibly nested under `data`). On receipt we
+  // silently refresh the list from REST so the bell badge and the inbox stay
+  // in sync WITHOUT flashing the loading spinner (which would replace the
+  // whole list on every event). Socket creation is idempotent, and
+  // socketService queues this listener until the socket exists.
   useEffect(() => {
     if (!currentUserId) return;
 
     connectSocket().catch(() => {});
 
     return onSocketEvent("notification", (payload: unknown) => {
-      const typed = payload as { assigned_to?: number; company_id?: number };
-      if (typed.assigned_to !== undefined && String(typed.assigned_to) !== String(currentUserId)) {
+      const typed = payload as {
+        assigned_to?: number;
+        company_id?: number;
+        data?: { assigned_to?: number; company_id?: number };
+      };
+      const assignedTo = typed.assigned_to ?? typed.data?.assigned_to;
+      if (assignedTo !== undefined && String(assignedTo) !== String(currentUserId)) {
         return;
       }
       if (typed.company_id !== undefined && typed.company_id !== currentCompanyId) {
         return;
       }
       if (currentCompanyId) {
-        fetchNotifications(currentCompanyId, true);
+        fetchNotifications(currentCompanyId, true, true);
       }
     });
   }, [currentUserId, currentCompanyId, fetchNotifications]);

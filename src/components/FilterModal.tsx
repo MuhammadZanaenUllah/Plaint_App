@@ -107,6 +107,10 @@ export default function FilterModal({
   const [endDate, setEndDate] = useState<Date | null>(initialEndDate);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  // Bumped by the reset-close effect to re-check the minimum spinner duration
+  // when the parent reset is instant.
+  const [resetTick, setResetTick] = useState(0);
   // Non-reactive guard so a stale `applying` from a previous session can't
   // close the modal right after it reopens. Only cleared by the apply/reset/
   // close paths, never inside an effect.
@@ -114,17 +118,23 @@ export default function FilterModal({
   // True when Apply was tapped while a real backend load was in flight — the
   // close-wait effect (below) then closes the modal as soon as it finishes.
   const waitForRealLoadRef = useRef(false);
+  // True while Reset is waiting to close the modal once the parent's reset
+  // finishes (or the minimum spinner duration elapses).
+  const waitForResetRef = useRef(false);
+  // Timestamp of the last Reset tap, used to keep the loader visible briefly
+  // even when the parent reset is instant.
+  const resetStartedAtRef = useRef(0);
 
   useEffect(() => {
     if (visible) {
+      // Refs survive the sheet remount (they live on the outer component), so
+      // clear any session leftovers before a new filter session starts. All
+      // UI state is re-initialized by remounting the sheet via its `key`.
       waitForRealLoadRef.current = false;
-      setSelectedStatus(initialStatus);
-      setSelectedPriority(initialPriority);
-      setStartDate(initialStartDate);
-      setEndDate(initialEndDate);
-      setApplying(false);
+      waitForResetRef.current = false;
+      applyingSessionRef.current = 0;
     }
-  }, [visible, initialStatus, initialPriority, initialStartDate, initialEndDate]);
+  }, [visible]);
 
   // If Apply was tapped while data was still loading, keep the modal open
   // (spinner in the button) and close it as soon as the load finishes.
@@ -142,9 +152,38 @@ export default function FilterModal({
     }
   }, [visible, applying, loading, onClose]);
 
+  // After Reset is tapped, keep the modal open with a spinner in the Reset
+  // button until the parent's reset completes — or, when the parent reset is
+  // instant, until a short minimum duration so the feedback is visible — then
+  // auto-close the modal.
+  useEffect(() => {
+    if (
+      !visible ||
+      !resetting ||
+      !waitForResetRef.current ||
+      applyingSessionRef.current === 0
+    ) {
+      return;
+    }
+    if (loading) {
+      return;
+    }
+    const elapsed = Date.now() - resetStartedAtRef.current;
+    if (elapsed < 350) {
+      const t = setTimeout(() => setResetTick((n) => n + 1), 350 - elapsed);
+      return () => clearTimeout(t);
+    }
+    waitForResetRef.current = false;
+    applyingSessionRef.current = 0;
+    setResetting(false);
+    onClose?.();
+  }, [visible, resetting, loading, resetTick, onClose]);
+
   const handleManualClose = () => {
     waitForRealLoadRef.current = false;
+    waitForResetRef.current = false;
     setApplying(false);
+    setResetting(false);
     applyingSessionRef.current = 0;
     onClose?.();
   };
@@ -159,20 +198,29 @@ export default function FilterModal({
     setEndDate(null);
     setCalendarOpen(false);
     waitForRealLoadRef.current = false;
+    waitForResetRef.current = true;
+    resetStartedAtRef.current = Date.now();
+    applyingSessionRef.current += 1;
     setApplying(false);
-    applyingSessionRef.current = 0;
+    setResetting(true);
     onReset?.();
   };
 
   return (
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={handleManualClose}>
       <TouchableWithoutFeedback onPress={handleManualClose}>
+        {/* Remount on open so all filter state re-initializes from the latest
+            props instead of syncing props into state inside an effect. */}
         <View style={styles.overlay}>
-          <View style={styles.sheet}>
+          <View style={styles.sheet} key={visible ? "filter-sheet-open" : "filter-sheet-closed"}>
             {/* Header row */}
             <View style={styles.headerRow}>
-              <TouchableOpacity onPress={handleReset}>
-                <Text style={styles.resetText}>Reset</Text>
+              <TouchableOpacity onPress={handleReset} disabled={resetting}>
+                {resetting ? (
+                  <ActivityIndicator size="small" color="#1D1D1D" />
+                ) : (
+                  <Text style={styles.resetText}>Reset</Text>
+                )}
               </TouchableOpacity>
               <Text style={styles.titleText}>Filter</Text>
               <TouchableOpacity style={styles.closeBtn} onPress={handleManualClose}>
@@ -405,13 +453,17 @@ export default function FilterModal({
                   // spinner in the Apply button and close as soon as it
                   // finishes.
                   waitForRealLoadRef.current = true;
+                  waitForResetRef.current = false;
                   applyingSessionRef.current += 1;
                   setApplying(true);
+                  setResetting(false);
                 } else {
                   // Data is already loaded — the filter applies instantly, so
                   // close the modal right away.
+                  waitForResetRef.current = false;
                   applyingSessionRef.current = 0;
                   setApplying(false);
+                  setResetting(false);
                   onClose?.();
                 }
               }}

@@ -1,5 +1,6 @@
 import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
+import { useSearch } from "@/context/SearchContext";
 import { viewTask } from "@/services/api/tasks.service";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -41,12 +42,18 @@ export default function AppHeader({
   onFilterPress,
 }: AppHeaderProps) {
   const { state: authState, logout } = useAuth();
+  const { setSearchText } = useSearch();
   const [searchOpen, setSearchOpen] = useState(false);
   const isSearchVisible = forceSearchOpen || searchOpen;
   const [search, setSearch] = useState("");
   const [inboxOpen, setInboxOpen] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
+
+  const handleSearchChange = (text: string) => {
+    setSearch(text);
+    setSearchText(text);
+  };
 
   const userInitials = (() => {
     const user = authState.user;
@@ -148,7 +155,7 @@ export default function AppHeader({
                 placeholder={placeholder}
                 placeholderTextColor="#9CA3AF"
                 value={search}
-                onChangeText={setSearch}
+                onChangeText={handleSearchChange}
                 // autoFocus
               />
             </View>

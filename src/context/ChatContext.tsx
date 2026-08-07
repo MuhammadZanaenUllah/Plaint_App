@@ -603,6 +603,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // ── Pin Actions ─────────────────────────────────────────────────────────
 
+  const fetchPinnedMessages = useCallback(async (roomId: string) => {
+    const res = await chatService.getPinnedMessages(roomId);
+    if (res.Good) {
+      dispatch({ type: "SET_PINNED", messages: res.pinned });
+    }
+  }, []);
+
   const togglePinAction = useCallback(async (messageId: string) => {
     const res = await chatService.togglePin(messageId);
     if (!res.Good) {
@@ -616,14 +623,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     );
     // Update message in state
     dispatch({ type: "UPDATE_MESSAGE", message: res.message });
-  }, []);
-
-  const fetchPinnedMessages = useCallback(async (roomId: string) => {
-    const res = await chatService.getPinnedMessages(roomId);
-    if (res.Good) {
-      dispatch({ type: "SET_PINNED", messages: res.pinned });
-    }
-  }, []);
+    // Refresh the pinned banner list so it reflects the toggle immediately
+    fetchPinnedMessages(res.message.room_id).catch(() => { });
+  }, [fetchPinnedMessages]);
 
   // ── Member Actions ──────────────────────────────────────────────────────
 
@@ -1004,6 +1006,9 @@ const cleanupMessagePinned = socketService.onSocketEvent(
   (data) => {
     const typed = data as { messageId: string; isPinned: boolean; message: ChatMessage };
     dispatch({ type: "UPDATE_MESSAGE", message: typed.message });
+    if (typed.message?.room_id) {
+      fetchPinnedMessages(typed.message.room_id).catch(() => { });
+    }
   }
 );
 
@@ -1189,7 +1194,7 @@ if (socket.connected) {
     socketService.joinChatRoom(room._id);
   });
 }
-  }, []);
+  }, [fetchPinnedMessages]);
 
 const cleanupChatListeners = useCallback(() => {
   socketCleanupRef.current.forEach((cleanup) => cleanup());

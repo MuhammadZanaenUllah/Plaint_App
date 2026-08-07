@@ -37,7 +37,7 @@ const CHIP_DATA = [
     { id: "unread", label: "Unread" },
     { id: "read", label: "Read" },
     { id: "channels", label: "Channels" },
-    { id: "projects", label: "Projects" },
+    // { id: "projects", label: "Projects" },
 ];
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -146,7 +146,7 @@ export default function ChatScreen() {
             unread: hasUnread(directRooms),
             read: false,
             channels: hasUnread(rooms.filter((r) => r.type === "channel")),
-            projects: hasUnread(rooms.filter((r) => r.type === "project")),
+            // projects: hasUnread(rooms.filter((r) => r.type === "project")),
         };
     }, [state.rooms]);
 
@@ -159,8 +159,8 @@ export default function ChatScreen() {
         switch (activeChip) {
             case "channels":
                 return filterRoomsByType(rooms, "channel");
-            case "projects":
-                return filterRoomsByType(rooms, "project");
+            // case "projects":
+            //     return filterRoomsByType(rooms, "project");
             case "unread":
                 return filterUnreadRooms(directRooms);
             case "read":

@@ -1,6 +1,7 @@
 import AppHeader from "@/components/headerapp";
 import CustomTabBar from "@/components/CustomTabBar";
 import { useAuth } from "@/hooks/useAuth";
+import { SearchProvider } from "@/context/SearchContext";
 import { Tabs, useSegments } from "expo-router";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -77,29 +78,31 @@ export default function TabLayout() {
       : HEADER_CONFIGS[currentRoute] ?? DEFAULT_CONFIG;
 
   return (
-    <View style={{ flex: 1  }}>
-      <View style={{ overflow: "visible", zIndex: 99999, paddingTop: insets.top }}>
-        <AppHeader
-          greeting={config.greeting}
-          subGreeting={config.subGreeting}
-          showSearch={config.showSearch}
-          showFilter={config.showFilter}
-          forceSearchOpen={config.forceSearchOpen}
-          placeholder={config.placeholder}
-        />
+    <SearchProvider>
+      <View style={{ flex: 1  }}>
+        <View style={{ overflow: "visible", zIndex: 99999, paddingTop: insets.top }}>
+          <AppHeader
+            greeting={config.greeting}
+            subGreeting={config.subGreeting}
+            showSearch={config.showSearch}
+            showFilter={config.showFilter}
+            forceSearchOpen={config.forceSearchOpen}
+            placeholder={config.placeholder}
+          />
+        </View>
+        <Tabs
+          screenOptions={{ headerShown: false, tabBarHideOnKeyboard: true}}
+          tabBar={(props) => <CustomTabBar {...props} />}
+        >
+          <Tabs.Screen name="tasks" />
+          {/* <Tabs.Screen name="leaves" /> */}
+          {/* <Tabs.Screen name="performance" /> */}
+          {/* <Tabs.Screen name="home" /> */}
+          <Tabs.Screen name="chat" />
+          {/* <Tabs.Screen name="biometric" /> */}
+          {/* <Tabs.Screen name="grid" /> */}
+        </Tabs>
       </View>
-      <Tabs
-        screenOptions={{ headerShown: false, tabBarHideOnKeyboard: true}}
-        tabBar={(props) => <CustomTabBar {...props} />}
-      >
-        <Tabs.Screen name="tasks" />
-        {/* <Tabs.Screen name="leaves" /> */}
-        {/* <Tabs.Screen name="performance" /> */}
-        {/* <Tabs.Screen name="home" /> */}
-        <Tabs.Screen name="chat" />
-        {/* <Tabs.Screen name="biometric" /> */}
-        {/* <Tabs.Screen name="grid" /> */}
-      </Tabs>
-    </View>
+    </SearchProvider>
   );
 }

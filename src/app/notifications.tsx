@@ -1,4 +1,5 @@
 import FilterModal from "@/components/FilterModal";
+import ScreenHeader from "@/components/ScreenHeader";
 import {
   getNotificationInitials,
   getNotificationName,
@@ -13,8 +14,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { viewTask } from "@/services/api/tasks.service";
 import { NotificationItem } from "@/types/chat.types";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { StatusBar } from "expo-status-bar";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -27,6 +28,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const { FilterIconBlack } = Icons;
+
+const PAGE_SIZE = 20;
 
 type TabType = "all" | "unread" | "mentions";
 
@@ -69,6 +72,7 @@ export default function NotificationsScreen() {
   const [activeTypeFilter, setActiveTypeFilter] = useState<string | null>(null);
   const [activeStartDateFilter, setActiveStartDateFilter] = useState<Date | null>(null);
   const [activeEndDateFilter, setActiveEndDateFilter] = useState<Date | null>(null);
+  const scrollViewHeight = useRef(0);
 
   const authState = useAuth();
   const companyId = authState.state?.company?.company_id ?? 0;
@@ -78,6 +82,20 @@ export default function NotificationsScreen() {
     markRead,
     markAllRead,
   } = useNotifications();
+
+  const paginationKey = [
+    activeTab,
+    activeTypeFilter,
+    activeStartDateFilter?.getTime() ?? "",
+    activeEndDateFilter?.getTime() ?? "",
+    notifState.notifications.length,
+  ].join("|");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [prevPaginationKey, setPrevPaginationKey] = useState(paginationKey);
+  if (paginationKey !== prevPaginationKey) {
+    setPrevPaginationKey(paginationKey);
+    setVisibleCount(PAGE_SIZE);
+  }
 
   useEffect(() => {
     if (companyId) {
@@ -163,10 +181,44 @@ export default function NotificationsScreen() {
       return true;
     });
 
+  // ── Client-side pagination (20 at a time, reveal more on scroll end) ─────
+  const revealNextPage = useCallback(() => {
+    setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, filteredNotifications.length));
+  }, [filteredNotifications.length]);
+
+  const handleScrollEnd = useCallback(
+    (e: {
+      nativeEvent: {
+        layoutMeasurement: { height: number };
+        contentOffset: { y: number };
+        contentSize: { height: number };
+      };
+    }) => {
+      const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+      if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 40) {
+        revealNextPage();
+      }
+    },
+    [revealNextPage]
+  );
+
+  const handleContentSizeChange = useCallback(
+    (width: number, height: number) => {
+      // Auto-reveal when the filtered list doesn't fill the viewport (no scroll needed).
+      if (scrollViewHeight.current > 0 && height <= scrollViewHeight.current) {
+        revealNextPage();
+      }
+    },
+    [revealNextPage]
+  );
+
+  const visibleNotifications = filteredNotifications.slice(0, visibleCount);
+
   const unreadCount = notifState.unreadCount;
 
   return (
     <View style={styles.root}>
+      <StatusBar style="dark" />
       <SafeAreaView style={styles.safe}>
         <FilterModal
           visible={filterVisible}
@@ -184,56 +236,44 @@ export default function NotificationsScreen() {
         />
 
         {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            hitSlop={8}
-            style={styles.backBtn}
-          >
-            <Ionicons name="chevron-back" size={24} color="#1D1D1D" />
-          </TouchableOpacity>
+        <ScreenHeader
+          title="Inbox"
+          subtitle="All your notifications in one place."
+          rightActions={
+            <>
 
-          <View style={styles.titleCol}>
-            <Text style={styles.title}>Inbox</Text>
-            <Text style={styles.subtitle}>
-              All your notifications in one place — tasks, mentions, comments,
-              and messages.
-            </Text>
-          </View>
-        </View>
+              <TouchableOpacity
+                onPress={handleMarkAllRead}
+                activeOpacity={0.7}
+                disabled={unreadCount === 0}
+                style={unreadCount === 0 && styles.markAllDisabled}
+              >
+                <Text style={styles.markReadText}>Mark all read</Text>
+              </TouchableOpacity>
 
-        {/* Header actions */}
-        <View style={styles.headerActionsRow}>
-          <Pressable
-            onPress={() => setFilterVisible(true)}
-            style={({ pressed }) => [
-              styles.filterBtn,
-              pressed && styles.filterBtnPressed,
-              activeFilterCount > 0 && styles.filterBtnActive,
-            ]}
-          >
-            <FilterIconBlack
-              width={18}
-              height={18}
-              color={activeFilterCount > 0 ? "#fff" : undefined}
-            />
-            {activeFilterCount > 0 ? (
-              <View style={styles.filterBadge}>
-                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
-              </View>
-            ) : null}
-          </Pressable>
 
-          <TouchableOpacity
-            onPress={handleMarkAllRead}
-            activeOpacity={0.7}
-            disabled={unreadCount === 0}
-            style={unreadCount === 0 && styles.markAllDisabled}
-          >
-            <Text style={styles.markReadText}>Mark all read</Text>
-          </TouchableOpacity>
-        </View>
-
+              <Pressable
+                onPress={() => setFilterVisible(true)}
+                style={({ pressed }) => [
+                  styles.filterBtn,
+                  pressed && styles.filterBtnPressed,
+                  activeFilterCount > 0 && styles.filterBtnActive,
+                ]}
+              >
+                <FilterIconBlack
+                  width={18}
+                  height={18}
+                  color={activeFilterCount > 0 ? "#fff" : undefined}
+                />
+                {activeFilterCount > 0 ? (
+                  <View style={styles.filterBadge}>
+                    <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            </>
+          }
+        />
         {/* Tabs */}
         <View style={styles.tabsContainer}>
           <TouchableOpacity
@@ -303,6 +343,12 @@ export default function NotificationsScreen() {
           showsVerticalScrollIndicator={false}
           style={styles.listScroll}
           contentContainerStyle={styles.listContent}
+          onLayout={(e) => {
+            scrollViewHeight.current = e.nativeEvent.layout.height;
+          }}
+          onContentSizeChange={handleContentSizeChange}
+          onScroll={handleScrollEnd}
+          scrollEventThrottle={16}
         >
           {notifState.loading ? (
             <View style={styles.emptyContainer}>
@@ -322,7 +368,7 @@ export default function NotificationsScreen() {
               </Text>
             </View>
           ) : (
-            filteredNotifications.map((item, index) => (
+            visibleNotifications.map((item, index) => (
               <Pressable
                 key={`${item.id}-${index}`}
                 style={styles.notificationRow}
@@ -392,42 +438,6 @@ const styles = StyleSheet.create({
   },
   safe: {
     flex: 1,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  backBtn: {
-    width: 32,
-    justifyContent: "center",
-  },
-  titleCol: {
-    flex: 1,
-    marginHorizontal: 12,
-  },
-  title: {
-    fontSize: 17,
-    fontFamily: "SF_Pro_Semibold",
-    color: "#1C1C1E",
-  },
-  subtitle: {
-    marginTop: 2,
-    fontSize: 11,
-    fontFamily: "SF_Pro_Regular",
-    color: "#8E8E93",
-  },
-  headerActionsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
   },
   filterBtn: {
     width: 30,

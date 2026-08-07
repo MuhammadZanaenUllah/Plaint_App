@@ -1,3 +1,4 @@
+import { File } from "expo-file-system";
 import { Room, RoomType, ChatMessage, ChatPermission } from "@/types/chat.types";
 
 // ─── Room Helpers ─────────────────────────────────────────────────────────────
@@ -206,7 +207,7 @@ export function buildMessageFormData(params: {
   }
   if (params.attachments) {
     params.attachments.forEach((file) => {
-      formData.append("attachments", file as unknown as Blob);
+      formData.append("attachments", new File(file.uri));
     });
   }
 
@@ -232,7 +233,7 @@ export function buildEditMessageFormData(params: {
   }
   if (params.newAttachments) {
     params.newAttachments.forEach((file) => {
-      formData.append("attachments", file as unknown as Blob);
+      formData.append("attachments", new File(file.uri));
     });
   }
 

@@ -10,6 +10,7 @@ import { viewTask } from "@/services/api/tasks.service";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import { useTaskSocket } from "@/hooks/useTaskSocket";
+import { useSearch } from "@/context/SearchContext";
 import { uiStatusToApi } from "@/utils/statusMapper";
 import { canCreateTask } from "@/utils/permissions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -72,6 +73,17 @@ export default function TasksScreen() {
   const loadMoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const companyId = authState.company?.company_id;
+
+  // Search text from the shared header search bar (SearchProvider in the tab layout).
+  const { searchText } = useSearch();
+
+  // Restart at page 1 whenever the search query changes — adjust state during
+  // render (lint-safe, mirrors the notification pagination reset pattern).
+  const [lastSearchText, setLastSearchText] = useState(searchText);
+  if (lastSearchText !== searchText) {
+    setLastSearchText(searchText);
+    setVisibleCount(PAGE_SIZE);
+  }
 
   // Create-task visibility is driven by the logged-in user's `is_head`
   // attribute (`userdata.is_head` from the login payload). Only department
@@ -450,6 +462,26 @@ export default function TasksScreen() {
       console.log(`[TasksScreen] After date range filter:`, tasks.length);
     }
 
+    // Text search from the header search bar — matches title, id, assignee,
+    // status, priority and project/description text.
+    const query = searchText.trim().toLowerCase();
+    if (query) {
+      tasks = tasks.filter((t) => {
+        const haystack = [
+          t.title,
+          t.id,
+          t.assignedTo,
+          t.status,
+          t._raw?.description,
+          t._raw?.priority_name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+
     // Always sort Critical tasks to the top, preserving relative order within each group
     return sortByCritical(tasks);
   }, [
@@ -459,6 +491,7 @@ export default function TasksScreen() {
     activePriorityFilter,
     activeStartDateFilter,
     activeEndDateFilter,
+    searchText,
     sortByCritical,
   ]);
 

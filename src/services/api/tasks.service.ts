@@ -1,4 +1,5 @@
 import { apiGet, apiPost, apiDelete, apiUpload } from "./client";
+import { File } from "expo-file-system";
 import { ApiResponse } from "@/types/api.types";
 import {
   TaskListResponse,
@@ -245,7 +246,7 @@ export async function addNote(
     formData.append("reply_to", JSON.stringify(data.reply_to));
   }
   if (file) {
-    formData.append("file", file as unknown as Blob);
+    formData.append("file", file instanceof File ? file : new File(file.uri));
   }
   return apiUpload<ApiResponse<string>>(`/tasks/addnote/${taskId}`, formData);
 }

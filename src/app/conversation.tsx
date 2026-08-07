@@ -32,6 +32,7 @@ import {
     View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 import EmojiPicker from "rn-emoji-keyboard";
 import { showInfo, showError } from "@/utils/toast";
 import * as socketService from "@/services/socket/socketService";
@@ -530,12 +531,14 @@ function MessageBubble({
     message,
     currentUserId,
     members,
+    showSenderName = false,
     onLongPress,
     onReactionPress,
 }: {
     message: ChatMessage;
     currentUserId: number;
     members?: RoomMember[];
+    showSenderName?: boolean;
     onLongPress?: (msg: ChatMessage) => void;
     onReactionPress?: (emoji: string) => void;
 }) {
@@ -560,13 +563,13 @@ function MessageBubble({
                 <View style={styles.incomingRow}>
                     <View style={styles.incomingContent}>
                         <Text style={styles.senderMeta}>
-                            {senderName}{" "}
-                            <Text style={styles.timeMeta}>| {time}</Text>
+                            {showSenderName ? `${senderName} ` : null}
+                            <Text style={styles.timeMeta}>{showSenderName ? `| ${time}` : time}</Text>
                         </Text>
                         <Pressable
                             onLongPress={() => onLongPress?.(message)}
                             delayLongPress={250}
-                            style={styles.incomingBubble}
+                            style={[styles.incomingBubble, message.is_pinned && styles.bubblePinnedIncoming]}
                         >
                             {audioAtt ? (
                                 <VoiceNotePlayer audioUrl={audioAtt.url} />
@@ -575,6 +578,12 @@ function MessageBubble({
                                 <Text style={styles.bubbleText}>{message.text}</Text>
                             ) : null}
                         </Pressable>
+                        {message.is_pinned && (
+                            <View style={styles.pinBadge}>
+                                <Ionicons name="pin" size={11} color="#00DEAB" />
+                                <Text style={styles.pinBadgeText}>Pinned</Text>
+                            </View>
+                        )}
                         {message.reactions && message.reactions.length > 0 && (
                             <View style={styles.reactionsRow}>
                                 {message.reactions.map((r, idx) => (
@@ -608,13 +617,13 @@ function MessageBubble({
                 </View>
                 <View style={styles.outgoingContent}>
                     <Text style={styles.senderMetaOutgoing}>
-                        {senderName}{" "}
-                        <Text style={styles.timeMeta}>| {time}</Text>
+                        {showSenderName ? `${senderName} ` : null}
+                        <Text style={styles.timeMeta}>{showSenderName ? `| ${time}` : time}</Text>
                     </Text>
                     <Pressable
                         onLongPress={() => onLongPress?.(message)}
                         delayLongPress={250}
-                        style={styles.outgoingBubble}
+                        style={[styles.outgoingBubble, message.is_pinned && styles.bubblePinnedOutgoing]}
                     >
                         {audioAtt ? (
                             <VoiceNotePlayer audioUrl={audioAtt.url} />
@@ -623,6 +632,12 @@ function MessageBubble({
                             <Text style={styles.bubbleText}>{message.text}</Text>
                         ) : null}
                     </Pressable>
+                    {message.is_pinned && (
+                        <View style={styles.pinBadge}>
+                            <Ionicons name="pin" size={11} color="#00DEAB" />
+                            <Text style={styles.pinBadgeText}>Pinned</Text>
+                        </View>
+                    )}
                     {message.reactions && message.reactions.length > 0 && (
                         <View style={styles.reactionsRow}>
                             {message.reactions.map((r, idx) => (
@@ -922,6 +937,7 @@ export default function ConversationScreen() {
         roomCreator,
         setSearchQuery,
         typingUsers,
+        fetchPinnedMessages,
     } = useChat();
     const authState = useAuth();
     const currentUserId = authState?.state?.user?.id ?? 0;
@@ -1018,7 +1034,7 @@ export default function ConversationScreen() {
                 allowsRecording: true,
                 playsInSilentMode: true,
             });
-            const recorder = new (ExpoAudio as any).AudioRecorder((ExpoAudio as any).RecordingPresets?.HIGH_QUALITY);
+            const recorder = new (ExpoAudio as any).AudioModule.AudioRecorder((ExpoAudio as any).RecordingPresets?.HIGH_QUALITY);
             await recorder.prepareToRecordAsync();
             recorder.record();
             setRecordingInstance(recorder);
@@ -1113,6 +1129,19 @@ export default function ConversationScreen() {
         setActiveFilter((prev) => (prev === tab ? null : tab));
     };
 
+    // ── Pinned messages banner (WhatsApp-style) ─────────────────────────
+    const pinnedMessages = state.pinnedMessages;
+    const [pinnedIndex, setPinnedIndex] = useState(0);
+    const [pinnedRoomId, setPinnedRoomId] = useState(roomId);
+    if (pinnedRoomId !== roomId) {
+        setPinnedRoomId(roomId);
+        setPinnedIndex(0);
+    }
+    const activePinned =
+        pinnedMessages.length > 0
+            ? pinnedMessages[Math.min(pinnedIndex, pinnedMessages.length - 1)]
+            : null;
+
     // Trigger initial user search when AddPeople modal opens
     useEffect(() => {
         if (addPeopleOpen) {
@@ -1124,12 +1153,19 @@ export default function ConversationScreen() {
     useEffect(() => {
         if (roomId) {
             fetchMessages(roomId);
+            // Join the room on the shared socket so this screen receives
+            // real-time events even when opened directly (deep link / push)
+            // without first mounting the chat tab.
+            socketService.connectSocket()
+                .then(() => socketService.joinChatRoom(roomId))
+                .catch(() => { });
             if (isChannel) {
                 fetchPostTypes(roomId).catch(() => { });
                 fetchRoomPermissions(roomId).catch(() => { });
             }
+            fetchPinnedMessages(roomId).catch(() => { });
         }
-    }, [roomId, isChannel, fetchMessages, fetchPostTypes, fetchRoomPermissions]);
+    }, [roomId, isChannel, fetchMessages, fetchPostTypes, fetchRoomPermissions, fetchPinnedMessages]);
 
     // Emit a "messagesRead" socket event whenever the user opens a room
     // so the sender can mark these messages as read on their side.
@@ -1308,7 +1344,7 @@ export default function ConversationScreen() {
             Alert.alert("Message Options", "", [
                 { text: "Copy Text", onPress: () => { Clipboard.setStringAsync(msg.text); } },
                 ...(isOwn || canEditOthers ? [{ text: "Edit", onPress: () => { setEditingMsg(msg); setEditText(msg.text); } }] : []),
-                { text: msg.is_pinned ? "Unpin" : "Pin", onPress: () => { togglePin(msg.id.toString()).catch(() => { }); } },
+                { text: msg.is_pinned ? "Unpin" : "Pin", onPress: () => { togglePin(msg._id).catch(() => { }); } },
                 ...(isOwn || canDeleteOthers ? [{
                     text: "Delete", style: "destructive" as const, onPress: () => {
                         Alert.alert("Delete Message", "Delete this message for everyone?", [
@@ -1372,6 +1408,7 @@ export default function ConversationScreen() {
 
     return (
         <View style={styles.root}>
+            <StatusBar style="dark" />
             <SafeAreaView style={styles.safe}>
                 {/* ── Header ── */}
                 <View style={styles.header}>
@@ -1583,10 +1620,32 @@ export default function ConversationScreen() {
                     <DateDivider label={dynamicDateLabel} />
                 )}
 
+                {/* ── Pinned messages banner (WhatsApp-style) ── */}
+                {activePinned && !searchOpen && (
+                    <Pressable
+                        style={styles.pinnedBanner}
+                        onPress={() =>
+                            setPinnedIndex((i) => (i + 1) % pinnedMessages.length)
+                        }
+                    >
+                        <Ionicons name="pin" size={14} color="#00DEAB" />
+                        <View style={styles.pinnedBannerBody}>
+                            <Text style={styles.pinnedBannerTitle} numberOfLines={1}>
+                                {pinnedMessages.length > 1
+                                    ? `Pinned message ${pinnedIndex + 1} of ${pinnedMessages.length}`
+                                    : "Pinned message"}
+                            </Text>
+                            <Text style={styles.pinnedBannerText} numberOfLines={1}>
+                                {activePinned.text || (activePinned.attachments?.length ? "Attachment" : "")}
+                            </Text>
+                        </View>
+                    </Pressable>
+                )}
+
                 {/* ── Scrollable content ── */}
                 <KeyboardAvoidingView
                     style={styles.flex}
-                    behavior={Platform.OS === "ios" ? "padding" : undefined}
+                    behavior={Platform.OS === "ios" ? "padding" : "height"}
                     keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
                 >
                     <FlatList
@@ -1612,6 +1671,7 @@ export default function ConversationScreen() {
                                         message={item}
                                         currentUserId={currentUserId}
                                         members={currentRoom?.members}
+                                        showSenderName={isChannel}
                                         onLongPress={(msg) => setSelectedMsgForModal(msg)}
                                         onReactionPress={(emoji: string) => handleReactEmoji(item, emoji)}
                                     />
@@ -1968,7 +2028,7 @@ export default function ConversationScreen() {
                 }}
                 onPin={() => {
                     if (selectedMsgForModal) {
-                        togglePin(selectedMsgForModal.id.toString()).catch(() => {});
+                        togglePin(selectedMsgForModal._id).catch(() => {});
                     }
                 }}
                 onEdit={() => {
@@ -2326,6 +2386,50 @@ const styles = StyleSheet.create({
         fontSize: 11,
         fontFamily: "SF_Pro_Regular",
         color: TEXT_SECONDARY,
+    },
+
+    // ── Pinned messages ──
+    bubblePinnedIncoming: {
+        backgroundColor: "#CCF3E6",
+    },
+    bubblePinnedOutgoing: {
+        backgroundColor: "#E3EAF7",
+    },
+    pinBadge: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 3,
+        marginTop: 4,
+    },
+    pinBadgeText: {
+        fontSize: 10,
+        fontFamily: "SF_Pro_Regular",
+        color: "#00A67E",
+        textTransform: "uppercase",
+    },
+    pinnedBanner: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        backgroundColor: "#F0FDF9",
+        borderBottomWidth: 1,
+        borderBottomColor: "#E5E7EB",
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+    },
+    pinnedBannerBody: {
+        flex: 1,
+    },
+    pinnedBannerTitle: {
+        fontSize: 11,
+        fontFamily: "SF_Pro_Regular",
+        color: "#00A67E",
+        marginBottom: 1,
+    },
+    pinnedBannerText: {
+        fontSize: 12,
+        fontFamily: "SF_Pro_Regular",
+        color: TEXT_PRIMARY,
     },
 
     // ── Reactions ──

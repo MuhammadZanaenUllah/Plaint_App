@@ -1,9 +1,18 @@
 import { ApiErrorEnvelope } from "@/types/api.types";
 
+const AUTH_ERROR_MAP: Record<string, string> = {
+  "Invalid password": "Email or password is incorrect.",
+  "User not found": "Email or password is incorrect.",
+};
+
+function toBusinessMessage(raw: string): string {
+  return AUTH_ERROR_MAP[raw.trim()] ?? raw;
+}
+
 export function extractErrorMessage(error: unknown): string {
   if (!error) return "An unexpected error occurred";
 
-  if (typeof error === "string") return error;
+  if (typeof error === "string") return toBusinessMessage(error);
 
   if (error instanceof Error) {
     const msg = error.message;
@@ -14,7 +23,7 @@ export function extractErrorMessage(error: unknown): string {
     if (msg.includes("timeout")) {
       return "Request timed out. Please try again.";
     }
-    return msg;
+    return toBusinessMessage(msg);
   }
 
   if (typeof error === "object" && error !== null) {
@@ -22,12 +31,12 @@ export function extractErrorMessage(error: unknown): string {
 
     if ("Good" in errObj && errObj.Good === false) {
       const apiErr = error as ApiErrorEnvelope;
-      if (apiErr.message) return apiErr.message;
-      if (typeof apiErr.data === "string") return apiErr.data;
+      if (apiErr.message) return toBusinessMessage(apiErr.message);
+      if (typeof apiErr.data === "string") return toBusinessMessage(apiErr.data);
     }
 
     if ("message" in errObj && typeof errObj.message === "string") {
-      return errObj.message;
+      return toBusinessMessage(errObj.message);
     }
   }
 

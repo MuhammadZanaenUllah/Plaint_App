@@ -4,6 +4,8 @@ import {
   ActivityIndicator,
   Image,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -47,7 +49,11 @@ export default function Login() {
       <View style={styles.root}>
         <TopMintGlow />
 
-        <View style={styles.content}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.flex}
+        >
+          <View style={styles.content}>
           <Image
             source={Images.PlaintLogo}
             style={styles.logo}
@@ -88,13 +94,17 @@ export default function Login() {
           <TouchableOpacity onPress={() => router.replace("/(auth)/forgetpassword")}>
             <Text style={styles.forgotText}>Forgot Password?</Text>
           </TouchableOpacity>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </View>
     </TouchableWithoutFeedback>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   root: {
     flex: 1,
     backgroundColor: "#FFFFFF",
