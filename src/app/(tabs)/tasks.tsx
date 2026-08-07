@@ -44,8 +44,7 @@ export default function TasksScreen() {
   const { state: authState } = useAuth();
   const {
     state: taskState,
-    allMappedTasks,
-    totalCount,
+     allMappedTasks,
     fetchAllTasks,
     fetchDueToday,
     fetchFiltered,
@@ -558,7 +557,13 @@ export default function TasksScreen() {
     ];
   }, [tabCounts]);
 
-  if (taskState.loading && totalCount === 0) {
+  // Whenever tasks are loading, show the skeleton (with the real, live stat-card
+  // filter bar above). This covers every load path — initial fetch, logout+login,
+  // and app re-open with restored context — so the skeleton is always used and
+  // never the inline TaskTable spinner. Silent refetches (pull-to-refresh, "all"
+  // tab, status changes, create task) keep `loading` false, so they continue to
+  // render the normal table with their own refresh/footer behavior unchanged.
+  if (taskState.loading) {
     return (
       <View style={styles.root}>
         <View style={styles.safe}>
