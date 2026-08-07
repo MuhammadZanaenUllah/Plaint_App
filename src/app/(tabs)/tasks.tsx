@@ -13,13 +13,13 @@ import { useTaskSocket } from "@/hooks/useTaskSocket";
 import { useSearch } from "@/context/SearchContext";
 import { uiStatusToApi } from "@/utils/statusMapper";
 import { canCreateTask } from "@/utils/permissions";
+import TaskTableSkeleton from "@/components/TaskTableSkeleton";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
   View,
-  ActivityIndicator,
 } from "react-native";
 
 const { AllTaskIcon: AllTasksIcon, AssignIcon, CompletedIcon, CreatedIcon, DelayIcon, DueTodayIcon, RecurringIcon, SevenDayIcon: SevendayIcon } = Icons;
@@ -562,8 +562,26 @@ export default function TasksScreen() {
     return (
       <View style={styles.root}>
         <View style={styles.safe}>
-          <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-            <ActivityIndicator size="large" color="#00DEAB" />
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.statsScroll}
+            contentContainerStyle={styles.statsContent}
+          >
+            {statsList.map((s) => (
+              <StatCard
+                key={s.id}
+                label={s.label}
+                count={s.count}
+                iconName={s.iconName}
+                active={activeTab === s.id}
+                onPress={() => handleTabPress(s.id)}
+              />
+            ))}
+          </ScrollView>
+
+          <View style={styles.tableShell}>
+            <TaskTableSkeleton />
           </View>
         </View>
       </View>
