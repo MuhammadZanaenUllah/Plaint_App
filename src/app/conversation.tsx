@@ -9,10 +9,13 @@ import {
     filterMessagesByText,
     formatMessageTime,
     getMessageInitials,
-    isOwnMessage
+    isOwnMessage,
+    resolveFileUrl
 } from "@/utils/chatHelpers";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -53,29 +56,60 @@ function VoiceNotePlayer({ audioUrl }: { audioUrl: string }) {
     const [position, setPosition] = useState(0);
     const [duration, setDuration] = useState(0);
     const playerRef = useRef<any>(null);
+    const resolvedUrl = useMemo(() => resolveFileUrl(audioUrl), [audioUrl]);
 
     const handlePlayPause = async () => {
         if (!ExpoAudio) {
             showInfo("Audio Unavailable", "Voice playback is unavailable in this environment.");
             return;
         }
-        if (playerRef.current) {
-            if (isPlaying) {
-                playerRef.current.pause();
-                setIsPlaying(false);
-            } else {
-                playerRef.current.play();
-                setIsPlaying(true);
-            }
-        } else {
+        if (!resolvedUrl) {
+            showError("Audio Error", "Audio URL is missing.");
+            return;
+        }
+        try {
+            const AudioModule = (ExpoAudio as any).AudioModule;
             try {
-                const newPlayer = ExpoAudio.createAudioPlayer(audioUrl);
+                await AudioModule.setAudioModeAsync({
+                    allowsRecording: false,
+                    playsInSilentMode: true,
+                });
+            } catch { }
+
+            if (playerRef.current) {
+                if (isPlaying) {
+                    playerRef.current.pause();
+                    setIsPlaying(false);
+                } else {
+                    playerRef.current.play();
+                    setIsPlaying(true);
+                }
+            } else {
+                const newPlayer = ExpoAudio.createAudioPlayer(resolvedUrl);
                 playerRef.current = newPlayer;
                 newPlayer.play();
                 setIsPlaying(true);
-            } catch (err) {
-                console.log("[Audio] Failed to play voice note:", err);
+                if (newPlayer.addListener) {
+                    newPlayer.addListener("playbackStatusUpdate", (status: any) => {
+                        if (status) {
+                            if (typeof status.currentTime === "number") {
+                                setPosition(status.currentTime * 1000);
+                            }
+                            if (typeof status.duration === "number") {
+                                setDuration(status.duration * 1000);
+                            }
+                            if (status.didJustFinish || status.playbackState === "ended") {
+                                setIsPlaying(false);
+                                setPosition(0);
+                            }
+                        }
+                    });
+                }
             }
+        } catch (err) {
+            console.log("[Audio] Failed to play voice note:", err);
+            showError("Playback Error", "Could not play audio note.");
+            setIsPlaying(false);
         }
     };
 
@@ -84,7 +118,9 @@ function VoiceNotePlayer({ audioUrl }: { audioUrl: string }) {
             if (playerRef.current) {
                 try {
                     playerRef.current.pause();
+                    playerRef.current.remove?.();
                 } catch { }
+                playerRef.current = null;
             }
         };
     }, []);
@@ -105,12 +141,142 @@ function VoiceNotePlayer({ audioUrl }: { audioUrl: string }) {
                 <Text style={vnStyles.timeText}>
                     {duration > 0
                         ? `${Math.floor(posSec / 60)}:${(posSec % 60).toString().padStart(2, "0")} / ${Math.floor(durSec / 60)}:${(durSec % 60).toString().padStart(2, "0")}`
-                        : "Voice note"}
+                        : isPlaying ? "Playing..." : "Voice note"}
                 </Text>
             </View>
         </View>
     );
 }
+
+// ─── Attachment Popup Modal Component (System UI consistent popup) ───────────
+
+function AttachmentModal({
+    visible,
+    onClose,
+    onSelectCamera,
+    onSelectGallery,
+    onSelectDocument,
+}: {
+    visible: boolean;
+    onClose: () => void;
+    onSelectCamera: () => void;
+    onSelectGallery: () => void;
+    onSelectDocument: () => void;
+}) {
+    if (!visible) return null;
+
+    return (
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+            <Pressable style={attModalStyles.overlay} onPress={onClose}>
+                <Pressable style={attModalStyles.container} onPress={(e) => e.stopPropagation()}>
+                    <View style={attModalStyles.header}>
+                        <Text style={attModalStyles.title}>Share Attachment</Text>
+                        <TouchableOpacity onPress={onClose} hitSlop={8}>
+                            <Ionicons name="close" size={20} color="#9CA3AF" />
+                        </TouchableOpacity>
+                    </View>
+                    <View style={attModalStyles.optionsRow}>
+                        <TouchableOpacity
+                            style={attModalStyles.optionBtn}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                                onClose();
+                                onSelectCamera();
+                            }}
+                        >
+                            <View style={[attModalStyles.iconCircle, { backgroundColor: "#ECFDF5" }]}>
+                                <Ionicons name="camera" size={24} color="#10B981" />
+                            </View>
+                            <Text style={attModalStyles.optionLabel}>Camera</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={attModalStyles.optionBtn}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                                onClose();
+                                onSelectGallery();
+                            }}
+                        >
+                            <View style={[attModalStyles.iconCircle, { backgroundColor: "#EFF6FF" }]}>
+                                <Ionicons name="images" size={24} color="#3B82F6" />
+                            </View>
+                            <Text style={attModalStyles.optionLabel}>Photos</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={attModalStyles.optionBtn}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                                onClose();
+                                onSelectDocument();
+                            }}
+                        >
+                            <View style={[attModalStyles.iconCircle, { backgroundColor: "#F5F3FF" }]}>
+                                <Ionicons name="document-text" size={24} color="#8B5CF6" />
+                            </View>
+                            <Text style={attModalStyles.optionLabel}>Document</Text>
+                        </TouchableOpacity>
+                    </View>
+                </Pressable>
+            </Pressable>
+        </Modal>
+    );
+}
+
+const attModalStyles = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        justifyContent: "center",
+        alignItems: "center",
+        paddingHorizontal: 20,
+    },
+    container: {
+        width: "100%",
+        maxWidth: 330,
+        backgroundColor: "#FFFFFF",
+        borderRadius: 20,
+        padding: 20,
+        shadowColor: "#000",
+        shadowOpacity: 0.2,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 6 },
+        elevation: 10,
+    },
+    header: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: 20,
+    },
+    title: {
+        fontSize: 16,
+        fontFamily: "SF_Pro_Semibold",
+        color: "#1D1D1D",
+    },
+    optionsRow: {
+        flexDirection: "row",
+        justifyContent: "space-around",
+        alignItems: "center",
+    },
+    optionBtn: {
+        alignItems: "center",
+        gap: 8,
+    },
+    iconCircle: {
+        width: 54,
+        height: 54,
+        borderRadius: 27,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    optionLabel: {
+        fontSize: 12,
+        fontFamily: "SF_Pro_Medium",
+        color: "#4B5563",
+    },
+});
 
 const vnStyles = StyleSheet.create({
     container: {
@@ -527,7 +693,7 @@ function MessageActions({
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
-function MessageBubble({
+const MessageBubble = React.memo(function MessageBubble({
     message,
     currentUserId,
     members,
@@ -557,6 +723,26 @@ function MessageBubble({
         return str.includes(".m4a") || str.includes(".mp3") || str.includes(".wav") || str.includes(".caf") || str.includes("audio");
     });
 
+    const imageAtts = message.attachments?.filter((a) => {
+        const str = (a.url || a.name || "").toLowerCase();
+        return (
+            str.includes(".jpg") ||
+            str.includes(".jpeg") ||
+            str.includes(".png") ||
+            str.includes(".webp") ||
+            str.includes(".gif") ||
+            str.includes(".heic") ||
+            (a.type || "").startsWith("image/")
+        );
+    });
+
+    const docAtts = message.attachments?.filter((a) => {
+        const str = (a.url || a.name || "").toLowerCase();
+        const isAudio = str.includes(".m4a") || str.includes(".mp3") || str.includes(".wav") || str.includes(".caf") || str.includes("audio");
+        const isImage = str.includes(".jpg") || str.includes(".jpeg") || str.includes(".png") || str.includes(".webp") || str.includes(".gif") || str.includes(".heic") || (a.type || "").startsWith("image/");
+        return !isAudio && !isImage;
+    });
+
     if (!own) {
         return (
             <View style={styles.messageWrapper}>
@@ -574,7 +760,31 @@ function MessageBubble({
                             {audioAtt ? (
                                 <VoiceNotePlayer audioUrl={audioAtt.url} />
                             ) : null}
-                            {message.text && message.text !== "🎤 Voice message" ? (
+                            {imageAtts && imageAtts.length > 0 ? (
+                                <View style={styles.imageAttachmentContainer}>
+                                    {imageAtts.map((att, i) => (
+                                        <Image
+                                            key={i}
+                                            source={{ uri: resolveFileUrl(att.url) }}
+                                            style={styles.attachedImage}
+                                            resizeMode="cover"
+                                        />
+                                    ))}
+                                </View>
+                            ) : null}
+                            {docAtts && docAtts.length > 0 ? (
+                                <View style={styles.docAttachmentContainer}>
+                                    {docAtts.map((doc, i) => (
+                                        <View key={i} style={styles.docRow}>
+                                            <Ionicons name="document-text" size={18} color="#00DEAB" />
+                                            <Text style={styles.docName} numberOfLines={1}>{doc.name || "Document"}</Text>
+                                        </View>
+                                    ))}
+                                </View>
+                            ) : null}
+                            {message.text && message.text !== "🎤 Voice message" && !message.text.startsWith("📎 ") ? (
+                                <Text style={styles.bubbleText}>{message.text}</Text>
+                            ) : message.text && message.text.startsWith("📎 ") && !imageAtts?.length && !docAtts?.length && !audioAtt ? (
                                 <Text style={styles.bubbleText}>{message.text}</Text>
                             ) : null}
                         </Pressable>
@@ -628,7 +838,31 @@ function MessageBubble({
                         {audioAtt ? (
                             <VoiceNotePlayer audioUrl={audioAtt.url} />
                         ) : null}
-                        {message.text && message.text !== "🎤 Voice message" ? (
+                        {imageAtts && imageAtts.length > 0 ? (
+                            <View style={styles.imageAttachmentContainer}>
+                                {imageAtts.map((att, i) => (
+                                    <Image
+                                        key={i}
+                                        source={{ uri: resolveFileUrl(att.url) }}
+                                        style={styles.attachedImage}
+                                        resizeMode="cover"
+                                    />
+                                ))}
+                            </View>
+                        ) : null}
+                        {docAtts && docAtts.length > 0 ? (
+                            <View style={styles.docAttachmentContainer}>
+                                {docAtts.map((doc, i) => (
+                                    <View key={i} style={styles.docRow}>
+                                        <Ionicons name="document-text" size={18} color="#00DEAB" />
+                                        <Text style={styles.docName} numberOfLines={1}>{doc.name || "Document"}</Text>
+                                    </View>
+                                ))}
+                            </View>
+                        ) : null}
+                        {message.text && message.text !== "🎤 Voice message" && !message.text.startsWith("📎 ") ? (
+                            <Text style={styles.bubbleText}>{message.text}</Text>
+                        ) : message.text && message.text.startsWith("📎 ") && !imageAtts?.length && !docAtts?.length && !audioAtt ? (
                             <Text style={styles.bubbleText}>{message.text}</Text>
                         ) : null}
                     </Pressable>
@@ -658,7 +892,7 @@ function MessageBubble({
             </View>
         </View>
     );
-}
+});
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
@@ -988,12 +1222,112 @@ export default function ConversationScreen() {
     const scrollRef = useRef<any>(null);
     const [postTypeOpen, setPostTypeOpen] = useState(false);
     const [addPeopleOpen, setAddPeopleOpen] = useState(false);
+    const [attachmentModalOpen, setAttachmentModalOpen] = useState(false);
     const [sending, setSending] = useState(false);
     const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
 
     // Upload progress
     const [uploadProgress, setUploadProgress] = useState<{ percentage: number; fileName: string } | null>(null);
     const abortUploadRef = useRef<{ abort: () => void } | null>(null);
+
+    // Send Attachment files helper
+    const sendAttachments = useCallback(
+        async (files: Array<{ uri: string; name: string; type: string }>) => {
+            if (!roomId || files.length === 0) return;
+            setSending(true);
+            setUploadProgress({ percentage: 0, fileName: files[0].name });
+            try {
+                await sendMessage({
+                    room_id: roomId,
+                    text: files.length === 1 ? `📎 ${files[0].name}` : `📎 ${files.length} attachments`,
+                    attachments: files,
+                    onUploadProgress: (prog) => {
+                        setUploadProgress({ percentage: prog.percentage, fileName: files[0].name });
+                    },
+                    abortUpload: abortUploadRef,
+                });
+            } catch (err) {
+                console.log("[Attachment] Send error:", err);
+                showError("Upload Error", "Failed to upload attachments.");
+            } finally {
+                setSending(false);
+                setUploadProgress(null);
+            }
+        },
+        [roomId, sendMessage]
+    );
+
+    const handlePickCamera = useCallback(async () => {
+        if (!roomId) return;
+        try {
+            const perm = await ImagePicker.requestCameraPermissionsAsync();
+            if (perm.status !== "granted") {
+                showInfo("Permission Required", "Camera permission is required to capture photos.");
+                return;
+            }
+            const result = await ImagePicker.launchCameraAsync({
+                mediaTypes: ["images", "videos"],
+                quality: 0.8,
+            });
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                const asset = result.assets[0];
+                const fileName = asset.fileName || `camera_${Date.now()}.${asset.type === "video" ? "mp4" : "jpg"}`;
+                const fileType = asset.mimeType || (asset.type === "video" ? "video/mp4" : "image/jpeg");
+                await sendAttachments([{ uri: asset.uri, name: fileName, type: fileType }]);
+            }
+        } catch (err) {
+            console.log("[Attachment] Camera error:", err);
+            showError("Error", "Could not capture image from camera.");
+        }
+    }, [roomId, sendAttachments]);
+
+    const handlePickGallery = useCallback(async () => {
+        if (!roomId) return;
+        try {
+            const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (perm.status !== "granted") {
+                showInfo("Permission Required", "Media library permission is required.");
+                return;
+            }
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ["images", "videos"],
+                allowsMultipleSelection: true,
+                quality: 0.8,
+            });
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                const files = result.assets.map((asset, idx) => ({
+                    uri: asset.uri,
+                    name: asset.fileName || `photo_${Date.now()}_${idx}.${asset.type === "video" ? "mp4" : "jpg"}`,
+                    type: asset.mimeType || (asset.type === "video" ? "video/mp4" : "image/jpeg"),
+                }));
+                await sendAttachments(files);
+            }
+        } catch (err) {
+            console.log("[Attachment] Gallery error:", err);
+            showError("Error", "Could not pick image from gallery.");
+        }
+    }, [roomId, sendAttachments]);
+
+    const handlePickDocument = useCallback(async () => {
+        if (!roomId) return;
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: "*/*",
+                multiple: true,
+            });
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                const files = result.assets.map((doc, idx) => ({
+                    uri: doc.uri,
+                    name: doc.name || `doc_${Date.now()}_${idx}`,
+                    type: doc.mimeType || "application/octet-stream",
+                }));
+                await sendAttachments(files);
+            }
+        } catch (err) {
+            console.log("[Attachment] Document error:", err);
+            showError("Error", "Could not pick document.");
+        }
+    }, [roomId, sendAttachments]);
 
     // Search
     const [searchOpen, setSearchOpen] = useState(false);
@@ -1025,16 +1359,24 @@ export default function ConversationScreen() {
             return;
         }
         try {
-            const permission = await ExpoAudio.requestRecordingPermissionsAsync();
-            if (permission.status !== "granted") {
+            const AudioModule = (ExpoAudio as any).AudioModule;
+            const permission = await AudioModule.requestRecordingPermissionsAsync();
+            if (!permission.granted) {
                 showInfo("Permission Required", "Microphone access is required to record voice notes.");
                 return;
             }
-            await ExpoAudio.setAudioModeAsync({
+            await AudioModule.setAudioModeAsync({
                 allowsRecording: true,
                 playsInSilentMode: true,
             });
-            const recorder = new (ExpoAudio as any).AudioModule.AudioRecorder((ExpoAudio as any).RecordingPresets?.HIGH_QUALITY);
+            const RecordingPresets = (ExpoAudio as any).RecordingPresets;
+            const recorder = new AudioModule.AudioRecorder(
+                RecordingPresets?.HIGH_QUALITY ?? {
+                    android: { extension: ".m4a", outputFormat: "mpeg4", audioEncoder: "aac", sampleRate: 44100, numberOfChannels: 2, bitRate: 128000 },
+                    ios: { extension: ".m4a", outputFormat: "mpeg4aac", audioQuality: "high", sampleRate: 44100, numberOfChannels: 2, bitRate: 128000, linearPCMBitDepth: 16, linearPCMIsBigEndian: false, linearPCMIsFloat: false },
+                    web: {},
+                }
+            );
             await recorder.prepareToRecordAsync();
             recorder.record();
             setRecordingInstance(recorder);
@@ -1059,28 +1401,53 @@ export default function ConversationScreen() {
         }
         setSending(true);
         try {
-            await recordingInstance.stop();
-            if (ExpoAudio) {
-                await ExpoAudio.setAudioModeAsync({ allowsRecording: false });
+            let stopRes: any = null;
+            if (typeof recordingInstance.stop === "function") {
+                stopRes = await recordingInstance.stop();
             }
-            const uri = recordingInstance.uri;
+            if (ExpoAudio) {
+                const AudioModule = (ExpoAudio as any).AudioModule;
+                try {
+                    await AudioModule.setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+                } catch { }
+            }
+
+            // expo-audio stores the URI on the recorder after stop()
+            let rawUri: string | null =
+                stopRes?.uri ||
+                stopRes?.url ||
+                recordingInstance.uri ||
+                recordingInstance.url ||
+                recordingInstance._uri ||
+                (typeof recordingInstance.getURI === "function" ? recordingInstance.getURI() : null) ||
+                null;
+
+            // Android URIs from expo-audio sometimes lack file:// prefix
+            if (rawUri && typeof rawUri === "string" && !rawUri.startsWith("file://") && !rawUri.startsWith("http") && !rawUri.startsWith("content://")) {
+                rawUri = `file://${rawUri}`;
+            }
+
             setRecordingInstance(null);
             setIsRecording(false);
             setRecordingDuration(0);
 
-            if (uri) {
+            console.log("[Audio] Recorded voice note URI:", rawUri);
+
+            if (rawUri && typeof rawUri === "string" && rawUri.length > 0) {
                 const fileName = `voice_${Date.now()}.m4a`;
                 await sendMessage({
                     room_id: roomId,
                     text: "🎤 Voice message",
                     attachments: [
                         {
-                            uri,
+                            uri: rawUri,
                             name: fileName,
                             type: "audio/m4a",
                         },
                     ],
                 });
+            } else {
+                showError("Recording Error", "Could not obtain voice recording URI. Please try again.");
             }
         } catch (err) {
             console.log("[Audio] Send voice note error:", err);
@@ -1099,7 +1466,8 @@ export default function ConversationScreen() {
             try {
                 await recordingInstance.stop();
                 if (ExpoAudio) {
-                    await ExpoAudio.setAudioModeAsync({ allowsRecording: false });
+                    const AudioModule = (ExpoAudio as any).AudioModule;
+                    await AudioModule.setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
                 }
             } catch { }
         }
@@ -1195,12 +1563,9 @@ export default function ConversationScreen() {
         return Array.from(roomMap.values());
     }, [typingUsers, roomId]);
 
-    // Auto-scroll to bottom on room open and message updates
+    // Track date of latest message for top header divider
     useEffect(() => {
         if (state.messages.length > 0) {
-            setTimeout(() => {
-                scrollRef.current?.scrollToEnd({ animated: false });
-            }, 50);
             const lastMsg = state.messages[state.messages.length - 1];
             if (lastMsg?.createdAt) {
                 setFirstVisibleDate(new Date(lastMsg.createdAt));
@@ -1370,23 +1735,55 @@ export default function ConversationScreen() {
         [state.rooms, roomId]
     );
 
-    // Group messages by date for display
-    let filteredMessages = search.trim()
-        ? filterMessagesByText(state.messages, search)
-        : state.messages;
+    const handleLongPress = useCallback((msg: ChatMessage) => {
+        setSelectedMsgForModal(msg);
+    }, []);
 
-    if (dateFilterStart && dateFilterEnd) {
-        const startOfDay = new Date(dateFilterStart);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(dateFilterEnd);
-        endOfDay.setHours(23, 59, 59, 999);
-        const startMs = startOfDay.getTime();
-        const endMs = endOfDay.getTime();
-        filteredMessages = filteredMessages.filter((m) => {
-            const msgDate = new Date(m.createdAt ?? 0).getTime();
-            return msgDate >= startMs && msgDate <= endMs;
-        });
-    }
+    const renderItem = useCallback(({ item, index }: { item: ChatMessage; index: number }) => (
+        <View
+            style={{
+                paddingHorizontal: 16,
+                paddingTop: index === 0 ? 8 : 20,
+            }}
+        >
+            <MessageBubble
+                message={item}
+                currentUserId={currentUserId}
+                members={currentRoom?.members}
+                showSenderName={isChannel}
+                onLongPress={handleLongPress}
+                onReactionPress={(emoji: string) => handleReactEmoji(item, emoji)}
+            />
+        </View>
+    ), [currentUserId, currentRoom?.members, isChannel, handleLongPress, handleReactEmoji]);
+
+    // Inverted messages list for native bottom-anchored chat layout
+    const invertedMessages = useMemo(() => {
+        let filtered = search.trim()
+            ? filterMessagesByText(state.messages, search)
+            : state.messages;
+
+        if (dateFilterStart && dateFilterEnd) {
+            const startOfDay = new Date(dateFilterStart);
+            startOfDay.setHours(0, 0, 0, 0);
+            const endOfDay = new Date(dateFilterEnd);
+            endOfDay.setHours(23, 59, 59, 999);
+            const startMs = startOfDay.getTime();
+            const endMs = endOfDay.getTime();
+            filtered = filtered.filter((m) => {
+                const msgDate = new Date(m.createdAt ?? 0).getTime();
+                return msgDate >= startMs && msgDate <= endMs;
+            });
+        }
+        return [...filtered].reverse();
+    }, [state.messages, search, dateFilterStart, dateFilterEnd]);
+
+    const handleLoadMore = useCallback(() => {
+        if (roomId && state.hasMore && !state.messagesLoading) {
+            const nextPage = state.messagePage + 1;
+            fetchMessages(roomId, nextPage);
+        }
+    }, [roomId, state.hasMore, state.messagesLoading, state.messagePage, fetchMessages]);
 
     const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 10 }).current;
 
@@ -1651,126 +2048,93 @@ export default function ConversationScreen() {
                     <FlatList
                         ref={scrollRef}
                         style={styles.scroll}
-                        data={filteredMessages}
+                        inverted={true}
+                        data={invertedMessages}
                         keyExtractor={(item: ChatMessage) => item._id}
-                        onContentSizeChange={() => {
-                            scrollRef.current?.scrollToEnd({ animated: false });
-                        }}
-                        onLayout={() => {
-                            scrollRef.current?.scrollToEnd({ animated: false });
-                        }}
-                        renderItem={({ item, index }: { item: ChatMessage; index: number }) => {
-                            return (
-                                <View
-                                    style={{
-                                        paddingHorizontal: 16,
-                                        paddingTop: index === 0 ? 8 : 20,
-                                    }}
-                                >
-                                    <MessageBubble
-                                        message={item}
-                                        currentUserId={currentUserId}
-                                        members={currentRoom?.members}
-                                        showSenderName={isChannel}
-                                        onLongPress={(msg) => setSelectedMsgForModal(msg)}
-                                        onReactionPress={(emoji: string) => handleReactEmoji(item, emoji)}
-                                    />
-                                </View>
-                            );
-                        }}
+                        renderItem={renderItem}
+                        onEndReached={handleLoadMore}
+                        onEndReachedThreshold={0.3}
+                        windowSize={10}
+                        maxToRenderPerBatch={10}
+                        updateCellsBatchingPeriod={50}
+                        removeClippedSubviews={true}
                         ListHeaderComponent={
-                            <View style={styles.workspaceContainer}>
-                                <View style={styles.iconStack}>
-                                    {isChannel ? (
-                                        <Icons.ChannelTabIcon width={54} height={54} />
-                                    ) : (
-                                        <MainChatIcon />
-                                    )}
-                                </View>
-                                <Text style={styles.workspaceTitle}>
-                                    {isChannel
-                                        ? `Team Chat in #${name}`
-                                        : "Private workspace"}
-                                </Text>
-                                <Text style={styles.workspaceDescription}>
-                                    {isChannel
-                                        ? "Group keep your team's conversations\norganized by topic."
-                                        : "A place just for you to capture ideas, draft messages,\nand keep everything organized for later."}
-                                </Text>
-                                {isChannel && canManageMembers && (
-                                    <TouchableOpacity
-                                        style={styles.addPeopleChannelBtn}
-                                        activeOpacity={0.8}
-                                        onPress={() => setAddPeopleOpen(true)}
-                                    >
-                                        <Text style={styles.addPeopleChannelText}>
-                                            + Add people
-                                        </Text>
-                                    </TouchableOpacity>
-                                )}
-                                {search.trim() && (
-                                    <View style={styles.searchResultBadge}>
-                                        <Text style={styles.searchResultText}>
-                                            {filteredMessages.length} result
-                                            {filteredMessages.length !== 1
-                                                ? "s"
-                                                : ""}{" "}
-                                            found
-                                        </Text>
-                                    </View>
-                                )}
-                            </View>
-                        }
-                        ListEmptyComponent={
-                            state.messagesLoading && state.messages.length === 0 ? (
-                                <View style={{ padding: 40, alignItems: "center" }}>
-                                    <ActivityIndicator size="large" color="#00DEAB" />
-                                </View>
-                            ) : search.trim() && filteredMessages.length === 0 ? (
-                                <View style={{ padding: 40, alignItems: "center" }}>
-                                    <Ionicons name="search-outline" size={32} color="#D1D5DB" />
-                                    <Text style={{ fontSize: 13, color: "#9CA3AF", fontFamily: "SF_Pro_Regular", marginTop: 8, textAlign: "center" }}>
-                                        No messages matching "{search}"
-                                    </Text>
-                                </View>
-                            ) : (dateFilterStart && dateFilterEnd) && state.messages.length > 0 && filteredMessages.length === 0 ? (
-                                <View style={{ padding: 40, alignItems: "center" }}>
-                                    <Ionicons name="calendar-outline" size={32} color="#D1D5DB" />
-                                    <Text style={{ fontSize: 13, color: "#9CA3AF", fontFamily: "SF_Pro_Regular", marginTop: 8, textAlign: "center" }}>
-                                        No messages found for this date range.
-                                    </Text>
-                                </View>
-                            ) : filteredMessages.length === 0 ? (
-                                <View style={{ padding: 40, alignItems: "center" }}>
-                                    <Text style={{ fontSize: 13, color: "#9CA3AF", fontFamily: "SF_Pro_Regular", textAlign: "center" }}>
-                                        No messages yet. Start the conversation!
+                            search.trim() ? (
+                                <View style={styles.searchResultBadge}>
+                                    <Text style={styles.searchResultText}>
+                                        {invertedMessages.length} result
+                                        {invertedMessages.length !== 1 ? "s" : ""} found
                                     </Text>
                                 </View>
                             ) : null
                         }
                         ListFooterComponent={
                             <>
-                                {state.hasMore && !state.messagesLoading && (
-                                    <TouchableOpacity
-                                        style={{ padding: 16, alignItems: "center" }}
-                                        onPress={() => {
-                                            if (roomId) {
-                                                const nextPage = state.messagePage + 1;
-                                                fetchMessages(roomId, nextPage);
-                                            }
-                                        }}
-                                    >
-                                        <Text style={{ fontSize: 13, color: "#00DEAB", fontFamily: "SF_Pro_Medium" }}>
-                                            Load older messages
-                                        </Text>
-                                    </TouchableOpacity>
-                                )}
-                                {state.messagesLoading && state.messages.length > 0 && (
+                                {state.messagesLoading && (
                                     <View style={{ padding: 16, alignItems: "center" }}>
                                         <ActivityIndicator size="small" color="#00DEAB" />
                                     </View>
                                 )}
+                                {!state.hasMore && (
+                                    <View style={styles.workspaceContainer}>
+                                        <View style={styles.iconStack}>
+                                            {isChannel ? (
+                                                <Icons.ChannelTabIcon width={54} height={54} />
+                                            ) : (
+                                                <MainChatIcon />
+                                            )}
+                                        </View>
+                                        <Text style={styles.workspaceTitle}>
+                                            {isChannel
+                                                ? `Team Chat in #${name}`
+                                                : "Private workspace"}
+                                        </Text>
+                                        <Text style={styles.workspaceDescription}>
+                                            {isChannel
+                                                ? "Group keep your team's conversations\norganized by topic."
+                                                : "A place just for you to capture ideas, draft messages,\nand keep everything organized for later."}
+                                        </Text>
+                                        {isChannel && canManageMembers && (
+                                            <TouchableOpacity
+                                                style={styles.addPeopleChannelBtn}
+                                                activeOpacity={0.8}
+                                                onPress={() => setAddPeopleOpen(true)}
+                                            >
+                                                <Text style={styles.addPeopleChannelText}>
+                                                    + Add people
+                                                </Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                )}
                             </>
+                        }
+                        ListEmptyComponent={
+                            state.messagesLoading && state.messages.length === 0 ? (
+                                <View style={{ padding: 40, alignItems: "center" }}>
+                                    <ActivityIndicator size="large" color="#00DEAB" />
+                                </View>
+                            ) : search.trim() && invertedMessages.length === 0 ? (
+                                <View style={{ padding: 40, alignItems: "center" }}>
+                                    <Ionicons name="search-outline" size={32} color="#D1D5DB" />
+                                    <Text style={{ fontSize: 13, color: "#9CA3AF", fontFamily: "SF_Pro_Regular", marginTop: 8, textAlign: "center" }}>
+                                        No messages matching "{search}"
+                                    </Text>
+                                </View>
+                            ) : (dateFilterStart && dateFilterEnd) && state.messages.length > 0 && invertedMessages.length === 0 ? (
+                                <View style={{ padding: 40, alignItems: "center" }}>
+                                    <Ionicons name="calendar-outline" size={32} color="#D1D5DB" />
+                                    <Text style={{ fontSize: 13, color: "#9CA3AF", fontFamily: "SF_Pro_Regular", marginTop: 8, textAlign: "center" }}>
+                                        No messages found for this date range.
+                                    </Text>
+                                </View>
+                            ) : invertedMessages.length === 0 ? (
+                                <View style={{ padding: 40, alignItems: "center" }}>
+                                    <Text style={{ fontSize: 13, color: "#9CA3AF", fontFamily: "SF_Pro_Regular", textAlign: "center" }}>
+                                        No messages yet. Start the conversation!
+                                    </Text>
+                                </View>
+                            ) : null
                         }
                         onViewableItemsChanged={onViewableItemsChangedRef}
                         viewabilityConfig={viewabilityConfig}
@@ -1847,6 +2211,7 @@ export default function ConversationScreen() {
                     <View style={styles.inputBar}>
                         {canSendMessage ? (
                         <>
+                        {/* Voice recorder bar — commented out
                         {isRecording ? (
                             <View style={styles.recordingBar}>
                                 <View style={styles.recordingLiveIndicator}>
@@ -1878,6 +2243,8 @@ export default function ConversationScreen() {
                                 </View>
                             </View>
                         ) : (
+                        */}
+
                             <View style={styles.inputContainer}>
                                 <View style={styles.inputRow}>
                                     <TextInput
@@ -1894,7 +2261,11 @@ export default function ConversationScreen() {
                                 {/* Action row */}
                                 <View style={styles.inputActions}>
                                     <View style={styles.inputActionsLeft}>
-                                        <TouchableOpacity activeOpacity={0.75} style={styles.inputActionBtn}>
+                                        <TouchableOpacity
+                                            activeOpacity={0.75}
+                                            style={styles.inputActionBtn}
+                                            onPress={() => setAttachmentModalOpen(true)}
+                                        >
                                             <Ionicons name="add" size={20} color="#1D1D1D" />
                                         </TouchableOpacity>
                                         <TouchableOpacity
@@ -1908,6 +2279,7 @@ export default function ConversationScreen() {
                                             <Ionicons name="happy-outline" size={18} color="#1D1D1D" />
                                             <Text style={styles.plusBadge}>+</Text>
                                         </TouchableOpacity>
+                                        {/* Mic / voice recorder button — commented out
                                         <TouchableOpacity
                                             activeOpacity={0.75}
                                             style={styles.inputActionBtn}
@@ -1915,6 +2287,7 @@ export default function ConversationScreen() {
                                         >
                                             <Ionicons name="mic" size={18} color="#1D1D1D" />
                                         </TouchableOpacity>
+                                        */}
                                         {isChannel && postTypes.length > 0 && canManagePostTypes && (
                                             <TouchableOpacity
                                                 activeOpacity={0.75}
@@ -1965,7 +2338,7 @@ export default function ConversationScreen() {
                                     </ScrollView>
                                 )}
                             </View>
-                        )}
+
                         </>
                     ) : (
                         <View style={styles.viewOnlyBar}>
@@ -1978,6 +2351,14 @@ export default function ConversationScreen() {
                     </View>
                 </KeyboardAvoidingView>
             </SafeAreaView>
+
+            <AttachmentModal
+                visible={attachmentModalOpen}
+                onClose={() => setAttachmentModalOpen(false)}
+                onSelectCamera={handlePickCamera}
+                onSelectGallery={handlePickGallery}
+                onSelectDocument={handlePickDocument}
+            />
 
             <AddPeopleModal
                 visible={addPeopleOpen}
@@ -2978,5 +3359,38 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontFamily: "SF_Pro_Medium",
         color: "#fff",
+    },
+
+    // ── Attachment rendering in bubbles ──
+    imageAttachmentContainer: {
+        borderRadius: 10,
+        overflow: "hidden",
+        marginBottom: 4,
+    },
+    attachedImage: {
+        width: 220,
+        height: 180,
+        borderRadius: 10,
+        backgroundColor: "#E5E7EB",
+        marginBottom: 2,
+    },
+    docAttachmentContainer: {
+        marginBottom: 4,
+        gap: 4,
+    },
+    docRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#F3F4F6",
+        borderRadius: 8,
+        paddingHorizontal: 10,
+        paddingVertical: 7,
+        gap: 8,
+    },
+    docName: {
+        flex: 1,
+        fontSize: 13,
+        fontFamily: "SF_Pro_Regular",
+        color: TEXT_PRIMARY,
     },
 });

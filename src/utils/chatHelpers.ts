@@ -207,11 +207,38 @@ export function buildMessageFormData(params: {
   }
   if (params.attachments) {
     params.attachments.forEach((file) => {
-      formData.append("attachments", new File(file.uri));
+      if (file && typeof file.uri === "string" && file.uri.length > 0) {
+        formData.append("attachments", {
+          uri: file.uri,
+          name: file.name || `file_${Date.now()}`,
+          type: file.type || "application/octet-stream",
+        } as any);
+      }
     });
   }
 
   return formData;
+}
+
+/** Resolve relative file URLs (e.g. /public/...) to absolute backend URLs for display & audio playback. */
+export function resolveFileUrl(url?: string | null): string {
+  if (!url) return "";
+  if (
+    url.startsWith("http://") ||
+    url.startsWith("https://") ||
+    url.startsWith("file://") ||
+    url.startsWith("content://") ||
+    url.startsWith("data:") ||
+    url.startsWith("blob:")
+  ) {
+    return url;
+  }
+  const apiBase =
+    process.env.EXPO_PUBLIC_API_BASE_URL ??
+    "https://backend-planit.soulservices.com/api/v1";
+  const serverOrigin = apiBase.replace(/\/api\/v1\/?$/, "");
+  const cleanPath = url.startsWith("/") ? url : `/${url}`;
+  return `${serverOrigin}${cleanPath}`;
 }
 
 /** Build a FormData object for editing a message. */
@@ -233,7 +260,13 @@ export function buildEditMessageFormData(params: {
   }
   if (params.newAttachments) {
     params.newAttachments.forEach((file) => {
-      formData.append("attachments", new File(file.uri));
+      if (file && typeof file.uri === "string" && file.uri.length > 0) {
+        formData.append("attachments", {
+          uri: file.uri,
+          name: file.name || `file_${Date.now()}`,
+          type: file.type || "application/octet-stream",
+        } as any);
+      }
     });
   }
 
