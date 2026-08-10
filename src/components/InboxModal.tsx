@@ -106,6 +106,8 @@ export default function InboxModal({
       return true;
     });
 
+  const displayNotifications = filteredNotifications.slice(0, 3);
+
   const unreadCount = notifState.unreadCount;
 
   return (
@@ -219,7 +221,7 @@ export default function InboxModal({
               <View style={styles.emptyContainer}>
                 <ActivityIndicator size="small" color="#00DEAB" />
               </View>
-            ) : filteredNotifications.length === 0 ? (
+            ) : displayNotifications.length === 0 ? (
               <View style={styles.emptyContainer}>
                 <Ionicons
                   name="notifications-off-outline"
@@ -233,7 +235,7 @@ export default function InboxModal({
                 </Text>
               </View>
             ) : (
-              filteredNotifications.map((item, index) => (
+              displayNotifications.map((item, index) => (
                 <TouchableOpacity
                   key={`${item.id}-${index}`}
                   style={styles.notificationRow}

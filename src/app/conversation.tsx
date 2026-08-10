@@ -2941,8 +2941,6 @@ const styles = StyleSheet.create({
         paddingTop: 8,
         paddingBottom: Platform.OS === "ios" ? 24 : 16,
         paddingHorizontal: 16,
-        borderTopWidth: 1,
-        borderTopColor: "#F3F4F6",
     },
     typingIndicator: {
         flexDirection: "row",

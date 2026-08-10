@@ -61,6 +61,14 @@ const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
 
 const COL = { title: 150, assignedTo: 120, createdBy: 120, status: 100, dueDate: 110 };
 
+function getInitials(name: string): string {
+  if (!name || name === "-") return "?";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0][0].toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 function SectionTable({
   title,
   rows,
@@ -86,11 +94,15 @@ function SectionTable({
               <View style={styles.tblAccent} />
               <Text style={[styles.tblCell, { width: COL.title }]} numberOfLines={1}>{row.title}</Text>
               <View style={[styles.tblCreatedBy, { width: COL.assignedTo }]}>
-                <View style={styles.tblAvatar} />
+                <View style={styles.tblAvatar}>
+                  <Text style={styles.tblAvatarText}>{getInitials(row.assignedTo)}</Text>
+                </View>
                 <Text style={styles.tblCell}>{row.assignedTo}</Text>
               </View>
               <View style={[styles.tblCreatedBy, { width: COL.createdBy }]}>
-                <View style={styles.tblAvatar} />
+                <View style={styles.tblAvatar}>
+                  <Text style={styles.tblAvatarText}>{getInitials(row.createdBy)}</Text>
+                </View>
                 <Text style={styles.tblCell}>{row.createdBy}</Text>
               </View>
               <Text style={[styles.tblCell, { width: COL.status }]} numberOfLines={1}>{row.status}</Text>
@@ -764,10 +776,18 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
       icon: "git-compare-outline",
       label: "Dependencies:",
       value: depDisplay.length > 0 ? (
-        <Text style={styles.depLink}>{depDisplay[0].title}</Text>
-      ) : (
-        <Text style={styles.infoValue}>-</Text>
-      ),
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {depDisplay.map((dep, idx) => (
+              <View key={idx} style={styles.depPill}>
+                <Text style={styles.depPillText} numberOfLines={1}>
+                  {dep.title}
+                </Text>
+              </View>
+            ))}
+          </ScrollView>
+        ) : (
+          <Text style={styles.infoValue}>-</Text>
+        ),
     },
   ];
 
@@ -1138,13 +1158,17 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   badgeText: { fontSize: 12, fontFamily: "SF_Pro_Medium" },
-  depLink: {
-    fontSize: 13,
+  depPill: {
     backgroundColor: "#F0FFF8",
-    maxWidth: 100,
-    padding: 5,
-    borderRadius: 5,
-    textAlign: "center",
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginRight: 6,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  depPillText: {
+    fontSize: 12,
     color: "#00DEAB",
     fontFamily: "SF_Pro_Regular",
   },
@@ -1213,9 +1237,12 @@ const styles = StyleSheet.create({
   tblAvatar: {
     width: 24,
     height: 24,
-    borderRadius: 8,
-    backgroundColor: "#D1D5DB",
+    borderRadius: 5,
+    backgroundColor: "#00DEAB",
+    alignItems: "center",
+    justifyContent: "center",
   },
+  tblAvatarText: { fontSize: 10, fontWeight: "700", color: "#fff" },
   tblDueDate: { flexDirection: "row", alignItems: "center" },
   attachHeader: {
     flexDirection: "row",
