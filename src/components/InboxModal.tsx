@@ -1,7 +1,10 @@
 import { useNotifications } from "@/context/NotificationContext";
 import { useAuth } from "@/hooks/useAuth";
+import { useChat } from "@/hooks/useChat";
 import { NotificationItem } from "@/types/chat.types";
+import { getRoomDisplayName, getRoomInitials } from "@/utils/chatHelpers";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -66,6 +69,9 @@ export default function InboxModal({
   const [activeTab, setActiveTab] = useState<TabType>("all");
   const authState = useAuth();
   const companyId = authState?.state?.company?.company_id ?? 0;
+  const currentUserId = authState?.state?.user?.id ?? 0;
+
+  const { state: chatState, fetchRooms, getOrCreateRoom } = useChat();
   const {
     state: notifState,
     fetchNotifications,
@@ -74,10 +80,13 @@ export default function InboxModal({
   } = useNotifications();
 
   useEffect(() => {
-    if (visible && companyId) {
-      fetchNotifications(companyId, true);
+    if (visible) {
+      if (companyId) {
+        fetchNotifications(companyId, true);
+      }
+      fetchRooms().catch(() => {});
     }
-  }, [visible, companyId, fetchNotifications]);
+  }, [visible, companyId, fetchNotifications, fetchRooms]);
 
   const handleMarkAllRead = useCallback(() => {
     if (companyId) {
@@ -86,16 +95,98 @@ export default function InboxModal({
   }, [companyId, markAllRead]);
 
   const handleItemPress = useCallback(
-    (item: NotificationItem) => {
+    async (item: NotificationItem) => {
       if (item.readed === 0) {
         markRead(item.id);
       }
       onClose();
-      if (item.task_id && item.task_id !== 0) {
+
+      const isChatNotif =
+        (item.typ ?? "").toLowerCase() === "chat" ||
+        (!item.task_id && item.title?.toLowerCase().includes("sent you a message"));
+
+      if (isChatNotif) {
+        const cb = Number(item.created_by) || 0;
+        const asId = Number(item.assigned?.id) || 0;
+        const ast = Number(item.assigned_to) || 0;
+
+        let targetUserId = 0;
+        if (cb > 0 && cb !== currentUserId) {
+          targetUserId = cb;
+        } else if (asId > 0 && asId !== currentUserId) {
+          targetUserId = asId;
+        } else if (ast > 0 && ast !== currentUserId) {
+          targetUserId = ast;
+        } else {
+          targetUserId = cb || asId || ast;
+        }
+
+        const leadId = Number(item.lead_id) || 0;
+
+        // 1. Check cached rooms
+        let targetRoom = chatState.rooms.find(
+          (r) =>
+            (leadId > 0 && (r.id === leadId || r._id === String(leadId))) ||
+            (targetUserId > 0 && r.type === "direct" && r.members.some((m) => m.id === targetUserId))
+        );
+
+        if (targetRoom) {
+          const rId = targetRoom._id || (targetRoom.id ? String(targetRoom.id) : "");
+          router.push({
+            pathname: "/conversation",
+            params: {
+              roomId: rId,
+              name: getRoomDisplayName(targetRoom, currentUserId),
+              initials: getRoomInitials(targetRoom, currentUserId),
+              isChannel: String(targetRoom.type === "channel"),
+              roomType: targetRoom.type,
+            },
+          });
+          return;
+        }
+
+        // 2. Create or fetch direct room
+        if (targetUserId > 0) {
+          try {
+            const room = await getOrCreateRoom({
+              type: "direct",
+              targetId: targetUserId,
+            });
+            if (room) {
+              const rId = room._id || (room.id ? String(room.id) : "");
+              router.push({
+                pathname: "/conversation",
+                params: {
+                  roomId: rId,
+                  name: getRoomDisplayName(room, currentUserId),
+                  initials: getRoomInitials(room, currentUserId),
+                  isChannel: "false",
+                  roomType: "direct",
+                },
+              });
+              return;
+            }
+          } catch {
+            // Fallback
+          }
+        }
+
+        // 3. Fallback
+        router.push({
+          pathname: "/conversation",
+          params: {
+            roomId: leadId > 0 ? String(leadId) : undefined,
+            name: getNotificationName(item),
+            initials: getNotificationInitials(item),
+            isChannel: "false",
+            roomType: "direct",
+          },
+        });
+      } else if (item.task_id && item.task_id !== 0) {
         onNotificationPress?.(item);
       }
     },
-    [markRead, onClose, onNotificationPress],
+    [currentUserId, markRead, onClose, onNotificationPress, chatState.rooms, getOrCreateRoom],
   );
 
   const filteredNotifications = notifState.notifications

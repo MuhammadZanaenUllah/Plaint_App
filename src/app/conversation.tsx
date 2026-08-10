@@ -2155,7 +2155,7 @@ export default function ConversationScreen() {
                                     {replyTo.text}
                                 </Text>
                             </View>
-                            <TouchableOpacity onPress={() => setReplyTo(null)} hitSlop={8}>
+                            <TouchableOpacity activeOpacity={0.4} onPress={() => setReplyTo(null)} hitSlop={8}>
                                 <Ionicons name="close" size={16} color="#9CA3AF" />
                             </TouchableOpacity>
                         </View>
@@ -2173,6 +2173,7 @@ export default function ConversationScreen() {
                                     {uploadProgress.percentage}%
                                 </Text>
                                 <TouchableOpacity
+                                    activeOpacity={0.4}
                                     onPress={() => {
                                         abortUploadRef.current?.abort();
                                         setUploadProgress(null);
@@ -2211,40 +2212,6 @@ export default function ConversationScreen() {
                     <View style={styles.inputBar}>
                         {canSendMessage ? (
                         <>
-                        {/* Voice recorder bar — commented out
-                        {isRecording ? (
-                            <View style={styles.recordingBar}>
-                                <View style={styles.recordingLiveIndicator}>
-                                    <View style={styles.redDot} />
-                                    <Text style={styles.recordingTimerText}>
-                                        {formatRecordingTimer(recordingDuration)}
-                                    </Text>
-                                </View>
-                                <View style={styles.recordingActions}>
-                                    <TouchableOpacity
-                                        style={styles.cancelRecordBtn}
-                                        onPress={cancelRecording}
-                                        hitSlop={8}
-                                    >
-                                        <Ionicons name="trash-outline" size={20} color="#EF4444" />
-                                    </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={styles.sendRecordBtn}
-                                        onPress={stopAndSendRecording}
-                                        activeOpacity={0.8}
-                                        disabled={sending}
-                                    >
-                                        {sending ? (
-                                            <ActivityIndicator size="small" color="#fff" />
-                                        ) : (
-                                            <Ionicons name="paper-plane" size={16} color="#fff" />
-                                        )}
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-                        ) : (
-                        */}
-
                             <View style={styles.inputContainer}>
                                 <View style={styles.inputRow}>
                                     <TextInput
@@ -2262,14 +2229,14 @@ export default function ConversationScreen() {
                                 <View style={styles.inputActions}>
                                     <View style={styles.inputActionsLeft}>
                                         <TouchableOpacity
-                                            activeOpacity={0.75}
+                                            activeOpacity={0.4}
                                             style={styles.inputActionBtn}
                                             onPress={() => setAttachmentModalOpen(true)}
                                         >
                                             <Ionicons name="add" size={20} color="#1D1D1D" />
                                         </TouchableOpacity>
                                         <TouchableOpacity
-                                            activeOpacity={0.75}
+                                            activeOpacity={0.4}
                                             style={styles.inputActionBtn}
                                             onPress={() => {
                                                 setEmojiPickerMsg(null);
@@ -2279,18 +2246,9 @@ export default function ConversationScreen() {
                                             <Ionicons name="happy-outline" size={18} color="#1D1D1D" />
                                             <Text style={styles.plusBadge}>+</Text>
                                         </TouchableOpacity>
-                                        {/* Mic / voice recorder button — commented out
-                                        <TouchableOpacity
-                                            activeOpacity={0.75}
-                                            style={styles.inputActionBtn}
-                                            onPress={startRecording}
-                                        >
-                                            <Ionicons name="mic" size={18} color="#1D1D1D" />
-                                        </TouchableOpacity>
-                                        */}
                                         {isChannel && postTypes.length > 0 && canManagePostTypes && (
                                             <TouchableOpacity
-                                                activeOpacity={0.75}
+                                                activeOpacity={0.4}
                                                 style={[
                                                     styles.inputActionBtn,
                                                     styles.postTypeToggle,
@@ -2308,7 +2266,7 @@ export default function ConversationScreen() {
                                             styles.sendBtn,
                                             (message.trim().length > 0 || sending) && styles.sendBtnActive,
                                         ]}
-                                        activeOpacity={0.85}
+                                        activeOpacity={0.4}
                                         onPress={handleSend}
                                         disabled={sending || !message.trim()}
                                     >
@@ -2330,7 +2288,7 @@ export default function ConversationScreen() {
                                         keyboardShouldPersistTaps="handled"
                                     >
                                         {postTypes.map((pt: { name: string; color: string }) => (
-                                            <TouchableOpacity key={pt.name} style={[styles.postTypeChip, { backgroundColor: pt.color + "15" }]} activeOpacity={0.7}>
+                                            <TouchableOpacity key={pt.name} style={[styles.postTypeChip, { backgroundColor: pt.color + "15" }]} activeOpacity={0.4}>
                                                 <Ionicons name="pricetag" size={14} color={pt.color} style={{ marginRight: 4 }} />
                                                 <Text style={[styles.postTypeChipText, { color: pt.color }]}>{pt.name}</Text>
                                             </TouchableOpacity>

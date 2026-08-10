@@ -11,9 +11,12 @@ import TaskDetailModal, {
 import Icons from "@/constants/icons";
 import { useNotifications } from "@/context/NotificationContext";
 import { useAuth } from "@/hooks/useAuth";
+import { useChat } from "@/hooks/useChat";
 import { viewTask } from "@/services/api/tasks.service";
 import { NotificationItem } from "@/types/chat.types";
+import { getRoomDisplayName, getRoomInitials } from "@/utils/chatHelpers";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -38,14 +41,12 @@ const TYPE_COLORS: Record<string, string> = {
   Chat: "#556EE6",
   Task: "#F59E0B",
   Attendance: "#10B981",
-  System: "#8E8E93",
+  System: "#6B7280",
 };
 
 export function getNotificationTypeLabel(item: NotificationItem): string {
-  const typ = (item?.typ ?? "").toLowerCase();
-  if (typ === "chat") return "Chat";
-  if (typ === "task") return "Task";
-  if (typ === "attendance") return "Attendance";
+  if (item.typ === "chat") return "Chat";
+  if (item.task_id && item.task_id !== 0) return "Task";
   return "System";
 }
 
@@ -76,6 +77,9 @@ export default function NotificationsScreen() {
 
   const authState = useAuth();
   const companyId = authState.state?.company?.company_id ?? 0;
+  const currentUserId = authState.state?.user?.id ?? 0;
+
+  const { state: chatState, getOrCreateRoom } = useChat();
   const {
     state: notifState,
     fetchNotifications,
@@ -141,7 +145,88 @@ export default function NotificationsScreen() {
       if (item.readed === 0) {
         markRead(item.id);
       }
-      if (item.task_id && item.task_id !== 0) {
+      const isChatNotif =
+        (item.typ ?? "").toLowerCase() === "chat" ||
+        (!item.task_id && item.title?.toLowerCase().includes("sent you a message"));
+
+      if (isChatNotif) {
+        const cb = Number(item.created_by) || 0;
+        const asId = Number(item.assigned?.id) || 0;
+        const ast = Number(item.assigned_to) || 0;
+
+        let targetUserId = 0;
+        if (cb > 0 && cb !== currentUserId) {
+          targetUserId = cb;
+        } else if (asId > 0 && asId !== currentUserId) {
+          targetUserId = asId;
+        } else if (ast > 0 && ast !== currentUserId) {
+          targetUserId = ast;
+        } else {
+          targetUserId = cb || asId || ast;
+        }
+
+        const leadId = Number(item.lead_id) || 0;
+
+        // 1. Check cached rooms
+        let targetRoom = chatState.rooms.find(
+          (r) =>
+            (leadId > 0 && (r.id === leadId || r._id === String(leadId))) ||
+            (targetUserId > 0 && r.type === "direct" && r.members.some((m) => m.id === targetUserId))
+        );
+
+        if (targetRoom) {
+          const rId = targetRoom._id || (targetRoom.id ? String(targetRoom.id) : "");
+          router.push({
+            pathname: "/conversation",
+            params: {
+              roomId: rId,
+              name: getRoomDisplayName(targetRoom, currentUserId),
+              initials: getRoomInitials(targetRoom, currentUserId),
+              isChannel: String(targetRoom.type === "channel"),
+              roomType: targetRoom.type,
+            },
+          });
+          return;
+        }
+
+        // 2. Create or fetch direct room
+        if (targetUserId > 0) {
+          try {
+            const room = await getOrCreateRoom({
+              type: "direct",
+              targetId: targetUserId,
+            });
+            if (room) {
+              const rId = room._id || (room.id ? String(room.id) : "");
+              router.push({
+                pathname: "/conversation",
+                params: {
+                  roomId: rId,
+                  name: getRoomDisplayName(room, currentUserId),
+                  initials: getRoomInitials(room, currentUserId),
+                  isChannel: "false",
+                  roomType: "direct",
+                },
+              });
+              return;
+            }
+          } catch {
+            // Fallback
+          }
+        }
+
+        // 3. Fallback
+        router.push({
+          pathname: "/conversation",
+          params: {
+            roomId: leadId > 0 ? String(leadId) : undefined,
+            name: getNotificationName(item),
+            initials: getNotificationInitials(item),
+            isChannel: "false",
+            roomType: "direct",
+          },
+        });
+      } else if (item.task_id && item.task_id !== 0) {
         try {
           const res = await viewTask(item.task_id, companyId);
           const detail = buildTaskDetailFromViewTask(res?.data, companyId);
@@ -153,7 +238,7 @@ export default function NotificationsScreen() {
         }
       }
     },
-    [companyId, markRead],
+    [companyId, currentUserId, markRead, chatState.rooms, getOrCreateRoom],
   );
 
   const filteredNotifications = notifState.notifications
