@@ -93,7 +93,7 @@ export default function AppHeader({
     <Pressable style={styles.headerContainer} onPress={() => searchOpen && setSearchOpen(false)}>
       <View style={styles.header}>
         <View style={{ flexDirection: "column", width: "70%" }}>
-          <Text style={styles.greeting}>{greeting}</Text>
+          <Text style={styles.greeting} >{greeting}</Text>
           <Text style={styles.subGreeting}>{subGreeting}</Text>
         </View>
 
@@ -104,6 +104,7 @@ export default function AppHeader({
             </TouchableOpacity>
           )}
 
+          
           <TouchableOpacity
             style={styles.bellWrap}
             activeOpacity={0.75}
