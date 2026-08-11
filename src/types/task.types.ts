@@ -233,6 +233,12 @@ export type UpdateDueDateRequest = {
   company_identifier: string;
 };
 
+export type ExtendDelayedRequest = {
+  additional_effort: number;
+  unit?: "minutes" | "hours" | "days";
+  company_id?: number;
+};
+
 export type UpdateProjectRequest = {
   project_id: number;
   sprint_id?: number;

@@ -10,6 +10,9 @@ import React, {
 import { Platform as RNPlatform } from "react-native";
 import Constants from "expo-constants";
 import { router } from "expo-router";
+import { useAuth } from "@/hooks/useAuth";
+import { useChat } from "@/hooks/useChat";
+import { getRoomDisplayName, getRoomInitials } from "@/utils/chatHelpers";
 import * as pushService from "@/services/api/push.service";
 import type {
   PushNotificationData,
@@ -85,6 +88,10 @@ export function PushNotificationProvider({
   const foregroundListener = useRef<{ remove: () => void } | null>(null);
   const notificationDataRef = useRef<PushNotificationData | null>(null);
   const lastTokenRef = useRef<string | null>(null);
+
+  const { state: authState } = useAuth();
+  const currentUserId = authState?.user?.id ?? 0;
+  const { state: chatState } = useChat();
 
   const requestPermissions = useCallback(async () => {
     console.log("📲 [PushNotification] Requesting permissions & fetching push tokens...", {
@@ -329,14 +336,29 @@ export function PushNotificationProvider({
           break;
         case "chat":
           if (data.room_id) {
-            router.push({
-              pathname: "/conversation",
-              params: {
-                roomId: data.room_id,
-                roomName: "",
-                roomType: "channel",
-              },
-            });
+            // Resolve the room from local chat state so the conversation opens
+            // with the correct name/initials and channel-vs-direct flags. The
+            // backend payload only carries `type: "chat"` + `room_id`, so the
+            // room lookup is required for DMs vs channels to render correctly.
+            const targetRoom = chatState.rooms.find(
+              (r) =>
+                r._id === data.room_id ||
+                r.id.toString() === data.room_id
+            );
+            if (targetRoom) {
+              router.push({
+                pathname: "/conversation",
+                params: {
+                  roomId: data.room_id,
+                  name: getRoomDisplayName(targetRoom, currentUserId),
+                  initials: getRoomInitials(targetRoom, currentUserId),
+                  isChannel: String(targetRoom.type === "channel"),
+                  roomType: targetRoom.type,
+                },
+              });
+            } else {
+              router.push("/(tabs)/chat");
+            }
           } else {
             router.push("/(tabs)/chat");
           }
@@ -354,7 +376,7 @@ export function PushNotificationProvider({
           break;
       }
     },
-    []
+    [chatState.rooms, currentUserId]
   );
 
   useEffect(() => {

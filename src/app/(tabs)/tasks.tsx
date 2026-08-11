@@ -7,7 +7,7 @@ import { StatusType, TaskRowProps } from "@/components/TaskRow";
 import TaskTable from "@/components/TaskTable";
 import Icons from "@/constants/icons";
 import { MaterialIcons } from "@expo/vector-icons";
-import { updateTaskDueDate, viewTask } from "@/services/api/tasks.service";
+import { extendDelayedTask, viewTask } from "@/services/api/tasks.service";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
@@ -172,24 +172,29 @@ export default function TasksScreen() {
   const handleExtendDelay = useCallback(
     async (effort: string, unit: string) => {
       if (!delayTask || !companyId) return;
-      const ms = Number(effort) * (unit === "Days" ? 86400000 : unit === "Hours" ? 3600000 : 60000);
-      if (!ms || ms <= 0) return;
+      const additional = Number(effort);
+      if (!additional || additional <= 0) return;
+      const unitMap: Record<string, "minutes" | "hours" | "days"> = {
+        Mins: "minutes",
+        Hours: "hours",
+        Days: "days",
+      };
       setDelayTask(null);
       try {
-        await updateTaskDueDate(delayTask.id, {
-          duedate: new Date(Date.now() + ms).toISOString(),
+        await extendDelayedTask(delayTask.id, {
+          additional_effort: additional,
+          unit: unitMap[unit] ?? "minutes",
           company_id: companyId,
-          company_identifier: companyIdentifier,
         });
         showSuccess("Task Extended", `Due date extended by ${effort} ${unit}.`);
         // No explicit refetch here — the backend broadcasts a `task_update`
-        // "update" event after a due-date change, and useTaskSocket's silent
-        // refetch keeps the list in sync (avoids a redundant second fetch).
+        // "schedule_update" event after extending, and the granular socket
+        // patch updates due_date / effort_hours without polling.
       } catch {
         showError("Update Failed", "Could not extend the task due date.");
       }
     },
-    [delayTask, companyId, companyIdentifier]
+    [delayTask, companyId]
   );
 
   // useEffect(() => {

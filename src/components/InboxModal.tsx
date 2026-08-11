@@ -2,7 +2,7 @@ import { useNotifications } from "@/context/NotificationContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { NotificationItem } from "@/types/chat.types";
-import { getRoomDisplayName, getRoomInitials, isMentionNotification } from "@/utils/chatHelpers";
+import { getNotificationDisplay, getRoomDisplayName, getRoomInitials, isMentionNotification } from "@/utils/chatHelpers";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -327,7 +327,9 @@ export default function InboxModal({
                 </Text>
               </View>
             ) : (
-              displayNotifications.map((item, index) => (
+              displayNotifications.map((item, index) => {
+                const { name, message } = getNotificationDisplay(item);
+                return (
                 <TouchableOpacity
                   key={`${item.id}-${index}`}
                   style={styles.notificationRow}
@@ -350,13 +352,11 @@ export default function InboxModal({
                   <View style={styles.infoCol}>
                     <Text style={styles.messageText} numberOfLines={2}>
                       <Text style={styles.senderName}>
-                        {getNotificationName(item)}
+                        {name}
                       </Text>
                       <Text style={styles.messageBody}>
                         {" "}
-                        {(item.title ?? "")
-                          .replace(getNotificationName(item), "")
-                          .trim() || (item.title ?? "")}
+                        {message}
                       </Text>
                     </Text>
 
@@ -373,7 +373,8 @@ export default function InboxModal({
                     </View>
                   </View>
                 </TouchableOpacity>
-              ))
+                );
+              })
             )}
           </ScrollView>
         </View>

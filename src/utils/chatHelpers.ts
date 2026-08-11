@@ -317,6 +317,61 @@ export function isMentionNotification(item: NotificationItem | null | undefined)
   return title.includes("mention") || title.includes("mentioned");
 }
 
+/**
+ * Build the display text for a notification from backend payload data only.
+ *
+ * The backend sends short labels (e.g. "Created a task") as the title and the
+ * full sentence (e.g. "Hamza assigned Fix login screen to you") as the body,
+ * so we prefer whichever field is longer and strip the actor name so it
+ * renders once as the sender.
+ *
+ * Actor name resolution order (no hardcoded names):
+ *  1. The `assigned` object embedded in the notification payload.
+ *  2. The leading proper-noun in the backend message text ("<Name> assigned/…").
+ *  3. Fallback label "System".
+ */
+export function getNotificationDisplay(item: NotificationItem | null | undefined): {
+  name: string;
+  message: string;
+} {
+  const title = (item?.title ?? "").trim();
+  const description = (item?.description ?? "").trim();
+  const text =
+    (description.length >= title.length ? description : title) || title;
+
+  const assigned = item?.assigned;
+  const assignedName = assigned
+    ? `${assigned.first_name ?? ""} ${assigned.last_name ?? ""}`.trim()
+    : "";
+
+  if (assignedName) {
+    // Strip the leading actor tokens (full name, first name, or last name)
+    // from the message so the name renders exactly once as the sender.
+    const nameParts = assignedName.toLowerCase().split(/\s+/);
+    const tokens = text.split(/\s+/);
+    let i = 0;
+    while (i < tokens.length && nameParts.includes(tokens[i].toLowerCase())) {
+      i++;
+    }
+    const rest = tokens.slice(i).join(" ").trim();
+    return { name: assignedName, message: rest || text };
+  }
+
+  // No `assigned` object — detect "<Name> <verb> …" messages embedded in the
+  // payload text. Case-sensitive so lowercase sentence leads (e.g. "has …")
+  // are never mistaken for a person's name.
+  const verbMatch = text.match(
+    /^([A-Z][\w.'-]*(?:\s+[A-Z][\w.'-]*)?)\s+(assigned|reassigned|mentioned|commented|added you|invited you|changed|reopened|created|sent you a message)\b/
+  );
+  if (verbMatch) {
+    const name = verbMatch[1].trim();
+    const rest = text.slice(name.length).trim();
+    return { name, message: rest || text };
+  }
+
+  return { name: "System", message: text || title };
+}
+
 /** Compile a deduplicated list of all company members from chat rooms, search results, and task owners. */
 export function getCompanyMembersFromState(
   rooms: Room[],

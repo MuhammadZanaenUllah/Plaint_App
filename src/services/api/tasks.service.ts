@@ -18,6 +18,7 @@ import {
   NoteReactionRequest,
   DeleteAttachmentRequest,
   UpdateDueDateRequest,
+  ExtendDelayedRequest,
   UpdateProjectRequest,
   TaskFilter,
   RecalculateScheduleRequest,
@@ -135,6 +136,16 @@ export async function updateTaskDueDate(
 ): Promise<ApiResponse<string>> {
   return apiPost<ApiResponse<string>>(
     `/tasks/updatetaskduedate/${taskId}`,
+    data
+  );
+}
+
+export async function extendDelayedTask(
+  taskId: number,
+  data: ExtendDelayedRequest
+): Promise<ApiResponse<string>> {
+  return apiPost<ApiResponse<string>>(
+    `/tasks/extend-delayed/${taskId}`,
     data
   );
 }

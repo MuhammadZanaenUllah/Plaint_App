@@ -14,7 +14,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { viewTask } from "@/services/api/tasks.service";
 import { NotificationItem } from "@/types/chat.types";
-import { getRoomDisplayName, getRoomInitials, isMentionNotification } from "@/utils/chatHelpers";
+import { getNotificationDisplay, getRoomDisplayName, getRoomInitials, isMentionNotification } from "@/utils/chatHelpers";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -454,7 +454,9 @@ export default function NotificationsScreen() {
               </Text>
             </View>
           ) : (
-            visibleNotifications.map((item, index) => (
+            visibleNotifications.map((item, index) => {
+              const { name, message } = getNotificationDisplay(item);
+              return (
               <Pressable
                 key={`${item.id}-${index}`}
                 style={styles.notificationRow}
@@ -476,13 +478,11 @@ export default function NotificationsScreen() {
                 <View style={styles.infoCol}>
                   <Text style={styles.messageText} numberOfLines={2}>
                     <Text style={styles.senderName}>
-                      {getNotificationName(item)}
+                      {name}
                     </Text>
                     <Text style={styles.messageBody}>
                       {" "}
-                      {(item.title ?? "")
-                        .replace(getNotificationName(item), "")
-                        .trim() || (item.title ?? "")}
+                      {message}
                     </Text>
                   </Text>
 
@@ -503,7 +503,8 @@ export default function NotificationsScreen() {
                   </View>
                 </View>
               </Pressable>
-            ))
+              );
+            })
           )}
         </ScrollView>
       </SafeAreaView>
