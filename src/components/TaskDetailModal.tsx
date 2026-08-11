@@ -1018,20 +1018,22 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                           color="#374151"
                         />
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.toolBtn}>
+                      {/* Voice recorder — hidden/disabled */}
+                      {/* <TouchableOpacity style={styles.toolBtn}>
                         <Ionicons
                           name="mic-outline"
                           size={16}
                           color="#374151"
                         />
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.toolBtn}>
+                      </TouchableOpacity> */}
+                      {/* Video recorder — hidden/disabled */}
+                      {/* <TouchableOpacity style={styles.toolBtn}>
                         <Ionicons
                           name="videocam-outline"
                           size={16}
                           color="#374151"
                         />
-                      </TouchableOpacity>
+                      </TouchableOpacity> */}
                     </View>
                     <TouchableOpacity
                       style={[styles.sendBtn, sendingNote && { opacity: 0.5 }]}

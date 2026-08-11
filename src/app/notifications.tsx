@@ -14,7 +14,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { viewTask } from "@/services/api/tasks.service";
 import { NotificationItem } from "@/types/chat.types";
-import { getRoomDisplayName, getRoomInitials } from "@/utils/chatHelpers";
+import { getRoomDisplayName, getRoomInitials, isMentionNotification } from "@/utils/chatHelpers";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -45,7 +45,7 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 export function getNotificationTypeLabel(item: NotificationItem): string {
-  if (item.typ === "chat") return "Chat";
+  if (item.typ === "chat" || (item.typ ?? "").toLowerCase().includes("mention")) return "Chat";
   if (item.task_id && item.task_id !== 0) return "Task";
   return "System";
 }
@@ -147,6 +147,7 @@ export default function NotificationsScreen() {
       }
       const isChatNotif =
         (item.typ ?? "").toLowerCase() === "chat" ||
+        (item.typ ?? "").toLowerCase().includes("mention") ||
         (!item.task_id && item.title?.toLowerCase().includes("sent you a message"));
 
       if (isChatNotif) {
@@ -245,7 +246,7 @@ export default function NotificationsScreen() {
     .filter((item) => item != null && item.id != null)
     .filter((item) => {
       if (activeTab === "unread") return item.readed === 0;
-      if (activeTab === "mentions") return item.typ === "chat";
+      if (activeTab === "mentions") return isMentionNotification(item);
       return true;
     })
     .filter((item) => {

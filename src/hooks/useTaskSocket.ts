@@ -31,6 +31,7 @@ export function useTaskSocket(): void {
     fetchAllTasks,
     applyPriorityUpdate,
     applyJobStatusUpdate,
+    applyScheduleUpdate,
   } = useTasks();
 
   const companyIdRef = useRef(companyId);
@@ -44,6 +45,9 @@ export function useTaskSocket(): void {
 
   const jobStatusRef = useRef(applyJobStatusUpdate);
   jobStatusRef.current = applyJobStatusUpdate;
+
+  const scheduleRef = useRef(applyScheduleUpdate);
+  scheduleRef.current = applyScheduleUpdate;
 
   useEffect(() => {
     if (!companyId) {
@@ -75,9 +79,24 @@ export function useTaskSocket(): void {
             console.log(`[useTaskSocket] task_update ignored — no action field`);
             return;
           }
+          if (p.action === "schedule_update" && p.data?.id) {
+            // Scheduling engine assigned/updated due dates — apply a granular
+            // per-task patch instead of a full refetch (see changes1.md §8.7)
+            const data = p.data as {
+              id: number;
+              due_date?: string;
+              remaining_effort_hours?: number;
+            };
+            scheduleRef.current({
+              id: Number(data.id),
+              due_date: data.due_date,
+              remaining_effort_hours: data.remaining_effort_hours,
+            });
+            return;
+          }
           console.log(`[useTaskSocket] task_update matched — refetching tasks silently (action: "${p.action}")`);
-          // All task_update actions (create, update, status_update, delete,
-          // add_note, delete_note, schedule_update, etc.) trigger a silent refetch
+          // All other task_update actions (create, update, status_update, delete,
+          // add_note, delete_note, etc.) trigger a silent refetch
           fetchRef.current(companyIdRef.current!, { silent: true });
         })
       );

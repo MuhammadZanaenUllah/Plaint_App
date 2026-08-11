@@ -76,6 +76,14 @@ type TaskAction =
   | {
       type: "JOBSTATUS_DELETE";
       statusId: number;
+    }
+  | {
+      type: "PATCH_TASK_SCHEDULE";
+      taskId: number;
+      patch: {
+        due_date?: string;
+        remaining_effort_hours?: number;
+      };
     };
 
 const initialState: TaskState = {
@@ -138,6 +146,27 @@ function taskReducer(state: TaskState, action: TaskAction): TaskState {
       return state;
     case "JOBSTATUS_DELETE":
       return state;
+    case "PATCH_TASK_SCHEDULE": {
+      const patchTask = (list: TaskListItem[]) =>
+        list.map((task) => {
+          if (task.id !== action.taskId) return task;
+          return {
+            ...task,
+            ...(action.patch.due_date !== undefined
+              ? { due_date: action.patch.due_date }
+              : {}),
+            ...(action.patch.remaining_effort_hours !== undefined
+              ? { effort_hours: action.patch.remaining_effort_hours }
+              : {}),
+          };
+        });
+      return {
+        ...state,
+        assignedToMe: patchTask(state.assignedToMe),
+        createdByMe: patchTask(state.createdByMe),
+        allOtherTasks: patchTask(state.allOtherTasks),
+      };
+    }
     default:
       return state;
   }
@@ -201,6 +230,11 @@ export type TaskContextValue = {
     action: "create" | "update" | "delete",
     data: { id: number; name?: string; company_id?: number; status?: number }
   ) => void;
+  applyScheduleUpdate: (data: {
+    id: number;
+    due_date?: string;
+    remaining_effort_hours?: number;
+  }) => void;
   logout: () => void;
 };
 
@@ -624,6 +658,21 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const applyScheduleUpdate = useCallback(
+    (data: { id: number; due_date?: string; remaining_effort_hours?: number }) => {
+      if (!data?.id) return;
+      dispatch({
+        type: "PATCH_TASK_SCHEDULE",
+        taskId: Number(data.id),
+        patch: {
+          due_date: data.due_date,
+          remaining_effort_hours: data.remaining_effort_hours,
+        },
+      });
+    },
+    []
+  );
+
   const updateTaskStatusApi = useCallback(
     async (taskId: number, data: UpdateTaskStatusRequest) => {
       const res = await tasksService.updateTaskStatus(taskId, data);
@@ -675,6 +724,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       reopenTask: reopenTaskAction,
       applyPriorityUpdate,
       applyJobStatusUpdate,
+      applyScheduleUpdate,
       logout,
     }),
     [

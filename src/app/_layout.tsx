@@ -194,15 +194,15 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
         <TaskProvider>
-          <ChatProvider>
-            <NotificationProvider>
+          <NotificationProvider>
+            <ChatProvider>
               <PushNotificationProvider>
                 <PushNotificationLifecycle />
                 <RootNavigator />
                 <Toast />
               </PushNotificationProvider>
-            </NotificationProvider>
-          </ChatProvider>
+            </ChatProvider>
+          </NotificationProvider>
         </TaskProvider>
       </AuthProvider>
     </GestureHandlerRootView>

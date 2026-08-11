@@ -2,11 +2,13 @@ import CreateTaskModal from "@/components/CreateTaskModal";
 import FilterModal from "@/components/FilterModal";
 import StatCard from "@/components/StatCard";
 import TaskDetailModal, { TaskDetail } from "@/components/TaskDetailModal";
+import TaskDelay from "@/components/taskdelay";
 import { StatusType, TaskRowProps } from "@/components/TaskRow";
 import TaskTable from "@/components/TaskTable";
 import Icons from "@/constants/icons";
 import { MaterialIcons } from "@expo/vector-icons";
-import { viewTask } from "@/services/api/tasks.service";
+import { updateTaskDueDate, viewTask } from "@/services/api/tasks.service";
+import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import { useTaskSocket } from "@/hooks/useTaskSocket";
@@ -71,6 +73,18 @@ export default function TasksScreen() {
   const loadingMoreRef = useRef(false);
   const loadMoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Overdue / delayed-task notifications (in-app, app-driven) ────────────
+  const [delayTask, setDelayTask] = useState<{
+    id: number;
+    title: string;
+    assignedTo: string;
+  } | null>(null);
+  const overdueToastShownRef = useRef(false);
+  const delayPromptedIdsRef = useRef<Set<number>>(new Set());
+  const currentUserId = authState.user?.id ?? 0;
+
+  const companyIdentifier = authState.company?.company_identifier ?? "";
+
   const companyId = authState.company?.company_id;
 
   // Search text from the shared header search bar (SearchProvider in the tab layout).
@@ -100,6 +114,84 @@ export default function TasksScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId]);
 
+  // ── App-driven overdue / delay notifications (changes1.md §8.4-8.5) ─────
+  // The app detects overdue tasks client-side (due_date in the past and not
+  // completed) and surfaces them in-app: a one-time summary toast plus, for
+  // tasks the current user assigned to someone else, the TaskDelay escalation
+  // popup (once per task per session).
+  useEffect(() => {
+    if (!companyId || allMappedTasks.length === 0) return;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const overdue = allMappedTasks.filter((t) => {
+      if (t.status === "Completed") return false;
+      const d = t._raw?.due_date ? new Date(t._raw.due_date) : null;
+      return d && !isNaN(d.getTime()) && d.getTime() < todayStart.getTime();
+    });
+
+    if (overdue.length > 0 && !overdueToastShownRef.current) {
+      overdueToastShownRef.current = true;
+      showInfo(
+        "Overdue Tasks",
+        `You have ${overdue.length} overdue task${overdue.length === 1 ? "" : "s"} that need attention.`
+      );
+    }
+
+    // Escalation popup for the assigner (current user created the task and
+    // assigned it to someone else).
+    if (currentUserId > 0 && !delayTask) {
+      const myDelayed = overdue
+        .filter(
+          (t) =>
+            t._raw?.created_by === currentUserId &&
+            t._raw.asigned_to !== currentUserId
+        )
+        .sort((a, b) => {
+          const da = a._raw?.due_date ? new Date(a._raw.due_date).getTime() : 0;
+          const db = b._raw?.due_date ? new Date(b._raw.due_date).getTime() : 0;
+          return da - db;
+        })
+        .find((t) => !delayPromptedIdsRef.current.has(Number(t.id)));
+
+      if (myDelayed) {
+        delayPromptedIdsRef.current.add(Number(myDelayed.id));
+        const assignee = myDelayed._raw?.task_assigned_to;
+        const assigneeName =
+          `${assignee?.first_name ?? ""} ${assignee?.last_name ?? ""}`.trim() ||
+          `User #${myDelayed._raw?.asigned_to ?? ""}`;
+        setDelayTask({
+          id: Number(myDelayed.id),
+          title: myDelayed._raw?.title ?? "Task",
+          assignedTo: assigneeName,
+        });
+      }
+    }
+  }, [allMappedTasks, companyId, currentUserId, delayTask]);
+
+  const handleExtendDelay = useCallback(
+    async (effort: string, unit: string) => {
+      if (!delayTask || !companyId) return;
+      const ms = Number(effort) * (unit === "Days" ? 86400000 : unit === "Hours" ? 3600000 : 60000);
+      if (!ms || ms <= 0) return;
+      setDelayTask(null);
+      try {
+        await updateTaskDueDate(delayTask.id, {
+          duedate: new Date(Date.now() + ms).toISOString(),
+          company_id: companyId,
+          company_identifier: companyIdentifier,
+        });
+        showSuccess("Task Extended", `Due date extended by ${effort} ${unit}.`);
+        // No explicit refetch here — the backend broadcasts a `task_update`
+        // "update" event after a due-date change, and useTaskSocket's silent
+        // refetch keeps the list in sync (avoids a redundant second fetch).
+      } catch {
+        showError("Update Failed", "Could not extend the task due date.");
+      }
+    },
+    [delayTask, companyId, companyIdentifier]
+  );
+
   // useEffect(() => {
   //   console.log(`[TasksScreen] allMappedTasks updated — count: ${allMappedTasks.length}, ids: [${allMappedTasks.map(t => t.id).join(", ")}]`);
   // }, [allMappedTasks]);
@@ -124,8 +216,6 @@ export default function TasksScreen() {
     },
     [companyId, fetchAllTasks]
   );
-
-  const companyIdentifier = authState.company?.company_identifier ?? "";
 
   const handleStatusChange = useCallback(
     async (targetTask: TaskRowProps, newStatus: StatusType) => {
@@ -659,6 +749,13 @@ export default function TasksScreen() {
         <CreateTaskModal visible={createVisible} onClose={() => setCreateVisible(false)} />
       ) : null}
       <TaskDetailModal visible={!!selectedTask} onClose={() => setSelectedTask(null)} task={selectedTask} />
+      <TaskDelay
+        visible={!!delayTask}
+        taskTitle={delayTask?.title ?? ""}
+        assignedTo={delayTask?.assignedTo ?? ""}
+        onClose={() => setDelayTask(null)}
+        onExtend={handleExtendDelay}
+      />
     </View>
   );
 }

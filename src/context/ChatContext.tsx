@@ -22,6 +22,8 @@ import {
   MessageReaction,
 } from "@/types/chat.types";
 import { extractErrorMessage } from "@/utils/errorHandler";
+import { showInfo } from "@/utils/toast";
+import { useNotifications } from "@/context/NotificationContext";
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
@@ -341,6 +343,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
   const [typingUsers, setTypingUsers] = useState<Map<string, Map<number, string>>>(new Map());
   const socketCleanupRef = useRef<Array<() => void>>([]);
+
+  const { addNotification } = useNotifications();
 
   // ── State refs for socket listeners (avoid stale closures) ──────────────
   const stateRef = useRef(state);
@@ -937,6 +941,52 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             message.sender_id,
             message.room_id
           );
+        }
+
+        // ── Chat push (in-app) ─────────────────────────────────────────────
+        // The backend does not send FCM for chat messages — it relies on the
+        // socket, which only delivers while the app is running. Surface an
+        // in-app toast for messages from other users in rooms the user is not
+        // currently viewing and that are not muted. Messages mentioning the
+        // current user also land in the Notifications inbox (Mentions tab).
+        if (message.sender_id !== userIdRef.current) {
+          const isCurrentRoom = stateRef.current.currentRoom?._id === message.room_id;
+          const isMuted = room?.is_muted ?? false;
+          if (!isCurrentRoom && !isMuted) {
+            const isMention = (message.mentions ?? []).includes(userIdRef.current);
+            const sender = message.sender_name ?? "Someone";
+            const bodyText = message.text ?? "";
+            if (isMention) {
+              showInfo(`${sender} mentioned you`, bodyText);
+              addNotification({
+                id: -Math.abs(message.id),
+                title: `${sender} mentioned you in a chat`,
+                task_id: 0,
+                lead_id: 0,
+                created_by: message.sender_id,
+                company_id: 0,
+                assigned_to: userIdRef.current,
+                typ: "chat_mention",
+                identifier: "chat",
+                description: bodyText,
+                createdAt: message.createdAt ?? new Date().toISOString(),
+                readed: 0,
+                assigned: {
+                  id: message.sender_id,
+                  first_name: sender,
+                  last_name: "",
+                  email: "",
+                  image: "",
+                },
+              });
+            } else {
+              const preview =
+                bodyText.length > 120
+                  ? `${bodyText.slice(0, 120)}…`
+                  : bodyText;
+              showInfo(sender, preview);
+            }
+          }
         }
       }
     );

@@ -1,5 +1,5 @@
 import { File } from "expo-file-system";
-import { Room, RoomType, ChatMessage, ChatPermission } from "@/types/chat.types";
+import { Room, RoomType, ChatMessage, ChatPermission, NotificationItem } from "@/types/chat.types";
 
 // ─── Room Helpers ─────────────────────────────────────────────────────────────
 
@@ -305,6 +305,16 @@ export function isSameDay(date1: Date, date2: Date): boolean {
     date1.getMonth() === date2.getMonth() &&
     date1.getDate() === date2.getDate()
   );
+}
+
+/** Determine whether a notification is a user-mention (chat or task mention). */
+export function isMentionNotification(item: NotificationItem | null | undefined): boolean {
+  if (!item) return false;
+  const typ = (item.typ ?? "").toLowerCase();
+  if (typ === "chat_mention" || typ === "task_mention" || typ === "mention") return true;
+  if (typ.includes("mention")) return true;
+  const title = (item.title ?? "").toLowerCase();
+  return title.includes("mention") || title.includes("mentioned");
 }
 
 /** Compile a deduplicated list of all company members from chat rooms, search results, and task owners. */

@@ -289,6 +289,11 @@ export function PushNotificationProvider({
     try {
       const res = await pushService.resetBadge({ company_id: companyId });
       console.log("📲 [PushNotification] Badge reset API response:", res);
+      // Also clear the local iOS app-icon badge (backend reset alone doesn't
+      // remove the badge number shown on the home screen).
+      if (Notifications) {
+        await Notifications.setBadgeCountAsync(0).catch(() => {});
+      }
     } catch (error) {
       console.error("📲 [PushNotification] Badge reset failed with error:", error);
     }

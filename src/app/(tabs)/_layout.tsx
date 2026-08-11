@@ -72,7 +72,7 @@ export default function TabLayout() {
           subGreeting: "Let's make today productive!",
           ...(currentRoute === "chat" && {
             showSearch: true,
-            placeholder: "Search Task",
+            placeholder: "Search Chat",
           }),
         }
       : HEADER_CONFIGS[currentRoute] ?? DEFAULT_CONFIG;

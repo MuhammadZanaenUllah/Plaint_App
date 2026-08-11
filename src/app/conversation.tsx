@@ -1226,6 +1226,11 @@ export default function ConversationScreen() {
     const [sending, setSending] = useState(false);
     const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
 
+    // ── @-mention picker ───────────────────────────────────────────────────
+    const [mentionActive, setMentionActive] = useState(false);
+    const [mentionQuery, setMentionQuery] = useState("");
+    const [mentionedUserIds, setMentionedUserIds] = useState<number[]>([]);
+
     // Upload progress
     const [uploadProgress, setUploadProgress] = useState<{ percentage: number; fileName: string } | null>(null);
     const abortUploadRef = useRef<{ abort: () => void } | null>(null);
@@ -1547,6 +1552,26 @@ export default function ConversationScreen() {
     const handleTextChange = useCallback(
         (text: string) => {
             setMessage(text);
+
+            // @-mention trigger detection: the "@" must start a fresh token
+            // (preceded by whitespace/start) and the query must contain no spaces.
+            const atIdx = text.lastIndexOf("@");
+            let triggerActive = false;
+            if (atIdx >= 0) {
+                const prevChar = atIdx === 0 ? " " : text[atIdx - 1];
+                const after = text.slice(atIdx + 1);
+                if (
+                    (prevChar === " " || prevChar === "\n") &&
+                    !after.includes(" ") &&
+                    after.length <= 32
+                ) {
+                    triggerActive = true;
+                    setMentionQuery(after);
+                }
+            }
+            setMentionActive(triggerActive);
+            if (!triggerActive) setMentionQuery("");
+
             if (!roomId || !currentUserId || !canSendMessage) return;
             if (text.trim().length > 0) {
                 socketService.startTypingWithTimeout(roomId, currentUserId, currentUserName);
@@ -1556,6 +1581,24 @@ export default function ConversationScreen() {
         },
         [roomId, currentUserId, canSendMessage, currentUserName]
     );
+
+    const selectMention = useCallback((member: RoomMember) => {
+        const memberName =
+            `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim() ||
+            `User ${member.id}`;
+        setMessage((prev) => {
+            const atIdx = prev.lastIndexOf("@");
+            if (atIdx >= 0) {
+                return `${prev.slice(0, atIdx)}@${memberName} `;
+            }
+            return `${prev}@${memberName} `;
+        });
+        setMentionedUserIds((prev) =>
+            prev.includes(member.id) ? prev : [...prev, member.id]
+        );
+        setMentionActive(false);
+        setMentionQuery("");
+    }, []);
 
     // Names of other members currently typing in this room.
     const typingNames = useMemo(() => {
@@ -1578,7 +1621,11 @@ export default function ConversationScreen() {
 
         socketService.emitStopTyping(roomId, currentUserId, currentUserName);
         const text = message.trim();
+        const mentions = mentionedUserIds;
         setMessage("");
+        setMentionedUserIds([]);
+        setMentionActive(false);
+        setMentionQuery("");
         setSending(true);
         setReplyTo(null);
 
@@ -1587,6 +1634,7 @@ export default function ConversationScreen() {
             await sendMessage({
                 room_id: roomId,
                 text,
+                ...(mentions.length > 0 ? { mentions } : {}),
                 parent_id: replyTo?.id.toString(),
             });
             console.log("[Conv] Message sent successfully");
@@ -1596,7 +1644,7 @@ export default function ConversationScreen() {
         } finally {
             setSending(false);
         }
-    }, [message, roomId, sending, replyTo, sendMessage, currentUserId, currentUserName]);
+    }, [message, roomId, sending, replyTo, sendMessage, currentUserId, currentUserName, mentionedUserIds]);
 
     const handleReact = useCallback(
         async (msg: ChatMessage) => {
@@ -1734,6 +1782,23 @@ export default function ConversationScreen() {
         () => state.rooms.find((r) => r._id === roomId || r.id.toString() === roomId),
         [state.rooms, roomId]
     );
+
+    // ── @-mention candidates (derived from the room's member list) ─────────
+    const roomMembers = useMemo(
+        () => (currentRoom?.members ?? []).filter((m) => m.id !== currentUserId),
+        [currentRoom, currentUserId]
+    );
+
+    const mentionCandidates = useMemo(() => {
+        if (!mentionActive || !isChannel) return [];
+        const q = mentionQuery.trim().toLowerCase();
+        return roomMembers
+            .filter((m) => {
+                const fullName = `${m.first_name ?? ""} ${m.last_name ?? ""}`.trim().toLowerCase();
+                return fullName.includes(q) || (m.email ?? "").toLowerCase().includes(q);
+            })
+            .slice(0, 6);
+    }, [mentionActive, mentionQuery, roomMembers, isChannel]);
 
     const handleLongPress = useCallback((msg: ChatMessage) => {
         setSelectedMsgForModal(msg);
@@ -2205,6 +2270,29 @@ export default function ConversationScreen() {
                             <Text style={styles.typingText} numberOfLines={1}>
                                 {typingNames.join(", ")} {typingNames.length === 1 ? "is" : "are"} typing…
                             </Text>
+                        </View>
+                    )}
+
+                    {/* ── Mention Suggestions ── */}
+                    {mentionActive && mentionCandidates.length > 0 && (
+                        <View style={styles.mentionSuggestions}>
+                            {mentionCandidates.map((member) => (
+                                <TouchableOpacity
+                                    key={member.id}
+                                    style={styles.mentionSuggestionItem}
+                                    activeOpacity={0.6}
+                                    onPress={() => selectMention(member)}
+                                >
+                                    <View style={styles.mentionAvatar}>
+                                        <Text style={styles.mentionAvatarText}>
+                                            {`${(member.first_name?.[0] ?? "")}${member.last_name?.[0] ?? ""}`.toUpperCase()}
+                                        </Text>
+                                    </View>
+                                    <Text style={styles.mentionName} numberOfLines={1}>
+                                        {`${member.first_name ?? ""} ${member.last_name ?? ""}`.trim() || `User ${member.id}`}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
                         </View>
                     )}
 
@@ -2899,6 +2987,48 @@ const styles = StyleSheet.create({
         paddingTop: 8,
         paddingBottom: Platform.OS === "ios" ? 24 : 16,
         paddingHorizontal: 16,
+    },
+    mentionSuggestions: {
+        marginHorizontal: 16,
+        marginBottom: 4,
+        backgroundColor: "#fff",
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: "#E6E6E6",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 6,
+        elevation: 4,
+        overflow: "hidden",
+    },
+    mentionSuggestionItem: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: "#F3F4F6",
+    },
+    mentionAvatar: {
+        width: 26,
+        height: 26,
+        borderRadius: 13,
+        backgroundColor: "#1D1D1D",
+        alignItems: "center",
+        justifyContent: "center",
+        marginRight: 10,
+    },
+    mentionAvatarText: {
+        color: "#fff",
+        fontSize: 10,
+        fontFamily: "SF_Pro_Bold",
+    },
+    mentionName: {
+        flex: 1,
+        fontSize: 14,
+        fontFamily: "SF_Pro_Medium",
+        color: "#1F2937",
     },
     typingIndicator: {
         flexDirection: "row",

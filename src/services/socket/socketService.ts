@@ -18,6 +18,7 @@ export type TaskUpdateAction =
   | "status_update"
   | "delete"
   | "sprint_assigned"
+  | "schedule_update"
   | "add_note"
   | "update_note"
   | "delete_note"

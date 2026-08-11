@@ -2,7 +2,7 @@ import { useNotifications } from "@/context/NotificationContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { NotificationItem } from "@/types/chat.types";
-import { getRoomDisplayName, getRoomInitials } from "@/utils/chatHelpers";
+import { getRoomDisplayName, getRoomInitials, isMentionNotification } from "@/utils/chatHelpers";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -103,6 +103,7 @@ export default function InboxModal({
 
       const isChatNotif =
         (item.typ ?? "").toLowerCase() === "chat" ||
+        (item.typ ?? "").toLowerCase().includes("mention") ||
         (!item.task_id && item.title?.toLowerCase().includes("sent you a message"));
 
       if (isChatNotif) {
@@ -193,7 +194,7 @@ export default function InboxModal({
     .filter((item) => item != null && item.id != null)
     .filter((item) => {
       if (activeTab === "unread") return item.readed === 0;
-      if (activeTab === "mentions") return item.typ === "chat";
+      if (activeTab === "mentions") return isMentionNotification(item);
       return true;
     });
 

@@ -2,12 +2,18 @@ import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
 import { useSearch } from "@/context/SearchContext";
 import { viewTask } from "@/services/api/tasks.service";
+import {
+  getPushNotificationSettings,
+  updatePushNotificationSettings,
+} from "@/services/api/push.service";
+import { showInfo } from "@/utils/toast";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   Pressable,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -49,6 +55,8 @@ export default function AppHeader({
   const [inboxOpen, setInboxOpen] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushSettingsLoading, setPushSettingsLoading] = useState(false);
 
   const handleSearchChange = (text: string) => {
     setSearch(text);
@@ -66,6 +74,34 @@ export default function AppHeader({
     await logout();
     router.replace("/(auth)/login");
   };
+
+  const openProfileMenu = useCallback(async () => {
+    setShowProfileMenu(true);
+    setPushSettingsLoading(true);
+    try {
+      const res = await getPushNotificationSettings();
+      setPushEnabled(res?.settings?.push_enabled ?? false);
+    } catch {
+      setPushEnabled(false);
+    } finally {
+      setPushSettingsLoading(false);
+    }
+  }, []);
+
+  const handlePushToggle = useCallback(
+    async (value: boolean) => {
+      const prev = pushEnabled;
+      setPushEnabled(value);
+      try {
+        const res = await updatePushNotificationSettings({ push_enabled: value });
+        setPushEnabled(res?.settings?.push_enabled ?? value);
+      } catch {
+        setPushEnabled(prev);
+        showInfo("Notifications", "Could not update push notification settings.");
+      }
+    },
+    [pushEnabled],
+  );
 
   const handleNotificationPress = useCallback(
     async (item: NotificationItem) => {
@@ -114,7 +150,7 @@ export default function AppHeader({
             <View style={styles.bellDot} />
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => setShowProfileMenu(true)}>
+          <TouchableOpacity onPress={openProfileMenu}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>{userInitials}</Text>
             </View>
@@ -130,6 +166,23 @@ export default function AppHeader({
           />
 
           <View style={styles.profileMenu}>
+            <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.75}
+              onPress={() => setShowProfileMenu(false)}
+            >
+              <Ionicons name="notifications-outline" size={18} color="#6B7280" />
+              <Text style={styles.menuText}>Push Notifications</Text>
+              <Switch
+                value={pushEnabled}
+                onValueChange={handlePushToggle}
+                disabled={pushSettingsLoading}
+                trackColor={{ false: "#D1D5DB", true: "#00DEAB" }}
+                thumbColor="#fff"
+                style={{ marginLeft: "auto", transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+              />
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.menuItem}
               onPress={handleLogout}
@@ -296,7 +349,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 70,
     right: 16,
-    width: 120,
+    width: 208,
     backgroundColor: "#fff",
     borderRadius: 4,
     paddingVertical: 6,
@@ -311,7 +364,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 6,
+    paddingVertical: 8,
   },
   menuText: {
     marginLeft: 5,

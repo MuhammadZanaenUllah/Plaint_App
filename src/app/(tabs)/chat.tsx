@@ -4,6 +4,7 @@ import InviteToChannelModal, { type ChannelPermission, type ChannelMember } from
 import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
+import { useSearch } from "@/context/SearchContext";
 import { useTasks } from "@/hooks/useTasks";
 import { Room } from "@/types/chat.types";
 import {
@@ -49,6 +50,7 @@ export default function ChatScreen() {
         roomCreator, roomPermissions,
     } = useChat();
     const authState = useAuth();
+    const { searchText } = useSearch();
     const { state: taskState } = useTasks();
     const currentUserId = authState?.state?.user?.id ?? 0;
 
@@ -156,20 +158,47 @@ export default function ChatScreen() {
         // All, Unread, Read → show only direct (inbox) messages, not channels/projects
         const directRooms = rooms.filter((r) => r.type === "direct");
 
+        let base: Room[];
         switch (activeChip) {
             case "channels":
-                return filterRoomsByType(rooms, "channel");
+                base = filterRoomsByType(rooms, "channel");
+                break;
             // case "projects":
             //     return filterRoomsByType(rooms, "project");
             case "unread":
-                return filterUnreadRooms(directRooms);
+                base = filterUnreadRooms(directRooms);
+                break;
             case "read":
-                return filterReadRooms(directRooms);
+                base = filterReadRooms(directRooms);
+                break;
             case "all":
             default:
-                return directRooms;
+                base = directRooms;
+                break;
         }
-    }, [state.rooms, activeChip]);
+
+        // Text search from the header search bar — matches the room name, the
+        // other member's name/email for DMs, and the last message preview.
+        const query = searchText.trim().toLowerCase();
+        if (!query) return base;
+        return base.filter((room) => {
+            const displayName = getRoomDisplayName(room, currentUserId).toLowerCase();
+            const otherMember = room.type === "direct"
+                ? room.members.find((m) => m.id !== currentUserId)
+                : null;
+            const memberName = otherMember
+                ? `${otherMember.first_name} ${otherMember.last_name}`.toLowerCase()
+                : "";
+            const memberEmail = otherMember?.email?.toLowerCase() ?? "";
+            const preview = room.last_message?.text?.toLowerCase() ?? "";
+            return (
+                displayName.includes(query) ||
+                memberName.includes(query) ||
+                memberEmail.includes(query) ||
+                preview.includes(query)
+            );
+        });
+    }, [state.rooms, activeChip, searchText, currentUserId]);
 
     // Group channels by their parent project for the Projects view
     const projectChannelMap = useMemo(() => {
@@ -717,6 +746,17 @@ export default function ChatScreen() {
                                     );
                                 })
                             )}
+                        </View>
+                    ) : searchText.trim() !== "" ? (
+                        <View style={styles.workspaceContainer}>
+                            <View style={styles.iconStack}>
+                                <Ionicons name="search-outline" size={48} color="#00DEAB" />
+                            </View>
+                            <Text style={styles.workspaceTitle}>No Results</Text>
+                            <Text style={styles.workspaceDescription}>
+                                No chats or channels match{"\n"}
+                                "{searchText.trim()}"
+                            </Text>
                         </View>
                     ) : activeChip === "unread" ? (
                         <View style={styles.workspaceContainer}>
