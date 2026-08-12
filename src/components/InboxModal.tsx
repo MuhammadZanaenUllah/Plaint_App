@@ -101,10 +101,14 @@ export default function InboxModal({
       }
       onClose();
 
+      const typ = (item.typ ?? "").toLowerCase();
+      const hasTask = !!item.task_id && item.task_id !== 0;
+      const isTaskMention = hasTask && typ.includes("mention");
       const isChatNotif =
-        (item.typ ?? "").toLowerCase() === "chat" ||
-        (item.typ ?? "").toLowerCase().includes("mention") ||
-        (!item.task_id && item.title?.toLowerCase().includes("sent you a message"));
+        !isTaskMention &&
+        (typ === "chat" ||
+          typ.includes("mention") ||
+          (!item.task_id && item.title?.toLowerCase().includes("sent you a message")));
 
       if (isChatNotif) {
         const cb = Number(item.created_by) || 0;

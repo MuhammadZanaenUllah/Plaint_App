@@ -45,8 +45,10 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 export function getNotificationTypeLabel(item: NotificationItem): string {
-  if (item.typ === "chat" || (item.typ ?? "").toLowerCase().includes("mention")) return "Chat";
-  if (item.task_id && item.task_id !== 0) return "Task";
+  const typ = (item.typ ?? "").toLowerCase();
+  const hasTask = !!item.task_id && item.task_id !== 0;
+  if (typ === "chat" || (typ.includes("mention") && !hasTask)) return "Chat";
+  if (hasTask) return "Task";
   return "System";
 }
 
@@ -145,10 +147,14 @@ export default function NotificationsScreen() {
       if (item.readed === 0) {
         markRead(item.id);
       }
+      const typ = (item.typ ?? "").toLowerCase();
+      const hasTask = !!item.task_id && item.task_id !== 0;
+      const isTaskMention = hasTask && typ.includes("mention");
       const isChatNotif =
-        (item.typ ?? "").toLowerCase() === "chat" ||
-        (item.typ ?? "").toLowerCase().includes("mention") ||
-        (!item.task_id && item.title?.toLowerCase().includes("sent you a message"));
+        !isTaskMention &&
+        (typ === "chat" ||
+          typ.includes("mention") ||
+          (!item.task_id && item.title?.toLowerCase().includes("sent you a message")));
 
       if (isChatNotif) {
         const cb = Number(item.created_by) || 0;

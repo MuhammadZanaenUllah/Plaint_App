@@ -29,6 +29,7 @@ import {
   ReorderCriticalResponse,
   RescheduleReopenedRequest,
   ReopenTaskRequest,
+  MentionUser,
 } from "@/types/task.types";
 
 export async function getAllTasks(
@@ -256,10 +257,21 @@ export async function addNote(
   if (data.reply_to) {
     formData.append("reply_to", JSON.stringify(data.reply_to));
   }
+  if (data.mentions && data.mentions.length > 0) {
+    formData.append("mentions", JSON.stringify(data.mentions));
+  }
   if (file) {
     formData.append("file", file instanceof File ? file : new File(file.uri));
   }
   return apiUpload<ApiResponse<string>>(`/tasks/addnote/${taskId}`, formData);
+}
+
+export async function getMentionUsers(
+  companyId: number
+): Promise<ApiResponse<{ user: MentionUser[] }>> {
+  return apiGet<ApiResponse<{ user: MentionUser[] }>>("/user/note-mentions", {
+    company_id: companyId,
+  });
 }
 
 export async function getTaskNotes(

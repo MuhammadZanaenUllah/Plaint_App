@@ -1,7 +1,7 @@
 import CreateTaskModal from "@/components/CreateTaskModal";
 import FilterModal from "@/components/FilterModal";
 import StatCard from "@/components/StatCard";
-import TaskDetailModal, { TaskDetail } from "@/components/TaskDetailModal";
+import TaskDetailModal, { TaskDetail, buildTaskDetailFromViewTask } from "@/components/TaskDetailModal";
 import TaskDelay from "@/components/taskdelay";
 import { StatusType, TaskRowProps } from "@/components/TaskRow";
 import TaskTable from "@/components/TaskTable";
@@ -17,6 +17,7 @@ import { uiStatusToApi } from "@/utils/statusMapper";
 import { canCreateTask } from "@/utils/permissions";
 import TaskTableSkeleton from "@/components/TaskTableSkeleton";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { router, useLocalSearchParams } from "expo-router";
 import {
   ScrollView,
   StyleSheet,
@@ -330,6 +331,43 @@ export default function TasksScreen() {
       projectName,
     } as any);
   }, [companyId]);
+
+  // ── Deep-link handling (e.g. task_mention push notification) ───────────
+  // Opening a push notification for a task navigates here with a `taskId`
+  // param; resolve the task and open the detail modal (once per param value).
+  const { taskId: taskIdParam } = useLocalSearchParams<{ taskId?: string }>();
+  const deepLinkHandledRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const rawId = taskIdParam ? String(taskIdParam) : "";
+    if (!rawId || rawId === deepLinkHandledRef.current) return;
+    const targetId = Number(rawId);
+    if (isNaN(targetId) || !companyId) return;
+
+    deepLinkHandledRef.current = rawId;
+
+    const openDeepLinkedTask = async () => {
+      const mapped = allMappedTasks.find((t) => Number(t.id) === targetId);
+      if (mapped) {
+        await handleTaskPress(mapped);
+        router.setParams({ taskId: undefined });
+        return;
+      }
+      try {
+        const res = await viewTask(targetId, companyId);
+        const detail = buildTaskDetailFromViewTask(res?.data, companyId);
+        if (detail) {
+          setSelectedTask(detail);
+        }
+      } catch {
+        // silent — fall back to the plain tasks list
+      } finally {
+        router.setParams({ taskId: undefined });
+      }
+    };
+
+    openDeepLinkedTask();
+  }, [taskIdParam, allMappedTasks, companyId, handleTaskPress]);
 
   // Filter options are derived from the actual loaded tasks so the chips always
   // match the real statuses coming from the backend (custom statuses included).

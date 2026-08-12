@@ -1,8 +1,8 @@
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
-import { TaskNote, ViewTaskData, DependencyData } from "@/types/task.types";
+import { TaskNote, ViewTaskData, DependencyData, MentionUser } from "@/types/task.types";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -18,6 +18,7 @@ import {
 import { STATUS_COLORS, StatusType } from "./TaskRow";
 import { getSocket, onSocketEvent, type TaskUpdatePayload } from "@/services/socket/socketService";
 import { apiStatusToUi } from "@/utils/statusMapper";
+import { buildMentionMarkup, mentionMarkupToDisplay } from "@/utils/chatHelpers";
 
 export type DependencyDisplay = {
   title: string;
@@ -243,7 +244,7 @@ function PinnedCommentCard({
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.bubbleText}>{comment.notes}</Text>
+      <Text style={styles.bubbleText}>{mentionMarkupToDisplay(comment.notes)}</Text>
     </View>
   );
 }
@@ -291,7 +292,7 @@ function CommentBubble({
         </View>
       </View>
 
-      <Text style={styles.bubbleText}>{comment.notes}</Text>
+      <Text style={styles.bubbleText}>{mentionMarkupToDisplay(comment.notes)}</Text>
 
       {comment.reactions && comment.reactions.length > 0 && (
         <View style={styles.reactionsRow}>
@@ -424,7 +425,7 @@ export function buildTaskDetailFromViewTask(
 
 export default function TaskDetailModal({ visible, onClose, task }: Props) {
   const { state: authState } = useAuth();
-  const { state: taskState, addNote, fetchNotes, deleteNote, pinNote, viewTask: viewTaskApi, getDependencies } = useTasks();
+  const { state: taskState, addNote, fetchNotes, deleteNote, pinNote, viewTask: viewTaskApi, getDependencies, fetchMentionUsers } = useTasks();
 
   const [activeTab, setActiveTab] = useState<"details" | "comments">("details");
   const [commentText, setCommentText] = useState("");
@@ -435,6 +436,15 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
   const [taskDetail, setTaskDetail] = useState<ViewTaskData | null>(null);
   const [dependencies, setDependencies] = useState<DependencyData[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  // ── @-mention picker ───────────────────────────────────────────────────
+  const [mentionActive, setMentionActive] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionedUserIds, setMentionedUserIds] = useState<number[]>([]);
+  const [mentionUsers, setMentionUsers] = useState<MentionUser[]>([]);
+  const mentionUsersLoadedRef = useRef(false);
+
+  const currentUserId = authState.user?.id ?? 0;
 
   const companyId = task?.companyId ?? authState.company?.company_id ?? 0;
   const companyIdentifier = authState.company?.company_identifier ?? "";
@@ -556,16 +566,101 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
     return cleanup;
   }, [visible]);
 
+  const handleCommentChange = (text: string) => {
+    setCommentText(text);
+
+    // @-mention trigger detection: the "@" must start a fresh token
+    // (preceded by whitespace/start) and the query must contain no spaces.
+    const atIdx = text.lastIndexOf("@");
+    let triggerActive = false;
+    if (atIdx >= 0) {
+      const prevChar = atIdx === 0 ? " " : text[atIdx - 1];
+      const after = text.slice(atIdx + 1);
+      if (
+        (prevChar === " " || prevChar === "\n") &&
+        !after.includes(" ") &&
+        after.length <= 32
+      ) {
+        triggerActive = true;
+        setMentionQuery(after);
+      }
+    }
+    setMentionActive(triggerActive);
+    if (!triggerActive) setMentionQuery("");
+
+    if (triggerActive && !mentionUsersLoadedRef.current && companyId) {
+      mentionUsersLoadedRef.current = true;
+      fetchMentionUsers(companyId).then(setMentionUsers).catch(() => {
+        mentionUsersLoadedRef.current = false;
+      });
+    }
+  };
+
+  const selectMention = (user: MentionUser) => {
+    const userName =
+      `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim() ||
+      user.full_name ||
+      `User ${user.id}`;
+    setCommentText((prev) => {
+      const atIdx = prev.lastIndexOf("@");
+      if (atIdx >= 0) {
+        return `${prev.slice(0, atIdx)}@${userName} `;
+      }
+      return `${prev}@${userName} `;
+    });
+    setMentionedUserIds((prev) =>
+      prev.includes(user.id) ? prev : [...prev, user.id]
+    );
+    setMentionActive(false);
+    setMentionQuery("");
+  };
+
+  const mentionCandidates = useMemo(() => {
+    if (!mentionActive) return [];
+    const q = mentionQuery.trim().toLowerCase();
+    return mentionUsers
+      .filter((u) => u.id !== currentUserId)
+      .filter((u) => {
+        const fullName =
+          `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim().toLowerCase();
+        return (
+          fullName.includes(q) || (u.email ?? "").toLowerCase().includes(q)
+        );
+      })
+      .slice(0, 6);
+  }, [mentionActive, mentionQuery, mentionUsers, currentUserId]);
+
   const handleSendComment = async () => {
     if (!commentText.trim() || !task?.taskId) return;
+    const mentions = mentionedUserIds;
+    // Convert plain `@Full Name` mentions to the backend's inline markup
+    // `@[Full Name](userId)` so the backend mention parser can detect them and
+    // create the "Mentioned you in a comment" notification + push.
+    let notes = commentText.trim();
+    for (const uid of mentions) {
+      const u = mentionUsers.find((m) => m.id === uid);
+      if (!u) continue;
+      const name =
+        `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() ||
+        u.full_name ||
+        `User ${u.id}`;
+      const displayToken = `@${name}`;
+      if (notes.includes(displayToken)) {
+        notes = notes.split(displayToken).join(buildMentionMarkup(u.id, name));
+      }
+    }
     setSendingNote(true);
     try {
       await addNote(task.taskId, {
-        notes: commentText.trim(),
+        notes,
         company_id: companyId,
         company_identifier: companyIdentifier,
+        mentions,
       });
       setCommentText("");
+      setMentionedUserIds([]);
+      setMentionActive(false);
+      setMentionQuery("");
       await loadNotes();
     } catch {
       // silently fail
@@ -626,7 +721,6 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
     bg: "#E5E7EB",
     text: "#374151",
   };
-  const currentUserId = authState.user?.id ?? 0;
 
   const pinnedNotes = notes.filter((n) => n.pin_top === 1);
 
@@ -981,6 +1075,31 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                   )}
                 </ScrollView>
 
+                {/* ── Mention Suggestions ── */}
+                {mentionActive && mentionCandidates.length > 0 && (
+                  <View style={styles.mentionSuggestions}>
+                    {mentionCandidates.map((user) => (
+                      <TouchableOpacity
+                        key={user.id}
+                        style={styles.mentionSuggestionItem}
+                        activeOpacity={0.6}
+                        onPress={() => selectMention(user)}
+                      >
+                        <View style={styles.mentionAvatar}>
+                          <Text style={styles.mentionAvatarText}>
+                            {`${(user.first_name?.[0] ?? "")}${user.last_name?.[0] ?? ""}`.toUpperCase()}
+                          </Text>
+                        </View>
+                        <Text style={styles.mentionName} numberOfLines={1}>
+                          {`${user.first_name ?? ""} ${user.last_name ?? ""}`.trim() ||
+                            user.full_name ||
+                            `User ${user.id}`}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
                 <View style={[
                   styles.inputBox,
                   {
@@ -995,7 +1114,7 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                   <TextInput
                     style={styles.inputField}
                     value={commentText}
-                    onChangeText={setCommentText}
+                    onChangeText={handleCommentChange}
                     onFocus={() => setIsFocused(true)}
                     onBlur={() => setIsFocused(false)}
                     multiline
@@ -1008,7 +1127,21 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                       <TouchableOpacity style={styles.toolBtn}>
                         <Ionicons name="add" size={16} color="#374151" />
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.toolBtn}>
+                      <TouchableOpacity
+                        style={styles.toolBtn}
+                        onPress={() => {
+                          const text = `${commentText}@`;
+                          setCommentText(text);
+                          setMentionQuery("");
+                          setMentionActive(true);
+                          if (companyId && !mentionUsersLoadedRef.current) {
+                            mentionUsersLoadedRef.current = true;
+                            fetchMentionUsers(companyId).then(setMentionUsers).catch(() => {
+                              mentionUsersLoadedRef.current = false;
+                            });
+                          }
+                        }}
+                      >
                         <Ionicons name="at" size={16} color="#374151" />
                       </TouchableOpacity>
                       <TouchableOpacity style={styles.toolBtn}>
@@ -1429,6 +1562,47 @@ const styles = StyleSheet.create({
     backgroundColor: "#00DEAB",
     alignItems: "center",
     justifyContent: "center",
+  },
+  mentionSuggestions: {
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E6E6E6",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 4,
+    overflow: "hidden",
+    marginBottom: 8,
+  },
+  mentionSuggestionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  mentionAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#1D1D1D",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+  mentionAvatarText: {
+    color: "#fff",
+    fontSize: 10,
+    fontFamily: "SF_Pro_Bold",
+  },
+  mentionName: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: "SF_Pro_Medium",
+    color: "#1F2937",
   },
   emptyComments: {
     flex: 1,

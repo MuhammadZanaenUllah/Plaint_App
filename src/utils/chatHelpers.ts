@@ -313,8 +313,44 @@ export function isMentionNotification(item: NotificationItem | null | undefined)
   const typ = (item.typ ?? "").toLowerCase();
   if (typ === "chat_mention" || typ === "task_mention" || typ === "mention") return true;
   if (typ.includes("mention")) return true;
-  const title = (item.title ?? "").toLowerCase();
-  return title.includes("mention") || title.includes("mentioned");
+  // Backend mention titles all begin with "mentioned you in" (e.g.
+  // "Mentioned you in a comment", "mentioned you in a message").
+  const title = (item.title ?? "").trim().toLowerCase();
+  return title.startsWith("mentioned you");
+}
+
+/** Inline mention markup used by the backend: `@[Full Name](userId)`. */
+const MENTION_MARKUP_REGEX = /@\[([^\]]+)\]\((\d+)\)/g;
+
+/**
+ * Convert inline mention markup (`@[Full Name](userId)`) to plain display text
+ * (`@Full Name`). Non-matching text passes through unchanged, so it is safe to
+ * apply to any comment/note text regardless of whether it contains mentions.
+ */
+export function mentionMarkupToDisplay(text?: string | null): string {
+  if (!text) return "";
+  return text.replace(MENTION_MARKUP_REGEX, "@$1");
+}
+
+/**
+ * Extract the list of mentioned user ids from inline mention markup
+ * (`@[Full Name](userId)`). Returns an empty array when the text has no
+ * mentions. A plain `@Name` (without markup) cannot be matched to a user id.
+ */
+export function extractMentionedUserIds(text?: string | null): number[] {
+  if (!text) return [];
+  const ids: number[] = [];
+  for (const match of text.matchAll(MENTION_MARKUP_REGEX)) {
+    const id = Number(match[2]);
+    if (Number.isFinite(id) && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+/** Build a single inline mention markup token for a user: `@[Full Name](userId)`. */
+export function buildMentionMarkup(userId: number, fullName: string): string {
+  const clean = fullName.replace(/[\[\]()]/g, "").trim() || `User ${userId}`;
+  return `@[${clean}](${userId})`;
 }
 
 /**
@@ -337,7 +373,9 @@ export function getNotificationDisplay(item: NotificationItem | null | undefined
   const title = (item?.title ?? "").trim();
   const description = (item?.description ?? "").trim();
   const text =
-    (description.length >= title.length ? description : title) || title;
+    mentionMarkupToDisplay(
+      (description.length >= title.length ? description : title) || title
+    );
 
   const assigned = item?.assigned;
   const assignedName = assigned

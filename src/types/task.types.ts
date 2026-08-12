@@ -23,6 +23,15 @@ export type TaskOwner = {
   image: string | null;
 };
 
+export type MentionUser = {
+  id: number;
+  first_name?: string;
+  last_name?: string;
+  full_name?: string;
+  email?: string;
+  image?: string | null;
+};
+
 export type TaskPriority = {
   id: number;
   name: string;
@@ -257,6 +266,7 @@ export type AddNoteRequest = {
   company_id: number;
   company_identifier: string;
   reply_to?: { id: number; user_name: string; content: string };
+  mentions?: number[];
 };
 
 export type UpdateNoteRequest = {

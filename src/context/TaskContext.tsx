@@ -14,6 +14,8 @@ import {
   TaskPriority,
   TaskOwner,
   TaskNote,
+  MentionUser,
+  AddNoteRequest,
   TaskFilter,
   CreateTaskRequest,
   UpdateTaskStatusRequest,
@@ -193,7 +195,7 @@ export type TaskContextValue = {
   viewTask: (taskId: number) => Promise<ViewTaskData | null>;
   addNote: (
     taskId: number,
-    data: { notes: string; company_id: number; company_identifier: string },
+    data: AddNoteRequest,
     file?: { uri: string; name: string; type: string }
   ) => Promise<void>;
   fetchNotes: (
@@ -201,6 +203,7 @@ export type TaskContextValue = {
     companyId?: number,
     companyIdentifier?: string
   ) => Promise<TaskNote[]>;
+  fetchMentionUsers: (companyId: number) => Promise<MentionUser[]>;
   deleteNote: (
     noteId: number,
     companyId: number,
@@ -458,7 +461,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   const addNoteToTask = useCallback(
     async (
       taskId: number,
-      data: { notes: string; company_id: number; company_identifier: string },
+      data: AddNoteRequest,
       file?: { uri: string; name: string; type: string }
     ) => {
       const res = await tasksService.addNote(taskId, data, file);
@@ -482,6 +485,18 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       );
       if (res.Good && Array.isArray(res.data)) {
         return res.data;
+      }
+      return [];
+    },
+    []
+  );
+
+  const fetchMentionUsers = useCallback(
+    async (companyId: number): Promise<MentionUser[]> => {
+      const res = await tasksService.getMentionUsers(companyId);
+      const users = res.data?.user;
+      if (Array.isArray(users)) {
+        return users;
       }
       return [];
     },
@@ -710,6 +725,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       viewTask: viewTaskAction,
       addNote: addNoteToTask,
       fetchNotes,
+      fetchMentionUsers,
       deleteNote: deleteNoteById,
       pinNote: pinNoteById,
       approveTask: approveTaskById,
@@ -748,6 +764,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       viewTaskAction,
       addNoteToTask,
       fetchNotes,
+      fetchMentionUsers,
       deleteNoteById,
       pinNoteById,
       approveTaskById,

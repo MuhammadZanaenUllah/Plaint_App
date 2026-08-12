@@ -13,7 +13,13 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   connectSocket,
   onSocketEvent,
+  type TaskUpdatePayload,
 } from "@/services/socket/socketService";
+import { showInfo } from "@/utils/toast";
+import {
+  extractMentionedUserIds,
+  mentionMarkupToDisplay,
+} from "@/utils/chatHelpers";
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
@@ -59,7 +65,12 @@ function notificationReducer(
       };
     case "ADD_NOTIFICATION": {
       const exists = state.notifications.some(
-        (n) => n.id === action.notification.id
+        (n) =>
+          n.id === action.notification.id ||
+          (action.notification.id < 0 &&
+            n.id > 0 &&
+            n.task_id === action.notification.task_id &&
+            (n.title ?? "").toLowerCase().startsWith("mentioned you"))
       );
       if (exists) return state;
       const updated = [action.notification, ...state.notifications];
@@ -140,6 +151,10 @@ export function NotificationProvider({
     []
   );
 
+  const addNotification = useCallback((notification: NotificationItem) => {
+    dispatch({ type: "ADD_NOTIFICATION", notification });
+  }, []);
+
   // ─── Live notifications via socket ──────────────────────────────────────
   // The `notification` socket event is scoped by the recipient user id
   // (payload: `{ assigned_to }`, possibly nested under `data`). On receipt we
@@ -147,12 +162,19 @@ export function NotificationProvider({
   // in sync WITHOUT flashing the loading spinner (which would replace the
   // whole list on every event). Socket creation is idempotent, and
   // socketService queues this listener until the socket exists.
+  //
+  // The `task_update` listener mirrors the chat approach for mention pushes:
+  // the backend's task-note mention detection depends on inline mention markup
+  // (`@[Full Name](userId)`) in the note text, so when a note mentioning the
+  // current user arrives we surface an in-app toast AND a local notification
+  // row (typ `task_mention`) so it lands in the inbox Mentions tab immediately,
+  // independent of whether the backend also created a notification row.
   useEffect(() => {
     if (!currentUserId) return;
 
     connectSocket().catch(() => {});
 
-    return onSocketEvent("notification", (payload: unknown) => {
+    const cleanupNotification = onSocketEvent("notification", (payload: unknown) => {
       const typed = payload as {
         assigned_to?: number;
         company_id?: number;
@@ -169,7 +191,60 @@ export function NotificationProvider({
         fetchNotifications(currentCompanyId, true, true);
       }
     });
-  }, [currentUserId, currentCompanyId, fetchNotifications]);
+
+    const cleanupTaskUpdate = onSocketEvent("task_update", (payload: unknown) => {
+      const p = payload as TaskUpdatePayload;
+      if (!p?.action) return;
+      if (String(p.company_id) !== String(currentCompanyId)) return;
+      if (p.action !== "add_note" && p.action !== "update_note") return;
+
+      const data = (p.data ?? {}) as Record<string, unknown>;
+      const note =
+        (data.note as Record<string, unknown> | undefined) ?? data;
+      const notesText = (note.notes as string) ?? "";
+      const mentionedIds = extractMentionedUserIds(notesText);
+      if (!mentionedIds.includes(currentUserId)) return;
+
+      const authorId = Number(note.user_id ?? data.user_id ?? 0);
+      if (authorId === currentUserId) return;
+      const authorName =
+        (note.user_name as string) ||
+        (data.user_name as string) ||
+        "Someone";
+      const taskId = Number(data.task_id ?? data.mod_id ?? 0);
+      const noteId = Number(note.id ?? data.id ?? 0);
+      const createdAt = (note.createdAt as string) || new Date().toISOString();
+      const displayText = mentionMarkupToDisplay(notesText);
+
+      showInfo(`${authorName} mentioned you`, displayText);
+      addNotification({
+        id: -Math.abs(noteId || Date.now()),
+        title: "Mentioned you in a comment",
+        task_id: taskId,
+        lead_id: 0,
+        created_by: authorId,
+        company_id: Number(p.company_id),
+        assigned_to: currentUserId,
+        typ: "task_mention",
+        identifier: "task",
+        description: displayText,
+        createdAt,
+        readed: 0,
+        assigned: {
+          id: authorId,
+          first_name: authorName,
+          last_name: "",
+          email: "",
+          image: "",
+        },
+      });
+    });
+
+    return () => {
+      cleanupNotification();
+      cleanupTaskUpdate();
+    };
+  }, [currentUserId, currentCompanyId, fetchNotifications, addNotification]);
 
   const markRead = useCallback(async (notificationId: number) => {
     try {
@@ -191,10 +266,6 @@ export function NotificationProvider({
     } catch {
       // Silent fail
     }
-  }, []);
-
-  const addNotification = useCallback((notification: NotificationItem) => {
-    dispatch({ type: "ADD_NOTIFICATION", notification });
   }, []);
 
   const logout = useCallback(() => {
