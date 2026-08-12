@@ -241,6 +241,23 @@ export function resolveFileUrl(url?: string | null): string {
   return `${serverOrigin}${cleanPath}`;
 }
 
+/**
+ * Build the authenticated `secure-file` proxy URL for a `/public/...` path.
+ *
+ * Direct static access to `/public/...` is disabled on the backend — every
+ * file must be fetched through `GET {origin}/api/v1/secure-file?p=public/<path>`
+ * with the auth token header (IMAGE_AND_AUDIO_HANDLING.md §4).
+ */
+export function resolveSecureFileUrl(url?: string | null): string {
+  if (!url) return "";
+  const apiBase =
+    process.env.EXPO_PUBLIC_API_BASE_URL ??
+    "https://backend-planit.soulservices.com/api/v1";
+  const serverOrigin = apiBase.replace(/\/api\/v1\/?$/, "");
+  const cleanPath = url.replace(/^\/+/, "");
+  return `${serverOrigin}/api/v1/secure-file?p=${encodeURIComponent(cleanPath)}`;
+}
+
 /** Build a FormData object for editing a message. */
 export function buildEditMessageFormData(params: {
   messageId: string;

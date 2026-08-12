@@ -54,8 +54,10 @@ AGENT_API_INTEGRATION.md
 ModulesMdFiles/
 assets/implementationScreenshots
 FIXEDISSUE.md
+.freebuff/
 
 
 # Firebase Admin Keys (Security)
 *firebase-adminsdk*.json
+
 

@@ -10,13 +10,23 @@ import {
     formatMessageTime,
     getMessageInitials,
     isOwnMessage,
-    resolveFileUrl
+    resolveFileUrl,
+    resolveSecureFileUrl,
 } from "@/utils/chatHelpers";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
+import { Directory, File as FileSystemFile, Paths } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
+import {
+    RecordingPresets,
+    createAudioPlayer,
+    requestRecordingPermissionsAsync,
+    setAudioModeAsync,
+    useAudioRecorder,
+    useAudioRecorderState,
+} from "expo-audio";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
@@ -38,73 +48,222 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import EmojiPicker from "rn-emoji-keyboard";
 import { showInfo, showError } from "@/utils/toast";
+import { getStoredToken } from "@/utils/token";
 import * as socketService from "@/services/socket/socketService";
-
-let ExpoAudio: typeof import("expo-audio") | null = null;
-try {
-    ExpoAudio = require("expo-audio");
-} catch (e) {
-    console.log("[Audio] expo-audio native module not available:", e);
-}
 
 const { ChatIcon: MainChatIcon } = Icons;
 
 // ─── Voice Note Player Component ─────────────────────────────────────────────
+
+/**
+ * Plays a voice-note attachment.
+ *
+ * Backend-stored files live under `/public/...` and direct static access to
+ * `/public/...` is DISABLED on the backend (verified at the network level:
+ * `/api/v1/*` → 403 without a token, and every other path including `/public/*`
+ * → Express JSON 404). Files must be fetched through the auth-gated proxy
+ * `GET {origin}/api/v1/secure-file?p=public/<path>` with the token headers
+ * (IMAGE_AND_AUDIO_HANDLING.md §4) — so remote voice notes are downloaded to a
+ * local cache file with the token and then played from the local file URI.
+ * Locally recorded files (file://, content://, blob:) play directly.
+ *
+ * expo-audio surfaces load/playback failures through the
+ * `playbackStatusUpdate` payload (`isLoaded`, `error`) on both iOS
+ * (AudioPlayer.swift) and Android (AudioPlayer.kt) — every status is logged so
+ * a silent failure is visible instead of hanging in "Playing...".
+ */
+const voicePlayerPauseHandlers = new Set<() => void>();
+
+/**
+ * Download a `/public/...` file via the authenticated `secure-file` proxy into
+ * the cache and return a local `file://` source for the audio player.
+ */
+async function downloadPublicAudio(publicPath: string): Promise<{ uri: string }> {
+    if (Platform.OS === "web") {
+        console.log("[Audio] Web: secure-file download not implemented; using direct URL.");
+        return { uri: resolveFileUrl(publicPath) };
+    }
+    const token = await getStoredToken();
+    const cacheDir = new Directory(Paths.cache, "voice-notes");
+    try {
+        if (!cacheDir.exists) {
+            cacheDir.create({ intermediates: true, idempotent: true });
+        }
+    } catch (dirErr) {
+        console.log("[Audio] Could not create voice-note cache dir:", dirErr);
+    }
+
+    const fileName = (publicPath.split("/").pop() || `voice-note-${Date.now()}.m4a`).split("?")[0];
+    const dest = new FileSystemFile(cacheDir, fileName);
+
+    // Download fresh every time — Android can leave a partially-written file on
+    // a failed download, so a stale `exists` is not trustworthy for playback.
+    try {
+        if (dest.exists) {
+            dest.delete();
+        }
+    } catch (delErr) {
+        console.log("[Audio] Could not clear previous download:", delErr);
+    }
+
+    const headers: Record<string, string> = {};
+    if (token) {
+        headers.authToken = token;
+        headers["x-access-token"] = token;
+    }
+    const secureUrl = resolveSecureFileUrl(publicPath);
+    console.log("[Audio] Downloading authenticated audio:", { secureUrl, hasToken: !!token, fileName });
+    try {
+        await FileSystemFile.downloadFileAsync(secureUrl, dest, { headers, idempotent: true });
+    } catch (secureErr) {
+        console.log("[Audio] secure-file download failed, trying direct:", secureErr);
+        await FileSystemFile.downloadFileAsync(resolveFileUrl(publicPath), dest, { headers, idempotent: true });
+    }
+
+    console.log("[Audio] Playing downloaded audio file:", { uri: dest.uri, exists: dest.exists, size: dest.size });
+    return { uri: dest.uri };
+}
 
 function VoiceNotePlayer({ audioUrl }: { audioUrl: string }) {
     const [isPlaying, setIsPlaying] = useState(false);
     const [position, setPosition] = useState(0);
     const [duration, setDuration] = useState(0);
     const playerRef = useRef<any>(null);
+    const downloadedUriRef = useRef<string | null>(null);
+    const finishedRef = useRef(false);
     const resolvedUrl = useMemo(() => resolveFileUrl(audioUrl), [audioUrl]);
+    const isLocal = useMemo(() => {
+        const u = (audioUrl || "").toLowerCase();
+        return (
+            u.startsWith("file://") ||
+            u.startsWith("content://") ||
+            u.startsWith("blob:")
+        );
+    }, [audioUrl]);
+
+    const traceStatus = (status: any) => {
+        console.log("[Audio] Playback status:", {
+            isLoaded: status.isLoaded,
+            error: status.error,
+            playbackState: status.playbackState,
+            currentTime: status.currentTime,
+            duration: status.duration,
+            playing: status.playing,
+            isBuffering: status.isBuffering,
+            didJustFinish: status.didJustFinish,
+        });
+    };
 
     const handlePlayPause = async () => {
-        if (!ExpoAudio) {
-            showInfo("Audio Unavailable", "Voice playback is unavailable in this environment.");
-            return;
-        }
         if (!resolvedUrl) {
             showError("Audio Error", "Audio URL is missing.");
             return;
         }
         try {
-            const AudioModule = (ExpoAudio as any).AudioModule;
-            try {
-                await AudioModule.setAudioModeAsync({
-                    allowsRecording: false,
-                    playsInSilentMode: true,
-                });
-            } catch { }
-
             if (playerRef.current) {
                 if (isPlaying) {
                     playerRef.current.pause();
                     setIsPlaying(false);
-                } else {
+                    console.log("[Audio] Voice note paused:", resolvedUrl);
+                } else if (!finishedRef.current) {
+                    // Resuming a paused note — keep the current position.
                     playerRef.current.play();
                     setIsPlaying(true);
+                    console.log("[Audio] Voice note resumed:", resolvedUrl);
                 }
+                // If finishedRef.current is true but playerRef still exists
+                // (race), we fall through to recreate a fresh player below.
             } else {
-                const newPlayer = ExpoAudio.createAudioPlayer(resolvedUrl);
-                playerRef.current = newPlayer;
+                // Note finished earlier (or first play): recreate a player over
+                // the cached download + restart from the beginning.
+            }
+
+            if (playerRef.current && !finishedRef.current) {
+                return;
+            }
+
+            // A finished player must be recreated (ExoPlayer won't replay from
+            // the END state) and any cached player reference cleared.
+            if (playerRef.current) {
+                try { playerRef.current.remove?.(); } catch { }
+                playerRef.current = null;
+            }
+            finishedRef.current = false;
+
+            await setAudioModeAsync({
+                allowsRecording: false,
+                playsInSilentMode: true,
+            }).catch(() => { });
+
+            // Only one voice message plays at a time — pause any other player.
+            voicePlayerPauseHandlers.forEach((h) => {
+                try { h(); } catch { }
+            });
+
+            // Backend `/public/...` files are NOT statically served — they must
+            // be fetched through the auth-gated `secure-file` proxy and played
+            // from a local cache file. Locally recorded files play directly.
+            let source: any;
+            if (isLocal) {
+                source = { uri: resolvedUrl };
+            } else if ((audioUrl || "").startsWith("/public/")) {
+                if (!downloadedUriRef.current) {
+                    const file = await downloadPublicAudio(audioUrl);
+                    downloadedUriRef.current = file.uri;
+                }
+                source = { uri: downloadedUriRef.current };
+            } else {
+                source = { uri: resolvedUrl };
+            }
+
+            console.log("[Audio] Creating player for voice note:", {
+                audioUrl,
+                resolvedUrl,
+                isLocal,
+                source,
+            });
+
+            const newPlayer = createAudioPlayer(source);
+            playerRef.current = newPlayer;
+
+            if (newPlayer.addListener) {
+                newPlayer.addListener("playbackStatusUpdate", (status: any) => {
+                    if (!status) return;
+                    traceStatus(status);
+                    if (status.error) {
+                        console.log("[Audio] Playback error from native:", status.error);
+                        showError("Playback Error", "Could not play audio note.");
+                        setIsPlaying(false);
+                        setPosition(0);
+                        return;
+                    }
+                    if (typeof status.currentTime === "number") {
+                        setPosition(status.currentTime * 1000);
+                    }
+                    if (typeof status.duration === "number" && status.duration > 0) {
+                        setDuration(status.duration * 1000);
+                    }
+                    if (status.didJustFinish) {
+                        console.log("[Audio] Voice note finished.");
+                        // Release the finished player so the next tap recreates it
+                        // over the cached download and restarts from 0. (ExoPlayer
+                        // will not replay an item left in STATE_ENDED.)
+                        try { playerRef.current?.remove?.(); } catch { }
+                        playerRef.current = null;
+                        finishedRef.current = true;
+                        setIsPlaying(false);
+                        setPosition(0);
+                    }
+                });
+            }
+
+            try {
                 newPlayer.play();
                 setIsPlaying(true);
-                if (newPlayer.addListener) {
-                    newPlayer.addListener("playbackStatusUpdate", (status: any) => {
-                        if (status) {
-                            if (typeof status.currentTime === "number") {
-                                setPosition(status.currentTime * 1000);
-                            }
-                            if (typeof status.duration === "number") {
-                                setDuration(status.duration * 1000);
-                            }
-                            if (status.didJustFinish || status.playbackState === "ended") {
-                                setIsPlaying(false);
-                                setPosition(0);
-                            }
-                        }
-                    });
-                }
+            } catch (playErr) {
+                console.log("[Audio] play() threw:", playErr);
+                showError("Playback Error", "Could not start audio playback.");
+                setIsPlaying(false);
             }
         } catch (err) {
             console.log("[Audio] Failed to play voice note:", err);
@@ -114,7 +273,15 @@ function VoiceNotePlayer({ audioUrl }: { audioUrl: string }) {
     };
 
     useEffect(() => {
+        const pauseHandler = () => {
+            if (playerRef.current) {
+                try { playerRef.current.pause(); } catch { }
+            }
+            setIsPlaying(false);
+        };
+        voicePlayerPauseHandlers.add(pauseHandler);
         return () => {
+            voicePlayerPauseHandlers.delete(pauseHandler);
             if (playerRef.current) {
                 try {
                     playerRef.current.pause();
@@ -720,7 +887,15 @@ const MessageBubble = React.memo(function MessageBubble({
 
     const audioAtt = message.attachments?.find((a) => {
         const str = (a.url || a.name || "").toLowerCase();
-        return str.includes(".m4a") || str.includes(".mp3") || str.includes(".wav") || str.includes(".caf") || str.includes("audio");
+        return (
+            str.includes(".m4a") ||
+            str.includes(".mp3") ||
+            str.includes(".wav") ||
+            str.includes(".webm") ||
+            str.includes(".ogg") ||
+            str.includes(".caf") ||
+            (a.type || "").startsWith("audio/")
+        );
     });
 
     const imageAtts = message.attachments?.filter((a) => {
@@ -1349,137 +1524,162 @@ export default function ConversationScreen() {
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     const [emojiPickerMsg, setEmojiPickerMsg] = useState<ChatMessage | null>(null);
 
-    // Voice recorder state
+    // ── Voice recorder (expo-audio — implemented from scratch) ──────────────
+    // Records AAC in an MP4 (.m4a) container on iOS/Android (the browser
+    // records audio/webm automatically). .m4a is an explicitly supported
+    // voice-note extension per IMAGE_AND_AUDIO_HANDLING.md §3.3.
+    const MAX_VOICE_SECONDS = 60;
+
+    const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+    const recorderState = useAudioRecorderState(recorder);
+
     const [isRecording, setIsRecording] = useState(false);
-    const [recordingInstance, setRecordingInstance] = useState<any>(null);
-    const [recordingDuration, setRecordingDuration] = useState(0);
-    const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const recordingBusyRef = useRef(false);
+    const recordingAutoStopSentRef = useRef(false);
+
+    const recordingSeconds = Math.floor(recorderState.durationMillis / 1000);
+
     const [firstVisibleDate, setFirstVisibleDate] = useState<Date | null>(null);
     const [dateFilterStart, setDateFilterStart] = useState<Date | null>(null);
     const [dateFilterEnd, setDateFilterEnd] = useState<Date | null>(null);
 
     const startRecording = useCallback(async () => {
-        if (!ExpoAudio) {
-            showInfo("Audio Unavailable", "Audio recording requires expo-audio module.");
-            return;
-        }
+        if (!roomId || recordingBusyRef.current || isRecording) return;
+        recordingBusyRef.current = true;
         try {
-            const AudioModule = (ExpoAudio as any).AudioModule;
-            const permission = await AudioModule.requestRecordingPermissionsAsync();
+            const permission = await requestRecordingPermissionsAsync();
             if (!permission.granted) {
                 showInfo("Permission Required", "Microphone access is required to record voice notes.");
                 return;
             }
-            await AudioModule.setAudioModeAsync({
+            await setAudioModeAsync({
                 allowsRecording: true,
                 playsInSilentMode: true,
             });
-            const RecordingPresets = (ExpoAudio as any).RecordingPresets;
-            const recorder = new AudioModule.AudioRecorder(
-                RecordingPresets?.HIGH_QUALITY ?? {
-                    android: { extension: ".m4a", outputFormat: "mpeg4", audioEncoder: "aac", sampleRate: 44100, numberOfChannels: 2, bitRate: 128000 },
-                    ios: { extension: ".m4a", outputFormat: "mpeg4aac", audioQuality: "high", sampleRate: 44100, numberOfChannels: 2, bitRate: 128000, linearPCMBitDepth: 16, linearPCMIsBigEndian: false, linearPCMIsFloat: false },
-                    web: {},
-                }
-            );
             await recorder.prepareToRecordAsync();
             recorder.record();
-            setRecordingInstance(recorder);
+            recordingAutoStopSentRef.current = false;
             setIsRecording(true);
-            setRecordingDuration(0);
-
-            if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-            recordingTimerRef.current = setInterval(() => {
-                setRecordingDuration((prev) => prev + 1);
-            }, 1000);
         } catch (err) {
             console.log("[Audio] Start recording error:", err);
             showError("Error", "Could not start audio recording");
+        } finally {
+            recordingBusyRef.current = false;
         }
-    }, []);
+    }, [roomId, recorder, isRecording]);
+
+    const stopRecording = useCallback(async (): Promise<string | null> => {
+        try {
+            if (recorder.isRecording) {
+                await recorder.stop();
+            }
+        } catch (err) {
+            console.log("[Audio] Stop recording error:", err);
+        }
+        try {
+            await setAudioModeAsync({
+                allowsRecording: false,
+                playsInSilentMode: true,
+            });
+        } catch { }
+        setIsRecording(false);
+        return recorder.uri;
+    }, [recorder]);
 
     const stopAndSendRecording = useCallback(async () => {
-        if (!recordingInstance || !roomId) return;
-        if (recordingTimerRef.current) {
-            clearInterval(recordingTimerRef.current);
-            recordingTimerRef.current = null;
-        }
+        if (!roomId || recordingBusyRef.current) return;
+        recordingBusyRef.current = true;
         setSending(true);
         try {
-            let stopRes: any = null;
-            if (typeof recordingInstance.stop === "function") {
-                stopRes = await recordingInstance.stop();
+            const uri = await stopRecording();
+            if (!uri) {
+                showError("Recording Error", "Could not obtain voice recording. Please try again.");
+                return;
             }
-            if (ExpoAudio) {
-                const AudioModule = (ExpoAudio as any).AudioModule;
-                try {
-                    await AudioModule.setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
-                } catch { }
-            }
+            // Web records audio/webm (matches IMAGE_AND_AUDIO_HANDLING.md §3.1);
+            // iOS/Android record AAC in an MP4 (.m4a) container.
+            const isWeb = Platform.OS === "web";
+            const name = `voice-note-${Date.now()}.${isWeb ? "webm" : "m4a"}`;
+            const type = isWeb ? "audio/webm" : "audio/mp4";
 
-            // expo-audio stores the URI on the recorder after stop()
-            let rawUri: string | null =
-                stopRes?.uri ||
-                stopRes?.url ||
-                recordingInstance.uri ||
-                recordingInstance.url ||
-                recordingInstance._uri ||
-                (typeof recordingInstance.getURI === "function" ? recordingInstance.getURI() : null) ||
-                null;
-
-            // Android URIs from expo-audio sometimes lack file:// prefix
-            if (rawUri && typeof rawUri === "string" && !rawUri.startsWith("file://") && !rawUri.startsWith("http") && !rawUri.startsWith("content://")) {
-                rawUri = `file://${rawUri}`;
-            }
-
-            setRecordingInstance(null);
-            setIsRecording(false);
-            setRecordingDuration(0);
-
-            console.log("[Audio] Recorded voice note URI:", rawUri);
-
-            if (rawUri && typeof rawUri === "string" && rawUri.length > 0) {
-                const fileName = `voice_${Date.now()}.m4a`;
-                await sendMessage({
-                    room_id: roomId,
-                    text: "🎤 Voice message",
-                    attachments: [
-                        {
-                            uri: rawUri,
-                            name: fileName,
-                            type: "audio/m4a",
-                        },
-                    ],
-                });
+            // Verify the recorded file exists and log its size before uploading.
+            if (isWeb) {
+                console.log("[Audio] Recorded voice note:", { uri, name, type });
             } else {
-                showError("Recording Error", "Could not obtain voice recording URI. Please try again.");
+                try {
+                    const recordedFile = new FileSystemFile(uri);
+                    console.log("[Audio] Recorded voice note:", {
+                        uri,
+                        exists: recordedFile.exists,
+                        size: recordedFile.size,
+                        name,
+                        type,
+                    });
+                } catch (fileErr) {
+                    console.log("[Audio] Could not stat recorded voice note:", fileErr);
+                }
             }
+
+            setUploadProgress({ percentage: 0, fileName: name });
+            // Must use the same XHR upload path as images (onUploadProgress).
+            // Expo SDK 57's global `fetch` (WinterCG) cannot serialize React Native
+            // `{ uri, name, type }` FormData parts and throws "Unsupported
+            // FormDataPart implementation" — see AGENT_API_INTEGRATION.md.
+            await sendMessage({
+                room_id: roomId,
+                text: "🎤 Voice message",
+                attachments: [{ uri, name, type }],
+                onUploadProgress: (prog) => {
+                    setUploadProgress({ percentage: prog.percentage, fileName: name });
+                },
+                abortUpload: abortUploadRef,
+            });
         } catch (err) {
             console.log("[Audio] Send voice note error:", err);
             showError("Error", "Failed to send voice note");
         } finally {
             setSending(false);
+            setUploadProgress(null);
+            recordingBusyRef.current = false;
         }
-    }, [recordingInstance, roomId, sendMessage]);
+    }, [roomId, stopRecording, sendMessage]);
 
     const cancelRecording = useCallback(async () => {
-        if (recordingTimerRef.current) {
-            clearInterval(recordingTimerRef.current);
-            recordingTimerRef.current = null;
+        if (recordingBusyRef.current) return;
+        recordingBusyRef.current = true;
+        try {
+            await stopRecording();
+        } catch { } finally {
+            recordingBusyRef.current = false;
         }
-        if (recordingInstance) {
+    }, [stopRecording]);
+
+    // Auto-stop at the duration cap and immediately send.
+    useEffect(() => {
+        if (
+            isRecording &&
+            !recordingAutoStopSentRef.current &&
+            recorderState.durationMillis >= MAX_VOICE_SECONDS * 1000
+        ) {
+            recordingAutoStopSentRef.current = true;
+            stopAndSendRecording();
+        }
+    }, [isRecording, recorderState.durationMillis, stopAndSendRecording]);
+
+    // Release the microphone when leaving the screen mid-recording.
+    // useAudioRecorder's useReleasingSharedObject releases the native
+    // AudioRecorder on unmount BEFORE this cleanup runs, after which its native
+    // getters/methods throw ("Cannot use shared object that was already
+    // released") — so the stop attempt must be guarded defensively.
+    useEffect(() => {
+        return () => {
             try {
-                await recordingInstance.stop();
-                if (ExpoAudio) {
-                    const AudioModule = (ExpoAudio as any).AudioModule;
-                    await AudioModule.setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+                if (recorder.isRecording) {
+                    recorder.stop().catch(() => { });
                 }
             } catch { }
-        }
-        setRecordingInstance(null);
-        setIsRecording(false);
-        setRecordingDuration(0);
-    }, [recordingInstance]);
+        };
+    }, [recorder]);
 
     const formatRecordingTimer = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
@@ -2300,6 +2500,38 @@ export default function ConversationScreen() {
                     <View style={styles.inputBar}>
                         {canSendMessage ? (
                         <>
+                            {isRecording ? (
+                                <View style={styles.recordingBar}>
+                                    <View style={styles.recordingLiveIndicator}>
+                                        <TouchableOpacity
+                                            style={styles.cancelRecordBtn}
+                                            activeOpacity={0.7}
+                                            onPress={cancelRecording}
+                                        >
+                                            <Ionicons name="close" size={22} color="#EF4444" />
+                                        </TouchableOpacity>
+                                        <View style={styles.redDot} />
+                                        <Text style={styles.recordingTimerText}>
+                                            {formatRecordingTimer(recordingSeconds)}
+                                        </Text>
+                                        <Text style={styles.recordingHintText}>Recording...</Text>
+                                    </View>
+                                    <View style={styles.recordingActions}>
+                                        <TouchableOpacity
+                                            style={styles.sendRecordBtn}
+                                            activeOpacity={0.8}
+                                            onPress={stopAndSendRecording}
+                                            disabled={sending}
+                                        >
+                                            {sending ? (
+                                                <ActivityIndicator size="small" color="#fff" />
+                                            ) : (
+                                                <Ionicons name="paper-plane" size={16} color="#fff" />
+                                            )}
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            ) : (
                             <View style={styles.inputContainer}>
                                 <View style={styles.inputRow}>
                                     <TextInput
@@ -2333,6 +2565,13 @@ export default function ConversationScreen() {
                                         >
                                             <Ionicons name="happy-outline" size={18} color="#1D1D1D" />
                                             <Text style={styles.plusBadge}>+</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            activeOpacity={0.4}
+                                            style={styles.inputActionBtn}
+                                            onPress={startRecording}
+                                        >
+                                            <Ionicons name="mic-outline" size={18} color="#1D1D1D" />
                                         </TouchableOpacity>
                                         {isChannel && postTypes.length > 0 && canManagePostTypes && (
                                             <TouchableOpacity
@@ -2384,7 +2623,7 @@ export default function ConversationScreen() {
                                     </ScrollView>
                                 )}
                             </View>
-
+                            )}
                         </>
                     ) : (
                         <View style={styles.viewOnlyBar}>
@@ -3162,6 +3401,12 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontFamily: "SF_Pro_Semibold",
         color: "#EF4444",
+    },
+    recordingHintText: {
+        fontSize: 13,
+        fontFamily: "SF_Pro_Regular",
+        color: "#6B7280",
+        marginLeft: 2,
     },
     recordingActions: {
         flexDirection: "row",
