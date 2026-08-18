@@ -143,7 +143,10 @@ function RootNavigator() {
     const inInitialReset = (segments as string[]).includes("initial-reset");
     const inTabGroup = segments[0] === "(tabs)";
     const isFirstRoute =
-      (segments[0] as string) === "" || (segments[0] as string) === "index";
+      !segments[0] ||
+      (segments as string[]).length === 0 ||
+      (segments[0] as string) === "" ||
+      (segments[0] as string) === "index";
     const isOnboarding = (segments[0] as string) === "splashscreem";
     const inAuthenticatedScreen = [
       "conversation",
