@@ -79,7 +79,7 @@ export default function TabLayout() {
 
   return (
     <SearchProvider>
-      <View style={{ flex: 1  }}>
+      <View style={{ flex: 1 , backgroundColor: "#FFFFFF"  }}>
         <View style={{ overflow: "visible", zIndex: 99999, paddingTop: insets.top }}>
           <AppHeader
             greeting={config.greeting}
