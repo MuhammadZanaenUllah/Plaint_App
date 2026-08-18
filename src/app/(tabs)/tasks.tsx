@@ -259,17 +259,25 @@ export default function TasksScreen() {
       if (!targetTask.id || !companyId) return;
       const apiStatus = uiStatusToApi(newStatus);
       try {
+        // updateTaskStatusApi applies the new status to local state
+        // synchronously (before the network call), so the task moves
+        // between tabs (e.g. Created By Me -> Completed) instantly. Deliberately
+        // NOT re-fetching the full task list afterward — /tasks/all is slow
+        // and, if the backend hasn't fully propagated the write yet, a
+        // refetch this soon after can momentarily overwrite the correct
+        // optimistic state with stale data. The next natural refresh (pull-
+        // to-refresh, tab switch, socket event) will reconcile any other
+        // server-side side effects.
         await updateTaskStatusApi(Number(targetTask.id), {
           status: apiStatus,
           company_id: companyId,
           company_identifier: companyIdentifier,
         });
-        fetchAllTasks(companyId, { silent: true });
       } catch {
         // status change failed silently
       }
     },
-    [companyId, companyIdentifier, updateTaskStatusApi, fetchAllTasks],
+    [companyId, companyIdentifier, updateTaskStatusApi],
   );
 
   const handleAssigneeChange = useCallback(

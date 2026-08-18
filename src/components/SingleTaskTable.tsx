@@ -225,13 +225,6 @@ const CustomPullToRefreshBadge = memo(function CustomPullToRefreshBadge({
             strokeDasharray="52 28"
             strokeLinecap="round"
           />
-          <Path
-            d="M10.5 16.5L14 20L21.5 12"
-            stroke="#00DEAB"
-            strokeWidth={3}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
         </Svg>
       </View>
     </Animated.View>
