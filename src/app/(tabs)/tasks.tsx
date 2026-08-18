@@ -6,24 +6,26 @@ import TaskDetailModal, {
   TaskDetail,
   buildTaskDetailFromViewTask,
 } from "@/components/TaskDetailModal";
-import {
-  STATUS_COLORS,
-  StatusType,
-  TaskRowProps,
-} from "@/components/TaskRow";
+import { STATUS_COLORS, StatusType, TaskRowProps } from "@/components/TaskRow";
 import TaskTable from "@/components/TaskTable";
+import { AssignableOwner } from "@/components/SingleTaskTable";
 import TaskTableSkeleton from "@/components/TaskTableSkeleton";
 import Icons from "@/constants/icons";
 import { useSearch } from "@/context/SearchContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import { useTaskSocket } from "@/hooks/useTaskSocket";
-import { extendDelayedTask, viewTask } from "@/services/api/tasks.service";
+import {
+  extendDelayedTask,
+  reassignTask,
+  viewTask,
+} from "@/services/api/tasks.service";
 import { canCreateTask } from "@/utils/permissions";
 import { uiStatusToApi } from "@/utils/statusMapper";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { MaterialIcons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
@@ -63,6 +65,9 @@ export default function TasksScreen() {
   const [filterVisible, setFilterVisible] = useState(false);
   const [createVisible, setCreateVisible] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
+  const [detailInitialTab, setDetailInitialTab] = useState<
+    "details" | "comments"
+  >("details");
   const [activeStatusFilter, setActiveStatusFilter] = useState<string | null>(
     null,
   );
@@ -75,10 +80,10 @@ export default function TasksScreen() {
     null,
   );
   const [activeCreatedByFilter, setActiveCreatedByFilter] = useState<
-    number | null
+    number | number[] | null
   >(null);
   const [activeAssignedToFilter, setActiveAssignedToFilter] = useState<
-    number | null
+    number | number[] | null
   >(null);
 
   // Pagination state — how many tasks of the current tab's dataset are visible.
@@ -267,6 +272,24 @@ export default function TasksScreen() {
     [companyId, companyIdentifier, updateTaskStatusApi, fetchAllTasks],
   );
 
+  const handleAssigneeChange = useCallback(
+    async (targetTask: TaskRowProps, owner: AssignableOwner) => {
+      if (!targetTask.id || !companyId) return;
+      try {
+        await reassignTask(Number(targetTask.id), {
+          asigned_to: owner.id,
+          assignee: owner.id,
+          company_id: companyId,
+          company_identifier: companyIdentifier,
+        });
+        fetchAllTasks(companyId, { silent: true });
+      } catch {
+        showError("Error", "Failed to reassign task. Please try again.");
+      }
+    },
+    [companyId, companyIdentifier, fetchAllTasks],
+  );
+
   // Restart the visible list at page 1 (and cancel any pending "load more") so
   // the newly-filtered results start from the top.
   const handleOpenFilter = useCallback(() => {
@@ -288,8 +311,8 @@ export default function TasksScreen() {
       priority: string | null;
       startDate?: Date | null;
       endDate?: Date | null;
-      createdBy?: number | null;
-      assignedTo?: number | null;
+      createdBy?: number | number[] | null;
+      assignedTo?: number | number[] | null;
     }) => {
       console.log("[TasksScreen] Filter Applied:", {
         status: filters.status,
@@ -339,7 +362,11 @@ export default function TasksScreen() {
   ]);
 
   const handleTaskPress = useCallback(
-    async (task: TaskRowProps) => {
+    async (
+      task: TaskRowProps,
+      targetTab: "details" | "comments" = "details",
+    ) => {
+      setDetailInitialTab(targetTab);
       const raw = (task as any)._raw;
       if (!raw) return;
       let description = raw.description ?? "";
@@ -380,6 +407,13 @@ export default function TasksScreen() {
       } as any);
     },
     [companyId],
+  );
+
+  const handleCommentPress = useCallback(
+    (task: TaskRowProps) => {
+      handleTaskPress(task, "comments");
+    },
+    [handleTaskPress],
   );
 
   // ── Deep-link handling (e.g. task_mention push notification) ───────────
@@ -657,23 +691,21 @@ export default function TasksScreen() {
     }
 
     if (activeCreatedByFilter) {
-      tasks = tasks.filter(
-        (t) => t._raw?.created_by === activeCreatedByFilter,
-      );
-      console.log(
-        `[TasksScreen] After created-by filter (id=${activeCreatedByFilter}):`,
-        tasks.length,
-      );
+      const ids = Array.isArray(activeCreatedByFilter)
+        ? activeCreatedByFilter
+        : [activeCreatedByFilter];
+      if (ids.length > 0) {
+        tasks = tasks.filter((t) => ids.includes(Number(t._raw?.created_by)));
+      }
     }
 
     if (activeAssignedToFilter) {
-      tasks = tasks.filter(
-        (t) => t._raw?.asigned_to === activeAssignedToFilter,
-      );
-      console.log(
-        `[TasksScreen] After assigned-to filter (id=${activeAssignedToFilter}):`,
-        tasks.length,
-      );
+      const ids = Array.isArray(activeAssignedToFilter)
+        ? activeAssignedToFilter
+        : [activeAssignedToFilter];
+      if (ids.length > 0) {
+        tasks = tasks.filter((t) => ids.includes(Number(t._raw?.asigned_to)));
+      }
     }
 
     if (activeStartDateFilter || activeEndDateFilter) {
@@ -907,6 +939,7 @@ export default function TasksScreen() {
 
   return (
     <View style={styles.root}>
+      <StatusBar style="dark" />
       <View style={styles.safe}>
         <FilterModal
           visible={filterVisible}
@@ -956,6 +989,7 @@ export default function TasksScreen() {
             }
             tasks={visibleTasks}
             onTaskPress={handleTaskPress}
+            onCommentPress={handleCommentPress}
             onStatusChange={handleStatusChange}
             onFilterPress={handleOpenFilter}
             loading={taskState.loading}
@@ -966,6 +1000,9 @@ export default function TasksScreen() {
             onRefresh={handleRefresh}
             refreshing={refreshing}
             onScrollOffsetChange={handleTableScrollOffset}
+            canReassign={canCreate}
+            assignableOwners={taskState.taskOwners}
+            onAssigneeChange={handleAssigneeChange}
           />
         </View>
       </View>
@@ -984,12 +1021,14 @@ export default function TasksScreen() {
         <CreateTaskModal
           visible={createVisible}
           onClose={() => setCreateVisible(false)}
+          onCreated={() => handleTabPress("created")}
         />
       ) : null}
       <TaskDetailModal
         visible={!!selectedTask}
         onClose={() => setSelectedTask(null)}
         task={selectedTask}
+        initialTab={detailInitialTab}
       />
       <TaskDelay
         visible={!!delayTask}

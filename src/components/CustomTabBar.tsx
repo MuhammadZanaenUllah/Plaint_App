@@ -2,7 +2,12 @@ import Icons from "@/constants/icons";
 import { Ionicons } from "@expo/vector-icons";
 import { BottomTabBarProps } from "expo-router/js-tabs";
 import React, { useEffect, useState } from "react";
-import { Keyboard, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Keyboard, Pressable, StyleSheet, View } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from "react-native-reanimated";
 
 const {
   ChatBlackIcon: ChatIconBlack,
@@ -33,56 +38,36 @@ type TabItem = {
 );
 
 const TABS: TabItem[] = [
-  // {
-  //   name: "biometric",
-  //   ionicon: "finger-print-outline",
-  // },
   {
     name: "tasks",
     activeIcon: TaskIconBlack,
     inactiveIcon: TaskIconsWhite,
   },
-  // {
-  //   name: "home",
-  //   activeIcon: HomeIconBlack,
-  //   inactiveIcon: HomeIconWhite,
-  // },
-  // {
-  //   name: "leaves",
-  //   activeIcon: LeaveIconBlack,
-  //   inactiveIcon: LeaveIconWhite,
-  // },
-  // {
-  //   name: "performance",
-  //   activeIcon: PEIconBlack,
-  //   inactiveIcon: PEIconWhite,
-  // },
-
   {
     name: "chat",
     activeIcon: ChatIconBlack,
     inactiveIcon: ChatIconWhite,
   },
-
-  // {
-  //   name: "grid",
-  //   ionicon: "grid-outline",
-  // },
 ];
 
-// const TABS: { name: string;  icon: React.ComponentProps<typeof Ionicons>["name"] }[] = [
-//   { name: "Tasks",     icon: "checkbox-outline"      },
-//   { name: "Dashboard", icon: "calendar-outline"       },
-//   { name: "stats",     icon: "stats-chart-outline"    },
-//   { name: "home",      icon: "home-outline"           },
-//   { name: "chat",      icon: "chatbubble-outline"     },
-//   { name: "biometric", icon: "finger-print-outline"   },
-//   { name: "grid",      icon: "grid-outline"           },
-// ];
+const SPRING_CONFIG = {
+  damping: 17,
+  stiffness: 190,
+  mass: 0.7,
+};
 
 export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
-  // const activeRouteName = state.routes[state.index].name;
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [tabPositions, setTabPositions] = useState<Record<number, number>>({});
+
+  const indicatorX = useSharedValue(14);
+
+  const currentRoute = state.routes[state.index]?.name.toLowerCase();
+  const activeIndex = Math.max(
+    0,
+    TABS.findIndex((t) => t.name.toLowerCase() === currentRoute)
+  );
+
   useEffect(() => {
     const showKeyboard = Keyboard.addListener("keyboardDidShow", () => {
       setKeyboardVisible(true);
@@ -98,34 +83,43 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
     };
   }, []);
 
+  // Slide the indicator pill smoothly to the active tab position
+  useEffect(() => {
+    if (tabPositions[activeIndex] !== undefined) {
+      indicatorX.value = withSpring(tabPositions[activeIndex], SPRING_CONFIG);
+    }
+  }, [activeIndex, tabPositions]);
+
+  const indicatorAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: indicatorX.value }],
+  }));
+
   if (keyboardVisible) {
     return <View style={{ height: 0 }} />;
   }
 
-  // console.log("Current Index:", state.index);
-  // console.log("Current Route:", state.routes[state.index].name);
-  // console.log(state.routes);
-  // console.log(state.routeNames);
-  const currentRoute = state.routes[state.index]?.name.toLowerCase();
   return (
     <View style={styles.container}>
-      {/* {activeRouteName === "Tasks" && (
-        <TouchableOpacity style={styles.fab} activeOpacity={0.85}>
-          <Fontisto name="plus-a" size={20} color="#000" />
-        </TouchableOpacity>
-      )} */}
       <View style={styles.bar}>
+        {/* Sliding Instagram-style White Active Pill */}
+        {tabPositions[activeIndex] !== undefined && (
+          <Animated.View style={[styles.slidingPill, indicatorAnimStyle]} />
+        )}
+
         {TABS.map((tab, i) => {
-          // const focused = state.index === i;
           const focused = currentRoute === tab.name.toLowerCase();
           return (
-            <TouchableOpacity
+            <Pressable
               key={tab.name}
               style={styles.tabItem}
-              activeOpacity={0.8}
+              onLayout={(e) => {
+                const x = e.nativeEvent.layout.x;
+                setTabPositions((prev) => ({ ...prev, [i]: x }));
+              }}
               onPress={() => navigation.navigate(tab.name)}
+              hitSlop={{ top: 10, bottom: 10, left: 15, right: 15 }}
             >
-              <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
+              <View style={styles.iconContainer}>
                 {tab.activeIcon ? (
                   focused ? (
                     <tab.activeIcon width={20} height={20} />
@@ -140,7 +134,7 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                   />
                 )}
               </View>
-            </TouchableOpacity>
+            </Pressable>
           );
         })}
       </View>
@@ -154,19 +148,8 @@ const styles = StyleSheet.create({
     bottom: 20,
     alignSelf: "center",
   },
-  fab: {
-    position: "absolute",
-    right: 0,
-    top: -56,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "#00DEAB",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 10,
-  },
   bar: {
+    position: "relative",
     flexDirection: "row",
     backgroundColor: "#000",
     borderRadius: 36,
@@ -179,22 +162,29 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
   },
-  tabItem: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconWrapActive: {
+  slidingPill: {
+    position: "absolute",
+    left: 0,
+    top: 7,
     width: 42,
     height: 42,
-    backgroundColor: "#fff",
     borderRadius: 21,
+    backgroundColor: "#fff",
+    zIndex: 1,
+  },
+  tabItem: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
+  },
+  iconContainer: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

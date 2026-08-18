@@ -1,6 +1,25 @@
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
-import { TaskNote, ViewTaskData, DependencyData, MentionUser } from "@/types/task.types";
+import {
+  getSocket,
+  onSocketEvent,
+  type TaskUpdatePayload,
+} from "@/services/socket/socketService";
+import {
+  DependencyData,
+  MentionUser,
+  TaskNote,
+  ViewTaskData,
+} from "@/types/task.types";
+import {
+  buildMentionMarkup,
+  mentionMarkupToDisplay,
+} from "@/utils/chatHelpers";
+import {
+  formatFullDateTime as formatFullDateTimeShared,
+  formatShortDate,
+} from "@/utils/dateFormat";
+import { apiStatusToUi } from "@/utils/statusMapper";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -13,13 +32,9 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { STATUS_COLORS, StatusType } from "./TaskRow";
-import { getSocket, onSocketEvent, type TaskUpdatePayload } from "@/services/socket/socketService";
-import { apiStatusToUi } from "@/utils/statusMapper";
-import { buildMentionMarkup, mentionMarkupToDisplay } from "@/utils/chatHelpers";
-import { formatFullDateTime as formatFullDateTimeShared, formatShortDate } from "@/utils/dateFormat";
 
 export type DependencyDisplay = {
   title: string;
@@ -50,7 +65,12 @@ export type TaskDetail = {
   effortUnit?: string;
 };
 
-type Props = { visible: boolean; onClose: () => void; task: TaskDetail | null };
+type Props = {
+  visible: boolean;
+  onClose: () => void;
+  task: TaskDetail | null;
+  initialTab?: "details" | "comments";
+};
 
 const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
   Normal: { bg: "#0DDFAB", text: "#1D1D1D" },
@@ -61,7 +81,13 @@ const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
   Low: { bg: "#10B981", text: "#fff" },
 };
 
-const COL = { title: 150, assignedTo: 120, createdBy: 120, status: 100, dueDate: 110 };
+const COL = {
+  title: 150,
+  assignedTo: 120,
+  createdBy: 120,
+  status: 100,
+  dueDate: 110,
+};
 
 function getInitials(name: string): string {
   if (!name || name === "-") return "?";
@@ -81,35 +107,70 @@ function SectionTable({
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always">
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        keyboardShouldPersistTaps="always"
+      >
         <View>
           <View style={styles.tblHeader}>
-            <View style={{ width: 14 }} />
-            <Text style={[styles.tblHeadCell, { width: COL.title }]}>Task Title</Text>
-            <Text style={[styles.tblHeadCell, { width: COL.assignedTo }]}>Assigned To</Text>
-            <Text style={[styles.tblHeadCell, { width: COL.createdBy }]}>Created By</Text>
-            <Text style={[styles.tblHeadCell, { width: COL.status }]}>Status</Text>
-            <Text style={[styles.tblHeadCell, { width: COL.dueDate }]}>Due Date</Text>
+            {/* Matches tblAccent's width (3) + marginRight (8) below, so the
+                column headings line up with the row data. */}
+            <View style={{ width: 11 }} />
+            <Text style={[styles.tblHeadCell, { width: COL.title }]}>
+              Task Title
+            </Text>
+            <Text style={[styles.tblHeadCell, { width: COL.assignedTo }]}>
+              Assigned To
+            </Text>
+            <Text style={[styles.tblHeadCell, { width: COL.createdBy }]}>
+              Created By
+            </Text>
+            <Text style={[styles.tblHeadCell, { width: COL.status }]}>
+              Status
+            </Text>
+            <Text style={[styles.tblHeadCell, { width: COL.dueDate }]}>
+              Due Date
+            </Text>
           </View>
           {rows.map((row, i) => (
             <View key={i} style={styles.tblRow}>
               <View style={styles.tblAccent} />
-              <Text style={[styles.tblCell, { width: COL.title }]} numberOfLines={1}>{row.title}</Text>
+              <Text
+                style={[styles.tblCell, { width: COL.title }]}
+                numberOfLines={1}
+              >
+                {row.title}
+              </Text>
               <View style={[styles.tblCreatedBy, { width: COL.assignedTo }]}>
                 <View style={styles.tblAvatar}>
-                  <Text style={styles.tblAvatarText}>{getInitials(row.assignedTo)}</Text>
+                  <Text style={styles.tblAvatarText}>
+                    {getInitials(row.assignedTo)}
+                  </Text>
                 </View>
                 <Text style={styles.tblCell}>{row.assignedTo}</Text>
               </View>
               <View style={[styles.tblCreatedBy, { width: COL.createdBy }]}>
                 <View style={styles.tblAvatar}>
-                  <Text style={styles.tblAvatarText}>{getInitials(row.createdBy)}</Text>
+                  <Text style={styles.tblAvatarText}>
+                    {getInitials(row.createdBy)}
+                  </Text>
                 </View>
                 <Text style={styles.tblCell}>{row.createdBy}</Text>
               </View>
-              <Text style={[styles.tblCell, { width: COL.status }]} numberOfLines={1}>{row.status}</Text>
+              <Text
+                style={[styles.tblCell, { width: COL.status }]}
+                numberOfLines={1}
+              >
+                {row.status}
+              </Text>
               <View style={[styles.tblDueDate, { width: COL.dueDate }]}>
-                <Ionicons name="calendar-outline" size={14} color="#00DEAB" style={{ marginRight: 4 }} />
+                <Ionicons
+                  name="calendar-outline"
+                  size={14}
+                  color="#00DEAB"
+                  style={{ marginRight: 4 }}
+                />
                 <Text style={styles.tblCell}>{row.dueDate}</Text>
               </View>
             </View>
@@ -151,31 +212,33 @@ function formatNoteDate(dateInput?: any): string {
     d = directDate;
   } else {
     let match = dateStr.match(
-      /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/
+      /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/,
     );
     if (match) {
-      const [, year, month, day, hour = "0", minute = "0", second = "0"] = match;
+      const [, year, month, day, hour = "0", minute = "0", second = "0"] =
+        match;
       d = new Date(
         Number(year),
         Number(month) - 1,
         Number(day),
         Number(hour),
         Number(minute),
-        Number(second)
+        Number(second),
       );
     } else {
       match = dateStr.match(
-        /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/
+        /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/,
       );
       if (match) {
-        const [, day, month, year, hour = "0", minute = "0", second = "0"] = match;
+        const [, day, month, year, hour = "0", minute = "0", second = "0"] =
+          match;
         d = new Date(
           Number(year),
           Number(month) - 1,
           Number(day),
           Number(hour),
           Number(minute),
-          Number(second)
+          Number(second),
         );
       }
     }
@@ -245,7 +308,9 @@ function PinnedCommentCard({
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.bubbleText}>{mentionMarkupToDisplay(comment.notes)}</Text>
+      <Text style={styles.bubbleText}>
+        {mentionMarkupToDisplay(comment.notes)}
+      </Text>
     </View>
   );
 }
@@ -293,23 +358,27 @@ function CommentBubble({
         </View>
       </View>
 
-      <Text style={styles.bubbleText}>{mentionMarkupToDisplay(comment.notes)}</Text>
+      <Text style={styles.bubbleText}>
+        {mentionMarkupToDisplay(comment.notes)}
+      </Text>
 
       {comment.reactions && comment.reactions.length > 0 && (
         <View style={styles.reactionsRow}>
           {comment.reactions.map((r, i) => (
             <View key={i} style={styles.reactionBadge}>
               <Text style={styles.reactionText}>{r.emoji}</Text>
-              <Text style={styles.reactionCount}>{r.user_name.split(" ")[0]}</Text>
+              <Text style={styles.reactionCount}>
+                {r.user_name.split(" ")[0]}
+              </Text>
             </View>
           ))}
         </View>
       )}
 
       <View style={styles.bubbleActions}>
-          <TouchableOpacity style={styles.actionBtn}>
-            <Ionicons name="thumbs-up-outline" size={15} color="#9CA3AF" />
-          </TouchableOpacity>
+        <TouchableOpacity style={styles.actionBtn}>
+          <Ionicons name="thumbs-up-outline" size={15} color="#9CA3AF" />
+        </TouchableOpacity>
 
         <TouchableOpacity style={styles.actionBtn}>
           <Ionicons name="happy-outline" size={15} color="#9CA3AF" />
@@ -339,11 +408,7 @@ function CommentBubble({
           style={styles.actionBtn}
           onPress={() => onDelete?.(comment)}
         >
-          <Ionicons
-            name="ellipsis-vertical"
-            size={15}
-            color="#9CA3AF"
-          />
+          <Ionicons name="ellipsis-vertical" size={15} color="#9CA3AF" />
         </TouchableOpacity>
       </View>
     </View>
@@ -362,7 +427,7 @@ function formatApiDateTime(dateStr: string): string {
 // Used when opening a task from a notification (no pre-mapped task row exists).
 export function buildTaskDetailFromViewTask(
   viewData: ViewTaskData | null | undefined,
-  companyId: number
+  companyId: number,
 ): TaskDetail | null {
   const t = viewData?.task;
   if (!t) return null;
@@ -376,7 +441,9 @@ export function buildTaskDetailFromViewTask(
   const assignedToName =
     typeof t.asigned_to === "object" && t.asigned_to != null
       ? t.asigned_to.full_name ||
-        [t.asigned_to.first_name, t.asigned_to.last_name].filter(Boolean).join(" ") ||
+        [t.asigned_to.first_name, t.asigned_to.last_name]
+          .filter(Boolean)
+          .join(" ") ||
         `User #${t.asigned_to.id ?? "?"}`
       : `User #${t.asigned_to ?? "?"}`;
 
@@ -408,11 +475,27 @@ export function buildTaskDetailFromViewTask(
   };
 }
 
-export default function TaskDetailModal({ visible, onClose, task }: Props) {
+export default function TaskDetailModal({
+  visible,
+  onClose,
+  task,
+  initialTab = "details",
+}: Props) {
   const { state: authState } = useAuth();
-  const { state: taskState, addNote, fetchNotes, deleteNote, pinNote, viewTask: viewTaskApi, getDependencies, fetchMentionUsers } = useTasks();
+  const {
+    state: taskState,
+    addNote,
+    fetchNotes,
+    deleteNote,
+    pinNote,
+    viewTask: viewTaskApi,
+    getDependencies,
+    fetchMentionUsers,
+  } = useTasks();
 
-  const [activeTab, setActiveTab] = useState<"details" | "comments">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "comments">(
+    initialTab,
+  );
   const [commentText, setCommentText] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [notes, setNotes] = useState<TaskNote[]>([]);
@@ -460,7 +543,7 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
   }, [task?.taskId, companyId, getDependencies]);
 
   const loadNotes = useCallback(async () => {
-    if (!task?.taskId) return;
+    if (!task?.taskId || !companyId || !companyIdentifier) return;
     setNotesLoading(true);
     try {
       const fetched = await fetchNotes(
@@ -468,19 +551,20 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
         companyId,
         companyIdentifier,
       );
-      // Remove any pin-based ordering from backend so comments are always in normal/original order
-      const originalOrdered = [...fetched].sort((a, b) => a.id - b.id);
-      
-      // Ensure only ONE message is marked as pinned if backend returned multiple
-      const pinnedList = originalOrdered.filter((n) => n.pin_top === 1);
-      if (pinnedList.length > 1) {
-        const latestPinnedId = pinnedList[pinnedList.length - 1].id;
-        const sanitized = originalOrdered.map((n) => ({
+      if (Array.isArray(fetched)) {
+        const sanitized = fetched.map((n) => ({
           ...n,
-          pin_top: n.id === latestPinnedId ? 1 : 0,
+          user_full_name:
+            (n as any).user_full_name ??
+            (n as any).user_name ??
+            (n as any).userName ??
+            "System User",
         }));
-        setNotes(sanitized);
-      } else {
+
+        const pinned = sanitized.filter((n) => n.pin_top === 1);
+        const unpinned = sanitized.filter((n) => n.pin_top !== 1);
+        const originalOrdered = [...pinned, ...unpinned];
+
         setNotes(originalOrdered);
       }
     } catch {
@@ -492,7 +576,9 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
 
   useEffect(() => {
     if (visible) {
-      setActiveTab("details");
+      setActiveTab(initialTab);
+      setCommentText("");
+      setMentionActive(false);
       setTaskDetail(null);
       setDependencies([]);
       if (task?.taskId) {
@@ -500,7 +586,7 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
         loadDependencies();
       }
     }
-  }, [visible, task?.taskId, loadTaskDetail, loadDependencies]);
+  }, [visible, initialTab, task?.taskId, loadTaskDetail, loadDependencies]);
 
   useEffect(() => {
     if (visible && activeTab === "comments" && task?.taskId) {
@@ -538,7 +624,9 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
       const p = payload as TaskUpdatePayload;
       if (String(p?.company_id) !== String(companyIdRef.current)) return;
       if (!p?.action) return;
-      const eventTaskId = (p.data as Record<string, unknown>)?.task_id ?? (p.data as Record<string, unknown>)?.id;
+      const eventTaskId =
+        (p.data as Record<string, unknown>)?.task_id ??
+        (p.data as Record<string, unknown>)?.id;
       if (eventTaskId != null && Number(eventTaskId) === taskIdRef.current) {
         if (NOTE_ACTIONS.has(p.action)) {
           loadNotesRef.current();
@@ -575,9 +663,11 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
 
     if (triggerActive && !mentionUsersLoadedRef.current && companyId) {
       mentionUsersLoadedRef.current = true;
-      fetchMentionUsers(companyId).then(setMentionUsers).catch(() => {
-        mentionUsersLoadedRef.current = false;
-      });
+      fetchMentionUsers(companyId)
+        .then(setMentionUsers)
+        .catch(() => {
+          mentionUsersLoadedRef.current = false;
+        });
     }
   };
 
@@ -594,7 +684,7 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
       return `${prev}@${userName} `;
     });
     setMentionedUserIds((prev) =>
-      prev.includes(user.id) ? prev : [...prev, user.id]
+      prev.includes(user.id) ? prev : [...prev, user.id],
     );
     setMentionActive(false);
     setMentionQuery("");
@@ -606,8 +696,9 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
     return mentionUsers
       .filter((u) => u.id !== currentUserId)
       .filter((u) => {
-        const fullName =
-          `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim().toLowerCase();
+        const fullName = `${u.first_name ?? ""} ${u.last_name ?? ""}`
+          .trim()
+          .toLowerCase();
         return (
           fullName.includes(q) || (u.email ?? "").toLowerCase().includes(q)
         );
@@ -669,9 +760,10 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
     const previousNotes = [...notes];
 
     // Find previously pinned note if pinning a new one
-    const previouslyPinnedNote = newPinnedState === 1
-      ? notes.find((n) => n.pin_top === 1 && n.id !== note.id)
-      : null;
+    const previouslyPinnedNote =
+      newPinnedState === 1
+        ? notes.find((n) => n.pin_top === 1 && n.id !== note.id)
+        : null;
 
     // Optimistically update local state ensuring ONLY one note is pinned
     // and automatically unpinning any previous note (updating pin icon colors)
@@ -681,15 +773,25 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
           return { ...n, pin_top: newPinnedState };
         }
         return newPinnedState === 1 ? { ...n, pin_top: 0 } : n;
-      })
+      }),
     );
 
     try {
       // Unpin previous note on backend if pinning a new message
       if (previouslyPinnedNote) {
-        pinNote(previouslyPinnedNote.id, false, companyId, companyIdentifier).catch(() => {});
+        pinNote(
+          previouslyPinnedNote.id,
+          false,
+          companyId,
+          companyIdentifier,
+        ).catch(() => {});
       }
-      await pinNote(note.id, newPinnedState === 1, companyId, companyIdentifier);
+      await pinNote(
+        note.id,
+        newPinnedState === 1,
+        companyId,
+        companyIdentifier,
+      );
     } catch {
       // Revert on error
       setNotes(previousNotes);
@@ -713,38 +815,73 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
   const apiTask = taskDetail?.task;
 
   // Resolve user names — created_by/asigned_to can be a number (lookup in taskOwners) or an object (inline user info)
-  const resolveUserName = (idOrObj: number | { id?: number; first_name?: string; last_name?: string; full_name?: string } | null | undefined): string => {
+  const resolveUserName = (
+    idOrObj:
+      | number
+      | {
+          id?: number;
+          first_name?: string;
+          last_name?: string;
+          full_name?: string;
+        }
+      | null
+      | undefined,
+  ): string => {
     if (!idOrObj) return "-";
     if (typeof idOrObj === "object") {
       const u = idOrObj;
-      return u.full_name || [u.first_name, u.last_name].filter(Boolean).join(" ") || `User #${u.id ?? "?"}`;
+      return (
+        u.full_name ||
+        [u.first_name, u.last_name].filter(Boolean).join(" ") ||
+        `User #${u.id ?? "?"}`
+      );
     }
     const owner = taskState.taskOwners?.find((o) => o.id === idOrObj);
-    if (owner) return owner.full_name || `${owner.first_name} ${owner.last_name}`.trim();
+    if (owner)
+      return owner.full_name || `${owner.first_name} ${owner.last_name}`.trim();
     return `User #${idOrObj}`;
   };
 
   const createdByName = apiTask ? resolveUserName(apiTask.created_by) : "-";
-  const assignedToName = apiTask ? resolveUserName(apiTask.asigned_to) : task.assignedTo;
+  const assignedToName = apiTask
+    ? resolveUserName(apiTask.asigned_to)
+    : task.assignedTo;
   const assignedToInitials = apiTask
-    ? (assignedToName.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "??")
+    ? assignedToName
+        .split(" ")
+        .map((w) => w[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2) || "??"
     : task.assignedToInitials;
 
-  const dueDateDisplay = apiTask ? formatApiDateTime(apiTask.due_date) : task.dueDate;
-  const startDateDisplay = apiTask ? (apiTask.start_date ? formatApiDateTime(apiTask.start_date) : "-") : "-";
+  const dueDateDisplay = apiTask
+    ? formatApiDateTime(apiTask.due_date)
+    : task.dueDate;
+  const startDateDisplay = apiTask
+    ? apiTask.start_date
+      ? formatApiDateTime(apiTask.start_date)
+      : "-"
+    : "-";
 
-  const depDisplay: DependencyDisplay[] = dependencies.length > 0
-    ? dependencies.map((d) => ({
-        title: d.title,
-        assignedTo: d.assigned_to?.full_name ?? "-",
-        createdBy: d.created_by?.full_name ?? "-",
-        status: d.status,
-        dueDate: formatApiDate(d.due_date),
-      }))
-    : task.dependencies;
+  const depDisplay: DependencyDisplay[] =
+    dependencies.length > 0
+      ? dependencies.map((d) => ({
+          title: d.title,
+          assignedTo: d.assigned_to?.full_name ?? "-",
+          createdBy: d.created_by?.full_name ?? "-",
+          status: d.status,
+          dueDate: formatApiDate(d.due_date),
+        }))
+      : task.dependencies;
 
-  const attachmentFiles: string[] = apiTask?.task_attachments?.map((a) => a.attachment) ?? task.attachments;
-  const effortDisplay = apiTask ? `${apiTask.effort_hours} ${apiTask.effort_unit}` : (task.effortHours ? `${task.effortHours} ${task.effortUnit ?? "minutes"}` : "-");
+  const attachmentFiles: string[] =
+    apiTask?.task_attachments?.map((a) => a.attachment) ?? task.attachments;
+  const effortDisplay = apiTask
+    ? `${apiTask.effort_hours} ${apiTask.effort_unit}`
+    : task.effortHours
+      ? `${task.effortHours} ${task.effortUnit ?? "minutes"}`
+      : "-";
   const projectDisplay = apiTask?.project_name ?? task.projectName ?? "-";
 
   // Recurring detail string from API
@@ -752,13 +889,18 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
     ? apiTask.is_recurring
       ? [
           apiTask.recurring_period && `Period: ${apiTask.recurring_period}`,
-          apiTask.recurring_exclude_days?.length ? `Excluded: ${apiTask.recurring_exclude_days.join(", ")}` : null,
-          apiTask.recurring_week_day && `Week Day: ${apiTask.recurring_week_day}`,
-          apiTask.recurring_month_date && `Month Date: ${apiTask.recurring_month_date}`,
+          apiTask.recurring_exclude_days?.length
+            ? `Excluded: ${apiTask.recurring_exclude_days.join(", ")}`
+            : null,
+          apiTask.recurring_week_day &&
+            `Week Day: ${apiTask.recurring_week_day}`,
+          apiTask.recurring_month_date &&
+            `Month Date: ${apiTask.recurring_month_date}`,
           (apiTask.recurring_annual_month || apiTask.recurring_annual_date) &&
             `Annual: ${apiTask.recurring_annual_month ?? "-"}/${apiTask.recurring_annual_date ?? "-"}`,
           apiTask.recurring_time && `Time: ${apiTask.recurring_time}`,
-          apiTask.recurring_total_count > 0 && `Count: ${apiTask.recurring_total_count}`,
+          apiTask.recurring_total_count > 0 &&
+            `Count: ${apiTask.recurring_total_count}`,
         ]
           .filter(Boolean)
           .join(" | ") || "Yes"
@@ -815,7 +957,15 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
       icon: "star-outline",
       label: "Task Priority:",
       value: taskPriorityDisplay ? (
-        <View style={[styles.badge, { backgroundColor: taskPriorityDisplay === "critical" ? "#FF4444" : "#0DDFAB" }]}>
+        <View
+          style={[
+            styles.badge,
+            {
+              backgroundColor:
+                taskPriorityDisplay === "critical" ? "#FF4444" : "#0DDFAB",
+            },
+          ]}
+        >
           <Text style={[styles.badgeText, { color: "#fff" }]}>
             {taskPriorityDisplay === "critical" ? "Critical" : "Normal"}
           </Text>
@@ -832,7 +982,15 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
     {
       icon: "checkmark-circle-outline",
       label: "Approval Required:",
-      value: <Text style={styles.infoValue}>{apiTask ? (apiTask.approval_required ? "Yes" : "No") : task.approvalRequired}</Text>,
+      value: (
+        <Text style={styles.infoValue}>
+          {apiTask
+            ? apiTask.approval_required
+              ? "Yes"
+              : "No"
+            : task.approvalRequired}
+        </Text>
+      ),
     },
     {
       icon: "sync-circle-outline",
@@ -845,7 +1003,9 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
       value: apiTask ? (
         <View style={styles.cntBadgeGray}>
           <Ionicons name="link-outline" size={14} color="#fff" />
-          <Text style={styles.cntBadgeText}>+{apiTask.task_attachments.length}</Text>
+          <Text style={styles.cntBadgeText}>
+            +{apiTask.task_attachments.length}
+          </Text>
         </View>
       ) : (
         <Text style={styles.infoValue}>-</Text>
@@ -854,7 +1014,8 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
     {
       icon: "git-compare-outline",
       label: "Dependencies:",
-      value: depDisplay.length > 0 ? (
+      value:
+        depDisplay.length > 0 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {depDisplay.map((dep, idx) => (
               <View key={idx} style={styles.depPill}>
@@ -929,7 +1090,11 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
             {activeTab === "details" && (
               <View style={styles.tabContent}>
                 {detailLoading ? (
-                  <ActivityIndicator size="small" color="#00DEAB" style={{ marginTop: 40 }} />
+                  <ActivityIndicator
+                    size="small"
+                    color="#00DEAB"
+                    style={{ marginTop: 40 }}
+                  />
                 ) : (
                   <ScrollView
                     showsVerticalScrollIndicator={false}
@@ -956,7 +1121,10 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                     <View style={styles.section}>
                       <Text style={styles.sectionTitle}>Description</Text>
                       <Text style={styles.descText}>
-                        {(apiTask?.description ?? task.description).replace(/<[^>]*>/g, "")}
+                        {(apiTask?.description ?? task.description).replace(
+                          /<[^>]*>/g,
+                          "",
+                        )}
                       </Text>
                       <View style={styles.descBadgesRow}>
                         {attachmentFiles.length > 0 && (
@@ -975,10 +1143,7 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                     </View>
 
                     {depDisplay.length > 0 && (
-                      <SectionTable
-                        title="Dependencies"
-                        rows={depDisplay}
-                      />
+                      <SectionTable title="Dependencies" rows={depDisplay} />
                     )}
 
                     {attachmentFiles.length > 0 && (
@@ -1008,7 +1173,11 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                                 color="#00DEAB"
                               />
                               <Text style={styles.attachTagText}>{a}</Text>
-                              <Ionicons name="close" size={13} color="#00DEAB" />
+                              <Ionicons
+                                name="close"
+                                size={13}
+                                color="#00DEAB"
+                              />
                             </View>
                           ))}
                         </ScrollView>
@@ -1072,7 +1241,7 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                       >
                         <View style={styles.mentionAvatar}>
                           <Text style={styles.mentionAvatarText}>
-                            {`${(user.first_name?.[0] ?? "")}${user.last_name?.[0] ?? ""}`.toUpperCase()}
+                            {`${user.first_name?.[0] ?? ""}${user.last_name?.[0] ?? ""}`.toUpperCase()}
                           </Text>
                         </View>
                         <Text style={styles.mentionName} numberOfLines={1}>
@@ -1085,12 +1254,14 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                   </View>
                 )}
 
-                <View style={[
-                  styles.inputBox,
-                  {
-                    borderColor: isFocused ? "#1D1D1D" : "#E5E7EB",
-                  },
-                ]}>
+                <View
+                  style={[
+                    styles.inputBox,
+                    {
+                      borderColor: isFocused ? "#1D1D1D" : "#E5E7EB",
+                    },
+                  ]}
+                >
                   {(isFocused || commentText.length > 0) && (
                     <View style={styles.inputLabelWrap}>
                       <Text style={styles.inputLabelText}>Comment</Text>
@@ -1103,7 +1274,9 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                     onFocus={() => setIsFocused(true)}
                     onBlur={() => setIsFocused(false)}
                     multiline
-                    placeholder={!isFocused && commentText.length === 0 ? "Comment" : ""}
+                    placeholder={
+                      !isFocused && commentText.length === 0 ? "Comment" : ""
+                    }
                     placeholderTextColor="#9CA3AF"
                     textAlignVertical="top"
                   />
@@ -1121,9 +1294,11 @@ export default function TaskDetailModal({ visible, onClose, task }: Props) {
                           setMentionActive(true);
                           if (companyId && !mentionUsersLoadedRef.current) {
                             mentionUsersLoadedRef.current = true;
-                            fetchMentionUsers(companyId).then(setMentionUsers).catch(() => {
-                              mentionUsersLoadedRef.current = false;
-                            });
+                            fetchMentionUsers(companyId)
+                              .then(setMentionUsers)
+                              .catch(() => {
+                                mentionUsersLoadedRef.current = false;
+                              });
                           }
                         }}
                       >
@@ -1217,8 +1392,16 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   tabActive: { backgroundColor: "#F9F9F9" },
-  tabActiveText: { fontSize: 14, color: "#1D1D1D", fontFamily: "SF_Pro_Semibold" },
-  tabInactiveText: { fontSize: 14, color: "#E6E6E6", fontFamily: "SF_Pro_Semibold" },
+  tabActiveText: {
+    fontSize: 14,
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Semibold",
+  },
+  tabInactiveText: {
+    fontSize: 14,
+    color: "#E6E6E6",
+    fontFamily: "SF_Pro_Semibold",
+  },
   tabDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#00DEAB" },
   detailsScroll: { paddingBottom: 40, paddingTop: 16 },
   cntBadge: {
@@ -1322,7 +1505,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#E6E6E6",
     borderRadius: 8,
     paddingVertical: 10,
-    paddingHorizontal: 4,
     marginBottom: 2,
     alignItems: "center",
   },
@@ -1485,7 +1667,11 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   reactionText: { fontSize: 12 },
-  reactionCount: { fontSize: 10, color: "#6B7280", fontFamily: "SF_Pro_Regular" },
+  reactionCount: {
+    fontSize: 10,
+    color: "#6B7280",
+    fontFamily: "SF_Pro_Regular",
+  },
   actionBtn: { padding: 2 },
   inputBox: {
     borderWidth: 1,
@@ -1600,5 +1786,4 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Regular",
     color: "#9CA3AF",
   },
-
 });

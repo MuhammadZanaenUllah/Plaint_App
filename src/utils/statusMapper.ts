@@ -32,8 +32,16 @@ type PersonLike = {
   image?: string | null;
 };
 
-export function apiStatusToUi(status: TaskStatus): UiTaskStatus {
-  if (status === "Complete") return "Completed";
+export function apiStatusToUi(status: TaskStatus | string): UiTaskStatus {
+  if (!status) return "Pending";
+  const s = String(status).trim().toLowerCase();
+  if (s === "complete" || s === "completed" || s === "done") return "Completed";
+  if (s === "in-progress" || s === "inprogress" || s === "in progress") return "In-Progress";
+  if (s === "on hold" || s === "onhold" || s === "on_hold") return "On Hold";
+  if (s === "pending-approval" || s === "pendingapproval" || s === "pending_approval") return "Pending-Approval";
+  if (s === "rejected") return "Rejected";
+  if (s === "recurring") return "Recurring";
+  if (s === "pending") return "Pending";
   return status as UiTaskStatus;
 }
 

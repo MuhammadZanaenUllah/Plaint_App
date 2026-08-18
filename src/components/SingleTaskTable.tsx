@@ -1,6 +1,6 @@
 import Icons from "@/constants/icons";
 import { Ionicons } from "@expo/vector-icons";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -32,10 +32,36 @@ import {
 
 const { FilterIcon, LeftWaveIcon, RightWaveIcon, HalfSwipeIcon } = Icons;
 
+// Minimal person shape — decoupled from the task-owner roster's own type so
+// this presentational component doesn't need to import from task.types.
+export type AssignableOwner = {
+  id: number;
+  first_name?: string;
+  last_name?: string;
+  full_name?: string;
+  image?: string | null;
+};
+
+function getOwnerDisplayName(owner: AssignableOwner): string {
+  const full = owner.full_name?.trim();
+  if (full) return full;
+  return `${owner.first_name ?? ""} ${owner.last_name ?? ""}`.trim();
+}
+
+function getOwnerInitials(owner: AssignableOwner): string {
+  if (owner.first_name || owner.last_name) {
+    return ((owner.first_name?.[0] ?? "") + (owner.last_name?.[0] ?? "")).toUpperCase();
+  }
+  const parts = owner.full_name?.trim().split(/\s+/) ?? [];
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return parts[0]?.[0]?.toUpperCase() ?? "?";
+}
+
 type Props = {
   sectionTitle: string;
   tasks: TaskRowProps[];
   onTaskPress?: (task: TaskRowProps) => void;
+  onCommentPress?: (task: TaskRowProps) => void;
   onStatusChange?: (task: TaskRowProps, newStatus: StatusType) => void;
   onFilterPress?: () => void;
   loading?: boolean;
@@ -47,12 +73,19 @@ type Props = {
   onRefresh?: () => void;
   refreshing?: boolean;
   onScrollOffsetChange?: (offsetY: number) => void;
+  // Inline reassignment from the swiped-open row — gated to users who can
+  // also create tasks (same permission, checked by the caller).
+  canReassign?: boolean;
+  assignableOwners?: AssignableOwner[];
+  onAssigneeChange?: (task: TaskRowProps, owner: AssignableOwner) => void;
 };
 
 type SwipeStage = "actions" | "details";
 type OpenSwipeRow = { index: number; stage: SwipeStage } | null;
 type Metrics = ReturnType<typeof getTableMetrics>;
 type StatusOverrides = Record<string, StatusType>;
+type AssigneeOverride = { name: string; initials: string; avatar?: string };
+type AssigneeOverrides = Record<string, AssigneeOverride>;
 
 const ROW_HEIGHT = 39;
 const DETAIL_ROW_HEIGHT = 91;
@@ -112,6 +145,7 @@ function SingleTaskTable({
   sectionTitle,
   tasks,
   onTaskPress,
+  onCommentPress,
   onStatusChange,
   onFilterPress,
   loading = false,
@@ -123,10 +157,14 @@ function SingleTaskTable({
   onRefresh,
   refreshing = false,
   onScrollOffsetChange,
+  canReassign = false,
+  assignableOwners = [],
+  onAssigneeChange,
 }: Props) {
   const { width: windowWidth } = useWindowDimensions();
   const metrics = useMemo(() => getTableMetrics(windowWidth), [windowWidth]);
   const [statusOverrides, setStatusOverrides] = useState<StatusOverrides>({});
+  const [assigneeOverrides, setAssigneeOverrides] = useState<AssigneeOverrides>({});
   const [openSwipeRow, setOpenSwipeRow] = useState<OpenSwipeRow>(null);
   // Switching stat filters (Due Today, All Tasks, etc.) swaps the row data
   // under an open swipe. Reset it synchronously in the same render pass
@@ -134,9 +172,11 @@ function SingleTaskTable({
   // a swipe started immediately after switching tabs briefly targets a row
   // index carried over from the old list, fighting the close animation.
   const [lastSectionTitle, setLastSectionTitle] = useState(sectionTitle);
+  const [previewRowIndex, setPreviewRowIndex] = useState<number | null>(null);
   if (sectionTitle !== lastSectionTitle) {
     setLastSectionTitle(sectionTitle);
     if (openSwipeRow !== null) setOpenSwipeRow(null);
+    if (previewRowIndex !== null) setPreviewRowIndex(null);
   }
   const [isSwipeDragging, setIsSwipeDragging] = useState(false);
   const [rowViewportHeight, setRowViewportHeight] = useState(0);
@@ -144,11 +184,38 @@ function SingleTaskTable({
 
   const augmentedTasks = useMemo(
     () =>
-      tasks.map((task, index) => ({
-        ...task,
-        status: statusOverrides[getTaskKey(task, index)] ?? task.status,
-      })),
-    [statusOverrides, tasks],
+      tasks.map((task, index) => {
+        const key = getTaskKey(task, index);
+        const assigneeOverride = assigneeOverrides[key];
+        return {
+          ...task,
+          status: statusOverrides[key] ?? task.status,
+          ...(assigneeOverride
+            ? {
+                assignedTo: assigneeOverride.name,
+                assignedToInitials: assigneeOverride.initials,
+                assignedToAvatar: assigneeOverride.avatar,
+              }
+            : null),
+        };
+      }),
+    [statusOverrides, assigneeOverrides, tasks],
+  );
+
+  const handleAssigneeChange = useCallback(
+    (task: TaskRowProps, rowIndex: number, owner: AssignableOwner) => {
+      const displayName = getOwnerDisplayName(owner);
+      setAssigneeOverrides((previous) => ({
+        ...previous,
+        [getTaskKey(task, rowIndex)]: {
+          name: displayName.split(/\s+/)[0] ?? displayName,
+          initials: getOwnerInitials(owner),
+          avatar: owner.image ?? undefined,
+        },
+      }));
+      onAssigneeChange?.(task, owner);
+    },
+    [onAssigneeChange],
   );
 
   const handleStatusChange = useCallback(
@@ -270,6 +337,9 @@ function SingleTaskTable({
         <View style={{ width: metrics.actionWidth }} />
       </View>
 
+      {/* Floating Spring Refresh Indicator Pill */}
+      <TaskRefreshHeader refreshing={refreshing} />
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         style={styles.rowsScroll}
@@ -296,7 +366,6 @@ function SingleTaskTable({
           ) : undefined
         }
       >
-        <TaskRefreshHeader refreshing={refreshing} />
         {loading ? (
           <View style={styles.centeredState}>
             <ActivityIndicator size="small" color="#00DEAB" />
@@ -324,8 +393,17 @@ function SingleTaskTable({
                 onCloseSwipe={closeSwipe}
                 onSwipeDragStateChange={setIsSwipeDragging}
                 onTaskPress={onTaskPress}
+                onCommentPress={onCommentPress}
                 onToggleComplete={handleToggleComplete}
                 onStatusChange={handleStatusChange}
+                isPreviewOpen={previewRowIndex === rowIndex}
+                onPreviewStart={() => setPreviewRowIndex(rowIndex)}
+                onPreviewEnd={() => setPreviewRowIndex(null)}
+                canReassign={canReassign}
+                assignableOwners={assignableOwners}
+                onAssigneeSelect={(owner) =>
+                  handleAssigneeChange(task, rowIndex, owner)
+                }
               />
             ))
           : null}
@@ -369,8 +447,15 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
   onCloseSwipe,
   onSwipeDragStateChange,
   onTaskPress,
+  onCommentPress,
   onToggleComplete,
   onStatusChange,
+  isPreviewOpen,
+  onPreviewStart,
+  onPreviewEnd,
+  canReassign,
+  assignableOwners,
+  onAssigneeSelect,
 }: {
   item: TaskRowProps;
   rowIndex: number;
@@ -381,12 +466,19 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
   onCloseSwipe: () => void;
   onSwipeDragStateChange: (dragging: boolean) => void;
   onTaskPress?: (task: TaskRowProps) => void;
+  onCommentPress?: (task: TaskRowProps) => void;
   onToggleComplete: (task: TaskRowProps, rowIndex: number) => void;
   onStatusChange: (
     task: TaskRowProps,
     rowIndex: number,
     status: StatusType,
   ) => void;
+  isPreviewOpen: boolean;
+  onPreviewStart: () => void;
+  onPreviewEnd: () => void;
+  canReassign?: boolean;
+  assignableOwners?: AssignableOwner[];
+  onAssigneeSelect: (owner: AssignableOwner) => void;
 }) {
   const translateX = useSharedValue(0);
   const gestureStartX = useSharedValue(0);
@@ -529,9 +621,31 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
         style={[
           styles.rowWrap,
           animatedWrapStyle,
-          { zIndex: isOpen ? 1000 - rowIndex : 1 },
+          { zIndex: isPreviewOpen ? 2000 : isOpen ? 1000 - rowIndex : 1 },
         ]}
       >
+        {isPreviewOpen ? (
+          <View style={styles.previewTooltip} pointerEvents="none">
+            <View
+              style={[
+                styles.previewPill,
+                {
+                  backgroundColor:
+                    item.taskPriority === "critical" ? "#FF4444" : "#1ED9A5",
+                },
+              ]}
+            >
+              <Text style={styles.previewPillText} numberOfLines={1}>
+                {item.priorityName ??
+                  (item.taskPriority === "critical" ? "Critical" : "Normal")}
+              </Text>
+            </View>
+            <Text style={styles.previewTitleText} numberOfLines={1}>
+              {item.title}
+            </Text>
+          </View>
+        ) : null}
+
         <Animated.View
           style={[
             styles.swipeContent,
@@ -551,6 +665,10 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
             onStatusSelect={(nextStatus) =>
               onStatusChange(item, rowIndex, nextStatus)
             }
+            onCommentPress={onCommentPress}
+            canReassign={canReassign}
+            assignableOwners={assignableOwners}
+            onAssigneeSelect={onAssigneeSelect}
           />
         </Animated.View>
 
@@ -574,6 +692,8 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
               columnKey="title"
               width={metrics.titleWidth}
               onPress={() => onTaskPress?.(item)}
+              onLongPressStart={onPreviewStart}
+              onLongPressEnd={onPreviewEnd}
             />
             <TaskCellContent
               item={item}
@@ -638,19 +758,42 @@ const TaskCellContent = memo(function TaskCellContent({
   columnKey,
   width,
   onPress,
+  onLongPressStart,
+  onLongPressEnd,
 }: {
   item: TaskRowProps;
   columnKey: "title" | "createdBy" | "dueDate";
   width: number;
   onPress?: () => void;
+  onLongPressStart?: () => void;
+  onLongPressEnd?: () => void;
 }) {
   const isCompleted = item.status === "Completed";
+  const longPressActive = useRef(false);
 
   if (columnKey === "title") {
     return (
       <TouchableOpacity
         style={[styles.titleCell, { width }]}
-        onPress={onPress}
+        onPress={() => {
+          if (longPressActive.current) return;
+          onPress?.();
+        }}
+        delayLongPress={3000}
+        onLongPress={() => {
+          longPressActive.current = true;
+          onLongPressStart?.();
+        }}
+        onPressOut={() => {
+          if (longPressActive.current) {
+            onLongPressEnd?.();
+            // Deferred so a same-tick onPress fired on release (order isn't
+            // guaranteed relative to onPressOut) still sees the suppression.
+            setTimeout(() => {
+              longPressActive.current = false;
+            }, 0);
+          }
+        }}
         activeOpacity={0.7}
       >
         <Text
@@ -733,6 +876,53 @@ const TaskStatusDropdown = memo(function TaskStatusDropdown({
   );
 });
 
+const AssigneeDropdown = memo(function AssigneeDropdown({
+  currentAssigneeName,
+  owners,
+  onSelect,
+}: {
+  currentAssigneeName: string;
+  owners: AssignableOwner[];
+  onSelect: (owner: AssignableOwner) => void;
+}) {
+  return (
+    <ScrollView
+      style={styles.assigneeDropdownScroll}
+      nestedScrollEnabled
+      showsVerticalScrollIndicator={false}
+    >
+      {owners.map((owner) => {
+        const name = getOwnerDisplayName(owner);
+        const isActive = name.split(/\s+/)[0] === currentAssigneeName;
+
+        return (
+          <TouchableOpacity
+            key={owner.id}
+            style={[styles.dropdownItem, isActive && styles.dropdownItemActive]}
+            onPress={() => onSelect(owner)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.assigneeDropdownAvatar}>
+              <Text style={styles.assigneeDropdownAvatarText}>
+                {getOwnerInitials(owner)}
+              </Text>
+            </View>
+            <Text
+              style={styles.assigneeDropdownText}
+              numberOfLines={1}
+            >
+              {name}
+            </Text>
+            {isActive ? (
+              <Ionicons name="checkmark" size={13} color="#0DDFAB" />
+            ) : null}
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
+  );
+});
+
 const TaskSwipeContent = memo(function TaskSwipeContent({
   item,
   stage,
@@ -740,6 +930,10 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
   onBackToActions,
   onRevealDetails,
   onStatusSelect,
+  onCommentPress,
+  canReassign,
+  assignableOwners,
+  onAssigneeSelect,
 }: {
   item: TaskRowProps;
   stage: SwipeStage;
@@ -747,12 +941,18 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
   onBackToActions: () => void;
   onRevealDetails: () => void;
   onStatusSelect: (status: StatusType) => void;
+  onCommentPress?: (task: TaskRowProps) => void;
+  canReassign?: boolean;
+  assignableOwners?: AssignableOwner[];
+  onAssigneeSelect: (owner: AssignableOwner) => void;
 }) {
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
+  const [assigneePickerOpen, setAssigneePickerOpen] = useState(false);
 
   useEffect(() => {
     if (stage !== "details") {
       setStatusPickerOpen(false);
+      setAssigneePickerOpen(false);
     }
   }, [stage]);
   const colors = STATUS_COLORS[item.status] ?? {
@@ -829,16 +1029,38 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
       </View>
 
       <View style={styles.swipeValues}>
-        <View style={[styles.swipeUserCell, styles.swipeAssignedColumn]}>
-          <View style={styles.initialsAssignee}>
-            <Text style={styles.initialsText}>
-              {item.assignedToInitials || item.assignedTo?.[0] || "?"}
+        {canReassign && assignableOwners && assignableOwners.length > 0 ? (
+          <TouchableOpacity
+            style={[styles.swipeUserCell, styles.swipeAssignedColumn]}
+            onPress={() => setAssigneePickerOpen((value) => !value)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.initialsAssignee}>
+              <Text style={styles.initialsText}>
+                {item.assignedToInitials || item.assignedTo?.[0] || "?"}
+              </Text>
+            </View>
+            <Text style={styles.cellText} numberOfLines={1}>
+              {item.assignedTo}
+            </Text>
+            <Ionicons
+              name={assigneePickerOpen ? "chevron-up" : "chevron-down"}
+              size={12}
+              color="#6B7280"
+            />
+          </TouchableOpacity>
+        ) : (
+          <View style={[styles.swipeUserCell, styles.swipeAssignedColumn]}>
+            <View style={styles.initialsAssignee}>
+              <Text style={styles.initialsText}>
+                {item.assignedToInitials || item.assignedTo?.[0] || "?"}
+              </Text>
+            </View>
+            <Text style={styles.cellText} numberOfLines={1}>
+              {item.assignedTo}
             </Text>
           </View>
-          <Text style={styles.cellText} numberOfLines={1}>
-            {item.assignedTo}
-          </Text>
-        </View>
+        )}
 
         <View style={styles.swipeStatusColumn}>
           {canChangeStatus ? (
@@ -875,9 +1097,14 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
           )}
         </View>
 
-        <View style={[styles.swipeCommentCell, styles.swipeCommentColumn]}>
-          <Ionicons name="chatbox-outline" size={16} color="#D1D5DB" />
-        </View>
+        <TouchableOpacity
+          style={[styles.swipeCommentCell, styles.swipeCommentColumn]}
+          onPress={() => onCommentPress?.(item)}
+          activeOpacity={0.7}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="chatbox-outline" size={18} color="#00DEAB" />
+        </TouchableOpacity>
 
         <View style={[styles.swipeProjectCell, styles.swipeProjectColumn]}>
           <TouchableOpacity
@@ -905,6 +1132,25 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
               onSelect={(status) => {
                 onStatusSelect(status);
                 setStatusPickerOpen(false);
+              }}
+            />
+          </View>
+        </>
+      ) : null}
+
+      {assigneePickerOpen && assignableOwners && assignableOwners.length > 0 ? (
+        <>
+          <Pressable
+            style={styles.dropdownBackdrop}
+            onPress={() => setAssigneePickerOpen(false)}
+          />
+          <View style={styles.assigneeDropdown}>
+            <AssigneeDropdown
+              currentAssigneeName={item.assignedTo}
+              owners={assignableOwners}
+              onSelect={(owner) => {
+                onAssigneeSelect(owner);
+                setAssigneePickerOpen(false);
               }}
             />
           </View>
@@ -989,6 +1235,42 @@ const styles = StyleSheet.create({
   },
   rowWrap: {
     position: "relative",
+  },
+  previewTooltip: {
+    position: "absolute",
+    left: 8,
+    right: 8,
+    bottom: "100%",
+    marginBottom: 6,
+    zIndex: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
+  },
+  previewPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 10,
+  },
+  previewPillText: {
+    fontSize: 13,
+    fontFamily: "SF_Pro_Bold",
+    color: "#FFFFFF",
+  },
+  previewTitleText: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: "SF_Pro_Semibold",
+    color: "#1D1D1D",
   },
   swipeContent: {
     position: "absolute",
@@ -1237,7 +1519,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#fff",
-    paddingHorizontal: 10,
+    // Left inset matches the header's own leading offset (detailsBackButton
+    // width + its marginRight = 16) so the "Assigned to/Status/Comment/
+    // Project" headings line up with the cells below them.
+    paddingLeft: WAVE_BADGE_WIDTH + 6,
+    paddingRight: 10,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
@@ -1303,6 +1589,46 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
     overflow: "hidden",
+  },
+  assigneeDropdown: {
+    position: "absolute",
+    top: 52,
+    left: WAVE_BADGE_WIDTH + 6,
+    width: 180,
+    zIndex: 9999,
+    elevation: 9999,
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    overflow: "hidden",
+  },
+  assigneeDropdownScroll: {
+    maxHeight: 220,
+  },
+  assigneeDropdownAvatar: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,
+  },
+  assigneeDropdownAvatarText: {
+    fontSize: 10,
+    fontFamily: "SF_Pro_Bold",
+    color: "#374151",
+  },
+  assigneeDropdownText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: "SF_Pro_Regular",
+    color: "#1F2937",
   },
   dropdownItem: {
     height: 40,

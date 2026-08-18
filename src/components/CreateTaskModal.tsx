@@ -35,9 +35,7 @@ import {
 import CalendarPicker from "@/components/CalendarPicker";
 import FloatingInput from "@/components/FloatingInput";
 
-type DurationUnit = "Minutes" | "Hours" | "Days";
-
-type Props = { visible: boolean; onClose: () => void };
+type Props = { visible: boolean; onClose: () => void; onCreated?: () => void };
 
 const TOP_CHIPS = [
   { id: "assigned", icon: "people", label: "Assigned to" },
@@ -45,7 +43,14 @@ const TOP_CHIPS = [
   { id: "priority", icon: "star", label: "Priority" },
 ];
 
-const DURATION_UNITS: DurationUnit[] = ["Minutes", "Hours", "Days"];
+// Advanced Task Module effort/duration unit — matches the web app's
+// Minutes/Hours/Days switcher on the "Hrs" chip.
+type EffortUnit = "minutes" | "hours" | "days";
+const EFFORT_UNITS: { value: EffortUnit; label: string; abbrev: string }[] = [
+  { value: "minutes", label: "Minutes", abbrev: "Min" },
+  { value: "hours", label: "Hours", abbrev: "Hrs" },
+  { value: "days", label: "Days", abbrev: "Days" },
+];
 
 const PRIORITY_OPTIONS = [
   { label: "Normal", dot: "#0DDFAB" },
@@ -59,7 +64,7 @@ const STATUSES = ALL_STATUSES.filter((s) => s !== "Recurring" && s !== "Pending-
   color: STATUS_COLORS[s]?.text ?? "#00DFAB",
 }));
 
-export default function CreateTaskModal({ visible, onClose }: Props) {
+export default function CreateTaskModal({ visible, onClose, onCreated }: Props) {
   const { state: authState } = useAuth();
   const { state: taskState, createTask, fetchAllTasks, allMappedTasks, reorderCritical } = useTasks();
 
@@ -82,10 +87,21 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     return cleanup;
   }, [visible]);
 
+  // Companies with the Advanced Task Module enabled schedule tasks by
+  // effort/duration instead of a manually-picked due date — the backend
+  // engine computes due_date itself. Defaults to the normal (Due Date) flow
+  // until the company's module list has loaded.
+  const isAdvanced = authState.hasAdvancedTaskModule === true;
+
   const [activePanel, setActivePanel] = useState<
     "assigned" | "dueDate" | "priority" | "approval" | "status" | "recurring" | null
   >(null);
   const [selectedDueDate, setSelectedDueDate] = useState<Date | null>(null);
+  const [effortHours, setEffortHours] = useState<string>("");
+  const [effortUnit, setEffortUnit] = useState<EffortUnit>("hours");
+  const [effortUnitOpen, setEffortUnitOpen] = useState(false);
+  const effortUnitAbbrev =
+    EFFORT_UNITS.find((u) => u.value === effortUnit)?.abbrev ?? "Hrs";
 
   const [title, setTitle] = useState("");
   const [titleFocused, setTitleFocused] = useState(false);
@@ -98,18 +114,9 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
   const [assignedUserId, setAssignedUserId] = useState<number | null>(null);
   const [assignedUserName, setAssignedUserName] = useState<string>("");
 
-  // Duration state (replaces Due Date)
-  const [durationOpen, setDurationOpen] = useState(false);
-  const [durationValue, setDurationValue] = useState<string>("");
-  const [durationUnit, setDurationUnit] = useState<DurationUnit>("Minutes");
-  const [durationUnitOpen, setDurationUnitOpen] = useState(false);
-
-  const [priorityOpen, setPriorityOpen] = useState(false);
   const [selectedPriority, setSelectedPriority] = useState<string>("Normal");
   const [selectedPriorityId, setSelectedPriorityId] = useState<number | null>(null);
-  const [approvalOpen, setApprovalOpen] = useState(false);
   const [selectedApproval, setSelectedApproval] = useState<string | null>(null);
-  const [statusOpen, setStatusOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
   // recurringOpen removed — now uses recurringModalVisible popup
   const [isRecurringEnabled, setIsRecurringEnabled] = useState(false);
@@ -143,15 +150,6 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
   const [assigneeCriticalTasks, setAssigneeCriticalTasks] = useState<CriticalTask[]>([]);
   // placeholder for the new task in the order modal (actual id set after creation)
   const PENDING_NEW_TASK_ID = -1;
-
-  const togglePanel = (panel: "duration" | "priority" | "approval" | "status") => {
-    setDurationOpen(panel === "duration" ? !durationOpen : false);
-    setPriorityOpen(panel === "priority" ? !priorityOpen : false);
-    setApprovalOpen(panel === "approval" ? !approvalOpen : false);
-    setStatusOpen(panel === "status" ? !statusOpen : false);
-    // Close unit dropdown when closing duration panel
-    if (panel !== "duration") setDurationUnitOpen(false);
-  };
 
   const RECURRING_PERIODS: { value: RecurringPeriod; label: string }[] = [
     { value: "daily", label: "Daily" },
@@ -242,16 +240,6 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     }
   };
 
-  // Compute the due_date ISO string from duration
-  const computeDueDateFromDuration = (): string => {
-    const val = parseFloat(durationValue) || 0;
-    let ms = 0;
-    if (durationUnit === "Minutes") ms = val * 60 * 1000;
-    else if (durationUnit === "Hours") ms = val * 60 * 60 * 1000;
-    else if (durationUnit === "Days") ms = val * 24 * 60 * 60 * 1000;
-    return new Date(Date.now() + ms).toISOString();
-  };
-
   /**
    * Builds and validates the task payload, then either:
    *   A) Shows the critical-conflict popup (if priority=critical AND assignee already has active critical tasks)
@@ -266,8 +254,13 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       showInfo("Validation", "Please assign a user.");
       return;
     }
-    if (!durationValue || parseFloat(durationValue) <= 0) {
-      showInfo("Validation", "Duration is required.");
+    if (isAdvanced) {
+      if (!effortHours || parseFloat(effortHours) <= 0) {
+        showInfo("Validation", "Hours is required.");
+        return;
+      }
+    } else if (!selectedDueDate) {
+      showInfo("Validation", "Please select a due date.");
       return;
     }
     if (!selectedPriority) {
@@ -280,13 +273,6 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     const companyIdentifier = authState.company?.company_identifier ?? "";
     const isRecurring = isRecurringEnabled;
     const priority = selectedPriority.toLowerCase() as "normal" | "critical";
-    const rawEffort = durationValue ? parseInt(durationValue, 10) : 0;
-    const effortInMinutes =
-      durationUnit === "Hours"
-        ? rawEffort * 60
-        : durationUnit === "Days"
-        ? rawEffort * 8 * 60
-        : rawEffort;
 
     const totalCountNum = recurringTotalCount ? parseInt(recurringTotalCount, 10) : 0;
     const monthDateNum = recurringMonthDate ? parseInt(recurringMonthDate, 10) : null;
@@ -298,7 +284,9 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       company_identifier: companyIdentifier,
       company_id: companyId,
       assign_to: assignedUserId,
-      due_date: computeDueDateFromDuration(),
+      // Advanced companies leave due_date null — the scheduling engine
+      // computes it from effort_hours/effort_unit/depends_on instead.
+      due_date: isAdvanced ? null : (selectedDueDate as Date).toISOString(),
       task_priority: priority,
       bump_to_front: priority === "critical", // default; overridden per popup choice
       approval_required: selectedApproval === "Yes" ? 1 : 0,
@@ -316,8 +304,8 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       recurring_month_date: isRecurring && recurringPeriod === "monthly" ? monthDateNum : null,
       recurring_annual_month: isRecurring && recurringPeriod === "annually" ? annualMonthNum : null,
       recurring_annual_date: isRecurring && recurringPeriod === "annually" ? annualDateNum : null,
-      effort_hours: effortInMinutes,
-      effort_unit: durationUnit.toLowerCase(),
+      effort_hours: isAdvanced ? parseFloat(effortHours) || 0 : 0,
+      effort_unit: isAdvanced ? effortUnit : "hours",
       depends_on: selectedDependencies,
     };
 
@@ -369,6 +357,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       );
       resetForm();
       onClose();
+      onCreated?.();
     } catch (error) {
       const msg = extractErrorMessage(error);
       showError("Error", msg);
@@ -393,6 +382,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       pendingPayloadRef.current = null;
       resetForm();
       onClose();
+      onCreated?.();
     } catch (error) {
       showError("Error", extractErrorMessage(error));
     } finally {
@@ -420,6 +410,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
       );
       await reorderCritical({ orderedIds: resolvedIds, company_id: companyId });
       fetchAllTasks(companyId, { silent: true }).catch(() => {});
+      onCreated?.();
     } catch (error) {
       showError("Reorder Error", extractErrorMessage(error));
     } finally {
@@ -431,18 +422,24 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
   };
 
   const resetForm = () => {
+    setActivePanel(null);
     setTitle("");
+    setTitleFocused(false);
     setDescription("");
+    setDescFocused(false);
+    setSelectedDueDate(null);
+    setEffortHours("");
+    setEffortUnit("hours");
+    setEffortUnitOpen(false);
+    setAssignSearch("");
+    setAssignFocused(false);
     setAssignedUserId(null);
     setAssignedUserName("");
-    setDurationValue("");
-    setDurationUnit("Minutes");
-    setDurationOpen(false);
-    setDurationUnitOpen(false);
     setSelectedPriority("Normal");
     setSelectedPriorityId(null);
     setSelectedApproval(null);
     setSelectedStatus(null);
+    setAssignModalVisible(false);
     setRecurringModalVisible(false);
     setDependenciesModalVisible(false);
     setIsRecurringEnabled(false);
@@ -458,7 +455,28 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     setAttachments([]);
     setSelectedDependencies([]);
     setDepSearch("");
+    setDepFocused(false);
     setDepVisibleCount(20);
+    setCriticalPopupVisible(false);
+    setOrderModalVisible(false);
+    pendingPayloadRef.current = null;
+    setAssigneeCriticalTasks([]);
+    if (descriptionEditorRef.current) {
+      descriptionEditorRef.current.setContentHtml("");
+    }
+  };
+
+  // Automatically clear all form state when modal closes
+  useEffect(() => {
+    if (!visible) {
+      resetForm();
+    }
+  }, [visible]);
+
+  const handleModalClose = () => {
+    Keyboard.dismiss();
+    resetForm();
+    onClose();
   };
 
   const handleSelectPriority = (label: string) => {
@@ -493,13 +511,10 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
 
   return (
     <>
-    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={() => { Keyboard.dismiss(); onClose(); }}>
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={handleModalClose}>
       <Pressable
         style={styles.overlay}
-        onPress={() => {
-          Keyboard.dismiss();
-          onClose();
-        }}
+        onPress={handleModalClose}
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -508,10 +523,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
           <Pressable onPress={() => Keyboard.dismiss()} style={styles.sheet}>
             <TouchableOpacity
               style={styles.closeBtn}
-              onPress={() => {
-                Keyboard.dismiss();
-                onClose();
-              }}
+              onPress={handleModalClose}
             >
               <Ionicons name="close" size={18} color="#fff" />
             </TouchableOpacity>
@@ -580,34 +592,64 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
                 </Text>
               </TouchableOpacity>
 
-              {/* 2. Due Date */}
-              <TouchableOpacity
-                style={[
-                  styles.designChip,
-                  (activePanel === "dueDate" || !!selectedDueDate) && styles.designChipDark,
-                ]}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setActivePanel((p) => (p === "dueDate" ? null : "dueDate"));
-                }}
-              >
-                <Ionicons
-                  name="calendar"
-                  size={16}
-                  color={activePanel === "dueDate" || !!selectedDueDate ? "#FFF" : "#6B7280"}
-                />
-                <Text
-                  allowFontScaling={false}
+              {/* 2. Due Date (normal) / Hrs (advanced task module) */}
+              {isAdvanced ? (
+                <TouchableOpacity
                   style={[
-                    styles.designChipText,
-                    (activePanel === "dueDate" || !!selectedDueDate) && styles.designChipTextWhite,
+                    styles.designChip,
+                    (activePanel === "dueDate" || !!effortHours) && styles.designChipDark,
                   ]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setActivePanel((p) => (p === "dueDate" ? null : "dueDate"));
+                  }}
                 >
-                  {selectedDueDate
-                    ? selectedDueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                    : "Due Date"}
-                </Text>
-              </TouchableOpacity>
+                  <Ionicons
+                    name="time"
+                    size={16}
+                    color={activePanel === "dueDate" || !!effortHours ? "#FFF" : "#6B7280"}
+                  />
+                  <Text
+                    allowFontScaling={false}
+                    style={[
+                      styles.designChipText,
+                      (activePanel === "dueDate" || !!effortHours) && styles.designChipTextWhite,
+                    ]}
+                  >
+                    {effortHours
+                      ? `${effortHours} ${effortUnitAbbrev}`
+                      : effortUnitAbbrev}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    styles.designChip,
+                    (activePanel === "dueDate" || !!selectedDueDate) && styles.designChipDark,
+                  ]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setActivePanel((p) => (p === "dueDate" ? null : "dueDate"));
+                  }}
+                >
+                  <Ionicons
+                    name="calendar"
+                    size={16}
+                    color={activePanel === "dueDate" || !!selectedDueDate ? "#FFF" : "#6B7280"}
+                  />
+                  <Text
+                    allowFontScaling={false}
+                    style={[
+                      styles.designChipText,
+                      (activePanel === "dueDate" || !!selectedDueDate) && styles.designChipTextWhite,
+                    ]}
+                  >
+                    {selectedDueDate
+                      ? selectedDueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                      : "Due Date"}
+                  </Text>
+                </TouchableOpacity>
+              )}
 
               {/* 3. Priority */}
               <TouchableOpacity
@@ -680,7 +722,58 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
               </View>
             )}
 
-            {activePanel === "dueDate" && (
+            {activePanel === "dueDate" && isAdvanced && (
+              <View style={styles.inlinePanelBox}>
+                <View style={styles.effortRow}>
+                  <FloatingInput
+                    label={EFFORT_UNITS.find((u) => u.value === effortUnit)?.label ?? "Hours"}
+                    value={effortHours}
+                    onChangeText={(text) => setEffortHours(text.replace(/[^0-9.]/g, ""))}
+                    keyboardType="numeric"
+                    autoFocus
+                    containerStyle={styles.effortInputWrap}
+                  />
+                  <View>
+                    <TouchableOpacity
+                      style={styles.effortUnitBtn}
+                      onPress={() => setEffortUnitOpen((v) => !v)}
+                    >
+                      <Text allowFontScaling={false} style={styles.effortUnitBtnText}>
+                        {effortUnitAbbrev}
+                      </Text>
+                      <Ionicons name="chevron-down" size={14} color="#1D1D1D" />
+                    </TouchableOpacity>
+
+                    {effortUnitOpen && (
+                      <View style={styles.effortUnitDropdown}>
+                        {EFFORT_UNITS.map((u) => (
+                          <TouchableOpacity
+                            key={u.value}
+                            style={styles.effortUnitDropdownItem}
+                            onPress={() => {
+                              setEffortUnit(u.value);
+                              setEffortUnitOpen(false);
+                            }}
+                          >
+                            <Text
+                              allowFontScaling={false}
+                              style={[
+                                styles.effortUnitDropdownText,
+                                u.value === effortUnit && styles.effortUnitDropdownTextActive,
+                              ]}
+                            >
+                              {u.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {activePanel === "dueDate" && !isAdvanced && (
               <View style={styles.inlinePanelBox}>
                 <CalendarPicker
                   compact
@@ -764,7 +857,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
                 </Text>
               </TouchableOpacity>
 
-              {/* Approval Options (renders directly below Approval Required) */}
+              {/* Approval Options (renders directly beneath Approval Required) */}
               {activePanel === "approval" && (
                 <View style={{ width: "100%", marginVertical: 6 }}>
                   <View style={styles.inlineOptionsRow}>
@@ -814,7 +907,7 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
                 </Text>
               </TouchableOpacity>
 
-              {/* Status Options (renders directly below Task Status) */}
+              {/* Status Options (renders directly beneath Task Status) */}
               {activePanel === "status" && (
                 <View style={{ width: "100%", marginVertical: 6 }}>
                   <ScrollView
@@ -858,52 +951,31 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
               <TouchableOpacity
                 style={[
                   styles.designChip,
-                  (activePanel === "recurring" || isRecurringEnabled) && styles.designChipDark,
+                  isRecurringEnabled && styles.designChipDark,
                 ]}
                 onPress={() => {
                   Keyboard.dismiss();
-                  setActivePanel((p) => (p === "recurring" ? null : "recurring"));
+                  setActivePanel(null);
+                  setRecurringModalVisible(true);
                 }}
               >
                 <Ionicons
                   name="alarm-outline"
                   size={16}
-                  color={activePanel === "recurring" || isRecurringEnabled ? "#FFF" : "#6B7280"}
+                  color={isRecurringEnabled ? "#FFF" : "#6B7280"}
                 />
                 <Text
                   allowFontScaling={false}
                   style={[
                     styles.designChipText,
-                    (activePanel === "recurring" || isRecurringEnabled) && styles.designChipTextWhite,
+                    isRecurringEnabled && styles.designChipTextWhite,
                   ]}
                 >
-                  Recurring Task
+                  {isRecurringEnabled && recurringPeriod
+                    ? `Recurring: ${recurringPeriod}`
+                    : "Recurring Task"}
                 </Text>
               </TouchableOpacity>
-
-              {/* Recurring Options (renders directly below Recurring Task) */}
-              {activePanel === "recurring" && (
-                <View style={{ width: "100%", marginVertical: 6 }}>
-                  <View style={styles.inlineOptionsRow}>
-                    <TouchableOpacity
-                      style={[styles.pillBtn, isRecurringEnabled ? styles.pillLime : styles.pillGrey]}
-                      onPress={() => {
-                        const next = !isRecurringEnabled;
-                        setIsRecurringEnabled(next);
-                        if (next) {
-                          setRecurringModalVisible(true);
-                        }
-                        setActivePanel(null);
-                      }}
-                    >
-                      <Ionicons name="checkmark" size={14} color={isRecurringEnabled ? "#166534" : "#71717A"} />
-                      <Text allowFontScaling={false} style={[styles.pillText, isRecurringEnabled && { color: "#166534", fontFamily: "SF_Pro_Semibold" }]}>
-                        {isRecurringEnabled ? "Enable Recurring" : "Recurring Off"}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
             </View>
 
             <View style={styles.attachRow}>
@@ -1092,6 +1164,18 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
           <Pressable style={styles.centerModalCard} onPress={() => {}}>
             <View style={styles.centerModalHeader}>
               <Text style={styles.centerModalTitle}>Recurring Task Settings</Text>
+              {isRecurringEnabled && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setIsRecurringEnabled(false);
+                    setRecurringPeriod(null);
+                    setRecurringModalVisible(false);
+                  }}
+                  style={{ marginRight: 12 }}
+                >
+                  <Text style={{ fontSize: 13, color: "#EF4444", fontFamily: "SF_Pro_Medium" }}>Turn Off</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity onPress={() => setRecurringModalVisible(false)} hitSlop={8}>
                 <Ionicons name="close" size={20} color="#1D1D1D" />
               </TouchableOpacity>
@@ -1447,44 +1531,6 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: "#1D1D1D", borderColor: "#1D1D1D" },
   chipLabel: { fontSize: 13, color: "#AAAAAA", fontFamily: "SF_Pro_Regular" },
   chipLabelActive: { color: "#fff" },
-
-  // Duration chip
-  durationChipWrap: { position: "relative" },
-  durationInner: { flexDirection: "row", alignItems: "center", gap: 4 },
-  durationNumInput: {
-    fontSize: 13, color: "#fff", fontFamily: "SF_Pro_Regular",
-    padding: 0, minWidth: 24, maxWidth: 40,
-  },
-  durationUnitBtn: { flexDirection: "row", alignItems: "center", gap: 3 },
-  durationUnitText: { fontSize: 13, color: "#fff", fontFamily: "SF_Pro_Regular" },
-
-  // Unit dropdown
-  unitDropdown: {
-    position: "absolute",
-    top: 40,
-    left: 0,
-    zIndex: 9999,
-    elevation: 9999,
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    minWidth: 100,
-    overflow: "hidden",
-  },
-  unitDropdownItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  unitDropdownItemActive: { backgroundColor: "#F0FDF9" },
-  unitDropdownText: { fontSize: 14, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
-  unitDropdownTextActive: { fontFamily: "SF_Pro_Semibold", color: "#0DDFAB" },
 
   // Priority
   priorityRow: { flexDirection: "row", gap: 8, marginBottom: 5 },
@@ -1900,6 +1946,63 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#E5E7EB",
+  },
+  effortRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    zIndex: 100,
+  },
+  effortInputWrap: {
+    flex: 1,
+  },
+  effortUnitBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
+  },
+  effortUnitBtnText: {
+    fontSize: 13,
+    fontFamily: "SF_Pro_Semibold",
+    color: "#1D1D1D",
+  },
+  effortUnitDropdown: {
+    position: "absolute",
+    top: "100%",
+    right: 0,
+    marginTop: 4,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    zIndex: 200,
+    minWidth: 90,
+  },
+  effortUnitDropdownItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  effortUnitDropdownText: {
+    fontSize: 13,
+    fontFamily: "SF_Pro_Regular",
+    color: "#4B5563",
+  },
+  effortUnitDropdownTextActive: {
+    fontFamily: "SF_Pro_Bold",
+    color: "#0DDFAB",
   },
   inlineOptionsRow: {
     flexDirection: "row",

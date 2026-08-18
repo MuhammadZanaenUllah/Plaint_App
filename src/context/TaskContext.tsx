@@ -757,12 +757,13 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 
   const updateTaskStatusApi = useCallback(
     async (taskId: number, data: UpdateTaskStatusRequest) => {
+      updateTaskStatusLocal(String(taskId), data.status);
       const res = await tasksService.updateTaskStatus(taskId, data);
       if (!res.Good) {
         throw new Error(typeof res.data === "string" ? res.data : "Failed to update task status");
       }
     },
-    []
+    [updateTaskStatusLocal]
   );
 
   const logout = useCallback(() => {

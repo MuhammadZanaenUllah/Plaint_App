@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import * as authService from "@/services/api/auth.service";
+import { getModules } from "@/services/api/modules.service";
 import {
   getStoredToken,
   setStoredToken,
@@ -22,6 +23,10 @@ type AuthState = {
   isDefaultPassword: boolean;
   loading: boolean;
   defaultPasswordEmail: string;
+  // Whether the company's "Advanced Task" module is enabled (drives the
+  // Create Task screen's Due Date vs Hrs/duration flow). Null until the
+  // /modules/all lookup resolves.
+  hasAdvancedTaskModule: boolean | null;
 };
 
 type AuthAction =
@@ -29,7 +34,8 @@ type AuthAction =
   | { type: "LOGIN_SUCCESS"; token: string; user: UserData; company: Company }
   | { type: "DEFAULT_PASSWORD"; email: string }
   | { type: "LOGOUT" }
-  | { type: "SET_LOADING"; loading: boolean };
+  | { type: "SET_LOADING"; loading: boolean }
+  | { type: "SET_ADVANCED_TASK_MODULE"; enabled: boolean };
 
 const initialState: AuthState = {
   user: null,
@@ -39,6 +45,7 @@ const initialState: AuthState = {
   isDefaultPassword: false,
   loading: true,
   defaultPasswordEmail: "",
+  hasAdvancedTaskModule: null,
 };
 
 function authReducer(state: AuthState, action: AuthAction): AuthState {
@@ -73,6 +80,8 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
       return { ...initialState, loading: false };
     case "SET_LOADING":
       return { ...state, loading: action.loading };
+    case "SET_ADVANCED_TASK_MODULE":
+      return { ...state, hasAdvancedTaskModule: action.enabled };
     default:
       return state;
   }
@@ -130,6 +139,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: "LOGOUT" });
     });
   }, []);
+
+  // Look up the company's module list once a session is established, so the
+  // Create Task screen knows whether to show the Advanced ("Hrs"/effort)
+  // flow or the normal (Due Date) flow. Matches by name rather than a fixed
+  // id, since the exact module id isn't documented anywhere we can verify.
+  useEffect(() => {
+    if (!state.isAuthenticated || !state.company) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await getModules();
+        if (cancelled) return;
+        const modules = res?.data?.modules ?? [];
+        console.log("[Auth] /modules/all response:", JSON.stringify(modules));
+        const advanced = modules.some(
+          (m) =>
+            m.status === 1 &&
+            /advance/i.test(m.name) &&
+            /task/i.test(m.name)
+        );
+        dispatch({ type: "SET_ADVANCED_TASK_MODULE", enabled: advanced });
+      } catch (err) {
+        if (cancelled) return;
+        console.warn("[Auth] Failed to fetch modules, defaulting to normal task flow:", err);
+        dispatch({ type: "SET_ADVANCED_TASK_MODULE", enabled: false });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state.isAuthenticated, state.company]);
 
   const login = useCallback(async (email: string, password: string) => {
     try {

@@ -70,8 +70,8 @@ function TabLayoutContent() {
     currentRoute === "tasks" ? config.forceSearchOpen && !isHeaderCompact : config.forceSearchOpen;
 
   return (
-    <View style={{ flex: 1 }}>
-      <View style={{ overflow: "visible", zIndex: 99999, paddingTop: insets.top }}>
+    <View style={{ flex: 1, backgroundColor: "#fff" }}>
+      <View style={{ overflow: "visible", zIndex: 99999, paddingTop: insets.top, backgroundColor: "#fff" }}>
         <AppHeader
           greeting={config.greeting}
           subGreeting={config.subGreeting}

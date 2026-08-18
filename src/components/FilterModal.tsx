@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -16,10 +17,29 @@ import {
 import CalendarPicker from "./CalendarPicker";
 import FloatingInput from "./FloatingInput";
 
-export type FilterPerson = { id: number; full_name: string };
+export type FilterPerson = {
+  id: number;
+  full_name?: string;
+  first_name?: string;
+  last_name?: string;
+  name?: string;
+  email?: string;
+};
 
-function getInitials(fullName: string): string {
-  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+export function getUserDisplayName(user?: FilterPerson | null): string {
+  if (!user) return "";
+  if (user.full_name?.trim()) return user.full_name.trim();
+  const combined = `${user.first_name || ""} ${user.last_name || ""}`.trim();
+  if (combined) return combined;
+  if (user.name?.trim()) return user.name.trim();
+  if (user.email?.split("@")[0]) return user.email.split("@")[0];
+  return `User #${user.id ?? "?"}`;
+}
+
+function getInitials(user?: FilterPerson | null): string {
+  const name = getUserDisplayName(user);
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
@@ -70,8 +90,8 @@ type Props = {
     priority: string | null;
     startDate?: Date | null;
     endDate?: Date | null;
-    createdBy?: number | null;
-    assignedTo?: number | null;
+    createdBy?: number | number[] | null;
+    assignedTo?: number | number[] | null;
   }) => void;
 
   // Preset values (for re-opening with previously applied filters)
@@ -79,8 +99,8 @@ type Props = {
   initialPriority?: string | null;
   initialStartDate?: Date | null;
   initialEndDate?: Date | null;
-  initialCreatedBy?: number | null;
-  initialAssignedTo?: number | null;
+  initialCreatedBy?: number | number[] | null;
+  initialAssignedTo?: number | number[] | null;
 
   // Called when Reset is tapped (parent should clear its filter state)
   onReset?: () => void;
@@ -98,9 +118,9 @@ function PersonPickerField({
   open,
   onFocus,
   onCloseDropdown,
-  onSelect,
+  selectedIds,
+  onToggleOwner,
   onClear,
-  hasValue,
 }: {
   label: string;
   owners: FilterPerson[];
@@ -109,98 +129,127 @@ function PersonPickerField({
   open: boolean;
   onFocus: () => void;
   onCloseDropdown: () => void;
-  onSelect: (owner: FilterPerson) => void;
+  selectedIds: number[];
+  onToggleOwner: (owner: FilterPerson) => void;
   onClear: () => void;
-  hasValue: boolean;
 }) {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return owners;
-    return owners.filter((o) => o.full_name.toLowerCase().includes(q));
+    return owners.filter((o) =>
+      getUserDisplayName(o).toLowerCase().includes(q)
+    );
   }, [owners, query]);
 
-  // Closing on blur (not just on select) means tapping anywhere else in the
-  // sheet — another chip, Apply, the other person field — dismisses the
-  // dropdown instead of leaving it open on top of everything below it. The
-  // short delay lets a tap on a dropdown row's onPress fire first.
-  const handleBlur = () => {
-    setTimeout(onCloseDropdown, 150);
-  };
+  const selectedOwners = useMemo(() => {
+    return owners.filter((o) => selectedIds.includes(o.id));
+  }, [owners, selectedIds]);
 
   return (
-    <View style={styles.personField}>
-      <View
-        style={[
-          styles.personInputRow,
-          (open || hasValue) && styles.personInputRowActive,
-        ]}
-      >
-        <Text
-          style={[
-            styles.personLabel,
-            (open || hasValue) && styles.personLabelActive,
-          ]}
-        >
-          {label}
-        </Text>
-        <TextInput
-          style={styles.personInput}
+    <View style={styles.personFieldContainer}>
+      {/* Selected People Chips */}
+      {selectedOwners.length > 0 && (
+        <View style={styles.selectedPersonChipsRow}>
+          {selectedOwners.map((owner) => (
+            <View key={owner.id} style={styles.selectedPersonChip}>
+              <View style={styles.personAvatarSmall}>
+                <Text style={styles.personAvatarTextSmall}>
+                  {getInitials(owner)}
+                </Text>
+              </View>
+              <Text style={styles.selectedPersonChipText} numberOfLines={1}>
+                {getUserDisplayName(owner)}
+              </Text>
+              <TouchableOpacity
+                onPress={() => onToggleOwner(owner)}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              >
+                <Ionicons name="close-circle" size={16} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+          ))}
+          {selectedOwners.length > 1 && (
+            <TouchableOpacity onPress={onClear} style={styles.clearAllBtn}>
+              <Text style={styles.clearAllText}>Clear all</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Search Input */}
+      <View style={{ position: "relative", width: "100%" }}>
+        <FloatingInput
+          label={selectedOwners.length > 0 ? `${label} (${selectedOwners.length})` : label}
           value={query}
-          onChangeText={onChangeQuery}
+          onChangeText={(text) => {
+            onChangeQuery(text);
+            if (!open) onFocus();
+          }}
           onFocus={onFocus}
-          onBlur={handleBlur}
-          placeholder="Search..."
-          placeholderTextColor="#B3B3B3"
+          rightIcon={query.length > 0 ? undefined : "search-outline"}
         />
-        {query.length > 0 ? (
-          <TouchableOpacity onPress={onClear} hitSlop={8}>
-            <Ionicons name="close-circle" size={16} color="#9CA3AF" />
+        {query.length > 0 && (
+          <TouchableOpacity
+            style={styles.personClearBtn}
+            onPress={() => onChangeQuery("")}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="close-circle" size={18} color="#9CA3AF" />
           </TouchableOpacity>
-        ) : (
-          <Ionicons name="chevron-down" size={16} color="#9CA3AF" />
         )}
       </View>
 
+      {/* Search Dropdown */}
       {open && (
-        <View
-          style={[
-            styles.personDropdown,
-            filtered.length === 0 && styles.personDropdownEmpty,
-          ]}
-        >
+        <View style={styles.personInlineList}>
           {filtered.length === 0 ? (
             <View style={styles.personEmptyRow}>
               <Ionicons name="search-outline" size={15} color="#B3B3B3" />
-              <Text style={styles.personEmpty}>No matches</Text>
+              <Text style={styles.personEmpty}>No matches found</Text>
             </View>
           ) : (
-            <ScrollView
-              keyboardShouldPersistTaps="always"
-              style={[
-                styles.personDropdownScroll,
-                // Shrink to fit short lists instead of always reserving a
-                // tall, mostly-empty-looking box.
-                { maxHeight: Math.min(filtered.length * 44, 176) },
-              ]}
-            >
-              {filtered.map((owner) => (
-                <TouchableOpacity
-                  key={owner.id}
-                  style={styles.personOption}
-                  onPress={() => onSelect(owner)}
-                  activeOpacity={0.6}
-                >
-                  <View style={styles.personAvatar}>
-                    <Text style={styles.personAvatarText}>
-                      {getInitials(owner.full_name)}
-                    </Text>
-                  </View>
-                  <Text style={styles.personOptionText} numberOfLines={1}>
-                    {owner.full_name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            <View style={{ maxHeight: 200 }}>
+              <ScrollView
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                {filtered.map((owner) => {
+                  const isSelected = selectedIds.includes(owner.id);
+                  return (
+                    <TouchableOpacity
+                      key={owner.id}
+                      style={[
+                        styles.personOption,
+                        isSelected && styles.personOptionSelected,
+                      ]}
+                      onPress={() => onToggleOwner(owner)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.personAvatar}>
+                        <Text style={styles.personAvatarText}>
+                          {getInitials(owner)}
+                        </Text>
+                      </View>
+                      <Text
+                        style={[
+                          styles.personOptionText,
+                          isSelected && styles.personOptionTextSelected,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {getUserDisplayName(owner)}
+                      </Text>
+                      {isSelected ? (
+                        <Ionicons name="checkmark-circle" size={18} color="#0DDFAB" />
+                      ) : (
+                        <Ionicons name="add-circle-outline" size={18} color="#D1D5DB" />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
           )}
         </View>
       )}
@@ -252,16 +301,34 @@ export default function FilterModal({
   const [startDate, setStartDate] = useState<Date | null>(initialStartDate);
   const [endDate, setEndDate] = useState<Date | null>(initialEndDate);
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [selectedCreatedBy, setSelectedCreatedBy] = useState<number | null>(initialCreatedBy);
-  const [selectedAssignedTo, setSelectedAssignedTo] = useState<number | null>(initialAssignedTo);
-  const [createdByQuery, setCreatedByQuery] = useState(
-    owners.find((o) => o.id === initialCreatedBy)?.full_name ?? "",
-  );
-  const [assignedToQuery, setAssignedToQuery] = useState(
-    owners.find((o) => o.id === initialAssignedTo)?.full_name ?? "",
-  );
+  const [selectedCreatedBy, setSelectedCreatedBy] = useState<number[]>(() => {
+    if (initialCreatedBy === null || initialCreatedBy === undefined) return [];
+    return Array.isArray(initialCreatedBy) ? initialCreatedBy : [initialCreatedBy];
+  });
+  const [selectedAssignedTo, setSelectedAssignedTo] = useState<number[]>(() => {
+    if (initialAssignedTo === null || initialAssignedTo === undefined) return [];
+    return Array.isArray(initialAssignedTo) ? initialAssignedTo : [initialAssignedTo];
+  });
+  const [createdByQuery, setCreatedByQuery] = useState("");
+  const [assignedToQuery, setAssignedToQuery] = useState("");
   const [createdByOpen, setCreatedByOpen] = useState(false);
   const [assignedToOpen, setAssignedToOpen] = useState(false);
+
+  const handleToggleCreatedBy = (owner: FilterPerson) => {
+    setSelectedCreatedBy((prev) =>
+      prev.includes(owner.id)
+        ? prev.filter((id) => id !== owner.id)
+        : [...prev, owner.id]
+    );
+  };
+
+  const handleToggleAssignedTo = (owner: FilterPerson) => {
+    setSelectedAssignedTo((prev) =>
+      prev.includes(owner.id)
+        ? prev.filter((id) => id !== owner.id)
+        : [...prev, owner.id]
+    );
+  };
   const [applying, setApplying] = useState(false);
   const [resetting, setResetting] = useState(false);
   // Bumped by the reset-close effect to re-check the minimum spinner duration
@@ -283,12 +350,14 @@ export default function FilterModal({
 
   useEffect(() => {
     if (visible) {
-      // Refs survive the sheet remount (they live on the outer component), so
-      // clear any session leftovers before a new filter session starts. All
-      // UI state is re-initialized by remounting the sheet via its `key`.
       waitForRealLoadRef.current = false;
       waitForResetRef.current = false;
       applyingSessionRef.current = 0;
+      setCreatedByOpen(false);
+      setAssignedToOpen(false);
+    } else {
+      setCreatedByOpen(false);
+      setAssignedToOpen(false);
     }
   }, [visible]);
 
@@ -353,8 +422,8 @@ export default function FilterModal({
     setStartDate(null);
     setEndDate(null);
     setCalendarOpen(false);
-    setSelectedCreatedBy(null);
-    setSelectedAssignedTo(null);
+    setSelectedCreatedBy([]);
+    setSelectedAssignedTo([]);
     setCreatedByQuery("");
     setAssignedToQuery("");
     setCreatedByOpen(false);
@@ -493,26 +562,16 @@ export default function FilterModal({
                         label="Created By"
                         owners={owners}
                         query={createdByQuery}
-                        hasValue={selectedCreatedBy !== null}
-                        onChangeQuery={(text) => {
-                          setCreatedByQuery(text);
-                          setSelectedCreatedBy(null);
-                        }}
+                        selectedIds={selectedCreatedBy}
+                        onChangeQuery={setCreatedByQuery}
                         open={createdByOpen}
                         onFocus={() => {
                           setCreatedByOpen(true);
                           setAssignedToOpen(false);
                         }}
                         onCloseDropdown={() => setCreatedByOpen(false)}
-                        onSelect={(owner) => {
-                          setSelectedCreatedBy(owner.id);
-                          setCreatedByQuery(owner.full_name);
-                          setCreatedByOpen(false);
-                        }}
-                        onClear={() => {
-                          setSelectedCreatedBy(null);
-                          setCreatedByQuery("");
-                        }}
+                        onToggleOwner={handleToggleCreatedBy}
+                        onClear={() => setSelectedCreatedBy([])}
                       />
                     )}
                     {showAssignedTo && (
@@ -520,26 +579,16 @@ export default function FilterModal({
                         label="Assigned To"
                         owners={owners}
                         query={assignedToQuery}
-                        hasValue={selectedAssignedTo !== null}
-                        onChangeQuery={(text) => {
-                          setAssignedToQuery(text);
-                          setSelectedAssignedTo(null);
-                        }}
+                        selectedIds={selectedAssignedTo}
+                        onChangeQuery={setAssignedToQuery}
                         open={assignedToOpen}
                         onFocus={() => {
                           setAssignedToOpen(true);
                           setCreatedByOpen(false);
                         }}
                         onCloseDropdown={() => setAssignedToOpen(false)}
-                        onSelect={(owner) => {
-                          setSelectedAssignedTo(owner.id);
-                          setAssignedToQuery(owner.full_name);
-                          setAssignedToOpen(false);
-                        }}
-                        onClear={() => {
-                          setSelectedAssignedTo(null);
-                          setAssignedToQuery("");
-                        }}
+                        onToggleOwner={handleToggleAssignedTo}
+                        onClear={() => setSelectedAssignedTo([])}
                       />
                     )}
                   </View>
@@ -686,8 +735,8 @@ export default function FilterModal({
                   priority: selectedPriority,
                   startDate,
                   endDate,
-                  createdBy: selectedCreatedBy,
-                  assignedTo: selectedAssignedTo,
+                  createdBy: selectedCreatedBy.length > 0 ? (selectedCreatedBy.length === 1 ? selectedCreatedBy[0] : selectedCreatedBy) : null,
+                  assignedTo: selectedAssignedTo.length > 0 ? (selectedAssignedTo.length === 1 ? selectedAssignedTo[0] : selectedAssignedTo) : null,
                 });
                 if (loading) {
                   // Real backend load in flight — keep the modal open with a
@@ -773,45 +822,39 @@ const styles = StyleSheet.create({
   chipsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 3,
+    gap: 8,
     marginBottom: 16,
   },
   chip: {
-    minWidth: 60,
+    height: 34,
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1,
-    backgroundColor: "#F2F2F2",
-    borderColor: "#F2F2F2",
-    borderRadius: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    backgroundColor: "#F4F4F5",
+    borderRadius: 20,
+    paddingHorizontal: 12,
   },
   chipleavetype: {
-    minWidth: 60,
+    height: 34,
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1,
-    backgroundColor: "#F2F2F2",
-    borderColor: "#F2F2F2",
-    borderRadius: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    backgroundColor: "#F4F4F5",
+    borderRadius: 20,
+    paddingHorizontal: 12,
   },
   dot: {
-    width: 5,
-    height: 5,
+    width: 7,
+    height: 7,
     borderRadius: 4,
-    marginRight: 5,
+    marginRight: 6,
   },
   chipText: {
-    fontSize: 12,
-    color: "#1D1D1D",
+    fontSize: 13,
+    color: "#18181B",
     fontFamily: "SF_Pro_Medium",
   },
   chipTextActive: {
-    color: "#fff",
-    fontFamily: "SF_Pro_Medium",
+    color: "#ffffff",
+    fontFamily: "SF_Pro_Semibold",
   },
   divider: {
     height: 1,
@@ -819,107 +862,107 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   personRow: {
+    flexDirection: "column",
+    gap: 8,
+    marginBottom: 16,
+  },
+  personFieldContainer: {
+    width: "100%",
+    marginVertical: 4,
+  },
+  selectedPersonChipsRow: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 20,
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 8,
+    alignItems: "center",
   },
-  personField: {
-    flex: 1,
-    position: "relative",
-  },
-  personInputRow: {
-    position: "relative",
+  selectedPersonChip: {
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E6E6E6",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    height: 44,
-    marginTop: 10,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     gap: 6,
-    backgroundColor: "#fff",
   },
-  personInputRowActive: {
-    borderColor: "#1D1D1D",
+  personAvatarSmall: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    backgroundColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  // Floating label cut into the top border — same technique as
-  // FloatingInput.tsx, but always floated (this is a fixed field label,
-  // not a placeholder that animates in).
-  personLabel: {
-    position: "absolute",
-    left: 8,
-    top: -8,
+  personAvatarTextSmall: {
+    fontSize: 10,
+    fontFamily: "SF_Pro_Bold",
+    color: "#374151",
+  },
+  selectedPersonChipText: {
     fontSize: 12,
-    fontFamily: "SF_Pro_Regular",
-    color: "#8E8E93",
-    backgroundColor: "#fff",
-    paddingHorizontal: 4,
-    zIndex: 1,
+    color: "#1F2937",
+    fontFamily: "SF_Pro_Medium",
+    maxWidth: 120,
   },
-  personLabelActive: {
-    color: "#1D1D1D",
+  clearAllBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
   },
-  personInput: {
-    flex: 1,
-    fontSize: 14,
-    color: "#1D1D1D",
-    fontFamily: "SF_Pro_Regular",
-    padding: 0,
+  clearAllText: {
+    fontSize: 12,
+    color: "#EF4444",
+    fontFamily: "SF_Pro_Medium",
   },
-  personDropdown: {
+  personClearBtn: {
     position: "absolute",
-    top: "100%",
-    left: 0,
-    right: 0,
-    marginTop: 4,
-    backgroundColor: "#fff",
-    borderRadius: 10,
+    right: 12,
+    top: 14,
+    zIndex: 10,
+  },
+  personInlineList: {
+    marginTop: 6,
+    marginBottom: 6,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#E6E6E6",
-    zIndex: 20,
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-  },
-  personDropdownEmpty: {
-    // No content to size against — pin a compact height instead of
-    // inheriting whatever the (unbounded) empty-state row would otherwise
-    // take, so it doesn't render as a large blank box.
-    height: 44,
-  },
-  personDropdownScroll: {
-    maxHeight: 176,
+    borderColor: "#E5E7EB",
+    paddingVertical: 4,
+    paddingHorizontal: 6,
   },
   personOption: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F2F2F2",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  personOptionSelected: {
+    backgroundColor: "#F0FDF4",
   },
   personAvatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 2,
-    backgroundColor: "#00DEAB",
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
   },
   personAvatarText: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#fff",
+    fontSize: 12,
+    fontFamily: "SF_Pro_Bold",
+    color: "#374151",
   },
   personOptionText: {
     flex: 1,
-    fontSize: 14,
-    color: "#1D1D1D",
+    fontSize: 13,
+    color: "#1F2937",
     fontFamily: "SF_Pro_Regular",
+  },
+  personOptionTextSelected: {
+    fontFamily: "SF_Pro_Semibold",
+    color: "#065F46",
   },
   personEmptyRow: {
     flex: 1,
@@ -964,17 +1007,17 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   applyBtn: {
-    backgroundColor: "#00DEAB",
-    borderRadius: 10,
-    paddingVertical: 16,
+    backgroundColor: "#0DDFAB",
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: "center",
     marginTop: 8,
     marginBottom: 30,
   },
   applyBtnDisabled: { opacity: 0.7 },
   applyText: {
-    fontSize: 18,
+    fontSize: 16,
     color: "#1D1D1D",
-    fontFamily: "SF_Pro_Semibold",
+    fontFamily: "SF_Pro_Bold",
   },
 });
