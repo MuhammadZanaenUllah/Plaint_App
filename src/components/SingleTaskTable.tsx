@@ -1,6 +1,6 @@
 import Icons from "@/constants/icons";
 import { Ionicons } from "@expo/vector-icons";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -16,13 +16,17 @@ import {
   View,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Svg, { Circle, Path } from "react-native-svg";
 import Animated, {
+  Easing,
   runOnJS,
+  SharedValue,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withSpring,
+  withTiming,
 } from "react-native-reanimated";
-import TaskRefreshHeader from "./TaskRefreshHeader";
 import {
   ALL_STATUSES,
   STATUS_COLORS,
@@ -113,13 +117,24 @@ function getTableMetrics(windowWidth: number) {
     MIN_TABLE_WIDTH,
     Math.min(windowWidth - 32, MAX_TABLE_WIDTH),
   );
-  // The container's actual box width — edge-flush on the right (only the
-  // left inset from the parent tableShell is reserved) so the row's action
-  // column has room to reach the true screen edge, matching Figma.
+  // The container's actual box width — on phones (the common, unclamped
+  // case) this is the full window width so the row can be edge-flush on
+  // BOTH sides: the closed row's chevron reaches the true right edge, and
+  // the swiped-open "details" panel's back arrow reaches the true left
+  // edge (it renders inside the parent tableShell's left padding via
+  // `leftCompensation` below). On wide/web screens where this clamps to
+  // MAX_TABLE_WIDTH, keep the original centered-card treatment instead.
+  const naturalTableWidth = windowWidth;
   const tableWidth = Math.max(
     MIN_TABLE_WIDTH,
-    Math.min(windowWidth - 16, MAX_TABLE_WIDTH),
+    Math.min(naturalTableWidth, MAX_TABLE_WIDTH),
   );
+  const tableWidthClamped = tableWidth !== naturalTableWidth;
+  // Only needed in the unclamped case — compensates the parent tableShell's
+  // left padding so visible content (headers, row data) lands exactly where
+  // it did before, while the container box itself now starts at the true
+  // screen edge.
+  const leftCompensation = tableWidthClamped ? 0 : 16;
   const innerPadding = 6;
   const contentWidth = insetTableWidth - innerPadding * 2;
   const leadingWidth = 32;
@@ -131,15 +146,98 @@ function getTableMetrics(windowWidth: number) {
 
   return {
     tableWidth,
+    tableWidthClamped,
+    leftCompensation,
     innerPadding,
     leadingWidth,
     titleWidth,
     createdByWidth,
     dueDateWidth,
     actionWidth,
-    swipeContentWidth: Math.min(410, tableWidth),
+    // No separate cap — the "details" panel always spans the full row width
+    // so its back-arrow always reaches the true left edge on every device
+    // size, matching the closed row's chevron on the right.
+    swipeContentWidth: tableWidth,
   };
 }
+
+const CustomPullToRefreshBadge = memo(function CustomPullToRefreshBadge({
+  pullDistance,
+  refreshing,
+}: {
+  pullDistance: SharedValue<number>;
+  refreshing: boolean;
+}) {
+  const rotation = useSharedValue(0);
+
+  useEffect(() => {
+    if (refreshing) {
+      rotation.value = withRepeat(
+        withTiming(360, { duration: 800, easing: Easing.linear }),
+        -1,
+        false
+      );
+    } else {
+      rotation.value = 0;
+    }
+  }, [refreshing, rotation]);
+
+  const animStyle = useAnimatedStyle(() => {
+    if (refreshing) {
+      return {
+        transform: [
+          { translateY: 10 },
+          { scale: 1 },
+          { rotate: `${rotation.value}deg` },
+        ],
+        opacity: 1,
+      };
+    }
+    const dist = pullDistance.value;
+    const progress = Math.min(1, Math.max(0, dist / 60));
+    const translateY = Math.min(20, dist * 0.35);
+    const scale = 0.4 + progress * 0.6;
+    const opacity = Math.min(1, dist / 20);
+    const rot = progress * 180;
+
+    return {
+      transform: [
+        { translateY },
+        { scale },
+        { rotate: `${rot}deg` },
+      ],
+      opacity,
+    };
+  });
+
+  return (
+    <Animated.View
+      style={[styles.pullContainer, animStyle]}
+      pointerEvents="none"
+    >
+      <View style={styles.pullBadge}>
+        <Svg width={20} height={20} viewBox="0 0 32 32" fill="none">
+          <Circle
+            cx={16}
+            cy={16}
+            r={13}
+            stroke="#00DEAB"
+            strokeWidth={3}
+            strokeDasharray="52 28"
+            strokeLinecap="round"
+          />
+          <Path
+            d="M10.5 16.5L14 20L21.5 12"
+            stroke="#00DEAB"
+            strokeWidth={3}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </Svg>
+      </View>
+    </Animated.View>
+  );
+});
 
 function SingleTaskTable({
   sectionTitle,
@@ -253,6 +351,8 @@ function SingleTaskTable({
   const shouldEnableRowScroll =
     rowContentHeight > rowViewportHeight + 1 && !isSwipeDragging;
 
+  const pullDistance = useSharedValue(0);
+
   // Infinite scroll — fire onLoadMore when the user scrolls near the bottom.
   // Also reports the raw scroll offset so the screen can collapse its header.
   const handleScroll = useCallback(
@@ -260,6 +360,12 @@ function SingleTaskTable({
       const { layoutMeasurement, contentOffset, contentSize } =
         event.nativeEvent;
       onScrollOffsetChange?.(contentOffset.y);
+
+      if (contentOffset.y < 0) {
+        pullDistance.value = -contentOffset.y;
+      } else {
+        pullDistance.value = 0;
+      }
 
       if (!hasMore || loadingMore || loading) return;
       const threshold = 40;
@@ -270,7 +376,7 @@ function SingleTaskTable({
         onLoadMore?.();
       }
     },
-    [hasMore, loadingMore, loading, onLoadMore, onScrollOffsetChange],
+    [hasMore, loadingMore, loading, onLoadMore, onScrollOffsetChange, pullDistance],
   );
 
   // If the current page doesn't fill the viewport (e.g. tall screens), load the
@@ -289,10 +395,69 @@ function SingleTaskTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowContentHeight, rowViewportHeight, hasMore, loading, loadingMore]);
 
+  const [lastUpdatedTime, setLastUpdatedTime] = useState<Date>(new Date());
+  const syncRotation = useSharedValue(0);
+
+  useEffect(() => {
+    if (refreshing) {
+      syncRotation.value = withRepeat(
+        withTiming(360, { duration: 850, easing: Easing.linear }),
+        -1,
+        false
+      );
+    } else {
+      syncRotation.value = 0;
+      setLastUpdatedTime(new Date());
+    }
+  }, [refreshing, syncRotation]);
+
+  const syncIconAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${syncRotation.value}deg` }],
+  }));
+
+  const timeAgoText = useMemo(() => {
+    const diffMs = Date.now() - lastUpdatedTime.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return "moments ago";
+    if (diffMin < 60) return `${diffMin} ${diffMin === 1 ? "min" : "mins"} ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    return `${diffHr} ${diffHr === 1 ? "hr" : "hrs"} ago`;
+  }, [lastUpdatedTime]);
+
   return (
-    <View style={[styles.container, { width: metrics.tableWidth }]}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>{sectionTitle}</Text>
+    <View
+      style={[
+        styles.container,
+        {
+          width: metrics.tableWidth,
+          alignSelf: metrics.tableWidthClamped ? "center" : "flex-end",
+        },
+      ]}
+    >
+      <View
+        style={[styles.sectionHeader, { marginLeft: metrics.leftCompensation }]}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={styles.sectionTitle}>{sectionTitle}</Text>
+          <View style={styles.syncSubRow}>
+            <Animated.View style={refreshing ? syncIconAnimStyle : undefined}>
+              <Ionicons
+                name="sync-outline"
+                size={12}
+                color={refreshing ? "#00DEAB" : "#9CA3AF"}
+              />
+            </Animated.View>
+            <Text
+              style={[
+                styles.syncSubText,
+                refreshing && styles.syncSubTextActive,
+              ]}
+            >
+              {refreshing ? "Syncing tasks..." : `Updated ${timeAgoText}`}
+            </Text>
+          </View>
+        </View>
+
         {onFilterPress ? (
           <Pressable
             onPress={onFilterPress}
@@ -321,7 +486,10 @@ function SingleTaskTable({
       <View
         style={[
           styles.tableHeader,
-          { paddingHorizontal: metrics.innerPadding },
+          {
+            paddingHorizontal: metrics.innerPadding,
+            marginLeft: metrics.leftCompensation,
+          },
         ]}
       >
         <View style={{ width: metrics.leadingWidth }} />
@@ -337,8 +505,8 @@ function SingleTaskTable({
         <View style={{ width: metrics.actionWidth }} />
       </View>
 
-      {/* Floating Spring Refresh Indicator Pill */}
-      <TaskRefreshHeader refreshing={refreshing} />
+      {/* Custom Pull-To-Refresh Badge */}
+      <CustomPullToRefreshBadge pullDistance={pullDistance} refreshing={refreshing} />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -678,7 +846,7 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
               styles.row,
               {
                 minHeight: ROW_HEIGHT,
-                paddingLeft: metrics.innerPadding,
+                paddingLeft: metrics.innerPadding + metrics.leftCompensation,
               },
             ]}
           >
@@ -1006,7 +1174,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
 
   return (
     <View style={styles.swipePanel}>
-      <View style={styles.swipeHeader}>
+      <View style={styles.swipeHeaderRow}>
         <TouchableOpacity
           style={styles.detailsBackButton}
           onPress={onBackToActions}
@@ -1014,18 +1182,17 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
         >
           <WaveChevronBadge mirrored />
         </TouchableOpacity>
-        <Text style={[styles.swipeHeaderText, styles.swipeAssignedColumn]}>
-          Assigned to
-        </Text>
-        <Text style={[styles.swipeHeaderText, styles.swipeStatusColumn]}>
-          Status
-        </Text>
-        <Text style={[styles.swipeHeaderText, styles.swipeCommentColumn]}>
-          Comment
-        </Text>
-        <Text style={[styles.swipeHeaderText, styles.swipeProjectColumn]}>
-          Project
-        </Text>
+        <View style={styles.swipeHeaderInner}>
+          <Text style={[styles.swipeHeaderText, styles.swipeAssignedColumn]}>
+            Assigned to
+          </Text>
+          <Text style={[styles.swipeHeaderText, styles.swipeStatusColumn]}>
+            Status
+          </Text>
+          <Text style={[styles.swipeHeaderText, styles.swipeCommentColumn]}>
+            Comment
+          </Text>
+        </View>
       </View>
 
       <View style={styles.swipeValues}>
@@ -1105,19 +1272,6 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
         >
           <Ionicons name="chatbox-outline" size={18} color="#00DEAB" />
         </TouchableOpacity>
-
-        <View style={[styles.swipeProjectCell, styles.swipeProjectColumn]}>
-          <TouchableOpacity
-            style={styles.addProjectButton}
-            onPress={onClose}
-            activeOpacity={0.75}
-          >
-            <Ionicons name="add" size={14} color="#D1D5DB" />
-            <Text style={styles.cellText} numberOfLines={1}>
-              {item.project || "Add project"}
-            </Text>
-          </TouchableOpacity>
-        </View>
       </View>
 
       {statusPickerOpen ? (
@@ -1165,6 +1319,27 @@ const styles = StyleSheet.create({
     flex: 1,
     alignSelf: "center",
   },
+  pullContainer: {
+    position: "absolute",
+    top: 72,
+    alignSelf: "center",
+    zIndex: 9999,
+  },
+  pullBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.14,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.06)",
+  },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1178,6 +1353,21 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontFamily: "SF_Pro_Medium",
     color: "#1F2937",
+  },
+  syncSubRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+  },
+  syncSubText: {
+    fontSize: 12,
+    fontFamily: "SF_Pro_Regular",
+    color: "#9CA3AF",
+  },
+  syncSubTextActive: {
+    color: "#00DEAB",
+    fontFamily: "SF_Pro_Medium",
   },
   filterBtn: {
     width: 35,
@@ -1474,19 +1664,25 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     overflow: "hidden",
   },
-  swipeHeader: {
+  swipeHeaderRow: {
     height: 37,
     flexDirection: "row",
     alignItems: "center",
+  },
+  swipeHeaderInner: {
+    flex: 1,
+    height: 37,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 10,
     paddingRight: 10,
     backgroundColor: "#00DEAB",
-    // borderTopLeftRadius: 8,
-    // borderTopRightRadius: 8,
     borderRadius: 8,
   },
   detailsBackButton: {
-    // WaveChevronBadge's own shape has a flat left edge (mirrored) — sits
-    // flush against this panel's far-left edge with no separate clipping.
+    // WaveChevronBadge's own shape has a flat left edge (mirrored) — sits on
+    // the plain panel background, outside the green heading box, with a
+    // small gap before it (matches the reference design).
     width: WAVE_BADGE_WIDTH,
     height: 37,
     alignItems: "center",
@@ -1499,20 +1695,16 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Medium",
   },
   swipeAssignedColumn: {
-    flex: 1.2,
+    flex: 1,
     minWidth: 82,
   },
   swipeStatusColumn: {
-    flex: 0.95,
+    flex: 1,
     minWidth: 70,
   },
   swipeCommentColumn: {
-    flex: 0.9,
+    flex: 1,
     minWidth: 66,
-  },
-  swipeProjectColumn: {
-    flex: 1.15,
-    minWidth: 78,
   },
   swipeValues: {
     height: 54,
@@ -1520,9 +1712,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#fff",
     // Left inset matches the header's own leading offset (detailsBackButton
-    // width + its marginRight = 16) so the "Assigned to/Status/Comment/
-    // Project" headings line up with the cells below them.
-    paddingLeft: WAVE_BADGE_WIDTH + 6,
+    // width + its marginRight, plus swipeHeaderInner's own paddingLeft) so
+    // the "Assigned to/Status/Comment" headings line up with the cells below them.
+    paddingLeft: WAVE_BADGE_WIDTH + 6 + 10,
     paddingRight: 10,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
@@ -1553,16 +1745,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingLeft: 8,
-  },
-  swipeProjectCell: {
-    minWidth: 0,
-    justifyContent: "center",
-  },
-  addProjectButton: {
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
   },
   dropdownBackdrop: {
     position: "absolute",
