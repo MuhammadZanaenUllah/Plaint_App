@@ -1,6 +1,6 @@
 import Icons from "@/constants/icons";
 import { Ionicons } from "@expo/vector-icons";
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -16,7 +16,6 @@ import {
   View,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Svg, { Circle, Path } from "react-native-svg";
 import Animated, {
   Easing,
   runOnJS,
@@ -27,6 +26,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
+import Svg, { Circle, Path } from "react-native-svg";
 import {
   ALL_STATUSES,
   STATUS_COLORS,
@@ -54,10 +54,13 @@ function getOwnerDisplayName(owner: AssignableOwner): string {
 
 function getOwnerInitials(owner: AssignableOwner): string {
   if (owner.first_name || owner.last_name) {
-    return ((owner.first_name?.[0] ?? "") + (owner.last_name?.[0] ?? "")).toUpperCase();
+    return (
+      (owner.first_name?.[0] ?? "") + (owner.last_name?.[0] ?? "")
+    ).toUpperCase();
   }
   const parts = owner.full_name?.trim().split(/\s+/) ?? [];
-  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  if (parts.length >= 2)
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   return parts[0]?.[0]?.toUpperCase() ?? "?";
 }
 
@@ -175,7 +178,7 @@ const CustomPullToRefreshBadge = memo(function CustomPullToRefreshBadge({
       rotation.value = withRepeat(
         withTiming(360, { duration: 800, easing: Easing.linear }),
         -1,
-        false
+        false,
       );
     } else {
       rotation.value = 0;
@@ -201,11 +204,7 @@ const CustomPullToRefreshBadge = memo(function CustomPullToRefreshBadge({
     const rot = progress * 180;
 
     return {
-      transform: [
-        { translateY },
-        { scale },
-        { rotate: `${rot}deg` },
-      ],
+      transform: [{ translateY }, { scale }, { rotate: `${rot}deg` }],
       opacity,
     };
   });
@@ -262,7 +261,9 @@ function SingleTaskTable({
   const { width: windowWidth } = useWindowDimensions();
   const metrics = useMemo(() => getTableMetrics(windowWidth), [windowWidth]);
   const [statusOverrides, setStatusOverrides] = useState<StatusOverrides>({});
-  const [assigneeOverrides, setAssigneeOverrides] = useState<AssigneeOverrides>({});
+  const [assigneeOverrides, setAssigneeOverrides] = useState<AssigneeOverrides>(
+    {},
+  );
   const [openSwipeRow, setOpenSwipeRow] = useState<OpenSwipeRow>(null);
   // Switching stat filters (Due Today, All Tasks, etc.) swaps the row data
   // under an open swipe. Reset it synchronously in the same render pass
@@ -376,7 +377,14 @@ function SingleTaskTable({
         onLoadMore?.();
       }
     },
-    [hasMore, loadingMore, loading, onLoadMore, onScrollOffsetChange, pullDistance],
+    [
+      hasMore,
+      loadingMore,
+      loading,
+      onLoadMore,
+      onScrollOffsetChange,
+      pullDistance,
+    ],
   );
 
   // If the current page doesn't fill the viewport (e.g. tall screens), load the
@@ -403,7 +411,7 @@ function SingleTaskTable({
       syncRotation.value = withRepeat(
         withTiming(360, { duration: 850, easing: Easing.linear }),
         -1,
-        false
+        false,
       );
     } else {
       syncRotation.value = 0;
@@ -439,7 +447,7 @@ function SingleTaskTable({
       >
         <View style={{ flex: 1 }}>
           <Text style={styles.sectionTitle}>{sectionTitle}</Text>
-          <View style={styles.syncSubRow}>
+          {/* <View style={styles.syncSubRow}>
             <Animated.View style={refreshing ? syncIconAnimStyle : undefined}>
               <Ionicons
                 name="sync-outline"
@@ -455,7 +463,7 @@ function SingleTaskTable({
             >
               {refreshing ? "Syncing tasks..." : `Updated ${timeAgoText}`}
             </Text>
-          </View>
+          </View> */}
         </View>
 
         {onFilterPress ? (
@@ -506,7 +514,10 @@ function SingleTaskTable({
       </View>
 
       {/* Custom Pull-To-Refresh Badge */}
-      <CustomPullToRefreshBadge pullDistance={pullDistance} refreshing={refreshing} />
+      <CustomPullToRefreshBadge
+        pullDistance={pullDistance}
+        refreshing={refreshing}
+      />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -1015,7 +1026,9 @@ const TaskStatusDropdown = memo(function TaskStatusDropdown({
 }) {
   return (
     <>
-      {ALL_STATUSES.filter((s) => s !== "Pending-Approval" && s !== "Recurring").map((status) => {
+      {ALL_STATUSES.filter(
+        (s) => s !== "Pending-Approval" && s !== "Recurring",
+      ).map((status) => {
         const color = STATUS_COLORS[status]?.text ?? "#6B7280";
         const isActive = status === currentStatus;
 
@@ -1075,10 +1088,7 @@ const AssigneeDropdown = memo(function AssigneeDropdown({
                 {getOwnerInitials(owner)}
               </Text>
             </View>
-            <Text
-              style={styles.assigneeDropdownText}
-              numberOfLines={1}
-            >
+            <Text style={styles.assigneeDropdownText} numberOfLines={1}>
               {name}
             </Text>
             {isActive ? (
