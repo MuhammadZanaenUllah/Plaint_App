@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useEffect, useReducer, useState } from "react";
+import React, { createContext, useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import * as authService from "@/services/api/auth.service";
 import {
   getStoredToken,
@@ -184,11 +184,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
-  return (
-    <AuthContext.Provider
-      value={{ state, login, logout, handleDefaultPassword, setInitialPassword }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({ state, login, logout, handleDefaultPassword, setInitialPassword }),
+    [state, login, logout, handleDefaultPassword, setInitialPassword]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

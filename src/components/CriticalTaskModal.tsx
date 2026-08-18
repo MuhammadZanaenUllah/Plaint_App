@@ -18,6 +18,7 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useState } from "react";
+import { formatClockTime } from "@/utils/dateFormat";
 import {
   ActivityIndicator,
   Modal,
@@ -202,18 +203,10 @@ export interface OrderCriticalTasksProps {
 
 function formatDueDate(iso?: string): string {
   if (!iso) return "—";
-  try {
-    const d = new Date(iso);
-    const day = d.getDate();
-    const mon = d.toLocaleString("en-US", { month: "short" });
-    const hr = d.getHours();
-    const min = String(d.getMinutes()).padStart(2, "0");
-    const ampm = hr >= 12 ? "PM" : "AM";
-    const h12 = hr % 12 || 12;
-    return `${day} ${mon}, ${h12}:${min} ${ampm}`;
-  } catch {
-    return iso;
-  }
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const mon = d.toLocaleString("en-US", { month: "short" });
+  return `${d.getDate()} ${mon}, ${formatClockTime(d)}`;
 }
 
 export function OrderCriticalTasksModal({

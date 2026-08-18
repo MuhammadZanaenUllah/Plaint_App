@@ -20,6 +20,7 @@ import { extractErrorMessage } from "@/utils/errorHandler";
 import { showInfo, showError, showSuccess } from "@/utils/toast";
 import { uiStatusToApi } from "@/utils/statusMapper";
 import type { UiTaskStatus, RecurringPeriod } from "@/types/task.types";
+import { ALL_STATUSES, STATUS_COLORS } from "@/components/TaskRow";
 import { getSocket, onSocketEvent, type UserUpdatePayload } from "@/services/socket/socketService";
 import DocumentPickerButton from "@/features/attachments/components/DocumentPickerButton";
 import type { SelectedFile } from "@/features/attachments/types/attachment.types";
@@ -47,6 +48,13 @@ const PRIORITY_OPTIONS = [
   { label: "Normal", dot: "#0DDFAB", selectedBg: "#0DDFAB", selectedBorder: "#0DDFAB" },
   { label: "Critical", dot: "#FF4444", selectedBg: "#FF4444", selectedBorder: "#FF4444" },
 ];
+
+// "Recurring" is intentionally excluded — recurrence is modeled via the
+// separate recurring-task toggle below, not as a selectable status.
+const STATUSES = ALL_STATUSES.filter((s) => s !== "Recurring").map((s) => ({
+  label: s,
+  color: STATUS_COLORS[s].text,
+}));
 
 export default function CreateTaskModal({ visible, onClose }: Props) {
   const { state: authState } = useAuth();
@@ -136,14 +144,6 @@ export default function CreateTaskModal({ visible, onClose }: Props) {
     // Close unit dropdown when closing duration panel
     if (panel !== "duration") setDurationUnitOpen(false);
   };
-
-  const STATUSES = [
-    { label: "Pending", color: "#F97316" },
-    { label: "In-Progress", color: "#607EF9" },
-    { label: "Completed", color: "#1CB333" },
-    { label: "Rejected", color: "#FF0000" },
-    { label: "Pending-Approval", color: "#1D1D1D" },
-  ];
 
   const RECURRING_PERIODS: { value: RecurringPeriod; label: string }[] = [
     { value: "daily", label: "Daily" },

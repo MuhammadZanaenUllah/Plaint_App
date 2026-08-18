@@ -19,12 +19,20 @@ const MIN_TABLE_WIDTH = 320;
 const SHIMMER_SIZE = 600;
 
 function getTableMetrics(windowWidth: number) {
-  const tableWidth = Math.max(
+  // Mirrors SingleTaskTable.tsx: governs the header bar and data columns,
+  // unchanged from the original symmetric 16px-each-side inset.
+  const insetTableWidth = Math.max(
     MIN_TABLE_WIDTH,
     Math.min(windowWidth - 32, MAX_TABLE_WIDTH),
   );
+  // Mirrors SingleTaskTable.tsx: the container's actual box width —
+  // edge-flush on the right so the action column can reach the true screen edge.
+  const tableWidth = Math.max(
+    MIN_TABLE_WIDTH,
+    Math.min(windowWidth - 16, MAX_TABLE_WIDTH),
+  );
   const innerPadding = 6;
-  const contentWidth = tableWidth - innerPadding * 2;
+  const contentWidth = insetTableWidth - innerPadding * 2;
   const leadingWidth = 32;
   const actionWidth = 26;
   const dataWidth = contentWidth - leadingWidth - actionWidth;
@@ -34,12 +42,16 @@ function getTableMetrics(windowWidth: number) {
     104,
     dataWidth - dueDateWidth - createdByWidth,
   );
+  // Half of chevronBadge's 21px width — actionCell clips to this via
+  // overflow:hidden + marginLeft:"auto".
+  const chevronClipWidth = 11;
 
   return {
     tableWidth,
     innerPadding,
     leadingWidth,
     actionWidth,
+    chevronClipWidth,
     titleWidth,
     createdByWidth,
     dueDateWidth,
@@ -177,7 +189,7 @@ function SkeletonRow({ m }: { m: ReturnType<typeof getTableMetrics> }) {
     <View
       style={[
         styles.row,
-        { minHeight: ROW_HEIGHT, paddingHorizontal: m.innerPadding },
+        { minHeight: ROW_HEIGHT, paddingLeft: m.innerPadding },
       ]}
     >
       {/* Accent bar — same position as the coloured priority bar in real rows */}
@@ -204,7 +216,7 @@ function SkeletonRow({ m }: { m: ReturnType<typeof getTableMetrics> }) {
       </View>
 
       {/* Action cell: chevron-badge placeholder */}
-      <View style={[styles.actionCell, { width: m.actionWidth }]}>
+      <View style={[styles.actionCell, { width: m.chevronClipWidth }]}>
         <View style={styles.chevronBadge} />
       </View>
     </View>
@@ -233,8 +245,8 @@ const styles = StyleSheet.create({
   },
   statCardPlaceholder: {
     minWidth: 140,
-    height: 42,
-    borderRadius: 10,
+    minHeight: 64,
+    borderRadius: 12,
     backgroundColor: SKELETON_BG,
   },
   /* section header — matches SingleTaskTable exactly */
@@ -243,6 +255,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 10,
+    marginRight: 16,
   },
   sectionTitle: {
     fontSize: 20,
@@ -265,11 +278,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#E5E7EB",
     borderRadius: 4,
     marginBottom: 8,
+    marginRight: 16,
   },
   colHead: {
     fontSize: 12,
-    fontFamily: "SF_Pro_Medium",
-    color: "#1F2937",
+    fontFamily: "SF_Pro_Bold",
+    fontWeight: "700",
+    color: "#1D1D1D",
     textAlign: "center",
   },
   /* rows container — fills remaining screen height */
@@ -320,7 +335,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 21,
     height: 21,
-    borderRadius: 2,
+    borderRadius: 10.5,
     backgroundColor: SKELETON_BG_DARK,
     marginRight: 6,
   },
@@ -348,8 +363,10 @@ const styles = StyleSheet.create({
     backgroundColor: SKELETON_BG_DARK,
   },
   actionCell: {
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "center",
+    marginLeft: "auto",
+    overflow: "hidden",
   },
   chevronBadge: {
     width: 21,

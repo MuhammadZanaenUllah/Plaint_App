@@ -15,6 +15,7 @@ import { useChat } from "@/hooks/useChat";
 import { viewTask } from "@/services/api/tasks.service";
 import { NotificationItem } from "@/types/chat.types";
 import { getNotificationDisplay, getRoomDisplayName, getRoomInitials, isMentionNotification } from "@/utils/chatHelpers";
+import { formatFullDateTime as formatFullDateTimeShared } from "@/utils/dateFormat";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -53,19 +54,11 @@ export function getNotificationTypeLabel(item: NotificationItem): string {
 }
 
 function formatFullDateTime(dateString: string): string {
-  const date = new Date(dateString);
-  if (isNaN(date.getTime())) return "";
-  const datePart = date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
+  return formatFullDateTimeShared(dateString, {
+    includeYear: true,
+    emptyPlaceholder: "",
+    invalidPlaceholder: "",
   });
-  const timePart = date.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-  return `${datePart}, ${timePart}`;
 }
 
 export default function NotificationsScreen() {

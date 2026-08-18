@@ -1,5 +1,6 @@
 import { File } from "expo-file-system";
 import { Room, RoomType, ChatMessage, ChatPermission, NotificationItem } from "@/types/chat.types";
+import { formatClockTime, formatRelativeTime } from "@/utils/dateFormat";
 
 // ─── Room Helpers ─────────────────────────────────────────────────────────────
 
@@ -82,34 +83,15 @@ export function getMessageInitials(name?: string | null): string {
 
 /** Format a message timestamp for display. */
 export function formatMessageTime(dateString?: string): string {
-  if (!dateString) return "";
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
+  return formatRelativeTime(dateString);
 }
 
 /** Format a message time for the chat list (shorter format). */
 export function formatChatListTime(dateString?: string): string {
   if (!dateString) return "";
   const date = new Date(dateString);
-  return date.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).toLowerCase();
+  if (isNaN(date.getTime())) return "";
+  return formatClockTime(date, true);
 }
 
 /** Check if a message is from the current user. */

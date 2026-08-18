@@ -18,6 +18,12 @@ import { AppState, LogBox } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Toast from "react-native-toast-message";
 
+// Silence console.log in production builds — warn/error are left intact for
+// crash diagnostics. Metro's __DEV__ global is available with no extra tooling.
+if (!__DEV__) {
+  console.log = () => {};
+}
+
 SplashScreen.preventAutoHideAsync();
 
 // Known upstream expo-router dev-only race: expo-router's `useLinking` calls a
@@ -120,13 +126,15 @@ function RootNavigator() {
     }
   }, [fontError]);
 
+  // Hide the native splash (which can only ever show the static app icon)
+  // as soon as the JS root has mounted, instead of waiting on fontsLoaded —
+  // that hands off to our own branded splash (src/app/index.tsx) sooner.
+  // index.tsx renders no text, so it doesn't need fonts to be ready.
   useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync().catch((err) => {
-        console.warn("Error hiding splash screen:", err);
-      });
-    }
-  }, [fontsLoaded]);
+    SplashScreen.hideAsync().catch((err) => {
+      console.warn("Error hiding splash screen:", err);
+    });
+  }, []);
 
   useEffect(() => {
     if (state.loading || !fontsLoaded) return;
@@ -140,7 +148,6 @@ function RootNavigator() {
     const inAuthenticatedScreen = [
       "conversation",
       "profile",
-      "explore",
       "notifications",
     ].includes(segments[0] as string);
 
@@ -181,10 +188,6 @@ function RootNavigator() {
       disconnectSocket();
     }
   }, [state.isAuthenticated, state.isDefaultPassword, state.loading]);
-
-  if (!fontsLoaded) {
-    return null;
-  }
 
   return <Stack screenOptions={{ headerShown: false }} />;
 }

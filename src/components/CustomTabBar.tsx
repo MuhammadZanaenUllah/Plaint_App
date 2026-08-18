@@ -1,8 +1,8 @@
 import Icons from "@/constants/icons";
 import { Ionicons } from "@expo/vector-icons";
-import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
+import { BottomTabBarProps } from "expo-router/js-tabs";
 import React, { useEffect, useState } from "react";
-import { Keyboard, StyleSheet, TouchableOpacity, View, } from "react-native";
+import { Keyboard, StyleSheet, TouchableOpacity, View } from "react-native";
 
 const {
   ChatBlackIcon: ChatIconBlack,
@@ -19,10 +19,18 @@ const {
 
 type TabItem = {
   name: string;
-  activeIcon?: React.ComponentType<any>;
-  inactiveIcon?: React.ComponentType<any>;
-  ionicon?: React.ComponentProps<typeof Ionicons>["name"];
-};
+} & (
+  | {
+      activeIcon: React.ComponentType<any>;
+      inactiveIcon: React.ComponentType<any>;
+      ionicon?: undefined;
+    }
+  | {
+      activeIcon?: undefined;
+      inactiveIcon?: undefined;
+      ionicon: React.ComponentProps<typeof Ionicons>["name"];
+    }
+);
 
 const TABS: TabItem[] = [
   // {
@@ -55,7 +63,7 @@ const TABS: TabItem[] = [
     activeIcon: ChatIconBlack,
     inactiveIcon: ChatIconWhite,
   },
-  
+
   // {
   //   name: "grid",
   //   ionicon: "grid-outline",
@@ -76,33 +84,22 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   // const activeRouteName = state.routes[state.index].name;
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   useEffect(() => {
+    const showKeyboard = Keyboard.addListener("keyboardDidShow", () => {
+      setKeyboardVisible(true);
+    });
 
-    const showKeyboard = Keyboard.addListener(
-      "keyboardDidShow",
-      () => {
-        setKeyboardVisible(true);
-      }
-    );
-
-    const hideKeyboard = Keyboard.addListener(
-      "keyboardDidHide",
-      () => {
-        setKeyboardVisible(false);
-      }
-    );
-
+    const hideKeyboard = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardVisible(false);
+    });
 
     return () => {
       showKeyboard.remove();
       hideKeyboard.remove();
     };
-
   }, []);
 
   if (keyboardVisible) {
-    return (
-      <View style={{ height: 0 }} />
-    );
+    return <View style={{ height: 0 }} />;
   }
 
   // console.log("Current Index:", state.index);
@@ -131,14 +128,14 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
               <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
                 {tab.activeIcon ? (
                   focused ? (
-                    <tab.activeIcon width={24} height={24} />
+                    <tab.activeIcon width={20} height={20} />
                   ) : (
-                    <tab.inactiveIcon width={24} height={24} />
+                    <tab.inactiveIcon width={20} height={20} />
                   )
                 ) : (
                   <Ionicons
                     name={tab.ionicon!}
-                    size={24}
+                    size={20}
                     color={focused ? "#000" : "#fff"}
                   />
                 )}
@@ -155,16 +152,15 @@ const styles = StyleSheet.create({
   container: {
     position: "absolute",
     bottom: 20,
-    left: 16,
-    right: 16,
+    alignSelf: "center",
   },
   fab: {
     position: "absolute",
     right: 0,
-    top: -64,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    top: -56,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: "#00DEAB",
     alignItems: "center",
     justifyContent: "center",
@@ -173,32 +169,32 @@ const styles = StyleSheet.create({
   bar: {
     flexDirection: "row",
     backgroundColor: "#000",
-    borderRadius: 40,
-    height: 66,
+    borderRadius: 36,
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 8,
+    justifyContent: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    gap: 60,
     shadowColor: "#000",
     shadowOpacity: 0.18,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 6 },
   },
   tabItem: {
-    flex: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   iconWrap: {
-    width: 46,
-    height: 46,
-    borderRadius: 50,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
   },
   iconWrapActive: {
-    width: 53,
-    height: 53,
+    width: 42,
+    height: 42,
     backgroundColor: "#fff",
-    borderRadius: 50,
+    borderRadius: 21,
   },
 });

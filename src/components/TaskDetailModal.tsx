@@ -19,6 +19,7 @@ import { STATUS_COLORS, StatusType } from "./TaskRow";
 import { getSocket, onSocketEvent, type TaskUpdatePayload } from "@/services/socket/socketService";
 import { apiStatusToUi } from "@/utils/statusMapper";
 import { buildMentionMarkup, mentionMarkupToDisplay } from "@/utils/chatHelpers";
+import { formatFullDateTime as formatFullDateTimeShared, formatShortDate } from "@/utils/dateFormat";
 
 export type DependencyDisplay = {
   title: string;
@@ -350,27 +351,11 @@ function CommentBubble({
 }
 
 function formatApiDate(dateStr: string): string {
-  if (!dateStr) return "-";
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    return `${d.getDate()}, ${d.toLocaleString("en-US", { month: "short" })}`;
-  } catch {
-    return dateStr;
-  }
+  return formatShortDate(dateStr);
 }
 
 function formatApiDateTime(dateStr: string): string {
-  if (!dateStr) return "-";
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    const date = `${d.getDate()}, ${d.toLocaleString("en-US", { month: "short" })}`;
-    const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-    return `${date} ${time}`;
-  } catch {
-    return dateStr;
-  }
+  return formatFullDateTimeShared(dateStr);
 }
 
 // Builds a TaskDetail payload for the modal from a `/tasks/view/:id` response.

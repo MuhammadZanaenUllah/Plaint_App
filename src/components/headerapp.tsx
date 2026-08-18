@@ -19,6 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import Animated, { FadeInDown, FadeOutUp } from "react-native-reanimated";
 import InboxModal from "./InboxModal";
 import TaskDetailModal, {
   TaskDetail,
@@ -200,34 +201,39 @@ export default function AppHeader({
       )}
 
       {showSearch && isSearchVisible && (
-        <Pressable onPress={(e) => e.stopPropagation()}>
-          <View style={styles.searchRow}>
-            <View style={styles.searchBox}>
-              <Ionicons name="search-outline" size={18} color="#9CA3AF" />
-              <TextInput
-                style={styles.searchInput}
-                placeholder={placeholder}
-                placeholderTextColor="#9CA3AF"
-                value={search}
-                onChangeText={handleSearchChange}
-                // autoFocus
-              />
+        <Animated.View
+          entering={FadeInDown.duration(220)}
+          exiting={FadeOutUp.duration(180)}
+        >
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={styles.searchRow}>
+              <View style={styles.searchBox}>
+                <Ionicons name="search-outline" size={18} color="#9CA3AF" />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder={placeholder}
+                  placeholderTextColor="#9CA3AF"
+                  value={search}
+                  onChangeText={handleSearchChange}
+                  // autoFocus
+                />
+              </View>
+              {showFilter && (
+                <Pressable
+                  onPress={onFilterPress}
+                  style={({ pressed }) => [
+                    styles.filterBtn,
+                    pressed && styles.filterBtnPressed,
+                  ]}
+                >
+                  {({ pressed }) =>
+                    pressed ? <FilterIconBlack /> : <FilterIcon />
+                  }
+                </Pressable>
+              )}
             </View>
-            {showFilter && (
-              <Pressable
-                onPress={onFilterPress}
-                style={({ pressed }) => [
-                  styles.filterBtn,
-                  pressed && styles.filterBtnPressed,
-                ]}
-              >
-                {({ pressed }) =>
-                  pressed ? <FilterIconBlack /> : <FilterIcon />
-                }
-              </Pressable>
-            )}
-          </View>
-        </Pressable>
+          </Pressable>
+        </Animated.View>
       )}
 
       <InboxModal

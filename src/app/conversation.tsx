@@ -10,6 +10,7 @@ import {
     formatMessageTime,
     getMessageInitials,
     isOwnMessage,
+    isSameDay,
     resolveFileUrl,
     resolveSecureFileUrl,
 } from "@/utils/chatHelpers";
@@ -731,21 +732,13 @@ function formatDateDivider(dateInput?: Date | string | null, isChannel?: boolean
         return isChannel ? "Today's Discussion" : "Today's Chat";
     }
     const now = new Date();
-    if (
-        d.getFullYear() === now.getFullYear() &&
-        d.getMonth() === now.getMonth() &&
-        d.getDate() === now.getDate()
-    ) {
+    if (isSameDay(d, now)) {
         return isChannel ? "Today's Discussion" : "Today's Chat";
     }
 
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
-    if (
-        d.getFullYear() === yesterday.getFullYear() &&
-        d.getMonth() === yesterday.getMonth() &&
-        d.getDate() === yesterday.getDate()
-    ) {
+    if (isSameDay(d, yesterday)) {
         return "Yesterday";
     }
 
@@ -873,7 +866,7 @@ const MessageBubble = React.memo(function MessageBubble({
     members?: RoomMember[];
     showSenderName?: boolean;
     onLongPress?: (msg: ChatMessage) => void;
-    onReactionPress?: (emoji: string) => void;
+    onReactionPress?: (msg: ChatMessage, emoji: string) => void;
 }) {
     const own = isOwnMessage(message, currentUserId);
     const senderMember = members?.find((m) => m.id === message.sender_id);
@@ -976,7 +969,7 @@ const MessageBubble = React.memo(function MessageBubble({
                                         key={idx}
                                         activeOpacity={0.7}
                                         style={[styles.reactionBadge, likedByMe.has(r.emoji) && styles.reactionBadgeActive]}
-                                        onPress={() => onReactionPress?.(r.emoji)}
+                                        onPress={() => onReactionPress?.(message, r.emoji)}
                                     >
                                         <Text style={[styles.reactionText, likedByMe.has(r.emoji) && styles.reactionTextActive]}>
                                             {r.emoji} {r.users.length}
@@ -1054,7 +1047,7 @@ const MessageBubble = React.memo(function MessageBubble({
                                     key={idx}
                                     activeOpacity={0.7}
                                     style={[styles.reactionBadge, likedByMe.has(r.emoji) && styles.reactionBadgeActive]}
-                                    onPress={() => onReactionPress?.(r.emoji)}
+                                    onPress={() => onReactionPress?.(message, r.emoji)}
                                 >
                                     <Text style={[styles.reactionText, likedByMe.has(r.emoji) && styles.reactionTextActive]}>
                                         {r.emoji} {r.users.length}
@@ -2017,7 +2010,7 @@ export default function ConversationScreen() {
                 members={currentRoom?.members}
                 showSenderName={isChannel}
                 onLongPress={handleLongPress}
-                onReactionPress={(emoji: string) => handleReactEmoji(item, emoji)}
+                onReactionPress={handleReactEmoji}
             />
         </View>
     ), [currentUserId, currentRoom?.members, isChannel, handleLongPress, handleReactEmoji]);

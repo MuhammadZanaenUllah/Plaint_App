@@ -28,6 +28,9 @@ import TaskWhiteIcon    from "@/assets/icons/tabicons/taskwhite";
 import ChannelBtn from "@/assets/icons/channelsbtn";
 import IndoxBtn from "@/assets/icons/inboxbtn";
 import LinkIcon from "@/assets/icons/linkicon";
+import LeftWaveIcon from "@/assets/icons/leftwave";
+import RightWaveIcon from "@/assets/icons/rightwave";
+import HalfSwipeIcon from "@/assets/icons/halfswipe";
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
 const Icons =   {
@@ -48,6 +51,9 @@ const Icons =   {
     ChannelBtn,
     IndoxBtn,
     LinkIcon,
+    LeftWaveIcon,
+    RightWaveIcon,
+    HalfSwipeIcon,
 
     // Tab
     ChannelTabIcon,

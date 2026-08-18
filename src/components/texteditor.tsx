@@ -243,7 +243,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           onChange={handleChange}
           onFocus={() => { setFocused(true); onFocusProp?.(); }}
           onBlur={() => { setFocused(false); onBlurProp?.(); }}
-          onActiveStyleChange={(styles) => setActiveStyles(styles)}
           editorStyle={{
             contentCSSText: `
               font-size: 15px;
@@ -254,9 +253,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           }}
           style={styles.editor}
           initialHeight={editorHeight}
-          androidHardwareAccelerationDisabled
+          androidLayerType="software"
           focusable
           onLoadEnd={() => {
+            richText.current?.registerToolbar((items) =>
+              setActiveStyles(items.map(String))
+            );
             if (autoFocus) {
               setTimeout(() => {
                 if (Platform.OS === 'android') richText.current?.showAndroidKeyboard();

@@ -40,6 +40,18 @@ export function useTaskSocket(): void {
   const fetchRef = useRef(fetchAllTasks);
   fetchRef.current = fetchAllTasks;
 
+  // Coalesces bursts of task_update/project_update/user_update/
+  // task_scheduling_settings_update events (e.g. several notes added back to
+  // back) into a single refetch instead of one per event.
+  const refetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRefetch = useRef(() => {
+    if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+    refetchTimerRef.current = setTimeout(() => {
+      refetchTimerRef.current = null;
+      fetchRef.current(companyIdRef.current!, { silent: true });
+    }, 400);
+  }).current;
+
   const priorityRef = useRef(applyPriorityUpdate);
   priorityRef.current = applyPriorityUpdate;
 
@@ -94,10 +106,10 @@ export function useTaskSocket(): void {
             });
             return;
           }
-          console.log(`[useTaskSocket] task_update matched — refetching tasks silently (action: "${p.action}")`);
+          console.log(`[useTaskSocket] task_update matched — scheduling debounced refetch (action: "${p.action}")`);
           // All other task_update actions (create, update, status_update, delete,
-          // add_note, delete_note, etc.) trigger a silent refetch
-          fetchRef.current(companyIdRef.current!, { silent: true });
+          // add_note, delete_note, etc.) trigger a debounced silent refetch
+          scheduleRefetch();
         })
       );
 
@@ -127,7 +139,7 @@ export function useTaskSocket(): void {
           const p = payload as { company_id?: number; action?: string; data?: any };
           if (String(p?.company_id) !== String(companyIdRef.current)) return;
           // Any project change triggers task refetch (tasks may have project_id)
-          fetchRef.current(companyIdRef.current!, { silent: true });
+          scheduleRefetch();
         })
       );
 
@@ -136,7 +148,7 @@ export function useTaskSocket(): void {
         onSocketEvent("user_update", (payload: unknown) => {
           const p = payload as UserUpdatePayload;
           if (String(p?.company_id) !== String(companyIdRef.current)) return;
-          fetchRef.current(companyIdRef.current!, { silent: true });
+          scheduleRefetch();
         })
       );
 
@@ -146,7 +158,7 @@ export function useTaskSocket(): void {
           const p = payload as { company_id?: number };
           if (String(p?.company_id) !== String(companyIdRef.current)) return;
           // Scheduling settings changed — refetch tasks to pick up any schedule changes
-          fetchRef.current(companyIdRef.current!, { silent: true });
+          scheduleRefetch();
         })
       );
     }
@@ -164,6 +176,10 @@ export function useTaskSocket(): void {
 
     return () => {
       cancelled = true;
+      if (refetchTimerRef.current) {
+        clearTimeout(refetchTimerRef.current);
+        refetchTimerRef.current = null;
+      }
       cleanupFns.forEach((fn) => fn());
       cleanupConnect();
     };

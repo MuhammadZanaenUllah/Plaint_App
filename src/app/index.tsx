@@ -8,12 +8,14 @@ import TopMintGlow from "@/components/gradientheader";
 import BottomMintGlow from "@/components/gradientfooter";
 import Images from "@/constants/images";
 import { useAuth } from "@/hooks/useAuth";
+import useAppFonts from "@/theme/useAppFonts";
 
 const ONBOARDING_KEY = "hasCompletedOnboarding";
 
 export default function SplashScreen() {
   const router = useRouter();
   const { state } = useAuth();
+  const [fontsLoaded] = useAppFonts();
   const navigated = useRef(false);
   const timerDone = useRef(false);
 
@@ -21,6 +23,7 @@ export default function SplashScreen() {
     if (navigated.current) return;
     if (!timerDone.current) return;
     if (state.loading) return;
+    if (!fontsLoaded) return;
 
     navigated.current = true;
 
@@ -45,10 +48,10 @@ export default function SplashScreen() {
   }, []);
 
   useEffect(() => {
-    if (timerDone.current && !state.loading) {
+    if (timerDone.current && !state.loading && fontsLoaded) {
       checkAndNavigate();
     }
-  }, [state.loading, state.isAuthenticated]);
+  }, [state.loading, state.isAuthenticated, fontsLoaded]);
 
   return (
     <>

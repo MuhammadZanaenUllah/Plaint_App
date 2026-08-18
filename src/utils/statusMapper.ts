@@ -5,6 +5,7 @@ import {
   TaskListResponse,
   TaskOwner,
 } from "@/types/task.types";
+import { formatShortDate } from "@/utils/dateFormat";
 
 export type MappedTaskRow = {
   id: string;
@@ -75,15 +76,7 @@ function truncateName(name: string): string {
 }
 
 function formatDate(dateStr: string): string {
-  if (!dateStr) return "";
-  try {
-    const d = new Date(dateStr);
-    const day = d.getDate();
-    const month = d.toLocaleString("en-US", { month: "short" });
-    return `${day}, ${month}`;
-  } catch {
-    return dateStr;
-  }
+  return formatShortDate(dateStr, { emptyPlaceholder: "" });
 }
 
 export function mapTaskListItem(

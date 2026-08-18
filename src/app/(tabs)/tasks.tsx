@@ -1,31 +1,43 @@
 import CreateTaskModal from "@/components/CreateTaskModal";
 import FilterModal from "@/components/FilterModal";
 import StatCard from "@/components/StatCard";
-import TaskDetailModal, { TaskDetail, buildTaskDetailFromViewTask } from "@/components/TaskDetailModal";
 import TaskDelay from "@/components/taskdelay";
-import { StatusType, TaskRowProps } from "@/components/TaskRow";
+import TaskDetailModal, {
+  TaskDetail,
+  buildTaskDetailFromViewTask,
+} from "@/components/TaskDetailModal";
+import {
+  ALL_STATUSES,
+  STATUS_COLORS,
+  StatusType,
+  TaskRowProps,
+} from "@/components/TaskRow";
 import TaskTable from "@/components/TaskTable";
+import TaskTableSkeleton from "@/components/TaskTableSkeleton";
 import Icons from "@/constants/icons";
-import { MaterialIcons } from "@expo/vector-icons";
-import { extendDelayedTask, viewTask } from "@/services/api/tasks.service";
-import { showError, showInfo, showSuccess } from "@/utils/toast";
+import { useSearch } from "@/context/SearchContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import { useTaskSocket } from "@/hooks/useTaskSocket";
-import { useSearch } from "@/context/SearchContext";
-import { uiStatusToApi } from "@/utils/statusMapper";
+import { extendDelayedTask, viewTask } from "@/services/api/tasks.service";
 import { canCreateTask } from "@/utils/permissions";
-import TaskTableSkeleton from "@/components/TaskTableSkeleton";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { uiStatusToApi } from "@/utils/statusMapper";
+import { showError, showInfo, showSuccess } from "@/utils/toast";
+import { MaterialIcons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import {
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
-const { AllTaskIcon: AllTasksIcon, AssignIcon, CompletedIcon, CreatedIcon, DelayIcon, DueTodayIcon, RecurringIcon, SevenDayIcon: SevendayIcon } = Icons;
+const {
+  AllTaskIcon: AllTasksIcon,
+  AssignIcon,
+  CompletedIcon,
+  CreatedIcon,
+  DelayIcon,
+  DueTodayIcon,
+  RecurringIcon,
+  SevenDayIcon: SevendayIcon,
+} = Icons;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -33,21 +45,11 @@ const pad = (n: number) => String(n).padStart(2, "0");
 // many tasks per tab while header counts always reflect the full dataset.
 const PAGE_SIZE = 20;
 
-const STANDARD_STATUSES = ["Pending", "In-Progress", "Rejected", "Pending-Approval", "Completed", "Recurring"];
-const STATUS_BASE_COLORS: Record<string, string> = {
-  Pending: "#DFA70D",
-  "In-Progress": "#607EF9",
-  Rejected: "#FF0000",
-  "Pending-Approval": "#1D1D1D",
-  Completed: "#1CB333",
-  Recurring: "#16A34A",
-};
-
 export default function TasksScreen() {
   const { state: authState } = useAuth();
   const {
     state: taskState,
-     allMappedTasks,
+    allMappedTasks,
     fetchAllTasks,
     fetchDueToday,
     fetchFiltered,
@@ -58,14 +60,21 @@ export default function TasksScreen() {
 
   useTaskSocket();
 
-  const [activeTab, setActiveTab] = useState("all");
+  const [activeTab, setActiveTab] = useState("today");
   const [filterVisible, setFilterVisible] = useState(false);
   const [createVisible, setCreateVisible] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
-  const [activeStatusFilter, setActiveStatusFilter] = useState<string | null>(null);
-  const [activePriorityFilter, setActivePriorityFilter] = useState<string | null>(null);
-  const [activeStartDateFilter, setActiveStartDateFilter] = useState<Date | null>(null);
-  const [activeEndDateFilter, setActiveEndDateFilter] = useState<Date | null>(null);
+  const [activeStatusFilter, setActiveStatusFilter] = useState<string | null>(
+    null,
+  );
+  const [activePriorityFilter, setActivePriorityFilter] = useState<
+    string | null
+  >(null);
+  const [activeStartDateFilter, setActiveStartDateFilter] =
+    useState<Date | null>(null);
+  const [activeEndDateFilter, setActiveEndDateFilter] = useState<Date | null>(
+    null,
+  );
 
   // Pagination state — how many tasks of the current tab's dataset are visible.
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -89,7 +98,17 @@ export default function TasksScreen() {
   const companyId = authState.company?.company_id;
 
   // Search text from the shared header search bar (SearchProvider in the tab layout).
-  const { searchText } = useSearch();
+  const { searchText, isHeaderCompact, setIsHeaderCompact } = useSearch();
+
+  // Collapses the shared header's search bar + shrinks the stat cards once
+  // the task list has scrolled past a small threshold.
+  const SCROLL_COMPACT_THRESHOLD = 8;
+  const handleTableScrollOffset = useCallback(
+    (offsetY: number) => {
+      setIsHeaderCompact(offsetY > SCROLL_COMPACT_THRESHOLD);
+    },
+    [setIsHeaderCompact],
+  );
 
   // Restart at page 1 whenever the search query changes — adjust state during
   // render (lint-safe, mirrors the notification pagination reset pattern).
@@ -104,12 +123,14 @@ export default function TasksScreen() {
   // heads ever see the create-task FAB.
   const canCreate = useMemo(
     () => canCreateTask(authState.user),
-    [authState.user]
+    [authState.user],
   );
 
   useEffect(() => {
     if (companyId) {
-      console.log(`[TasksScreen] Initial fetchAllTasks with companyId=${companyId}`);
+      console.log(
+        `[TasksScreen] Initial fetchAllTasks with companyId=${companyId}`,
+      );
       fetchAllTasks(companyId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -135,7 +156,7 @@ export default function TasksScreen() {
       overdueToastShownRef.current = true;
       showInfo(
         "Overdue Tasks",
-        `You have ${overdue.length} overdue task${overdue.length === 1 ? "" : "s"} that need attention.`
+        `You have ${overdue.length} overdue task${overdue.length === 1 ? "" : "s"} that need attention.`,
       );
     }
 
@@ -146,7 +167,7 @@ export default function TasksScreen() {
         .filter(
           (t) =>
             t._raw?.created_by === currentUserId &&
-            t._raw.asigned_to !== currentUserId
+            t._raw.asigned_to !== currentUserId,
         )
         .sort((a, b) => {
           const da = a._raw?.due_date ? new Date(a._raw.due_date).getTime() : 0;
@@ -195,7 +216,7 @@ export default function TasksScreen() {
         showError("Update Failed", "Could not extend the task due date.");
       }
     },
-    [delayTask, companyId]
+    [delayTask, companyId],
   );
 
   // useEffect(() => {
@@ -220,7 +241,7 @@ export default function TasksScreen() {
         fetchAllTasks(companyId, { silent: true });
       }
     },
-    [companyId, fetchAllTasks]
+    [companyId, fetchAllTasks],
   );
 
   const handleStatusChange = useCallback(
@@ -238,11 +259,15 @@ export default function TasksScreen() {
         // status change failed silently
       }
     },
-    [companyId, companyIdentifier, updateTaskStatusApi, fetchAllTasks]
+    [companyId, companyIdentifier, updateTaskStatusApi, fetchAllTasks],
   );
 
   // Restart the visible list at page 1 (and cancel any pending "load more") so
   // the newly-filtered results start from the top.
+  const handleOpenFilter = useCallback(() => {
+    setFilterVisible(true);
+  }, []);
+
   const resetPagination = useCallback(() => {
     if (loadMoreTimerRef.current) {
       clearTimeout(loadMoreTimerRef.current);
@@ -271,7 +296,7 @@ export default function TasksScreen() {
       setActiveEndDateFilter(filters.endDate ?? null);
       resetPagination();
     },
-    [resetPagination]
+    [resetPagination],
   );
 
   const handleFilterReset = useCallback(() => {
@@ -289,48 +314,56 @@ export default function TasksScreen() {
     if (activePriorityFilter) count++;
     if (activeStartDateFilter || activeEndDateFilter) count++;
     return count;
-  }, [activeStatusFilter, activePriorityFilter, activeStartDateFilter, activeEndDateFilter]);
+  }, [
+    activeStatusFilter,
+    activePriorityFilter,
+    activeStartDateFilter,
+    activeEndDateFilter,
+  ]);
 
-  const handleTaskPress = useCallback(async (task: TaskRowProps) => {
-    const raw = (task as any)._raw;
-    if (!raw) return;
-    let description = raw.description ?? "";
-    let effortHours: number | undefined;
-    let effortUnit: string | undefined;
-    let projectName: string | undefined;
-    try {
-      const detailRes = await viewTask(Number(raw.id), companyId ?? 0);
-      if (detailRes.Good && detailRes.data) {
-        const td = detailRes.data.task;
-        description = td?.description ?? description;
-        effortHours = td?.effort_hours ?? undefined;
-        effortUnit = td?.effort_unit ?? undefined;
-        projectName = td?.project_name ?? undefined;
+  const handleTaskPress = useCallback(
+    async (task: TaskRowProps) => {
+      const raw = (task as any)._raw;
+      if (!raw) return;
+      let description = raw.description ?? "";
+      let effortHours: number | undefined;
+      let effortUnit: string | undefined;
+      let projectName: string | undefined;
+      try {
+        const detailRes = await viewTask(Number(raw.id), companyId ?? 0);
+        if (detailRes.Good && detailRes.data) {
+          const td = detailRes.data.task;
+          description = td?.description ?? description;
+          effortHours = td?.effort_hours ?? undefined;
+          effortUnit = td?.effort_unit ?? undefined;
+          projectName = td?.project_name ?? undefined;
+        }
+      } catch {
+        // fall back to list description
       }
-    } catch {
-      // fall back to list description
-    }
-    setSelectedTask({
-      title: raw.title,
-      assignedTo: task.assignedTo,
-      assignedToInitials: task.assignedToInitials,
-      dueDate: task.dueDate,
-      priority: raw.priority_name ?? "Medium",
-      priorityColor: raw.priority_color ?? "#F59E0B",
-      approvalRequired: raw.approval_required ? "Yes" : "No",
-      status: task.status as any,
-      recurringTask: raw.is_recurring ? "Yes" : "No",
-      dependencies: [],
-      description,
-      attachments: [],
-      taskId: raw.id,
-      companyId: companyId ?? 0,
-      canEditStatus: raw.can_edit_status,
-      effortHours,
-      effortUnit,
-      projectName,
-    } as any);
-  }, [companyId]);
+      setSelectedTask({
+        title: raw.title,
+        assignedTo: task.assignedTo,
+        assignedToInitials: task.assignedToInitials,
+        dueDate: task.dueDate,
+        priority: raw.priority_name ?? "Medium",
+        priorityColor: raw.priority_color ?? "#F59E0B",
+        approvalRequired: raw.approval_required ? "Yes" : "No",
+        status: task.status as any,
+        recurringTask: raw.is_recurring ? "Yes" : "No",
+        dependencies: [],
+        description,
+        attachments: [],
+        taskId: raw.id,
+        companyId: companyId ?? 0,
+        canEditStatus: raw.can_edit_status,
+        effortHours,
+        effortUnit,
+        projectName,
+      } as any);
+    },
+    [companyId],
+  );
 
   // ── Deep-link handling (e.g. task_mention push notification) ───────────
   // Opening a push notification for a task navigates here with a `taskId`
@@ -373,7 +406,7 @@ export default function TasksScreen() {
   // match the real statuses coming from the backend (custom statuses included).
   // Standard statuses are kept first to preserve ordering; extras append after.
   const statuses = useMemo(() => {
-    const merged = [...STANDARD_STATUSES];
+    const merged: string[] = [...ALL_STATUSES];
     for (const s of allMappedTasks) {
       if (s.status && !merged.includes(s.status)) merged.push(s.status);
     }
@@ -382,7 +415,9 @@ export default function TasksScreen() {
 
   const statusColors = useMemo(() => {
     const colors: Record<string, string> = {};
-    for (const s of statuses) colors[s] = STATUS_BASE_COLORS[s] ?? "#9CA3AF";
+    for (const s of statuses) {
+      colors[s] = STATUS_COLORS[s as StatusType]?.text ?? "#9CA3AF";
+    }
     return colors;
   }, [statuses]);
 
@@ -393,7 +428,9 @@ export default function TasksScreen() {
   };
 
   const mapRowWithRaw = useCallback(
-    (row: import("@/utils/statusMapper").MappedTaskRow): TaskRowProps & { _raw: import("@/types/task.types").TaskListItem } => ({
+    (
+      row: import("@/utils/statusMapper").MappedTaskRow,
+    ): TaskRowProps & { _raw: import("@/types/task.types").TaskListItem } => ({
       id: row.id,
       title: row.title,
       createdBy: row.createdBy,
@@ -408,7 +445,7 @@ export default function TasksScreen() {
       canEditStatus: row._raw.can_edit_status ?? true,
       _raw: row._raw,
     }),
-    []
+    [],
   );
 
   const tabCounts = useMemo(() => {
@@ -437,17 +474,31 @@ export default function TasksScreen() {
         const d = new Date(t._raw.due_date);
         const ms = d.getTime();
         if (!isNaN(ms)) {
-          if (ms >= todayStart.getTime() && ms < tomorrowStart.getTime()) today++;
+          if (ms >= todayStart.getTime() && ms < tomorrowStart.getTime())
+            today++;
           if (ms >= tomorrowStart.getTime() && ms < weekEnd.getTime()) week++;
           if (ms < todayStart.getTime()) overdue++;
         }
       }
     }
 
-    const created = mappedCreatedByMe.filter((t) => t.status !== "Completed").length;
-    const assigned = mappedAssignedToMe.filter((t) => t.status !== "Completed").length;
+    const created = mappedCreatedByMe.filter(
+      (t) => t.status !== "Completed",
+    ).length;
+    const assigned = mappedAssignedToMe.filter(
+      (t) => t.status !== "Completed",
+    ).length;
 
-    return { all, today, week, overdue, created, assigned, recurring, completed };
+    return {
+      all,
+      today,
+      week,
+      overdue,
+      created,
+      assigned,
+      recurring,
+      completed,
+    };
   }, [allMappedTasks, mappedCreatedByMe, mappedAssignedToMe]);
 
   const getTabCategoryScope = useCallback(
@@ -460,11 +511,18 @@ export default function TasksScreen() {
       const weekEnd = new Date(tomorrowStart);
       weekEnd.setDate(weekEnd.getDate() + 7);
 
-      const sortByDueDate = (tasks: (TaskRowProps & { _raw: import("@/types/task.types").TaskListItem })[]) =>
+      const sortByDueDate = (
+        tasks: (TaskRowProps & {
+          _raw: import("@/types/task.types").TaskListItem;
+        })[],
+      ) =>
         [...tasks].sort((a, b) => {
           if (!a._raw?.due_date) return 1;
           if (!b._raw?.due_date) return -1;
-          return new Date(a._raw.due_date).getTime() - new Date(b._raw.due_date).getTime();
+          return (
+            new Date(a._raw.due_date).getTime() -
+            new Date(b._raw.due_date).getTime()
+          );
         });
 
       switch (tabId) {
@@ -480,7 +538,7 @@ export default function TasksScreen() {
               if (!t._raw?.due_date) return false;
               const d = new Date(t._raw.due_date);
               return d >= tomorrowStart && d < weekEnd;
-            })
+            }),
           );
         case "overdue":
           return all.filter((t) => {
@@ -493,7 +551,9 @@ export default function TasksScreen() {
         case "assigned":
           return sortByDueDate(mappedAssignedToMe.map(mapRowWithRaw));
         case "recurring":
-          return sortByDueDate(all.filter((t) => t._raw?.is_recurring === true));
+          return sortByDueDate(
+            all.filter((t) => t._raw?.is_recurring === true),
+          );
         case "completed":
           return all.filter((t) => t.status === "Completed");
         case "all":
@@ -501,12 +561,16 @@ export default function TasksScreen() {
           return all;
       }
     },
-    [allMappedTasks, mappedCreatedByMe, mappedAssignedToMe, mapRowWithRaw]
+    [allMappedTasks, mappedCreatedByMe, mappedAssignedToMe, mapRowWithRaw],
   );
 
   // Sort: Critical tasks first (by critical_order ascending), then normal tasks (by due_date).
   const sortByCritical = useCallback(
-    (tasks: (TaskRowProps & { _raw: import("@/types/task.types").TaskListItem })[]) => {
+    (
+      tasks: (TaskRowProps & {
+        _raw: import("@/types/task.types").TaskListItem;
+      })[],
+    ) => {
       const criticals: typeof tasks = [];
       const others: typeof tasks = [];
       for (const t of tasks) {
@@ -520,30 +584,45 @@ export default function TasksScreen() {
         const orderA = a._raw?.critical_order ?? 999;
         const orderB = b._raw?.critical_order ?? 999;
         if (orderA !== orderB) return orderA - orderB;
-        return new Date(a._raw.due_date || 0).getTime() - new Date(b._raw.due_date || 0).getTime();
+        return (
+          new Date(a._raw.due_date || 0).getTime() -
+          new Date(b._raw.due_date || 0).getTime()
+        );
       });
       return [...criticals, ...others];
     },
-    []
+    [],
   );
 
   const displayedTasks = useMemo(() => {
     let tasks = getTabCategoryScope(activeTab);
-    console.log(`[TasksScreen] Calculating displayedTasks for activeTab="${activeTab}". Base category tasks count:`, tasks.length);
+    console.log(
+      `[TasksScreen] Calculating displayedTasks for activeTab="${activeTab}". Base category tasks count:`,
+      tasks.length,
+    );
     if (tasks.length > 0) {
-      const ids = tasks.map(t => t.id ?? "no-id").slice(0, 5);
-      console.log(`[TasksScreen] First 5 task ids in displayedTasks: [${ids.join(", ")}]`);
-      const raw572 = tasks.find(t => t.id === "572");
-      console.log(`[TasksScreen] Task id=572 found in displayedTasks: ${!!raw572}, title: "${raw572?.title}"`);
+      const ids = tasks.map((t) => t.id ?? "no-id").slice(0, 5);
+      console.log(
+        `[TasksScreen] First 5 task ids in displayedTasks: [${ids.join(", ")}]`,
+      );
+      const raw572 = tasks.find((t) => t.id === "572");
+      console.log(
+        `[TasksScreen] Task id=572 found in displayedTasks: ${!!raw572}, title: "${raw572?.title}"`,
+      );
     }
 
     if (activeStatusFilter) {
       if (activeStatusFilter === "Recurring") {
-        tasks = tasks.filter((t) => t._raw?.is_recurring === true || t.status === "Recurring");
+        tasks = tasks.filter(
+          (t) => t._raw?.is_recurring === true || t.status === "Recurring",
+        );
       } else {
         tasks = tasks.filter((t) => t.status === activeStatusFilter);
       }
-      console.log(`[TasksScreen] After status filter ("${activeStatusFilter}"):`, tasks.length);
+      console.log(
+        `[TasksScreen] After status filter ("${activeStatusFilter}"):`,
+        tasks.length,
+      );
     } else {
       if (activeTab === "completed") {
         tasks = tasks.filter((t) => t.status === "Completed");
@@ -557,34 +636,51 @@ export default function TasksScreen() {
       // "normal" | "critical"), NOT the free-form `priority_name` string.
       const tier = activePriorityFilter.toLowerCase();
       tasks = tasks.filter((t) => t._raw?.task_priority === tier);
-      console.log(`[TasksScreen] After priority filter ("${activePriorityFilter}"):`, tasks.length);
+      console.log(
+        `[TasksScreen] After priority filter ("${activePriorityFilter}"):`,
+        tasks.length,
+      );
     }
 
     if (activeStartDateFilter || activeEndDateFilter) {
-      const startMs = activeStartDateFilter ? new Date(activeStartDateFilter).setHours(0, 0, 0, 0) : null;
-      const endMs = activeEndDateFilter ? new Date(activeEndDateFilter).setHours(23, 59, 59, 999) : null;
+      const startMs = activeStartDateFilter
+        ? new Date(activeStartDateFilter).setHours(0, 0, 0, 0)
+        : null;
+      const endMs = activeEndDateFilter
+        ? new Date(activeEndDateFilter).setHours(23, 59, 59, 999)
+        : null;
 
-      console.log(`[TasksScreen] Applying Date Filter: Start=${startMs ? new Date(startMs).toISOString() : "None"}, End=${endMs ? new Date(endMs).toISOString() : "None"}`);
+      console.log(
+        `[TasksScreen] Applying Date Filter: Start=${startMs ? new Date(startMs).toISOString() : "None"}, End=${endMs ? new Date(endMs).toISOString() : "None"}`,
+      );
 
       tasks = tasks.filter((t) => {
         if (!t._raw?.due_date) {
-          console.log(`[TasksScreen] Skipping "${t.title}": due_date is missing`);
+          console.log(
+            `[TasksScreen] Skipping "${t.title}": due_date is missing`,
+          );
           return false;
         }
         const taskDate = new Date(t._raw.due_date);
         const taskMs = taskDate.getTime();
         if (isNaN(taskMs)) {
-          console.log(`[TasksScreen] Skipping "${t.title}": invalid due_date "${t._raw.due_date}"`);
+          console.log(
+            `[TasksScreen] Skipping "${t.title}": invalid due_date "${t._raw.due_date}"`,
+          );
           return false;
         }
 
         if (startMs !== null && taskMs < startMs) {
-          console.log(`[TasksScreen] Skipping "${t.title}" (${t._raw.due_date}): before start date`);
+          console.log(
+            `[TasksScreen] Skipping "${t.title}" (${t._raw.due_date}): before start date`,
+          );
           return false;
         }
 
         if (endMs !== null && taskMs > endMs) {
-          console.log(`[TasksScreen] Skipping "${t.title}" (${t._raw.due_date}): after end date`);
+          console.log(
+            `[TasksScreen] Skipping "${t.title}" (${t._raw.due_date}): after end date`,
+          );
           return false;
         }
 
@@ -658,7 +754,7 @@ export default function TasksScreen() {
 
   const visibleTasks = useMemo(
     () => displayedTasks.slice(0, visibleCount),
-    [displayedTasks, visibleCount]
+    [displayedTasks, visibleCount],
   );
 
   const handleRefresh = useCallback(async () => {
@@ -679,14 +775,54 @@ export default function TasksScreen() {
 
   const statsList = useMemo(() => {
     return [
-      { label: "All Tasks", count: pad(tabCounts.all), iconName: <AllTasksIcon />, id: "all" },
-      { label: "Due Today", count: pad(tabCounts.today), iconName: <DueTodayIcon />, id: "today" },
-      { label: "Due in 7 days", count: pad(tabCounts.week), iconName: <SevendayIcon />, id: "week" },
-      { label: "Delayed", count: pad(tabCounts.overdue), iconName: <DelayIcon />, id: "overdue" },
-      { label: "Created by me", count: pad(tabCounts.created), iconName: <CreatedIcon />, id: "created" },
-      { label: "Assigned to me", count: pad(tabCounts.assigned), iconName: <AssignIcon />, id: "assigned" },
-      { label: "Recurring", count: pad(tabCounts.recurring), iconName: <RecurringIcon />, id: "recurring" },
-      { label: "Completed", count: pad(tabCounts.completed), iconName: <CompletedIcon />, id: "completed" },
+      {
+        label: "All Tasks",
+        count: pad(tabCounts.all),
+        iconName: <AllTasksIcon />,
+        id: "all",
+      },
+      {
+        label: "Due Today",
+        count: pad(tabCounts.today),
+        iconName: <DueTodayIcon />,
+        id: "today",
+      },
+      {
+        label: "Due in 7 days",
+        count: pad(tabCounts.week),
+        iconName: <SevendayIcon />,
+        id: "week",
+      },
+      {
+        label: "Delayed",
+        count: pad(tabCounts.overdue),
+        iconName: <DelayIcon />,
+        id: "overdue",
+      },
+      {
+        label: "Created by me",
+        count: pad(tabCounts.created),
+        iconName: <CreatedIcon />,
+        id: "created",
+      },
+      {
+        label: "Assigned to me",
+        count: pad(tabCounts.assigned),
+        iconName: <AssignIcon />,
+        id: "assigned",
+      },
+      {
+        label: "Recurring",
+        count: pad(tabCounts.recurring),
+        iconName: <RecurringIcon />,
+        id: "recurring",
+      },
+      {
+        label: "Completed",
+        count: pad(tabCounts.completed),
+        iconName: <CompletedIcon />,
+        id: "completed",
+      },
     ];
   }, [tabCounts]);
 
@@ -714,6 +850,7 @@ export default function TasksScreen() {
                 iconName={s.iconName}
                 active={activeTab === s.id}
                 onPress={() => handleTabPress(s.id)}
+                compact={isHeaderCompact}
               />
             ))}
           </ScrollView>
@@ -760,17 +897,20 @@ export default function TasksScreen() {
               iconName={s.iconName}
               active={activeTab === s.id}
               onPress={() => handleTabPress(s.id)}
+              compact={isHeaderCompact}
             />
           ))}
         </ScrollView>
 
         <View style={styles.tableShell}>
           <TaskTable
-            sectionTitle={statsList.find((s) => s.id === activeTab)?.label ?? "All Tasks"}
+            sectionTitle={
+              statsList.find((s) => s.id === activeTab)?.label ?? "Due Today"
+            }
             tasks={visibleTasks}
             onTaskPress={handleTaskPress}
             onStatusChange={handleStatusChange}
-            onFilterPress={() => setFilterVisible(true)}
+            onFilterPress={handleOpenFilter}
             loading={taskState.loading}
             activeFilterCount={activeFilterCount}
             hasMore={hasMore}
@@ -778,20 +918,32 @@ export default function TasksScreen() {
             onLoadMore={loadMore}
             onRefresh={handleRefresh}
             refreshing={refreshing}
+            onScrollOffsetChange={handleTableScrollOffset}
           />
         </View>
       </View>
 
       {canCreate ? (
-        <TouchableOpacity style={styles.fab} activeOpacity={0.85} onPress={() => setCreateVisible(true)}>
+        <TouchableOpacity
+          style={styles.fab}
+          activeOpacity={0.85}
+          onPress={() => setCreateVisible(true)}
+        >
           <MaterialIcons name="add" size={35} color="black" />
         </TouchableOpacity>
       ) : null}
 
       {canCreate ? (
-        <CreateTaskModal visible={createVisible} onClose={() => setCreateVisible(false)} />
+        <CreateTaskModal
+          visible={createVisible}
+          onClose={() => setCreateVisible(false)}
+        />
       ) : null}
-      <TaskDetailModal visible={!!selectedTask} onClose={() => setSelectedTask(null)} task={selectedTask} />
+      <TaskDetailModal
+        visible={!!selectedTask}
+        onClose={() => setSelectedTask(null)}
+        task={selectedTask}
+      />
       <TaskDelay
         visible={!!delayTask}
         taskTitle={delayTask?.title ?? ""}
@@ -806,21 +958,28 @@ export default function TasksScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#fff", position: "relative" },
   safe: { flex: 1 },
-  statsScroll: { maxHeight: 50 },
-  statsContent: { paddingHorizontal: 16, paddingBottom: 15, gap: 6 },
+  statsScroll: {
+    flexGrow: 0,
+  },
+  statsContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 6,
+    alignItems: "center",
+  },
   tableShell: {
     flex: 1,
-    paddingHorizontal: 16,
+    paddingLeft: 16,
     paddingTop: 8,
     paddingBottom: 0,
   },
   fab: {
     position: "absolute",
-    bottom: 100,
-    right: 24,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    bottom: 80,
+    right: 20,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: "#00DEAB",
     alignItems: "center",
     justifyContent: "center",

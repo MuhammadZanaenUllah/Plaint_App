@@ -22,9 +22,20 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
-import { STATUS_COLORS, StatusType, TaskRowProps } from "./TaskRow";
+import {
+  ALL_STATUSES,
+  STATUS_COLORS,
+  StatusType,
+  TaskRowProps,
+} from "./TaskRow";
 
-const { FilterIconBlack } = Icons;
+const {
+  FilterIcon,
+  FilterIconBlack,
+  LeftWaveIcon,
+  RightWaveIcon,
+  HalfSwipeIcon,
+} = Icons;
 
 type Props = {
   sectionTitle: string;
@@ -40,6 +51,7 @@ type Props = {
   onLoadMore?: () => void;
   onRefresh?: () => void;
   refreshing?: boolean;
+  onScrollOffsetChange?: (offsetY: number) => void;
 };
 
 type SwipeStage = "actions" | "details";
@@ -51,18 +63,10 @@ const ROW_HEIGHT = 39;
 const DETAIL_ROW_HEIGHT = 91;
 const ACTION_REVEAL_WIDTH = 176;
 const ACTION_STRIP_HEIGHT = 39;
+const ACTION_GRIP_WIDTH = (29 / 25) * ACTION_STRIP_HEIGHT;
 const MAX_TABLE_WIDTH = 640;
 const MIN_TABLE_WIDTH = 320;
-const SWIPE_GREEN = "#12D6AA";
-const GRIP_CHEVRONS = [0, 1, 2, 3, 4, 5];
-const ALL_STATUSES: StatusType[] = [
-  "Pending",
-  "In-Progress",
-  "Rejected",
-  "Completed",
-  "Pending-Approval",
-  "Recurring",
-];
+const SWIPE_GREEN = "#00DFAB";
 
 function getTaskKey(task: TaskRowProps, index: number) {
   return task.id ?? `${index}:${task.title}:${task.dueDate}`;
@@ -74,21 +78,28 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function getTableMetrics(windowWidth: number) {
-  const tableWidth = Math.max(
+  // Governs the header bar, section header, and data columns (title/created
+  // by/due date) — unchanged from the original symmetric 16px-each-side inset,
+  // so none of that sizing shifts.
+  const insetTableWidth = Math.max(
     MIN_TABLE_WIDTH,
     Math.min(windowWidth - 32, MAX_TABLE_WIDTH),
   );
+  // The container's actual box width — edge-flush on the right (only the
+  // left inset from the parent tableShell is reserved) so the row's action
+  // column has room to reach the true screen edge, matching Figma.
+  const tableWidth = Math.max(
+    MIN_TABLE_WIDTH,
+    Math.min(windowWidth - 16, MAX_TABLE_WIDTH),
+  );
   const innerPadding = 6;
-  const contentWidth = tableWidth - innerPadding * 2;
+  const contentWidth = insetTableWidth - innerPadding * 2;
   const leadingWidth = 32;
   const actionWidth = 26;
   const dataWidth = contentWidth - leadingWidth - actionWidth;
   const dueDateWidth = Math.max(80, Math.round(dataWidth * 0.3));
   const createdByWidth = Math.max(88, Math.round(dataWidth * 0.31));
-  const titleWidth = Math.max(
-    104,
-    dataWidth - dueDateWidth - createdByWidth,
-  );
+  const titleWidth = Math.max(104, dataWidth - dueDateWidth - createdByWidth);
 
   return {
     tableWidth,
@@ -116,11 +127,22 @@ function SingleTaskTable({
   onLoadMore,
   onRefresh,
   refreshing = false,
+  onScrollOffsetChange,
 }: Props) {
   const { width: windowWidth } = useWindowDimensions();
   const metrics = useMemo(() => getTableMetrics(windowWidth), [windowWidth]);
   const [statusOverrides, setStatusOverrides] = useState<StatusOverrides>({});
   const [openSwipeRow, setOpenSwipeRow] = useState<OpenSwipeRow>(null);
+  // Switching stat filters (Due Today, All Tasks, etc.) swaps the row data
+  // under an open swipe. Reset it synchronously in the same render pass
+  // (rather than a useEffect, which would commit a frame late) — otherwise
+  // a swipe started immediately after switching tabs briefly targets a row
+  // index carried over from the old list, fighting the close animation.
+  const [lastSectionTitle, setLastSectionTitle] = useState(sectionTitle);
+  if (sectionTitle !== lastSectionTitle) {
+    setLastSectionTitle(sectionTitle);
+    if (openSwipeRow !== null) setOpenSwipeRow(null);
+  }
   const [isSwipeDragging, setIsSwipeDragging] = useState(false);
   const [rowViewportHeight, setRowViewportHeight] = useState(0);
   const [rowContentHeight, setRowContentHeight] = useState(0);
@@ -170,11 +192,14 @@ function SingleTaskTable({
     rowContentHeight > rowViewportHeight + 1 && !isSwipeDragging;
 
   // Infinite scroll — fire onLoadMore when the user scrolls near the bottom.
+  // Also reports the raw scroll offset so the screen can collapse its header.
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      if (!hasMore || loadingMore || loading) return;
       const { layoutMeasurement, contentOffset, contentSize } =
         event.nativeEvent;
+      onScrollOffsetChange?.(contentOffset.y);
+
+      if (!hasMore || loadingMore || loading) return;
       const threshold = 40;
       if (
         layoutMeasurement.height + contentOffset.y >=
@@ -183,7 +208,7 @@ function SingleTaskTable({
         onLoadMore?.();
       }
     },
-    [hasMore, loadingMore, loading, onLoadMore]
+    [hasMore, loadingMore, loading, onLoadMore, onScrollOffsetChange],
   );
 
   // If the current page doesn't fill the viewport (e.g. tall screens), load the
@@ -217,14 +242,12 @@ function SingleTaskTable({
           >
             {({ pressed }) => (
               <View>
-                <FilterIconBlack
-                  width={18}
-                  height={18}
-                  color={pressed || activeFilterCount > 0 ? "#fff" : undefined}
-                />
+                <FilterIcon width={18} height={18} />
                 {activeFilterCount > 0 ? (
                   <View style={styles.filterBadge}>
-                    <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                    <Text style={styles.filterBadgeText}>
+                      {activeFilterCount}
+                    </Text>
                   </View>
                 ) : null}
               </View>
@@ -233,7 +256,12 @@ function SingleTaskTable({
         ) : null}
       </View>
 
-      <View style={[styles.tableHeader, { paddingHorizontal: metrics.innerPadding }]}>
+      <View
+        style={[
+          styles.tableHeader,
+          { paddingHorizontal: metrics.innerPadding },
+        ]}
+      >
         <View style={{ width: metrics.leadingWidth }} />
         <Text style={[styles.colHead, { width: metrics.titleWidth }]}>
           Task Title
@@ -311,7 +339,7 @@ function SingleTaskTable({
             {loadingMore ? (
               <ActivityIndicator size="small" color="#00DEAB" />
             ) : !hasMore ? (
-              <Text style={styles.footerText}>End of list</Text>
+              <>{/* <Text style={styles.footerText}>End of list</Text> */}</>
             ) : null}
           </View>
         ) : null}
@@ -321,6 +349,19 @@ function SingleTaskTable({
 }
 
 export default memo(SingleTaskTable);
+
+const WAVE_BADGE_WIDTH = 10;
+const WAVE_BADGE_HEIGHT = 30;
+
+// RightWaveIcon's flat edge is on the right (matches the row's closed-state
+// chevron, clipped by the screen's right edge, bulging left into the row).
+// LeftWaveIcon is its mirror — flat edge on the left, for the swipe-details
+// panel's back button. Both already have their arrow glyph baked into the
+// asset, so no separate Ionicons overlay is needed.
+function WaveChevronBadge({ mirrored = false }: { mirrored?: boolean }) {
+  const WaveIcon = mirrored ? LeftWaveIcon : RightWaveIcon;
+  return <WaveIcon width={WAVE_BADGE_WIDTH} height={WAVE_BADGE_HEIGHT} />;
+}
 
 const SwipeTaskRow = memo(function SwipeTaskRow({
   item,
@@ -353,6 +394,8 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
 }) {
   const translateX = useSharedValue(0);
   const gestureStartX = useSharedValue(0);
+  const wrapHeight = useSharedValue(ROW_HEIGHT);
+  const hasStarted = useSharedValue(false);
   const currentStage = isOpen ? stage : null;
   const revealWidth =
     currentStage === "details"
@@ -368,13 +411,19 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
         : ROW_HEIGHT;
 
   useEffect(() => {
-    translateX.value = withSpring(-revealWidth, {
+    const springConfig = {
       damping: 24,
       stiffness: 260,
       mass: 0.85,
       overshootClamping: true,
-    });
-  }, [revealWidth, translateX]);
+    };
+    translateX.value = withSpring(-revealWidth, springConfig);
+    wrapHeight.value = withSpring(rowHeight, springConfig);
+  }, [revealWidth, rowHeight, translateX, wrapHeight]);
+
+  const animatedWrapStyle = useAnimatedStyle(() => ({
+    minHeight: wrapHeight.value,
+  }));
 
   const settleSwipe = useCallback(
     (nextStage: SwipeStage | null) => {
@@ -401,6 +450,8 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
           gestureStartX.value = translateX.value;
         })
         .onStart((event) => {
+          // eslint-disable-next-line react-hooks/immutability
+          hasStarted.value = true;
           if (!isOpen && event.translationX > 0) return;
           runOnJS(onSwipeDragStateChange)(true);
         })
@@ -413,8 +464,18 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
             0,
           );
         })
-        .onEnd((event) => {
+        .onFinalize((event) => {
           runOnJS(onSwipeDragStateChange)(false);
+          // Skip settling if the gesture never actually activated (e.g. a
+          // tap that stayed under the activeOffsetX threshold) — otherwise
+          // a stray touch could snap an already-resting row.
+          if (!hasStarted.value) return;
+
+          // eslint-disable-next-line react-hooks/immutability
+          hasStarted.value = false;
+          // Always runs — even when the ScrollView/list steals the gesture
+          // mid-swipe (fail/cancel) — so the row can't get stuck half-open
+          // with no matching onEnd to snap it into a resting position.
           const releaseX = clamp(
             gestureStartX.value + event.translationX,
             -metrics.swipeContentWidth,
@@ -454,12 +515,10 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
           }
 
           runOnJS(settleSwipe)(null);
-        })
-        .onFinalize(() => {
-          runOnJS(onSwipeDragStateChange)(false);
         }),
     [
       gestureStartX,
+      hasStarted,
       isOpen,
       metrics.swipeContentWidth,
       onSwipeDragStateChange,
@@ -470,21 +529,19 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
 
   return (
     <GestureDetector gesture={panGesture}>
-      <View
+      <Animated.View
         style={[
           styles.rowWrap,
-          {
-            minHeight: rowHeight,
-            zIndex: isOpen ? 1000 - rowIndex : 1,
-          },
+          animatedWrapStyle,
+          { zIndex: isOpen ? 1000 - rowIndex : 1 },
         ]}
       >
-        <View
+        <Animated.View
           style={[
             styles.swipeContent,
+            animatedWrapStyle,
             {
               width: metrics.swipeContentWidth,
-              minHeight: rowHeight,
               overflow: currentStage === "details" ? "visible" : "hidden",
             },
           ]}
@@ -499,7 +556,7 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
               onStatusChange(item, rowIndex, nextStatus)
             }
           />
-        </View>
+        </Animated.View>
 
         <Animated.View style={animatedRowStyle}>
           <View
@@ -507,7 +564,7 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
               styles.row,
               {
                 minHeight: ROW_HEIGHT,
-                paddingHorizontal: metrics.innerPadding,
+                paddingLeft: metrics.innerPadding,
               },
             ]}
           >
@@ -532,24 +589,18 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
               columnKey="dueDate"
               width={metrics.dueDateWidth}
             />
-            <TouchableOpacity
-              style={[styles.actionPress, { width: metrics.actionWidth }]}
-              onPress={() =>
-                isOpen ? onCloseSwipe() : onOpenSwipe(rowIndex, "actions")
-              }
-              activeOpacity={0.8}
-            >
-              <View style={styles.chevronBadge}>
-                <Ionicons
-                  name={isOpen ? "chevron-forward" : "chevron-back"}
-                  size={12}
-                  color="#fff"
-                />
-              </View>
-            </TouchableOpacity>
+            {currentStage === null && (
+              <TouchableOpacity
+                style={styles.actionPress}
+                onPress={() => onOpenSwipe(rowIndex, "actions")}
+                activeOpacity={0.8}
+              >
+                <WaveChevronBadge />
+              </TouchableOpacity>
+            )}
           </View>
         </Animated.View>
-      </View>
+      </Animated.View>
     </GestureDetector>
   );
 });
@@ -669,7 +720,11 @@ const TaskStatusDropdown = memo(function TaskStatusDropdown({
             activeOpacity={0.8}
           >
             {/* <View style={[styles.dot, { backgroundColor: color }]} /> */}
-            <Text style={[styles.dropdownText, { color }]} numberOfLines={1} adjustsFontSizeToFit>
+            <Text
+              style={[styles.dropdownText, { color }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
               {status}
             </Text>
             {isActive ? (
@@ -721,34 +776,26 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
             onPress={onClose}
             activeOpacity={0.8}
           >
-            {GRIP_CHEVRONS.map((item) => (
-              <Ionicons
-                key={item}
-                name="chevron-back"
-                size={13}
-                color="#0CBF98"
-                style={styles.actionGripIcon}
-              />
-            ))}
+            <HalfSwipeIcon
+              width={ACTION_GRIP_WIDTH}
+              height={ACTION_STRIP_HEIGHT}
+            />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={onRevealDetails}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.actionText}>More</Text>
-          </TouchableOpacity>
-          <View style={styles.actionButton}>
-            <Text style={styles.actionText}>Status</Text>
+          <View style={styles.actionButtonsBox}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={onRevealDetails}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.actionText}>More</Text>
+            </TouchableOpacity>
+            <View style={styles.actionButton}>
+              <Text style={styles.actionText}>Status</Text>
+            </View>
           </View>
         </View>
 
-        <View
-          style={[
-            styles.actionStatusBox,
-            { backgroundColor: colors.bg },
-          ]}
-        >
+        <View style={[styles.actionStatusBox, { backgroundColor: colors.bg }]}>
           <Text
             style={[styles.actionStatusBoxText, { color: colors.text }]}
             numberOfLines={1}
@@ -769,9 +816,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
           onPress={onBackToActions}
           activeOpacity={0.8}
         >
-          <View style={styles.chevronBadge}>
-            <Ionicons name="chevron-forward" size={12} color="#fff" />
-          </View>
+          <WaveChevronBadge mirrored />
         </TouchableOpacity>
         <Text style={[styles.swipeHeaderText, styles.swipeAssignedColumn]}>
           Assigned to
@@ -820,7 +865,9 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
               />
             </TouchableOpacity>
           ) : (
-            <View style={[styles.swipeStatusCell, { backgroundColor: colors.bg }]}>
+            <View
+              style={[styles.swipeStatusCell, { backgroundColor: colors.bg }]}
+            >
               <Text
                 style={[styles.swipeStatusText, { color: colors.text }]}
                 numberOfLines={1}
@@ -881,6 +928,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 10,
+    // container is edge-flush on the right (for the row chevron below) — pull
+    // this back in so the title/filter button stay visually inset like before.
+    marginRight: 16,
   },
   sectionTitle: {
     fontSize: 20,
@@ -924,11 +974,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#E5E7EB",
     borderRadius: 4,
     marginBottom: 8,
+    // Stays visually inset even though the container now extends edge-flush
+    // on the right for the row chevron below.
+    marginRight: 16,
   },
   colHead: {
     fontSize: 12,
-    fontFamily: "SF_Pro_Medium",
-    color: "#1F2937",
+    fontFamily: "SF_Pro_Bold",
+    fontWeight: "700",
+    color: "#1D1D1D",
     textAlign: "center",
   },
   rowsScroll: {
@@ -1016,7 +1070,7 @@ const styles = StyleSheet.create({
   avatarImage: {
     width: 21,
     height: 21,
-    borderRadius: 2,
+    borderRadius: 10.5,
     marginRight: 6,
     backgroundColor: "#E5E7EB",
   },
@@ -1055,17 +1109,14 @@ const styles = StyleSheet.create({
     marginRight: 5,
   },
   actionPress: {
+    width: WAVE_BADGE_WIDTH,
     height: ROW_HEIGHT,
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "center",
-  },
-  chevronBadge: {
-    width: 21,
-    height: 21,
-    borderRadius: 11,
-    backgroundColor: "#18181B",
-    alignItems: "center",
-    justifyContent: "center",
+    // Floats to the row's true right edge regardless of how wide the data
+    // columns are — WaveChevronBadge's own shape already has a flat right
+    // edge, so no separate clipping is needed here.
+    marginLeft: "auto",
   },
   swipePanel: {
     flex: 1,
@@ -1080,38 +1131,33 @@ const styles = StyleSheet.create({
     right: 0,
     width: ACTION_REVEAL_WIDTH,
     height: ACTION_STRIP_HEIGHT,
-    backgroundColor: SWIPE_GREEN,
     flexDirection: "row",
     alignItems: "center",
-    paddingLeft: 62,
+    paddingLeft: ACTION_GRIP_WIDTH - 1,
     paddingRight: 8,
     overflow: "hidden",
   },
   actionGrip: {
     position: "absolute",
-    left: -30,
+    left: 0,
     top: 0,
-    width: 88,
+    width: ACTION_GRIP_WIDTH,
     height: ACTION_STRIP_HEIGHT,
-    borderTopLeftRadius: ACTION_STRIP_HEIGHT / 2,
-    borderBottomLeftRadius: ACTION_STRIP_HEIGHT / 2,
-    backgroundColor: SWIPE_GREEN,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-start",
-    paddingLeft: 12,
-    overflow: "hidden",
   },
-  actionGripIcon: {
-    marginLeft: -6,
+  actionButtonsBox: {
+    flex: 1,
+    height: ACTION_STRIP_HEIGHT,
+    flexDirection: "row",
+    backgroundColor: SWIPE_GREEN,
+    borderTopRightRadius: 8,
+    borderBottomRightRadius: 8,
+    overflow: "hidden",
   },
   actionButton: {
     flex: 1,
     height: ACTION_STRIP_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 8,
-    overflow: "hidden",
   },
   actionText: {
     fontSize: 12,
@@ -1154,19 +1200,20 @@ const styles = StyleSheet.create({
     height: 37,
     flexDirection: "row",
     alignItems: "center",
-    paddingLeft: 4,
     paddingRight: 10,
     backgroundColor: "#00DEAB",
     // borderTopLeftRadius: 8,
     // borderTopRightRadius: 8,
-    borderRadius:8,
+    borderRadius: 8,
   },
   detailsBackButton: {
-    width: 26,
+    // WaveChevronBadge's own shape has a flat left edge (mirrored) — sits
+    // flush against this panel's far-left edge with no separate clipping.
+    width: WAVE_BADGE_WIDTH,
     height: 37,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 2,
+    marginRight: 6,
   },
   swipeHeaderText: {
     fontSize: 12.5,

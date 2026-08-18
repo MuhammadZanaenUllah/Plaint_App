@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useReducer,
   useState,
 } from "react";
@@ -305,8 +306,20 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 
   const totalCount = allMappedTasks.length;
 
+  // /tasks/all + /tasks/duetoday are unpaginated (fetch the whole company's
+  // task list every call), so overlapping requests are pure waste. Dedupe
+  // concurrent calls onto a single in-flight request instead of firing one
+  // per caller (mount + a same-instant socket refetch + pull-to-refresh, etc).
+  const inFlightFetchRef = useRef<Promise<void> | null>(null);
+
   const fetchAllTasks = useCallback(
     async (companyId: number, options?: { silent?: boolean }) => {
+      if (inFlightFetchRef.current) {
+        console.log(`[TaskContext] fetchAllTasks already in flight — awaiting existing request instead of firing a new one`);
+        return inFlightFetchRef.current;
+      }
+
+      const run = async () => {
       console.log(`[TaskContext] fetchAllTasks called with companyId=${companyId}, silent=${options?.silent}`);
       if (!options?.silent) {
         dispatch({ type: "SET_LOADING", loading: true });
@@ -361,7 +374,16 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       console.error(`[TaskContext] fetchAllTasks error:`, error);
       dispatch({ type: "SET_ERROR", error: extractErrorMessage(error) });
     }
-  }, []);
+      };
+
+      const promise = run().finally(() => {
+        inFlightFetchRef.current = null;
+      });
+      inFlightFetchRef.current = promise;
+      return promise;
+    },
+    []
+  );
 
   const fetchDueToday = useCallback(async (companyId: number) => {
     dispatch({ type: "SET_LOADING", loading: true });

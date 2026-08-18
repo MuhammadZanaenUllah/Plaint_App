@@ -187,14 +187,14 @@ interface DynamicRowProps<T> {
   renderLeadingCell?: (item: T, rowIndex: number) => ReactNode;
   onRowPress?: (item: T, rowIndex: number) => void;
   isOpen: boolean;
-  onOpenRequest: () => void;
+  onOpenRequest: (rowIndex: number) => void;
   onClose: () => void;
   renderSwipeContent?: DynamicTableProps<T>["renderSwipeContent"];
   swipeContentWidth: number;
   swipeActionWidth: number;
   isSwipeOpen: boolean;
   swipeStage: SwipeStage | null;
-  onSwipeOpenRequest: (stage: SwipeStage) => void;
+  onSwipeOpenRequest: (rowIndex: number, stage: SwipeStage) => void;
   onSwipeClose: () => void;
   onSwipeDragStateChange: (dragging: boolean) => void;
   rowZIndex: number;
@@ -251,16 +251,21 @@ const DynamicRow = memo(function DynamicRow<T>({
     }).start();
   }, [canSwipe, currentRevealWidth, translateX]);
 
+  const setStage = useCallback(
+    (stage: SwipeStage) => onSwipeOpenRequest(rowIndex, stage),
+    [onSwipeOpenRequest, rowIndex],
+  );
+
   const settleSwipe = useCallback(
     (stage: SwipeStage | null) => {
       if (stage) {
         onClose();
-        onSwipeOpenRequest(stage);
+        setStage(stage);
       } else {
         onSwipeClose();
       }
     },
-    [onClose, onSwipeClose, onSwipeOpenRequest],
+    [onClose, onSwipeClose, setStage],
   );
 
   const panResponder = useMemo(
@@ -397,7 +402,7 @@ const DynamicRow = memo(function DynamicRow<T>({
             rowIndex,
             onSwipeClose,
             swipeStage ?? "actions",
-            onSwipeOpenRequest,
+            setStage,
           )}
         </View>
       )}
@@ -436,7 +441,7 @@ const DynamicRow = memo(function DynamicRow<T>({
                     if (isOpen) {
                       onClose();
                     } else {
-                      onOpenRequest();
+                      onOpenRequest(rowIndex);
                     }
                   }}
                   activeOpacity={0.8}
@@ -480,7 +485,7 @@ const DynamicRow = memo(function DynamicRow<T>({
           {canSwipe && !isSwipeOpen && (
             <TouchableOpacity
               style={styles.rightHandleContainer}
-              onPress={() => onSwipeOpenRequest("actions")}
+              onPress={() => setStage("actions")}
               activeOpacity={0.7}
             >
               <Ionicons name="chevron-back" size={14} color="#000000" />
@@ -857,7 +862,7 @@ function StickyHeaderTable<T>({
                 renderLeadingCell={renderLeadingCell}
                 onRowPress={onRowPress}
                 isOpen={openRowIndex === i}
-                onOpenRequest={() => handleOpenRow(i)}
+                onOpenRequest={handleOpenRow}
                 onClose={handleCloseRow}
                 renderSwipeContent={renderSwipeContent}
                 swipeContentWidth={
@@ -870,7 +875,7 @@ function StickyHeaderTable<T>({
                 swipeStage={
                   openSwipeRow?.index === i ? openSwipeRow.stage : null
                 }
-                onSwipeOpenRequest={(stage) => handleOpenSwipeRow(i, stage)}
+                onSwipeOpenRequest={handleOpenSwipeRow}
                 onSwipeClose={handleCloseSwipeRow}
                 onSwipeDragStateChange={onSwipeDragStateChange}
                 rowZIndex={rowZIndex}
