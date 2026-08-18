@@ -39,7 +39,7 @@ function Dots({ active }: { active: number }) {
 
 export default function OnboardingScreen() {
   const scrollRef = useRef<ScrollView>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [active, setActive] = useState(0);
 
   // useEffect(() => {

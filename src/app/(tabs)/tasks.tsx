@@ -532,9 +532,9 @@ export default function TasksScreen() {
     console.log(`[TasksScreen] Calculating displayedTasks for activeTab="${activeTab}". Base category tasks count:`, tasks.length);
     if (tasks.length > 0) {
       const ids = tasks.map(t => t.id ?? "no-id").slice(0, 5);
-      console.log(`[TasksScreen] First 5 task ids in displayedTasks: [${ids.join(", ")}]`);
+      // console.log(`[TasksScreen] First 5 task ids in displayedTasks: [${ids.join(", ")}]`);
       const raw572 = tasks.find(t => t.id === "572");
-      console.log(`[TasksScreen] Task id=572 found in displayedTasks: ${!!raw572}, title: "${raw572?.title}"`);
+      // console.log(`[TasksScreen] Task id=572 found in displayedTasks: ${!!raw572}, title: "${raw572?.title}"`);
     }
 
     if (activeStatusFilter) {
@@ -543,7 +543,7 @@ export default function TasksScreen() {
       } else {
         tasks = tasks.filter((t) => t.status === activeStatusFilter);
       }
-      console.log(`[TasksScreen] After status filter ("${activeStatusFilter}"):`, tasks.length);
+      // console.log(`[TasksScreen] After status filter ("${activeStatusFilter}"):`, tasks.length);
     } else {
       if (activeTab === "completed") {
         tasks = tasks.filter((t) => t.status === "Completed");
@@ -557,7 +557,7 @@ export default function TasksScreen() {
       // "normal" | "critical"), NOT the free-form `priority_name` string.
       const tier = activePriorityFilter.toLowerCase();
       tasks = tasks.filter((t) => t._raw?.task_priority === tier);
-      console.log(`[TasksScreen] After priority filter ("${activePriorityFilter}"):`, tasks.length);
+      // console.log(`[TasksScreen] After priority filter ("${activePriorityFilter}"):`, tasks.length);
     }
 
     if (activeStartDateFilter || activeEndDateFilter) {
