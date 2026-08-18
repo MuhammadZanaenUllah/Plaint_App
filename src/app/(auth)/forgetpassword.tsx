@@ -7,6 +7,8 @@ import {
   ActivityIndicator,
   Image,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -47,26 +49,31 @@ export default function ForgetPassword() {
       <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
         <View style={styles.root}>
           <TopMintGlow />
-          <View style={styles.content}>
-            <Image
-              source={Images.PlaintLogo}
-              style={styles.logo}
-              resizeMode="contain"
-            />
-            <Text style={styles.title}>Check Your Email</Text>
-            <View style={styles.emailSentBox}>
-              <Text style={styles.emailSentText}>
-                A password reset link has been sent to {emailAddress}. Please check
-                your inbox.
-              </Text>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={styles.flex}
+          >
+            <View style={styles.content}>
+              <Image
+                source={Images.PlaintLogo}
+                style={styles.logo}
+                resizeMode="contain"
+              />
+              <Text style={styles.title}>Check Your Email</Text>
+              <View style={styles.emailSentBox}>
+                <Text style={styles.emailSentText}>
+                  A password reset link has been sent to {emailAddress}. Please check
+                  your inbox.
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => router.replace("/(auth)/login")}
+                style={styles.loginBtn}
+              >
+                <Text style={styles.loginBtnText}>Back to Sign In</Text>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity
-              onPress={() => router.replace("/(auth)/login")}
-              style={styles.loginBtn}
-            >
-              <Text style={styles.loginBtnText}>Back to Sign In</Text>
-            </TouchableOpacity>
-          </View>
+          </KeyboardAvoidingView>
         </View>
       </TouchableWithoutFeedback>
     );
@@ -76,50 +83,53 @@ export default function ForgetPassword() {
     <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
       <View style={styles.root}>
         <TopMintGlow />
-        <View style={styles.content}>
-          <Image
-            source={Images.PlaintLogo}
-            style={styles.logo}
-            resizeMode="contain"
-          />
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.flex}
+        >
+          <View style={styles.content}>
+            <Image
+              source={Images.PlaintLogo}
+              style={styles.logo}
+              resizeMode="contain"
+            />
 
-          <Text style={styles.title}>Reset Password</Text>
+            <Text style={styles.title}>Reset Password</Text>
 
-          <View>
             <View>
               <Text style={styles.emailText}>
                 Enter your Email and proceed to set a new password!
               </Text>
+
+              <FloatingInput
+                label="Email Address"
+                value={emailAddress}
+                onChangeText={setEmailAddress}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
             </View>
 
-            <FloatingInput
-              label="Email Address"
-              value={emailAddress}
-              onChangeText={setEmailAddress}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-          </View>
+            <Pressable
+              style={[styles.loginBtn, loading && { opacity: 0.7 }]}
+              onPress={handleSendReset}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color={Colors.buttonText} />
+              ) : (
+                <Text style={styles.loginBtnText}>Next</Text>
+              )}
+            </Pressable>
 
-          <Pressable
-            style={[styles.loginBtn, loading && { opacity: 0.7 }]}
-            onPress={handleSendReset}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator size="small" color={Colors.buttonText} />
-            ) : (
-              <Text style={styles.loginBtnText}>Next</Text>
-            )}
-          </Pressable>
-
-          <View style={styles.forgotText}>
-            <Text style={styles.remember}>Remember it?</Text>
-            <TouchableOpacity onPress={() => router.replace("/(auth)/login")}>
-              <Text style={styles.signIn}>Signin</Text>
-            </TouchableOpacity>
+            <View style={styles.forgotText}>
+              <Text style={styles.remember}>Remember it?</Text>
+              <TouchableOpacity onPress={() => router.replace("/(auth)/login")}>
+                <Text style={styles.signIn}>Signin</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </View>
     </TouchableWithoutFeedback>
   );
@@ -129,6 +139,9 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: "#FFFFFF",
+  },
+  flex: {
+    flex: 1,
   },
   content: {
     flex: 1,

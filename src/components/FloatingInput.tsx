@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Pressable,
@@ -19,23 +19,59 @@ export default function FloatingInput({
   secureToggle = false,
   value,
   onChangeText,
+  onChange: onChangeProp,
   ...rest
 }: FloatingInputProps) {
   const [focused, setFocused] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const floated = focused || !!value;
+
+  // Refs avoid stale-closure issues when updateContent is called from event handlers.
+  const hasContentRef = useRef(!!value);
+  const focusedRef = useRef(false);
+  const [hasContent, setHasContent] = useState(!!value);
+
+  const floated = focused || hasContent;
   const anim = useRef(new Animated.Value(floated ? 1 : 0)).current;
 
+  const animate = (toValue: number) =>
+    Animated.timing(anim, { toValue, duration: 150, useNativeDriver: false }).start();
+
+  const updateContent = (has: boolean) => {
+    if (hasContentRef.current === has) return;
+    hasContentRef.current = has;
+    setHasContent(has);
+    // Use focusedRef (not state) so we always read the current value, not a stale closure.
+    animate(has || focusedRef.current ? 1 : 0);
+  };
+
+  // Layer 1 — controlled value prop changes (external clears, programmatic sets, storage loads)
+  useEffect(() => {
+    updateContent(!!value);
+  }, [value]);
+
+  // Layer 2 — raw onChange: covers autofill on non-secure fields (may be suppressed on secure fields)
+  const handleChange = (e: any) => {
+    updateContent(!!e.nativeEvent.text);
+    onChangeProp?.(e);
+  };
+
+  // Layer 3 — onChangeText interception: ALWAYS fires for every field type including
+  // secureTextEntry password fields on Android where onChange can be suppressed.
+  const handleChangeText = (text: string) => {
+    updateContent(!!text);
+    onChangeText?.(text);
+  };
+
   const handleFocus = () => {
+    focusedRef.current = true;
     setFocused(true);
-    Animated.timing(anim, { toValue: 1, duration: 150, useNativeDriver: false }).start();
+    animate(1);
   };
 
   const handleBlur = () => {
+    focusedRef.current = false;
     setFocused(false);
-    if (!value) {
-      Animated.timing(anim, { toValue: 0, duration: 150, useNativeDriver: false }).start();
-    }
+    if (!hasContentRef.current) animate(0);
   };
 
   // When floated: label sits at -10 (above border), when not: sits centered in box
@@ -43,14 +79,14 @@ export default function FloatingInput({
   const labelSize = anim.interpolate({ inputRange: [0, 1], outputRange: [15, 12] });
 
   return (
-    <View style={[styles.wrapper, (focused || !!value) && styles.wrapperFocused]}>
+    <View style={[styles.wrapper, floated && styles.wrapperFocused]}>
       <Animated.Text
         style={[
           styles.label,
           {
             top: labelTop,
             fontSize: labelSize,
-            color: (focused || !!value) ? "#1D1D1D" : "#E6E6E6",
+            color: floated ? "#1D1D1D" : "#E6E6E6",
           },
         ]}
       >
@@ -60,9 +96,10 @@ export default function FloatingInput({
       <TextInput
         style={[styles.input, secureToggle && { paddingRight: 44 }]}
         value={value}
-        onChangeText={onChangeText}
+        onChangeText={handleChangeText}
         onFocus={handleFocus}
         onBlur={handleBlur}
+        onChange={handleChange}
         secureTextEntry={secureToggle && !showPassword}
         placeholderTextColor="transparent"
         {...rest}
@@ -70,7 +107,11 @@ export default function FloatingInput({
 
       {secureToggle && (
         <Pressable style={styles.eyeIcon} onPress={() => setShowPassword((v) => !v)}>
-          <Ionicons name={showPassword ? "eye-off" : "eye"} size={20} color={(focused || !!value) ? "#1D1D1D" : "#E6E6E6"} />
+          <Ionicons
+            name={showPassword ? "eye-off" : "eye"}
+            size={20}
+            color={floated ? "#1D1D1D" : "#E6E6E6"}
+          />
         </Pressable>
       )}
     </View>
