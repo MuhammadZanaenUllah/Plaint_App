@@ -7,7 +7,6 @@ import TaskDetailModal, {
   buildTaskDetailFromViewTask,
 } from "@/components/TaskDetailModal";
 import {
-  ALL_STATUSES,
   STATUS_COLORS,
   StatusType,
   TaskRowProps,
@@ -75,6 +74,12 @@ export default function TasksScreen() {
   const [activeEndDateFilter, setActiveEndDateFilter] = useState<Date | null>(
     null,
   );
+  const [activeCreatedByFilter, setActiveCreatedByFilter] = useState<
+    number | null
+  >(null);
+  const [activeAssignedToFilter, setActiveAssignedToFilter] = useState<
+    number | null
+  >(null);
 
   // Pagination state — how many tasks of the current tab's dataset are visible.
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -283,17 +288,23 @@ export default function TasksScreen() {
       priority: string | null;
       startDate?: Date | null;
       endDate?: Date | null;
+      createdBy?: number | null;
+      assignedTo?: number | null;
     }) => {
       console.log("[TasksScreen] Filter Applied:", {
         status: filters.status,
         priority: filters.priority,
         startDate: filters.startDate ? filters.startDate.toISOString() : null,
         endDate: filters.endDate ? filters.endDate.toISOString() : null,
+        createdBy: filters.createdBy,
+        assignedTo: filters.assignedTo,
       });
       setActiveStatusFilter(filters.status);
       setActivePriorityFilter(filters.priority);
       setActiveStartDateFilter(filters.startDate ?? null);
       setActiveEndDateFilter(filters.endDate ?? null);
+      setActiveCreatedByFilter(filters.createdBy ?? null);
+      setActiveAssignedToFilter(filters.assignedTo ?? null);
       resetPagination();
     },
     [resetPagination],
@@ -305,6 +316,8 @@ export default function TasksScreen() {
     setActivePriorityFilter(null);
     setActiveStartDateFilter(null);
     setActiveEndDateFilter(null);
+    setActiveCreatedByFilter(null);
+    setActiveAssignedToFilter(null);
     resetPagination();
   }, [resetPagination]);
 
@@ -313,12 +326,16 @@ export default function TasksScreen() {
     if (activeStatusFilter) count++;
     if (activePriorityFilter) count++;
     if (activeStartDateFilter || activeEndDateFilter) count++;
+    if (activeCreatedByFilter) count++;
+    if (activeAssignedToFilter) count++;
     return count;
   }, [
     activeStatusFilter,
     activePriorityFilter,
     activeStartDateFilter,
     activeEndDateFilter,
+    activeCreatedByFilter,
+    activeAssignedToFilter,
   ]);
 
   const handleTaskPress = useCallback(
@@ -402,16 +419,13 @@ export default function TasksScreen() {
     openDeepLinkedTask();
   }, [taskIdParam, allMappedTasks, companyId, handleTaskPress]);
 
-  // Filter options are derived from the actual loaded tasks so the chips always
-  // match the real statuses coming from the backend (custom statuses included).
-  // Standard statuses are kept first to preserve ordering; extras append after.
-  const statuses = useMemo(() => {
-    const merged: string[] = [...ALL_STATUSES];
-    for (const s of allMappedTasks) {
-      if (s.status && !merged.includes(s.status)) merged.push(s.status);
-    }
-    return merged;
-  }, [allMappedTasks]);
+  // The Status filter intentionally shows only these four, regardless of
+  // what other statuses (Rejected, Pending-Approval, Recurring, etc.) exist
+  // on the backend.
+  const statuses = useMemo(
+    () => ["Pending", "In-Progress", "On Hold", "Completed"],
+    [],
+  );
 
   const statusColors = useMemo(() => {
     const colors: Record<string, string> = {};
@@ -642,6 +656,26 @@ export default function TasksScreen() {
       );
     }
 
+    if (activeCreatedByFilter) {
+      tasks = tasks.filter(
+        (t) => t._raw?.created_by === activeCreatedByFilter,
+      );
+      console.log(
+        `[TasksScreen] After created-by filter (id=${activeCreatedByFilter}):`,
+        tasks.length,
+      );
+    }
+
+    if (activeAssignedToFilter) {
+      tasks = tasks.filter(
+        (t) => t._raw?.asigned_to === activeAssignedToFilter,
+      );
+      console.log(
+        `[TasksScreen] After assigned-to filter (id=${activeAssignedToFilter}):`,
+        tasks.length,
+      );
+    }
+
     if (activeStartDateFilter || activeEndDateFilter) {
       const startMs = activeStartDateFilter
         ? new Date(activeStartDateFilter).setHours(0, 0, 0, 0)
@@ -717,6 +751,8 @@ export default function TasksScreen() {
     getTabCategoryScope,
     activeStatusFilter,
     activePriorityFilter,
+    activeCreatedByFilter,
+    activeAssignedToFilter,
     activeStartDateFilter,
     activeEndDateFilter,
     searchText,
@@ -773,11 +809,17 @@ export default function TasksScreen() {
     }
   }, [companyId, fetchAllTasks]);
 
+  // While only Phase 1 (due-today) has loaded, every count other than
+  // "Due Today" itself is derived from an incomplete task list — show a
+  // placeholder instead of a temporarily-wrong number for those.
+  const partial = taskState.isPartialLoad;
+  const statCount = (n: number) => (partial ? "···" : pad(n));
+
   const statsList = useMemo(() => {
     return [
       {
         label: "All Tasks",
-        count: pad(tabCounts.all),
+        count: statCount(tabCounts.all),
         iconName: <AllTasksIcon />,
         id: "all",
       },
@@ -789,42 +831,42 @@ export default function TasksScreen() {
       },
       {
         label: "Due in 7 days",
-        count: pad(tabCounts.week),
+        count: statCount(tabCounts.week),
         iconName: <SevendayIcon />,
         id: "week",
       },
       {
         label: "Delayed",
-        count: pad(tabCounts.overdue),
+        count: statCount(tabCounts.overdue),
         iconName: <DelayIcon />,
         id: "overdue",
       },
       {
         label: "Created by me",
-        count: pad(tabCounts.created),
+        count: statCount(tabCounts.created),
         iconName: <CreatedIcon />,
         id: "created",
       },
       {
         label: "Assigned to me",
-        count: pad(tabCounts.assigned),
+        count: statCount(tabCounts.assigned),
         iconName: <AssignIcon />,
         id: "assigned",
       },
       {
         label: "Recurring",
-        count: pad(tabCounts.recurring),
+        count: statCount(tabCounts.recurring),
         iconName: <RecurringIcon />,
         id: "recurring",
       },
       {
         label: "Completed",
-        count: pad(tabCounts.completed),
+        count: statCount(tabCounts.completed),
         iconName: <CompletedIcon />,
         id: "completed",
       },
     ];
-  }, [tabCounts]);
+  }, [tabCounts, partial]);
 
   // Whenever tasks are loading, show the skeleton (with the real, live stat-card
   // filter bar above). This covers every load path — initial fetch, logout+login,
@@ -874,10 +916,15 @@ export default function TasksScreen() {
           priorities={priorities}
           priorityColors={priorityColors}
           showPriority={true}
+          owners={taskState.taskOwners}
+          showCreatedBy
+          showAssignedTo
           initialStatus={activeStatusFilter}
           initialPriority={activePriorityFilter}
           initialStartDate={activeStartDateFilter}
           initialEndDate={activeEndDateFilter}
+          initialCreatedBy={activeCreatedByFilter}
+          initialAssignedTo={activeAssignedToFilter}
           onApply={handleFilterApply}
           onReset={handleFilterReset}
           loading={taskState.loading}

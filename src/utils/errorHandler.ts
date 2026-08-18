@@ -10,33 +10,39 @@ function toBusinessMessage(raw: string): string {
 }
 
 export function extractErrorMessage(error: unknown): string {
-  if (!error) return "An unexpected error occurred";
+  if (!error) return "An unexpected error occurred.";
 
-  if (typeof error === "string") return toBusinessMessage(error);
+  if (typeof error === "string") return error.trim();
 
   if (error instanceof Error) {
     const msg = error.message;
 
     if (msg.includes("Network request failed") || msg.includes("fetch")) {
-      return "Network error. Please check your connection.";
+      return "Network error. Please check your internet connection.";
     }
     if (msg.includes("timeout")) {
       return "Request timed out. Please try again.";
     }
-    return toBusinessMessage(msg);
+    return msg.trim();
   }
 
   if (typeof error === "object" && error !== null) {
     const errObj = error as Record<string, unknown>;
 
-    if ("Good" in errObj && errObj.Good === false) {
-      const apiErr = error as ApiErrorEnvelope;
-      if (apiErr.message) return toBusinessMessage(apiErr.message);
-      if (typeof apiErr.data === "string") return toBusinessMessage(apiErr.data);
+    if (typeof errObj.Bad === "string" && errObj.Bad.trim()) {
+      return errObj.Bad.trim();
     }
-
-    if ("message" in errObj && typeof errObj.message === "string") {
-      return toBusinessMessage(errObj.message);
+    if (typeof errObj.message === "string" && errObj.message.trim()) {
+      return errObj.message.trim();
+    }
+    if (typeof errObj.msg === "string" && errObj.msg.trim()) {
+      return errObj.msg.trim();
+    }
+    if (typeof errObj.error === "string" && errObj.error.trim()) {
+      return errObj.error.trim();
+    }
+    if (typeof errObj.data === "string" && errObj.data.trim()) {
+      return errObj.data.trim();
     }
   }
 

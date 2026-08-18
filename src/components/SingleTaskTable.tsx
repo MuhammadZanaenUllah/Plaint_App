@@ -22,6 +22,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
+import TaskRefreshHeader from "./TaskRefreshHeader";
 import {
   ALL_STATUSES,
   STATUS_COLORS,
@@ -29,13 +30,7 @@ import {
   TaskRowProps,
 } from "./TaskRow";
 
-const {
-  FilterIcon,
-  FilterIconBlack,
-  LeftWaveIcon,
-  RightWaveIcon,
-  HalfSwipeIcon,
-} = Icons;
+const { FilterIcon, LeftWaveIcon, RightWaveIcon, HalfSwipeIcon } = Icons;
 
 type Props = {
   sectionTitle: string;
@@ -295,12 +290,13 @@ function SingleTaskTable({
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              colors={["#00DEAB"]}
-              tintColor="#00DEAB"
+              colors={["transparent"]}
+              tintColor="transparent"
             />
           ) : undefined
         }
       >
+        <TaskRefreshHeader refreshing={refreshing} />
         {loading ? (
           <View style={styles.centeredState}>
             <ActivityIndicator size="small" color="#00DEAB" />
@@ -708,7 +704,7 @@ const TaskStatusDropdown = memo(function TaskStatusDropdown({
 }) {
   return (
     <>
-      {ALL_STATUSES.map((status) => {
+      {ALL_STATUSES.filter((s) => s !== "Pending-Approval" && s !== "Recurring").map((status) => {
         const color = STATUS_COLORS[status]?.text ?? "#6B7280";
         const isActive = status === currentStatus;
 

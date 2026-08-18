@@ -1,23 +1,26 @@
 import FloatingInput from "@/components/FloatingInput";
 import TopMintGlow from "@/components/gradientheader";
+import Images from "@/constants/images";
+import * as authService from "@/services/api/auth.service";
 import { Colors } from "@/theme/root";
+import { extractErrorMessage } from "@/utils/errorHandler";
+import { showError, showInfo } from "@/utils/toast";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
   Image,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
 } from "react-native";
-import Images from "@/constants/images";
-import { extractErrorMessage } from "@/utils/errorHandler";
-import { showInfo, showError } from "@/utils/toast";
-import * as authService from "@/services/api/auth.service";
 
 export default function ForgetPassword() {
   const [emailAddress, setEmailAddress] = useState("");
@@ -53,9 +56,11 @@ export default function ForgetPassword() {
               style={styles.logo}
               resizeMode="contain"
             />
-            <Text style={styles.title}>Check Your Email</Text>
+            <Text allowFontScaling={false} style={styles.title}>
+              Check Your Email
+            </Text>
             <View style={styles.emailSentBox}>
-              <Text style={styles.emailSentText}>
+              <Text allowFontScaling={false} style={styles.emailSentText}>
                 A password reset link has been sent to {emailAddress}. Please check
                 your inbox.
               </Text>
@@ -64,7 +69,9 @@ export default function ForgetPassword() {
               onPress={() => router.replace("/(auth)/login")}
               style={styles.loginBtn}
             >
-              <Text style={styles.loginBtnText}>Back to Sign In</Text>
+              <Text allowFontScaling={false} style={styles.loginBtnText}>
+                Back to Sign In
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -76,63 +83,89 @@ export default function ForgetPassword() {
     <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
       <View style={styles.root}>
         <TopMintGlow />
-        <View style={styles.content}>
-          <Image
-            source={Images.PlaintLogo}
-            style={styles.logo}
-            resizeMode="contain"
-          />
-
-          <Text style={styles.title}>Reset Password</Text>
-
-          <View>
-            <View>
-              <Text style={styles.emailText}>
-                Enter your Email and proceed to set a new password!
-              </Text>
-            </View>
-
-            <FloatingInput
-              label="Email Address"
-              value={emailAddress}
-              onChangeText={setEmailAddress}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-          </View>
-
-          <Pressable
-            style={[styles.loginBtn, loading && { opacity: 0.7 }]}
-            onPress={handleSendReset}
-            disabled={loading}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.flex}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            {loading ? (
-              <ActivityIndicator size="small" color={Colors.buttonText} />
-            ) : (
-              <Text style={styles.loginBtnText}>Next</Text>
-            )}
-          </Pressable>
+            <View style={styles.content}>
+              <Image
+                source={Images.PlaintLogo}
+                style={styles.logo}
+                resizeMode="contain"
+              />
 
-          <View style={styles.forgotText}>
-            <Text style={styles.remember}>Remember it?</Text>
-            <TouchableOpacity onPress={() => router.replace("/(auth)/login")}>
-              <Text style={styles.signIn}>Signin</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+              <Text allowFontScaling={false} style={styles.title}>
+                Reset Password
+              </Text>
+
+              <View>
+                <View>
+                  <Text allowFontScaling={false} style={styles.emailText}>
+                    Enter your Email and proceed to set a new password!
+                  </Text>
+                </View>
+
+                <FloatingInput
+                  label="Email Address"
+                  value={emailAddress}
+                  onChangeText={setEmailAddress}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <Pressable
+                style={[styles.loginBtn, loading && { opacity: 0.7 }]}
+                onPress={handleSendReset}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color={Colors.buttonText} />
+                ) : (
+                  <Text allowFontScaling={false} style={styles.loginBtnText}>
+                    Next
+                  </Text>
+                )}
+              </Pressable>
+
+              <View style={styles.forgotText}>
+                <Text allowFontScaling={false} style={styles.remember}>
+                  Remember it?
+                </Text>
+                <TouchableOpacity onPress={() => router.replace("/(auth)/login")}>
+                  <Text allowFontScaling={false} style={styles.signIn}>
+                    {" Signin"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </View>
     </TouchableWithoutFeedback>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   root: {
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+  },
   content: {
-    flex: 1,
-    paddingHorizontal: 15,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
     justifyContent: "center",
     gap: 16,
   },
@@ -197,6 +230,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    gap: 1,
+    gap: 2,
   },
 });

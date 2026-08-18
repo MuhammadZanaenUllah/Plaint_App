@@ -44,12 +44,19 @@ type TaskState = {
   loading: boolean;
   error: string | null;
   activeFilter: TaskFilter | null;
+  // True while only the Phase-1 (due-today) slice has loaded and the full
+  // company task list (Phase 2) is still in flight — stat counts derived
+  // from the full list (All Tasks, Delayed, etc.) are momentarily incomplete
+  // during this window, so screens should show a placeholder for those
+  // instead of a wrong number.
+  isPartialLoad: boolean;
 };
 
 type TaskAction =
   | {
       type: "LOAD_SUCCESS";
       data: TaskListResponse;
+      partial?: boolean;
     }
   | { type: "SET_LOADING"; loading: boolean }
   | { type: "SET_ERROR"; error: string | null }
@@ -99,6 +106,7 @@ const initialState: TaskState = {
   loading: false,
   error: null,
   activeFilter: null,
+  isPartialLoad: false,
 };
 
 function taskReducer(state: TaskState, action: TaskAction): TaskState {
@@ -114,6 +122,7 @@ function taskReducer(state: TaskState, action: TaskAction): TaskState {
         statusList: action.data.status,
         loading: false,
         error: null,
+        isPartialLoad: action.partial ?? false,
       };
     case "SET_LOADING":
       return { ...state, loading: action.loading };
@@ -319,6 +328,27 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
         return inFlightFetchRef.current;
       }
 
+      // /tasks/all is unpaginated and returns the whole company's task list
+      // (500+ tasks for some companies), while /tasks/duetoday returns just
+      // today's slice. The web app documents this as a two-phase load:
+      // duetoday first for an almost-instant first paint, then the full list
+      // fills in behind it. Mirror that here for foreground loads so the
+      // screen isn't stuck on a spinner for the full, heavier request.
+      const mergeArrays = (a: TaskListItem[] = [], b: TaskListItem[] = []) => {
+        const map = new Map<number, TaskListItem>();
+        for (const t of a ?? []) map.set(t.id, t);
+        for (const t of b ?? []) if (!map.has(t.id)) map.set(t.id, t);
+        return [...map.values()];
+      };
+
+      const applyDueTodayCount = (data: TaskListResponse) => {
+        setDueTodayCount(
+          data.tasks_assigned_to_me.length +
+            data.tasksByme.length +
+            data.all_other_tasks.length
+        );
+      };
+
       const run = async () => {
       console.log(`[TaskContext] fetchAllTasks called with companyId=${companyId}, silent=${options?.silent}`);
       if (!options?.silent) {
@@ -326,24 +356,47 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       }
       setFilteredMappedTasks([]);
     try {
-      const [res, todayRes] = await Promise.all([
-        tasksService.getAllTasks(companyId),
-        tasksService.getDueTodayTasks(companyId),
-      ]);
+      if (options?.silent) {
+        // Background refresh (socket/pull-to-refresh) — no spinner is
+        // showing, so fetch both in parallel as before; there's nothing to
+        // paint sooner by staggering them.
+        const [res, todayRes] = await Promise.all([
+          tasksService.getAllTasks(companyId),
+          tasksService.getDueTodayTasks(companyId),
+        ]);
+
+        if (res.Good && res.data) {
+          const mergedData: TaskListResponse = {
+            ...res.data,
+            tasks_assigned_to_me: mergeArrays(res.data.tasks_assigned_to_me, todayRes.data?.tasks_assigned_to_me),
+            tasksByme: mergeArrays(res.data.tasksByme, todayRes.data?.tasksByme),
+            all_other_tasks: mergeArrays(res.data.all_other_tasks, todayRes.data?.all_other_tasks),
+          };
+          dispatch({ type: "LOAD_SUCCESS", data: mergedData });
+          dispatch({ type: "SET_FILTER", filter: null });
+          if (todayRes.Good && todayRes.data) applyDueTodayCount(todayRes.data);
+        } else {
+          console.error(`[TaskContext] getAllTasks failed:`, res.message);
+          dispatch({ type: "SET_ERROR", error: res.message ?? "Failed to load tasks" });
+        }
+        return;
+      }
+
+      // Foreground load — Phase 1: today's tasks only, paints almost
+      // instantly and turns off the loading spinner.
+      const todayRes = await tasksService.getDueTodayTasks(companyId);
+      if (todayRes.Good && todayRes.data) {
+        dispatch({ type: "LOAD_SUCCESS", data: todayRes.data, partial: true });
+        dispatch({ type: "SET_FILTER", filter: null });
+        applyDueTodayCount(todayRes.data);
+      }
+
+      // Phase 2: the full (unpaginated) company task list, merged in once
+      // it arrives — no spinner, the screen already has Phase 1's data.
+      const res = await tasksService.getAllTasks(companyId);
       console.log(`[TaskContext] getAllTasks response Good=${res.Good}, data keys:`, res.data ? Object.keys(res.data) : "null");
-      console.log(`[TaskContext] getDueTodayTasks response Good=${todayRes.Good}`);
 
       if (res.Good && res.data) {
-        // Merge tasks from both endpoints (all excludes today, duetoday has today only)
-        const mergeArrays = (a: TaskListItem[] = [], b: TaskListItem[] = []) => {
-          const map = new Map<number, TaskListItem>();
-          const rawA = a ?? [];
-          const rawB = b ?? [];
-          for (const t of rawA) map.set(t.id, t);
-          for (const t of rawB) if (!map.has(t.id)) map.set(t.id, t);
-          return [...map.values()];
-        };
-
         const mergedData: TaskListResponse = {
           ...res.data,
           tasks_assigned_to_me: mergeArrays(res.data.tasks_assigned_to_me, todayRes.data?.tasks_assigned_to_me),
@@ -358,15 +411,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 
         dispatch({ type: "LOAD_SUCCESS", data: mergedData });
         dispatch({ type: "SET_FILTER", filter: null });
-
-        if (todayRes.Good && todayRes.data) {
-          setDueTodayCount(
-            todayRes.data.tasks_assigned_to_me.length +
-              todayRes.data.tasksByme.length +
-              todayRes.data.all_other_tasks.length
-          );
-        }
-      } else {
+      } else if (!todayRes.Good) {
         console.error(`[TaskContext] getAllTasks failed:`, res.message);
         dispatch({ type: "SET_ERROR", error: res.message ?? "Failed to load tasks" });
       }

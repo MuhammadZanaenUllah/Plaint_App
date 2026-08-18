@@ -1,22 +1,25 @@
 import FloatingInput from "@/components/FloatingInput";
 import TopMintGlow from "@/components/gradientheader";
+import Images from "@/constants/images";
+import { useAuth } from "@/hooks/useAuth";
 import { Colors } from "@/theme/root";
+import { extractErrorMessage } from "@/utils/errorHandler";
+import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
   Image,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableWithoutFeedback,
   View,
 } from "react-native";
-import Images from "@/constants/images";
-import { useAuth } from "@/hooks/useAuth";
-import { extractErrorMessage } from "@/utils/errorHandler";
-import { showInfo, showError, showSuccess } from "@/utils/toast";
 
 export default function InitialPasswordReset() {
   const [newPassword, setNewPassword] = useState("");
@@ -57,65 +60,89 @@ export default function InitialPasswordReset() {
     <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
       <View style={styles.root}>
         <TopMintGlow />
-        <View style={styles.content}>
-          <Image
-            source={Images.PlaintLogo}
-            style={styles.logo}
-            resizeMode="contain"
-          />
-
-          <Text style={styles.title}>Set New Password</Text>
-
-          <View>
-            <Text style={styles.emailText}>
-              Your account uses a default password. Please set a new password to
-              continue.
-            </Text>
-
-            <FloatingInput
-              label="New Password"
-              value={newPassword}
-              onChangeText={setNewPassword}
-              secureToggle
-            />
-
-            <FloatingInput
-              label="Confirm Password"
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureToggle
-            />
-          </View>
-
-          <Pressable
-            style={[styles.loginBtn, loading && { opacity: 0.7 }]}
-            onPress={handleReset}
-            disabled={loading}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.flex}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            {loading ? (
-              <ActivityIndicator size="small" color={Colors.buttonText} />
-            ) : (
-              <Text style={styles.loginBtnText}>Update Password</Text>
-            )}
-          </Pressable>
+            <View style={styles.content}>
+              <Image
+                source={Images.PlaintLogo}
+                style={styles.logo}
+                resizeMode="contain"
+              />
 
-          <Pressable onPress={() => router.replace("/(auth)/login")}>
-            <Text style={styles.backText}>Back to Sign In</Text>
-          </Pressable>
-        </View>
+              <Text allowFontScaling={false} style={styles.title}>
+                Set New Password
+              </Text>
+
+              <View>
+                <Text allowFontScaling={false} style={styles.emailText}>
+                  Your account uses a default password. Please set a new password to
+                  continue.
+                </Text>
+
+                <FloatingInput
+                  label="New Password"
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  secureToggle
+                />
+
+                <FloatingInput
+                  label="Confirm Password"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureToggle
+                />
+              </View>
+
+              <Pressable
+                style={[styles.loginBtn, loading && { opacity: 0.7 }]}
+                onPress={handleReset}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color={Colors.buttonText} />
+                ) : (
+                  <Text allowFontScaling={false} style={styles.loginBtnText}>
+                    Update Password
+                  </Text>
+                )}
+              </Pressable>
+
+              <Pressable onPress={() => router.replace("/(auth)/login")}>
+                <Text allowFontScaling={false} style={styles.backText}>
+                  Back to Sign In
+                </Text>
+              </Pressable>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </View>
     </TouchableWithoutFeedback>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   root: {
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+  },
   content: {
-    flex: 1,
-    paddingHorizontal: 15,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
     justifyContent: "center",
     gap: 16,
   },

@@ -1,6 +1,6 @@
-export type TaskStatus = "Pending" | "In-Progress" | "Complete" | "Pending-Approval" | "Rejected" | "Recurring";
+export type TaskStatus = "Pending" | "In-Progress" | "On Hold" | "Complete" | "Pending-Approval" | "Rejected" | "Recurring";
 
-export type UiTaskStatus = "Pending" | "In-Progress" | "Completed" | "Pending-Approval" | "Rejected" | "Recurring";
+export type UiTaskStatus = "Pending" | "In-Progress" | "On Hold" | "Completed" | "Pending-Approval" | "Rejected" | "Recurring";
 
 export type RecurringPeriod = "daily" | "weekly" | "monthly" | "annually" | "quarterly" | "semi-annually";
 

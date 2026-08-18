@@ -14,9 +14,22 @@ import useAppFonts from "@/theme/useAppFonts";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useContext, useEffect, useRef } from "react";
-import { AppState, LogBox } from "react-native";
+import { AppState, LogBox, Text, TextInput } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Toast from "react-native-toast-message";
+
+// Disable automatic system font scaling globally across all <Text> and <TextInput> components
+if ((Text as any).defaultProps) {
+  (Text as any).defaultProps.allowFontScaling = false;
+} else {
+  (Text as any).defaultProps = { allowFontScaling: false };
+}
+
+if ((TextInput as any).defaultProps) {
+  (TextInput as any).defaultProps.allowFontScaling = false;
+} else {
+  (TextInput as any).defaultProps = { allowFontScaling: false };
+}
 
 // Silence console.log in production builds — warn/error are left intact for
 // crash diagnostics. Metro's __DEV__ global is available with no extra tooling.

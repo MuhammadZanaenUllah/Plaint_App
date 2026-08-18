@@ -27,6 +27,7 @@ export type TaskRowProps = {
 export const STATUS_COLORS: Record<StatusType, { bg: string; text: string }> = {
   Pending: { bg: "#FEF3C7", text: "#D97706" },
   "In-Progress": { bg: "#DBEAFE", text: "#2563EB" },
+  "On Hold": { bg: "#FFEDD5", text: "#C2410C" },
   Rejected: { bg: "#FEE2E2", text: "#DC2626" },
   Completed: { bg: "#D1FAE5", text: "#059669" },
   "Pending-Approval": { bg: "#EDE9FE", text: "#7C3AED" },
@@ -44,9 +45,7 @@ export const PRIORITY_ACCENT_COLORS: Record<string, string> = {
 export const ALL_STATUSES: StatusType[] = [
   "Pending",
   "In-Progress",
-  "Rejected",
+  "On Hold",
   "Completed",
-  "Pending-Approval",
-  "Recurring",
+  "Rejected",
 ];
-

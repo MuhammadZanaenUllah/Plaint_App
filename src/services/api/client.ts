@@ -42,30 +42,29 @@ async function handleResponse<T>(res: Response): Promise<T> {
     throw new Error("Session expired. Please log in again.");
   }
 
-  if (!res.ok) {
-    console.log("[API] Error response:", {
-      status: res.status,
-      url: res.url,
-      body: typeof body === "string" ? body.slice(0, 500) : JSON.stringify(body).slice(0, 500),
-    });
+  if (typeof body === "object" && body !== null) {
+    const errObj = body as Record<string, unknown>;
 
-    let msg: string | null = null;
-    if (typeof body === "object" && body !== null) {
-      const errObj = body as Record<string, unknown>;
-      if (typeof errObj.message === "string" && errObj.message.trim()) {
-        msg = errObj.message.trim();
-      } else if (typeof errObj.msg === "string" && errObj.msg.trim()) {
-        msg = errObj.msg.trim();
-      } else if (typeof errObj.error === "string" && errObj.error.trim()) {
-        msg = errObj.error.trim();
-      } else if (typeof errObj.data === "string" && errObj.data.trim()) {
-        msg = errObj.data.trim();
-      }
-    } else if (typeof body === "string" && body.trim().length > 0) {
-      msg = body.trim();
+    if (errObj.Good === false || errObj.success === false || !res.ok) {
+      console.log("[API] Error response:", {
+        status: res.status,
+        url: res.url,
+        body: JSON.stringify(body).slice(0, 500),
+      });
+
+      const msg =
+        (typeof errObj.Bad === "string" && errObj.Bad.trim()) ||
+        (typeof errObj.message === "string" && errObj.message.trim()) ||
+        (typeof errObj.msg === "string" && errObj.msg.trim()) ||
+        (typeof errObj.error === "string" && errObj.error.trim()) ||
+        (typeof errObj.data === "string" && errObj.data.trim()) ||
+        `Request failed (${res.status})`;
+
+      throw new Error(msg);
     }
-
-    throw new Error(msg || `Request failed (${res.status})`);
+  } else if (!res.ok) {
+    const msg = typeof body === "string" && body.trim().length > 0 ? body.trim() : `Request failed (${res.status})`;
+    throw new Error(msg);
   }
 
   return body as T;

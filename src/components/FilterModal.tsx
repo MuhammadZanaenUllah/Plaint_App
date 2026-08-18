@@ -1,18 +1,29 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import CalendarPicker from "./CalendarPicker";
 import FloatingInput from "./FloatingInput";
+
+export type FilterPerson = { id: number; full_name: string };
+
+function getInitials(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
 
 type Props = {
   visible: boolean;
@@ -45,12 +56,22 @@ type Props = {
   reasonValue?: string;
   onChangeReason?: (text: string) => void;
 
+  // Created By / Assigned To — searchable person pickers, shown together
+  // as a side-by-side row. `owners` is the company's user roster (task
+  // creators/assignees are matched by numeric id, not display name, since
+  // task rows only carry a truncated first-name string).
+  owners?: FilterPerson[];
+  showCreatedBy?: boolean;
+  showAssignedTo?: boolean;
+
   // Apply callback with selected filters
   onApply?: (filters: {
     status: string | null;
     priority: string | null;
     startDate?: Date | null;
     endDate?: Date | null;
+    createdBy?: number | null;
+    assignedTo?: number | null;
   }) => void;
 
   // Preset values (for re-opening with previously applied filters)
@@ -58,6 +79,8 @@ type Props = {
   initialPriority?: string | null;
   initialStartDate?: Date | null;
   initialEndDate?: Date | null;
+  initialCreatedBy?: number | null;
+  initialAssignedTo?: number | null;
 
   // Called when Reset is tapped (parent should clear its filter state)
   onReset?: () => void;
@@ -66,6 +89,124 @@ type Props = {
   // a spinner and the modal waits for loading to finish before closing.
   loading?: boolean;
 };
+
+function PersonPickerField({
+  label,
+  owners,
+  query,
+  onChangeQuery,
+  open,
+  onFocus,
+  onCloseDropdown,
+  onSelect,
+  onClear,
+  hasValue,
+}: {
+  label: string;
+  owners: FilterPerson[];
+  query: string;
+  onChangeQuery: (text: string) => void;
+  open: boolean;
+  onFocus: () => void;
+  onCloseDropdown: () => void;
+  onSelect: (owner: FilterPerson) => void;
+  onClear: () => void;
+  hasValue: boolean;
+}) {
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return owners;
+    return owners.filter((o) => o.full_name.toLowerCase().includes(q));
+  }, [owners, query]);
+
+  // Closing on blur (not just on select) means tapping anywhere else in the
+  // sheet — another chip, Apply, the other person field — dismisses the
+  // dropdown instead of leaving it open on top of everything below it. The
+  // short delay lets a tap on a dropdown row's onPress fire first.
+  const handleBlur = () => {
+    setTimeout(onCloseDropdown, 150);
+  };
+
+  return (
+    <View style={styles.personField}>
+      <View
+        style={[
+          styles.personInputRow,
+          (open || hasValue) && styles.personInputRowActive,
+        ]}
+      >
+        <Text
+          style={[
+            styles.personLabel,
+            (open || hasValue) && styles.personLabelActive,
+          ]}
+        >
+          {label}
+        </Text>
+        <TextInput
+          style={styles.personInput}
+          value={query}
+          onChangeText={onChangeQuery}
+          onFocus={onFocus}
+          onBlur={handleBlur}
+          placeholder="Search..."
+          placeholderTextColor="#B3B3B3"
+        />
+        {query.length > 0 ? (
+          <TouchableOpacity onPress={onClear} hitSlop={8}>
+            <Ionicons name="close-circle" size={16} color="#9CA3AF" />
+          </TouchableOpacity>
+        ) : (
+          <Ionicons name="chevron-down" size={16} color="#9CA3AF" />
+        )}
+      </View>
+
+      {open && (
+        <View
+          style={[
+            styles.personDropdown,
+            filtered.length === 0 && styles.personDropdownEmpty,
+          ]}
+        >
+          {filtered.length === 0 ? (
+            <View style={styles.personEmptyRow}>
+              <Ionicons name="search-outline" size={15} color="#B3B3B3" />
+              <Text style={styles.personEmpty}>No matches</Text>
+            </View>
+          ) : (
+            <ScrollView
+              keyboardShouldPersistTaps="always"
+              style={[
+                styles.personDropdownScroll,
+                // Shrink to fit short lists instead of always reserving a
+                // tall, mostly-empty-looking box.
+                { maxHeight: Math.min(filtered.length * 44, 176) },
+              ]}
+            >
+              {filtered.map((owner) => (
+                <TouchableOpacity
+                  key={owner.id}
+                  style={styles.personOption}
+                  onPress={() => onSelect(owner)}
+                  activeOpacity={0.6}
+                >
+                  <View style={styles.personAvatar}>
+                    <Text style={styles.personAvatarText}>
+                      {getInitials(owner.full_name)}
+                    </Text>
+                  </View>
+                  <Text style={styles.personOptionText} numberOfLines={1}>
+                    {owner.full_name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
 
 export default function FilterModal({
   visible,
@@ -91,11 +232,16 @@ export default function FilterModal({
   showReasonInput = false,
   reasonValue = "",
   onChangeReason = () => {},
+  owners = [],
+  showCreatedBy = false,
+  showAssignedTo = false,
   onApply,
   initialStatus = null,
   initialPriority = null,
   initialStartDate = null,
   initialEndDate = null,
+  initialCreatedBy = null,
+  initialAssignedTo = null,
   onReset,
   loading = false,
 }: Props) {
@@ -106,6 +252,16 @@ export default function FilterModal({
   const [startDate, setStartDate] = useState<Date | null>(initialStartDate);
   const [endDate, setEndDate] = useState<Date | null>(initialEndDate);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [selectedCreatedBy, setSelectedCreatedBy] = useState<number | null>(initialCreatedBy);
+  const [selectedAssignedTo, setSelectedAssignedTo] = useState<number | null>(initialAssignedTo);
+  const [createdByQuery, setCreatedByQuery] = useState(
+    owners.find((o) => o.id === initialCreatedBy)?.full_name ?? "",
+  );
+  const [assignedToQuery, setAssignedToQuery] = useState(
+    owners.find((o) => o.id === initialAssignedTo)?.full_name ?? "",
+  );
+  const [createdByOpen, setCreatedByOpen] = useState(false);
+  const [assignedToOpen, setAssignedToOpen] = useState(false);
   const [applying, setApplying] = useState(false);
   const [resetting, setResetting] = useState(false);
   // Bumped by the reset-close effect to re-check the minimum spinner duration
@@ -197,6 +353,12 @@ export default function FilterModal({
     setStartDate(null);
     setEndDate(null);
     setCalendarOpen(false);
+    setSelectedCreatedBy(null);
+    setSelectedAssignedTo(null);
+    setCreatedByQuery("");
+    setAssignedToQuery("");
+    setCreatedByOpen(false);
+    setAssignedToOpen(false);
     waitForRealLoadRef.current = false;
     waitForResetRef.current = true;
     resetStartedAtRef.current = Date.now();
@@ -208,11 +370,24 @@ export default function FilterModal({
 
   return (
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={handleManualClose}>
-      <TouchableWithoutFeedback onPress={handleManualClose}>
+      {/* Tap-outside-to-dismiss via nested Pressables (the sheet's onPress is
+          a no-op that absorbs the tap so it never reaches the overlay) —
+          the same pattern the calendar popup below already uses. The old
+          single TouchableWithoutFeedback wrapping both together let taps on
+          a TextInput (which doesn't block touch propagation the way a
+          TouchableOpacity does) bubble up and close the whole sheet. */}
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoider}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+      <Pressable style={styles.overlay} onPress={handleManualClose}>
         {/* Remount on open so all filter state re-initializes from the latest
             props instead of syncing props into state inside an effect. */}
-        <View style={styles.overlay}>
-          <View style={styles.sheet} key={visible ? "filter-sheet-open" : "filter-sheet-closed"}>
+        <Pressable
+          style={styles.sheet}
+          onPress={() => {}}
+          key={visible ? "filter-sheet-open" : "filter-sheet-closed"}
+        >
             {/* Header row */}
             <View style={styles.headerRow}>
               <TouchableOpacity onPress={handleReset} disabled={resetting}>
@@ -303,6 +478,70 @@ export default function FilterModal({
                         </TouchableOpacity>
                       );
                     })}
+                  </View>
+
+                  <View style={styles.divider} />
+                </>
+              )}
+
+              {/* Created By / Assigned To */}
+              {(showCreatedBy || showAssignedTo) && (
+                <>
+                  <View style={styles.personRow}>
+                    {showCreatedBy && (
+                      <PersonPickerField
+                        label="Created By"
+                        owners={owners}
+                        query={createdByQuery}
+                        hasValue={selectedCreatedBy !== null}
+                        onChangeQuery={(text) => {
+                          setCreatedByQuery(text);
+                          setSelectedCreatedBy(null);
+                        }}
+                        open={createdByOpen}
+                        onFocus={() => {
+                          setCreatedByOpen(true);
+                          setAssignedToOpen(false);
+                        }}
+                        onCloseDropdown={() => setCreatedByOpen(false)}
+                        onSelect={(owner) => {
+                          setSelectedCreatedBy(owner.id);
+                          setCreatedByQuery(owner.full_name);
+                          setCreatedByOpen(false);
+                        }}
+                        onClear={() => {
+                          setSelectedCreatedBy(null);
+                          setCreatedByQuery("");
+                        }}
+                      />
+                    )}
+                    {showAssignedTo && (
+                      <PersonPickerField
+                        label="Assigned To"
+                        owners={owners}
+                        query={assignedToQuery}
+                        hasValue={selectedAssignedTo !== null}
+                        onChangeQuery={(text) => {
+                          setAssignedToQuery(text);
+                          setSelectedAssignedTo(null);
+                        }}
+                        open={assignedToOpen}
+                        onFocus={() => {
+                          setAssignedToOpen(true);
+                          setCreatedByOpen(false);
+                        }}
+                        onCloseDropdown={() => setAssignedToOpen(false)}
+                        onSelect={(owner) => {
+                          setSelectedAssignedTo(owner.id);
+                          setAssignedToQuery(owner.full_name);
+                          setAssignedToOpen(false);
+                        }}
+                        onClear={() => {
+                          setSelectedAssignedTo(null);
+                          setAssignedToQuery("");
+                        }}
+                      />
+                    )}
                   </View>
 
                   <View style={styles.divider} />
@@ -447,6 +686,8 @@ export default function FilterModal({
                   priority: selectedPriority,
                   startDate,
                   endDate,
+                  createdBy: selectedCreatedBy,
+                  assignedTo: selectedAssignedTo,
                 });
                 if (loading) {
                   // Real backend load in flight — keep the modal open with a
@@ -474,14 +715,17 @@ export default function FilterModal({
                 <Text style={styles.applyText}>Apply</Text>
               )}
             </TouchableOpacity>
-          </View>
-        </View>
-      </TouchableWithoutFeedback>
+          </Pressable>
+        </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoider: {
+    flex: 1,
+  },
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
@@ -573,6 +817,121 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "#E6E6E6",
     marginBottom: 16,
+  },
+  personRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 20,
+  },
+  personField: {
+    flex: 1,
+    position: "relative",
+  },
+  personInputRow: {
+    position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E6E6E6",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    height: 44,
+    marginTop: 10,
+    gap: 6,
+    backgroundColor: "#fff",
+  },
+  personInputRowActive: {
+    borderColor: "#1D1D1D",
+  },
+  // Floating label cut into the top border — same technique as
+  // FloatingInput.tsx, but always floated (this is a fixed field label,
+  // not a placeholder that animates in).
+  personLabel: {
+    position: "absolute",
+    left: 8,
+    top: -8,
+    fontSize: 12,
+    fontFamily: "SF_Pro_Regular",
+    color: "#8E8E93",
+    backgroundColor: "#fff",
+    paddingHorizontal: 4,
+    zIndex: 1,
+  },
+  personLabelActive: {
+    color: "#1D1D1D",
+  },
+  personInput: {
+    flex: 1,
+    fontSize: 14,
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Regular",
+    padding: 0,
+  },
+  personDropdown: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    right: 0,
+    marginTop: 4,
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E6E6E6",
+    zIndex: 20,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  personDropdownEmpty: {
+    // No content to size against — pin a compact height instead of
+    // inheriting whatever the (unbounded) empty-state row would otherwise
+    // take, so it doesn't render as a large blank box.
+    height: 44,
+  },
+  personDropdownScroll: {
+    maxHeight: 176,
+  },
+  personOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F2F2F2",
+  },
+  personAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 2,
+    backgroundColor: "#00DEAB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  personAvatarText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  personOptionText: {
+    flex: 1,
+    fontSize: 14,
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Regular",
+  },
+  personEmptyRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  personEmpty: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    fontFamily: "SF_Pro_Regular",
   },
   calHeaderRow: {
     flexDirection: "row",

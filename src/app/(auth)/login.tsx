@@ -1,4 +1,11 @@
 import FloatingInput from "@/components/FloatingInput";
+import TopMintGlow from "@/components/gradientheader";
+import Images from "@/constants/images";
+import { useAuth } from "@/hooks/useAuth";
+import { Colors } from "@/theme/root";
+import { extractErrorMessage } from "@/utils/errorHandler";
+import { showError, showInfo } from "@/utils/toast";
+import { router } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -7,19 +14,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
 } from "react-native";
-import TopMintGlow from "@/components/gradientheader";
-import { Colors } from "@/theme/root";
-import { router } from "expo-router";
-import Images from "@/constants/images";
-import { useAuth } from "@/hooks/useAuth";
-import { extractErrorMessage } from "@/utils/errorHandler";
-import { showInfo, showError } from "@/utils/toast";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -53,48 +54,62 @@ export default function Login() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={styles.flex}
         >
-          <View style={styles.content}>
-          <Image
-            source={Images.PlaintLogo}
-            style={styles.logo}
-            resizeMode="contain"
-          />
-
-          <Text style={styles.title}>Welcome back!</Text>
-
-          <View>
-            <FloatingInput
-              label="Enter your work email"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-
-            <FloatingInput
-              label="Enter your password"
-              value={password}
-              onChangeText={setPassword}
-              secureToggle
-            />
-          </View>
-
-          <Pressable
-            style={[styles.loginBtn, loading && styles.loginBtnDisabled]}
-            onPress={handleLogin}
-            disabled={loading}
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            {loading ? (
-              <ActivityIndicator size="small" color={Colors.buttonText} />
-            ) : (
-              <Text style={styles.loginBtnText}>Log In</Text>
-            )}
-          </Pressable>
+            <View style={styles.content}>
+              <Image
+                source={Images.PlaintLogo}
+                style={styles.logo}
+                resizeMode="contain"
+              />
 
-          <TouchableOpacity onPress={() => router.replace("/(auth)/forgetpassword")}>
-            <Text style={styles.forgotText}>Forgot Password?</Text>
-          </TouchableOpacity>
-          </View>
+              <Text allowFontScaling={false} style={styles.title}>
+                Welcome back!
+              </Text>
+
+              <View>
+                <FloatingInput
+                  label="Enter your work email"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+
+                <FloatingInput
+                  label="Enter your password"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureToggle
+                />
+              </View>
+
+              <Pressable
+                style={[styles.loginBtn, loading && styles.loginBtnDisabled]}
+                onPress={handleLogin}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color={Colors.buttonText} />
+                ) : (
+                  <Text allowFontScaling={false} style={styles.loginBtnText}>
+                    Log In
+                  </Text>
+                )}
+              </Pressable>
+
+              <TouchableOpacity
+                onPress={() => router.replace("/(auth)/forgetpassword")}
+              >
+                <Text allowFontScaling={false} style={styles.forgotText}>
+                  Forgot Password?
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </View>
     </TouchableWithoutFeedback>
@@ -109,9 +124,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+  },
   content: {
-    flex: 1,
-    paddingHorizontal: 15,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
     justifyContent: "center",
     gap: 16,
   },
