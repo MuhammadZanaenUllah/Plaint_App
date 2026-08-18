@@ -18,12 +18,21 @@ export default function SplashScreen() {
   const [fontsLoaded] = useAppFonts();
   const navigated = useRef(false);
   const timerDone = useRef(false);
+  // The 5s timer effect below only runs once (on mount) and its closure
+  // over checkAndNavigate is frozen at that point — fontsLoaded and
+  // state.loading are still stale there when the timeout fires later. Mirror
+  // them into refs (like navigated/timerDone) so checkAndNavigate always
+  // reads their current value regardless of which closure calls it.
+  const fontsLoadedRef = useRef(fontsLoaded);
+  const authStateRef = useRef(state);
+  fontsLoadedRef.current = fontsLoaded;
+  authStateRef.current = state;
 
   const checkAndNavigate = async () => {
     if (navigated.current) return;
     if (!timerDone.current) return;
-    if (state.loading) return;
-    if (!fontsLoaded) return;
+    if (authStateRef.current.loading) return;
+    if (!fontsLoadedRef.current) return;
 
     navigated.current = true;
 
@@ -31,7 +40,7 @@ export default function SplashScreen() {
 
     if (!hasOnboarded) {
       router.replace("/splashscreem");
-    } else if (state.isAuthenticated) {
+    } else if (authStateRef.current.isAuthenticated) {
       router.replace("/(tabs)/tasks");
     } else {
       router.replace("/(auth)/login");

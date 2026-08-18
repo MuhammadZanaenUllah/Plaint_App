@@ -64,7 +64,9 @@
             "./assets/sounds/notification.mp3"
           ]
         }
-      ]
+      ],
+      "expo-image",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,
