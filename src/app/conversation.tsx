@@ -4595,7 +4595,7 @@ const styles = StyleSheet.create({
   inputContainer: {
     borderWidth: 1,
     borderColor: "#E6E6E6",
-    borderRadius: 14q,
+    borderRadius: 14,
     paddingHorizontal: 14,
     paddingTop: 10,
     paddingBottom: 6,
