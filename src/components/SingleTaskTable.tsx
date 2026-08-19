@@ -1,9 +1,10 @@
+import Avatar from "@/components/Avatar";
 import Icons from "@/constants/icons";
+import { triggerHaptic } from "@/utils/haptics";
 import { Ionicons } from "@expo/vector-icons";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
@@ -18,6 +19,8 @@ import {
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Easing,
+  FadeIn,
+  FadeOut,
   runOnJS,
   SharedValue,
   useAnimatedStyle,
@@ -26,7 +29,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
-import Svg, { Circle, Path } from "react-native-svg";
+import Svg, { Circle } from "react-native-svg";
 import {
   ALL_STATUSES,
   STATUS_COLORS,
@@ -312,6 +315,7 @@ function SingleTaskTable({
 
   const handleStatusChange = useCallback(
     (task: TaskRowProps, rowIndex: number, nextStatus: StatusType) => {
+      triggerHaptic("success");
       if (task.canEditStatus === false) return;
       setStatusOverrides((previous) => ({
         ...previous,
@@ -325,6 +329,7 @@ function SingleTaskTable({
   const handleToggleComplete = useCallback(
     (task: TaskRowProps, rowIndex: number) => {
       if (task.canEditStatus === false) return;
+      triggerHaptic("success");
       handleStatusChange(
         task,
         rowIndex,
@@ -335,6 +340,7 @@ function SingleTaskTable({
   );
 
   const openSwipe = useCallback((index: number, stage: SwipeStage) => {
+    triggerHaptic("light");
     setOpenSwipeRow({ index, stage });
   }, []);
 
@@ -793,31 +799,9 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
         style={[
           styles.rowWrap,
           animatedWrapStyle,
-          { zIndex: isPreviewOpen ? 2000 : isOpen ? 1000 - rowIndex : 1 },
+          { zIndex: isOpen ? 1000 - rowIndex : 1 },
         ]}
       >
-        {isPreviewOpen ? (
-          <View style={styles.previewTooltip} pointerEvents="none">
-            <View
-              style={[
-                styles.previewPill,
-                {
-                  backgroundColor:
-                    item.taskPriority === "critical" ? "#FF4444" : "#1ED9A5",
-                },
-              ]}
-            >
-              <Text style={styles.previewPillText} numberOfLines={1}>
-                {item.priorityName ??
-                  (item.taskPriority === "critical" ? "Critical" : "Normal")}
-              </Text>
-            </View>
-            <Text style={styles.previewTitleText} numberOfLines={1}>
-              {item.title}
-            </Text>
-          </View>
-        ) : null}
-
         <Animated.View
           style={[
             styles.swipeContent,
@@ -857,6 +841,7 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
             <LeadingCell
               item={item}
               width={metrics.leadingWidth}
+              isExpanded={isPreviewOpen}
               onToggle={() => onToggleComplete(item, rowIndex)}
             />
             <TaskCellContent
@@ -896,21 +881,60 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
 const LeadingCell = memo(function LeadingCell({
   item,
   width,
+  isExpanded,
   onToggle,
 }: {
   item: TaskRowProps;
   width: number;
+  isExpanded?: boolean;
   onToggle: () => void;
 }) {
   const isCompleted = item.status === "Completed";
-  const accentColor = item.taskPriority === "critical" ? "#FF4D4F" : "#0DDFAB";
+  const priority = item.taskPriority?.toLowerCase() ?? "normal";
+
+  const priorityLabel =
+    item.priorityName ||
+    (priority === "critical"
+      ? "Critical"
+      : priority === "high"
+        ? "High"
+        : priority === "medium"
+          ? "Medium"
+          : priority === "low"
+            ? "Low"
+            : "Normal");
+
+  const accentColor =
+    priority === "critical"
+      ? "#FF4D4F"
+      : priority === "high"
+        ? "#FF9500"
+        : priority === "medium"
+          ? "#F59E0B"
+          : priority === "low"
+            ? "#3B82F6"
+            : "#0DDFAB";
 
   return (
     <View style={[styles.leadingCell, { width }]}>
-      <View style={[styles.accent, { backgroundColor: accentColor }]} />
+      {isExpanded ? (
+        <Animated.View
+          entering={FadeIn.duration(120)}
+          exiting={FadeOut.duration(120)}
+          style={[styles.accentExpandedBadge, { backgroundColor: accentColor }]}
+        >
+          <Text style={styles.accentExpandedText}>{priorityLabel}</Text>
+        </Animated.View>
+      ) : (
+        <View style={[styles.accent, { backgroundColor: accentColor }]} />
+      )}
+
       <TouchableOpacity
         style={styles.checkboxWrap}
-        onPress={onToggle}
+        onPress={() => {
+          triggerHaptic("success");
+          onToggle();
+        }}
         activeOpacity={0.7}
       >
         {isCompleted ? (
@@ -941,30 +965,20 @@ const TaskCellContent = memo(function TaskCellContent({
   onLongPressEnd?: () => void;
 }) {
   const isCompleted = item.status === "Completed";
-  const longPressActive = useRef(false);
 
   if (columnKey === "title") {
     return (
       <TouchableOpacity
         style={[styles.titleCell, { width }]}
-        onPress={() => {
-          if (longPressActive.current) return;
-          onPress?.();
-        }}
-        delayLongPress={3000}
-        onLongPress={() => {
-          longPressActive.current = true;
+        onPressIn={() => {
+          triggerHaptic("light");
           onLongPressStart?.();
         }}
         onPressOut={() => {
-          if (longPressActive.current) {
-            onLongPressEnd?.();
-            // Deferred so a same-tick onPress fired on release (order isn't
-            // guaranteed relative to onPressOut) still sees the suppression.
-            setTimeout(() => {
-              longPressActive.current = false;
-            }, 0);
-          }
+          onLongPressEnd?.();
+        }}
+        onPress={() => {
+          onPress?.();
         }}
         activeOpacity={0.7}
       >
@@ -979,24 +993,38 @@ const TaskCellContent = memo(function TaskCellContent({
   }
 
   if (columnKey === "createdBy") {
-    const creatorAvatarUri =
-      item.createdByAvatar ||
-      `https://ui-avatars.com/api/?name=${encodeURIComponent(
-        item.createdBy || "U",
-      )}&background=00DEAB&color=fff&rounded=false`;
-
     return (
-      <View style={[styles.userCell, { width }]}>
-        <Image source={{ uri: creatorAvatarUri }} style={styles.avatarImage} />
+      <TouchableOpacity
+        style={[styles.userCell, { width }]}
+        onPress={() => {
+          triggerHaptic("light");
+          onPress?.();
+        }}
+        activeOpacity={0.7}
+      >
+        <Avatar
+          name={item.createdBy}
+          imagePath={item.createdByAvatar}
+          size={21}
+          borderRadius={10.5}
+          style={styles.avatarImage}
+        />
         <Text style={styles.cellText} numberOfLines={1}>
           {item.createdBy}
         </Text>
-      </View>
+      </TouchableOpacity>
     );
   }
 
   return (
-    <View style={[styles.dateCell, { width }]}>
+    <TouchableOpacity
+      style={[styles.dateCell, { width }]}
+      onPress={() => {
+        triggerHaptic("light");
+        onPress?.();
+      }}
+      activeOpacity={0.7}
+    >
       <Ionicons
         name="calendar-outline"
         size={16}
@@ -1006,7 +1034,7 @@ const TaskCellContent = memo(function TaskCellContent({
       <Text style={styles.cellText} numberOfLines={1}>
         {item.dueDate}
       </Text>
-    </View>
+    </TouchableOpacity>
   );
 });
 
@@ -1029,7 +1057,10 @@ const TaskStatusDropdown = memo(function TaskStatusDropdown({
           <TouchableOpacity
             key={status}
             style={[styles.dropdownItem, isActive && styles.dropdownItemActive]}
-            onPress={() => onSelect(status)}
+            onPress={() => {
+              triggerHaptic("selection");
+              onSelect(status);
+            }}
             activeOpacity={0.8}
           >
             {/* <View style={[styles.dot, { backgroundColor: color }]} /> */}
@@ -1205,11 +1236,15 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
             onPress={() => setAssigneePickerOpen((value) => !value)}
             activeOpacity={0.8}
           >
-            <View style={styles.initialsAssignee}>
-              <Text style={styles.initialsText}>
-                {item.assignedToInitials || item.assignedTo?.[0] || "?"}
-              </Text>
-            </View>
+            <Avatar
+              name={item.assignedTo}
+              imagePath={item.assignedToAvatar}
+              size={24}
+              borderRadius={2}
+              backgroundColor="#00DEAB"
+              fontSize={10}
+              style={styles.initialsAssignee}
+            />
             <Text style={styles.cellText} numberOfLines={1}>
               {item.assignedTo}
             </Text>
@@ -1221,11 +1256,15 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
           </TouchableOpacity>
         ) : (
           <View style={[styles.swipeUserCell, styles.swipeAssignedColumn]}>
-            <View style={styles.initialsAssignee}>
-              <Text style={styles.initialsText}>
-                {item.assignedToInitials || item.assignedTo?.[0] || "?"}
-              </Text>
-            </View>
+            <Avatar
+              name={item.assignedTo}
+              imagePath={item.assignedToAvatar}
+              size={24}
+              borderRadius={2}
+              backgroundColor="#00DEAB"
+              fontSize={10}
+              style={styles.initialsAssignee}
+            />
             <Text style={styles.cellText} numberOfLines={1}>
               {item.assignedTo}
             </Text>
@@ -1487,8 +1526,26 @@ const styles = StyleSheet.create({
     height: ROW_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
+    position: "relative",
+  },
+  accentExpandedBadge: {
+    position: "absolute",
+    left: 0,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 6,
+    zIndex: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  accentExpandedText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontFamily: "SF_Pro_Bold",
   },
   accent: {
+    position: "absolute",
+    left: 0,
     width: 3.5,
     height: 25,
     borderRadius: 4,

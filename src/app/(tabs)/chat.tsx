@@ -1,4 +1,5 @@
 import AddPeopleModal from "@/components/AddPeopleModal";
+import Avatar from "@/components/Avatar";
 import CreateChannelModal from "@/components/CreateChannelModal";
 import InviteToChannelModal, { type ChannelPermission, type ChannelMember } from "@/components/InviteToChannelModal";
 import Icons from "@/constants/icons";
@@ -12,6 +13,7 @@ import {
     filterRoomsByType,
     filterUnreadRooms,
     formatChatListTime,
+    getRoomAvatar,
     getRoomDisplayName,
     getRoomInitials,
     isRoomUnread,
@@ -38,7 +40,7 @@ const CHIP_DATA = [
     { id: "unread", label: "Unread" },
     { id: "read", label: "Read" },
     { id: "channels", label: "Channels" },
-    // { id: "projects", label: "Projects" },
+    { id: "projects", label: "Projects" },
 ];
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -163,8 +165,9 @@ export default function ChatScreen() {
             case "channels":
                 base = filterRoomsByType(rooms, "channel");
                 break;
-            // case "projects":
-            //     return filterRoomsByType(rooms, "project");
+            case "projects":
+                base = filterRoomsByType(rooms, "project");
+                break;
             case "unread":
                 base = filterUnreadRooms(directRooms);
                 break;
@@ -692,7 +695,6 @@ export default function ChatScreen() {
                             ) : (
                                 displayRooms.map((room: Room) => {
                                     const displayName = getRoomDisplayName(room, currentUserId);
-                                    const initials = getRoomInitials(room, currentUserId);
                                     const unread = isRoomUnread(room);
                                     const lastPreview = room.last_message
                                         ? (room.last_message.attachments && room.last_message.attachments.length > 0
@@ -711,9 +713,14 @@ export default function ChatScreen() {
                                             onPress={() => handleRoomPress(room)}
                                         >
                                             <View style={styles.avatarContainer}>
-                                                <View style={styles.avatarBox}>
-                                                    <Text style={styles.avatarText}>{initials}</Text>
-                                                </View>
+                                                <Avatar
+                                                    name={displayName}
+                                                    imagePath={getRoomAvatar(room, currentUserId)}
+                                                    size={36}
+                                                    borderRadius={5}
+                                                    fontSize={15}
+                                                    fontFamily="SF_Pro_Medium"
+                                                />
                                                 {unread && (
                                                     <View style={styles.onlineIndicator} />
                                                 )}

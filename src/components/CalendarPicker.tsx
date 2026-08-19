@@ -99,108 +99,116 @@ export default function CalendarPicker({ startDate, endDate, onSelectStart, onSe
         </View> */}
 
         <View style={styles.navCenter}>
-          <TouchableOpacity
-            style={styles.navLabelBtn}
-            onPress={() => {
-              setShowMonthDropdown(!showMonthDropdown);
-              setShowYearDropdown(false);
-            }}
-          >
-            <Text style={[styles.monthLabel, compact && styles.monthLabelCompact]}>
-              {MONTHS[viewMonth].slice(0, 3)}
-            </Text>
+          {/* Wrapping each trigger + its own dropdown together makes the
+              dropdown's absolute position relative to just that button, so
+              the Year dropdown can no longer render at the Month button's
+              location (previously both shared one hardcoded offset). */}
+          <View style={styles.navLabelWrap}>
+            <TouchableOpacity
+              style={styles.navLabelBtn}
+              onPress={() => {
+                setShowMonthDropdown(!showMonthDropdown);
+                setShowYearDropdown(false);
+              }}
+            >
+              <Text style={[styles.monthLabel, compact && styles.monthLabelCompact]}>
+                {MONTHS[viewMonth].slice(0, 3)}
+              </Text>
 
-            <Ionicons
-              name={showMonthDropdown ? "chevron-up" : "chevron-down"}
-              size={compact ? 10 : 14}
-              color="#00DEAB"
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.navLabelBtn}
-            onPress={() => {
-              setShowYearDropdown(!showYearDropdown);
-              setShowMonthDropdown(false);
-            }}
-          >
-            <Text style={[styles.monthLabel, compact && styles.monthLabelCompact]}>{viewYear}</Text>
+              <Ionicons
+                name={showMonthDropdown ? "chevron-up" : "chevron-down"}
+                size={compact ? 10 : 14}
+                color="#00DEAB"
+              />
+            </TouchableOpacity>
 
-            <Ionicons
-              name={showYearDropdown ? "chevron-up" : "chevron-down"}
-              size={compact ? 10 : 14}
-              color="#00DEAB"
-            />
-          </TouchableOpacity>
+            {showMonthDropdown && (
+              <View style={[styles.dropdown, compact && styles.dropdownCompact]}>
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  nestedScrollEnabled
+                >
+                  {MONTHS.map((month, index) => (
+                    <TouchableOpacity
+                      key={month}
+                      style={[
+                        styles.dropdownItem,
+                        compact && styles.dropdownItemCompact,
+                        index === viewMonth && styles.selectedItem,
+                      ]}
+                      onPress={() => {
+                        setViewMonth(index);
+                        setShowMonthDropdown(false);
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.dropdownText,
+                          compact && styles.dropdownTextCompact,
+                          index === viewMonth && styles.selectedText,
+                        ]}
+                      >
+                        {month}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.navLabelWrap}>
+            <TouchableOpacity
+              style={styles.navLabelBtn}
+              onPress={() => {
+                setShowYearDropdown(!showYearDropdown);
+                setShowMonthDropdown(false);
+              }}
+            >
+              <Text style={[styles.monthLabel, compact && styles.monthLabelCompact]}>{viewYear}</Text>
+
+              <Ionicons
+                name={showYearDropdown ? "chevron-up" : "chevron-down"}
+                size={compact ? 10 : 14}
+                color="#00DEAB"
+              />
+            </TouchableOpacity>
+
+            {showYearDropdown && (
+              <View style={[styles.dropdown, compact && styles.dropdownCompact]}>
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  nestedScrollEnabled
+                >
+                  {YEARS.map((year) => (
+                    <TouchableOpacity
+                      key={year}
+                      style={[
+                        styles.dropdownItem,
+                        compact && styles.dropdownItemCompact,
+                        year === viewYear && styles.selectedItem,
+                      ]}
+                      onPress={() => {
+                        setViewYear(year);
+                        setShowYearDropdown(false);
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.dropdownText,
+                          compact && styles.dropdownTextCompact,
+                          year === viewYear && styles.selectedText,
+                        ]}
+                      >
+                        {year}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </View>
         </View>
-
-        {showMonthDropdown && (
-          <View style={[styles.dropdown, compact && styles.dropdownCompact]}>
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              nestedScrollEnabled
-            >
-              {MONTHS.map((month, index) => (
-                <TouchableOpacity
-                  key={month}
-                  style={[
-                    styles.dropdownItem,
-                    compact && styles.dropdownItemCompact,
-                    index === viewMonth && styles.selectedItem,
-                  ]}
-                  onPress={() => {
-                    setViewMonth(index);
-                    setShowMonthDropdown(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.dropdownText,
-                      compact && styles.dropdownTextCompact,
-                      index === viewMonth && styles.selectedText,
-                    ]}
-                  >
-                    {month}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-
-        {showYearDropdown && (
-          <View style={[styles.dropdown, compact && styles.dropdownCompact]}>
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              nestedScrollEnabled
-            >
-              {YEARS.map((year) => (
-                <TouchableOpacity
-                  key={year}
-                  style={[
-                    styles.dropdownItem,
-                    compact && styles.dropdownItemCompact,
-                    year === viewYear && styles.selectedItem,
-                  ]}
-                  onPress={() => {
-                    setViewYear(year);
-                    setShowYearDropdown(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.dropdownText,
-                      compact && styles.dropdownTextCompact,
-                      year === viewYear && styles.selectedText,
-                    ]}
-                  >
-                    {year}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
         <TouchableOpacity onPress={nextMonth} style={[styles.navBtn, compact && styles.navBtnCompact]}>
           <Ionicons name="chevron-forward" size={compact ? 12 : 18} color="#1D1D1D" />
         </TouchableOpacity>
@@ -284,6 +292,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  navLabelWrap: {
+    position: "relative",
   },
   navLabelBtn: {
     flexDirection: "row",
@@ -387,8 +398,8 @@ const styles = StyleSheet.create({
   },
   dropdown: {
     position: "absolute",
-    top: 50,
-    marginLeft: 74,
+    top: 44,
+    left: 0,
 
     width: 150,
     maxHeight: 220,

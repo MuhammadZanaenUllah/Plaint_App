@@ -10,7 +10,10 @@ import {
   setStoredCompany,
   clearAllAuth,
   isTokenExpired,
+  getBiometricSession,
+  saveBiometricSession,
 } from "@/utils/token";
+import * as SecureStore from "expo-secure-store";
 import { setAuthFailureHandler } from "@/services/api/client";
 import { extractErrorMessage } from "@/utils/errorHandler";
 import { UserData, Company } from "@/types/auth.types";
@@ -91,6 +94,7 @@ export type AuthContextValue = {
   state: AuthState;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  restoreSession: () => Promise<void>;
   handleDefaultPassword: (email: string) => void;
   setInitialPassword: (
     email: string,
@@ -190,6 +194,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await setStoredUser(successRes.user.userdata);
       await setStoredCompany(successRes.user.company);
 
+      const bioEnabled = await SecureStore.getItemAsync("pref_biometrics_enabled");
+      if (bioEnabled === "true") {
+        await saveBiometricSession(
+          successRes.authToken,
+          successRes.user.userdata,
+          successRes.user.company
+        );
+      }
+
       dispatch({
         type: "LOGIN_SUCCESS",
         token: successRes.authToken,
@@ -198,6 +211,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
     } catch (error) {
       throw error;
+    }
+  }, []);
+
+  const restoreSession = useCallback(async () => {
+    let token = await getStoredToken();
+    let user = await getStoredUser<UserData>();
+    let company = await getStoredCompany<Company>();
+
+    if (!token || isTokenExpired(token) || !user || !company) {
+      const bioSession = await getBiometricSession();
+      if (bioSession) {
+        token = bioSession.token;
+        user = bioSession.user;
+        company = bioSession.company;
+        await setStoredToken(token);
+        await setStoredUser(user);
+        await setStoredCompany(company);
+      }
+    }
+
+    if (token && !isTokenExpired(token) && user && company) {
+      dispatch({
+        type: "RESTORE_SESSION",
+        token,
+        user,
+        company,
+      });
+    } else {
+      throw new Error(
+        "No valid saved session found. Please sign in with email & password."
+      );
     }
   }, []);
 
@@ -227,8 +271,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ state, login, logout, handleDefaultPassword, setInitialPassword }),
-    [state, login, logout, handleDefaultPassword, setInitialPassword]
+    () => ({
+      state,
+      login,
+      logout,
+      restoreSession,
+      handleDefaultPassword,
+      setInitialPassword,
+    }),
+    [
+      state,
+      login,
+      logout,
+      restoreSession,
+      handleDefaultPassword,
+      setInitialPassword,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

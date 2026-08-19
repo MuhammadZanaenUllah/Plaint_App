@@ -34,6 +34,11 @@ import {
 } from "@/components/CriticalTaskModal";
 import CalendarPicker from "@/components/CalendarPicker";
 import FloatingInput from "@/components/FloatingInput";
+import SheetDragHandle from "@/components/SheetDragHandle";
+import { useSwipeToDismiss } from "@/hooks/useSwipeToDismiss";
+import { GestureDetector } from "react-native-gesture-handler";
+import Animated from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Props = { visible: boolean; onClose: () => void; onCreated?: () => void };
 
@@ -65,6 +70,9 @@ const STATUSES = ALL_STATUSES.filter((s) => s !== "Recurring" && s !== "Pending-
 }));
 
 export default function CreateTaskModal({ visible, onClose, onCreated }: Props) {
+  // Compensates KeyboardAvoidingView's padding for the home-indicator safe
+  // area, otherwise that inset shows up as an empty gap above the keyboard.
+  const insets = useSafeAreaInsets();
   const { state: authState } = useAuth();
   const { state: taskState, createTask, fetchAllTasks, allMappedTasks, reorderCritical } = useTasks();
 
@@ -479,6 +487,8 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
     onClose();
   };
 
+  const { panGesture, animatedStyle } = useSwipeToDismiss(visible, handleModalClose);
+
   const handleSelectPriority = (label: string) => {
     setSelectedPriority(label);
     const priority = taskState.priorities.find(
@@ -518,15 +528,25 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? insets.bottom : 0}
           style={{ width: "100%", justifyContent: "flex-end" }}
         >
-          <Pressable onPress={() => Keyboard.dismiss()} style={styles.sheet}>
-            <TouchableOpacity
-              style={styles.closeBtn}
-              onPress={handleModalClose}
-            >
-              <Ionicons name="close" size={18} color="#fff" />
-            </TouchableOpacity>
+          <Animated.View style={animatedStyle}>
+          <Pressable onPress={() => Keyboard.dismiss()} style={[styles.sheet, { paddingBottom: insets.bottom }]}>
+            {/* Drag handle + close button are the swipe-down-to-dismiss
+                zone — kept separate from the ScrollView below so dragging
+                doesn't fight its own vertical scroll. */}
+            <GestureDetector gesture={panGesture}>
+              <View>
+                <SheetDragHandle />
+                <TouchableOpacity
+                  style={styles.closeBtn}
+                  onPress={handleModalClose}
+                >
+                  <Ionicons name="close" size={18} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </GestureDetector>
 
           <ScrollView
             showsVerticalScrollIndicator={false}
@@ -1026,6 +1046,7 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
             <Text style={styles.createBtnText}>{loading ? "Creating..." : "+   Create Task"}</Text>
           </TouchableOpacity>
         </Pressable>
+        </Animated.View>
         </KeyboardAvoidingView>
       </Pressable>
     </Modal>

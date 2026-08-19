@@ -165,6 +165,7 @@ function RootNavigator() {
       "conversation",
       "profile",
       "notifications",
+      "settings",
     ].includes(segments[0] as string);
 
     if (isFirstRoute || isOnboarding) return;
@@ -205,7 +206,11 @@ function RootNavigator() {
     }
   }, [state.isAuthenticated, state.isDefaultPassword, state.loading]);
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="(auth)" options={{ gestureEnabled: false }} />
+    </Stack>
+  );
 }
 
 export default function RootLayout() {

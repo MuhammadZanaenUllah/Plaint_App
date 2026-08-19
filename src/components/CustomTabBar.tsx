@@ -1,4 +1,5 @@
 import Icons from "@/constants/icons";
+import { triggerHaptic } from "@/utils/haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { BottomTabBarProps } from "expo-router/js-tabs";
 import React, { useEffect, useState } from "react";
@@ -116,7 +117,10 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                 const x = e.nativeEvent.layout.x;
                 setTabPositions((prev) => ({ ...prev, [i]: x }));
               }}
-              onPress={() => navigation.navigate(tab.name)}
+              onPress={() => {
+                triggerHaptic("selection");
+                navigation.navigate(tab.name);
+              }}
               hitSlop={{ top: 10, bottom: 10, left: 15, right: 15 }}
             >
               <View style={styles.iconContainer}>

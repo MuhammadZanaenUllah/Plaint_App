@@ -15,6 +15,11 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
+import Reanimated from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSwipeToDismiss } from "@/hooks/useSwipeToDismiss";
+import SheetDragHandle from "./SheetDragHandle";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,14 +49,6 @@ export interface AddPeopleModalProps {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Returns two-character initials from a full name */
-// function getInitials(name: string, override?: string): string {
-//   if (override) return override.slice(0, 2).toUpperCase();
-//   const parts = name.trim().split(/\s+/);
-//   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-//   return name.slice(0, 2).toUpperCase();
-// }
 
 function getInitials(name: string, override?: string): string {
   if (override) return override.charAt(0).toUpperCase();
@@ -103,7 +100,6 @@ function FloatingSearchInput({ value, onChangeText }: FloatingSearchProps) {
     inputRange: [0, 1],
     outputRange: [14, 11],
   });
-  // const labelColor = anim.interpolate({ inputRange: [0, 1], outputRange: ["#A0A0A0", "#6B6B6B"] });
   const activeColor = "#1D1D1D";
   const labelColor = focused || value ? activeColor : "#A0A0A0";
   const borderColor = focused ? "#1D1D1D" : "#D1D5DB";
@@ -326,6 +322,9 @@ export default function AddPeopleModal({
   onInviteUsers,
   isChannelMode,
 }: AddPeopleModalProps) {
+  // Compensates KeyboardAvoidingView's padding for the home-indicator safe
+  // area, otherwise that inset shows up as an empty gap above the keyboard.
+  const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
   const [keyboardShown, setKeyboardShown] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
@@ -352,17 +351,6 @@ export default function AddPeopleModal({
     };
   }, []);
 
-  // Filter only when the user has typed something
-
-  // const hasQuery = query.trim().length > 0;
-  // const filtered = hasQuery
-  //   ? users.filter(
-  //     (u) =>
-  //       u.name.toLowerCase().includes(query.toLowerCase()) ||
-  //       (u.email ?? "").toLowerCase().includes(query.toLowerCase())
-  //   )
-  //   : [];
-
   const filtered = users.filter(
     (u) =>
       u.name.toLowerCase().includes(query.toLowerCase()) ||
@@ -380,6 +368,8 @@ export default function AddPeopleModal({
     setSelectedUserIds(new Set());
     onClose();
   };
+
+  const { panGesture, animatedStyle } = useSwipeToDismiss(visible, handleClose);
 
   const handleSelect = (user: AddPeopleUser) => {
     if (isChannelMode) {
@@ -405,6 +395,7 @@ export default function AddPeopleModal({
   };
 
   const handleInvite = () => {
+    if (selectedUserIds.size === 0) return;
     const selectedUsers = users.filter((u) => selectedUserIds.has(u.id));
     onInviteUsers?.(selectedUsers);
     handleClose();
@@ -426,41 +417,45 @@ export default function AddPeopleModal({
       {/* Bottom sheet */}
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? insets.bottom : 0}
         style={modalStyles.kavWrapper}
       >
-        <View
+        <Reanimated.View
           style={[
             modalStyles.sheet,
-            { minHeight: SCREEN_HEIGHT * 0.5, maxHeight: SCREEN_HEIGHT * 0.88 },
+            {
+              minHeight: SCREEN_HEIGHT * 0.5,
+              maxHeight: SCREEN_HEIGHT * 0.88,
+              paddingBottom: insets.bottom,
+            },
+            animatedStyle,
           ]}
         >
-          {/* ── Close button ── */}
-          <TouchableOpacity
-            style={modalStyles.closeBtn}
-            onPress={handleClose}
-            activeOpacity={0.8}
-            hitSlop={8}
-          >
-            <Ionicons name="close" size={17} color="#fff" />
-          </TouchableOpacity>
+          {/* Drag handle + close button + title are the swipe-down-to-
+              dismiss zone — the search input and FlatList below are left
+              out so dragging doesn't fight typing or the list's scroll. */}
+          <GestureDetector gesture={panGesture}>
+            <View>
+              <SheetDragHandle />
+              <TouchableOpacity
+                style={modalStyles.closeBtn}
+                onPress={handleClose}
+                activeOpacity={0.8}
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={17} color="#fff" />
+              </TouchableOpacity>
 
-          {/* ── Title ── */}
-          <Text style={modalStyles.title}>Add People</Text>
+              <Text style={modalStyles.title}>Add People</Text>
+            </View>
+          </GestureDetector>
 
           {/* ── Floating label search ── */}
           <FloatingSearchInput value={query} onChangeText={handleChangeText} />
 
-          {/* ── Channel Mode Buttons ── */}
+          {/* ── Channel Mode: Select All ── */}
           {isChannelMode && (
             <View style={modalStyles.channelControls}>
-              <TouchableOpacity
-                style={modalStyles.inviteBtn}
-                activeOpacity={0.8}
-                onPress={handleInvite}
-              >
-                <Text style={modalStyles.inviteBtnText}>Invite</Text>
-              </TouchableOpacity>
-
               <TouchableOpacity
                 style={modalStyles.selectAllRow}
                 onPress={handleSelectAll}
@@ -488,22 +483,6 @@ export default function AddPeopleModal({
 
           {/* ── Results / empty states ── */}
 
-          {/* {!hasQuery ? null : filtered.length === 0 ? (
-            <EmptySearch />
-          ) : (
-            <FlatList
-              data={filtered}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <UserRow user={item} onPress={() => handleSelect(item)} />
-              )}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              style={keyboardShown ? { maxHeight: SCREEN_HEIGHT * 0.45 } : undefined}
-              contentContainerStyle={{ paddingBottom: 32 }}
-            />
-          )} */}
-
           {filtered.length === 0 ? (
             <EmptySearch />
           ) : (
@@ -527,7 +506,22 @@ export default function AddPeopleModal({
               contentContainerStyle={{ paddingBottom: 32 }}
             />
           )}
-        </View>
+
+          {/* ── Channel Mode: Invite (bottom, primary action) ── */}
+          {isChannelMode && (
+            <TouchableOpacity
+              style={[
+                modalStyles.inviteBtn,
+                selectedUserIds.size === 0 && modalStyles.inviteBtnDisabled,
+              ]}
+              activeOpacity={0.8}
+              disabled={selectedUserIds.size === 0}
+              onPress={handleInvite}
+            >
+              <Text style={modalStyles.inviteBtnText}>Invite</Text>
+            </TouchableOpacity>
+          )}
+        </Reanimated.View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -592,6 +586,9 @@ const modalStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 16,
+  },
+  inviteBtnDisabled: {
+    backgroundColor: "#A7E8D9",
   },
   inviteBtnText: {
     color: "#fff",

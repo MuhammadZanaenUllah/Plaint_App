@@ -1,1 +1,1 @@
-export { useChat } from "@/context/ChatContext";
+export { useChat, useChatPresence } from "@/context/ChatContext";

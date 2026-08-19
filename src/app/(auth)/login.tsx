@@ -1,14 +1,17 @@
+import * as LocalAuthentication from "expo-local-authentication";
+import * as SecureStore from "expo-secure-store";
 import FloatingInput from "@/components/FloatingInput";
 import TopMintGlow from "@/components/gradientheader";
 import Images from "@/constants/images";
 import { useAuth } from "@/hooks/useAuth";
 import { Colors } from "@/theme/root";
 import { extractErrorMessage } from "@/utils/errorHandler";
-import { showError, showInfo } from "@/utils/toast";
-import { router } from "expo-router";
-import { useState } from "react";
+import { showError, showInfo, showSuccess } from "@/utils/toast";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -26,7 +29,73 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, restoreSession } = useAuth();
+
+  // Prevent going back to protected screens when on Login screen
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        return true;
+      };
+      const subscription = BackHandler.addEventListener(
+        "hardwareBackPress",
+        onBackPress
+      );
+      return () => subscription.remove();
+    }, [])
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function autoTriggerBiometrics() {
+      try {
+        const enabled = await SecureStore.getItemAsync("pref_biometrics_enabled");
+        if (enabled !== "true" || !isMounted) return;
+
+        const hasHardware = await LocalAuthentication.hasHardwareAsync();
+        const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+        if (!hasHardware || !isEnrolled || !isMounted) return;
+
+        const types =
+          await LocalAuthentication.supportedAuthenticationTypesAsync();
+        const label = types.includes(
+          LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION
+        )
+          ? "Face ID"
+          : types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)
+          ? "Fingerprint"
+          : "Biometrics";
+
+        const res = await LocalAuthentication.authenticateAsync({
+          promptMessage: `Sign in using ${label}`,
+          fallbackLabel: "Use Password",
+          cancelLabel: "Cancel",
+        });
+
+        if (res.success && isMounted) {
+          setLoading(true);
+          await restoreSession();
+          showSuccess("Authenticated successfully!");
+          router.replace("/(tabs)/tasks");
+        }
+      } catch (err) {
+        console.warn("[Login] Auto biometric error:", err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    const timer = setTimeout(() => {
+      autoTriggerBiometrics();
+    }, 300);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, []);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {

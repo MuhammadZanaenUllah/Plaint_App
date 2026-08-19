@@ -42,7 +42,11 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
+import Animated from 'react-native-reanimated';
 import { RichEditor, actions } from 'react-native-pell-rich-editor';
+import { useSwipeToDismiss } from '@/hooks/useSwipeToDismiss';
+import SheetDragHandle from './SheetDragHandle';
 
 const EMOJIS = [
   '😀', '😁', '😂', '🙂', '😉', '😍',
@@ -98,6 +102,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const richText = useRef<RichEditor>(null);
     const [emojiVisible, setEmojiVisible] = useState(false);
     const [linkVisible, setLinkVisible] = useState(false);
+    const emojiSwipe = useSwipeToDismiss(emojiVisible, () => setEmojiVisible(false));
+    const linkSwipe = useSwipeToDismiss(linkVisible, () => setLinkVisible(false));
     const [linkUrl, setLinkUrl] = useState('');
     const [linkText, setLinkText] = useState('');
     const [focused, setFocused] = useState(false);
@@ -295,8 +301,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             style={styles.modalOverlay}
             onPress={() => setEmojiVisible(false)}
           >
-            <View style={styles.emojiSheet}>
-              <Text style={styles.sheetTitle}>Insert emoji</Text>
+            <Animated.View style={[styles.emojiSheet, emojiSwipe.animatedStyle]}>
+              <GestureDetector gesture={emojiSwipe.panGesture}>
+                <View>
+                  <SheetDragHandle />
+                  <Text style={styles.sheetTitle}>Insert emoji</Text>
+                </View>
+              </GestureDetector>
               <View style={styles.emojiGrid}>
                 {EMOJIS.map((emoji) => (
                   <TouchableOpacity
@@ -308,7 +319,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                   </TouchableOpacity>
                 ))}
               </View>
-            </View>
+            </Animated.View>
           </Pressable>
         </Modal>
 
@@ -323,8 +334,14 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             style={styles.modalOverlay}
             onPress={() => setLinkVisible(false)}
           >
+            <Animated.View style={linkSwipe.animatedStyle}>
             <Pressable style={styles.linkSheet} onPress={() => { }}>
-              <Text style={styles.sheetTitle}>Insert link</Text>
+              <GestureDetector gesture={linkSwipe.panGesture}>
+                <View>
+                  <SheetDragHandle />
+                  <Text style={styles.sheetTitle}>Insert link</Text>
+                </View>
+              </GestureDetector>
               <TextInput
                 style={styles.linkInput}
                 placeholder="https://example.com"
@@ -360,6 +377,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                 </TouchableOpacity>
               </View>
             </Pressable>
+            </Animated.View>
           </Pressable>
         </Modal>
       </View>

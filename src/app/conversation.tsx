@@ -1,14 +1,14 @@
 import AddPeopleModal from "@/components/AddPeopleModal";
+import Avatar from "@/components/Avatar";
 import CalendarPicker from "@/components/CalendarPicker";
 import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
-import { useChat } from "@/hooks/useChat";
-import { ChatMessage, Room, RoomMember, ChatPermission } from "@/types/chat.types";
+import { useChat, useChatPresence } from "@/hooks/useChat";
+import { ChatMessage, Room, RoomMember, ChatPermission, MessageAttachment } from "@/types/chat.types";
 import {
     canPerformAction,
     filterMessagesByText,
     formatMessageTime,
-    getMessageInitials,
     isOwnMessage,
     isSameDay,
     resolveFileUrl,
@@ -35,6 +35,7 @@ import {
     FlatList,
     Image,
     KeyboardAvoidingView,
+    Linking,
     Modal,
     Platform,
     Pressable,
@@ -125,10 +126,30 @@ async function downloadPublicAudio(publicPath: string): Promise<{ uri: string }>
     return { uri: dest.uri };
 }
 
+const WAVEFORM_BAR_COUNT = 27;
+
+// Deterministic pseudo-random bar heights (0..1) seeded from the audio URL,
+// so a given voice note always renders the same waveform shape instead of
+// reshuffling on every re-render. We don't have decoded amplitude data to
+// draw a real waveform from, so this fakes the WhatsApp-style look.
+function getWaveformBars(seed: string): number[] {
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) {
+        h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+    }
+    const bars: number[] = [];
+    for (let i = 0; i < WAVEFORM_BAR_COUNT; i++) {
+        h = (h * 1103515245 + 12345) >>> 0;
+        bars.push(0.25 + ((h % 1000) / 1000) * 0.75);
+    }
+    return bars;
+}
+
 function VoiceNotePlayer({ audioUrl }: { audioUrl: string }) {
     const [isPlaying, setIsPlaying] = useState(false);
     const [position, setPosition] = useState(0);
     const [duration, setDuration] = useState(0);
+    const waveformBars = useMemo(() => getWaveformBars(audioUrl), [audioUrl]);
     const playerRef = useRef<any>(null);
     const downloadedUriRef = useRef<string | null>(null);
     const finishedRef = useRef(false);
@@ -303,8 +324,23 @@ function VoiceNotePlayer({ audioUrl }: { audioUrl: string }) {
                 <Ionicons name={isPlaying ? "pause" : "play"} size={16} color="#fff" />
             </TouchableOpacity>
             <View style={vnStyles.trackContainer}>
-                <View style={vnStyles.trackBg}>
-                    <View style={[vnStyles.trackFill, { width: `${progress}%` }]} />
+                <View style={vnStyles.waveformRow}>
+                    {waveformBars.map((h, i) => {
+                        const barProgress = (i / waveformBars.length) * 100;
+                        const isActive = barProgress <= progress;
+                        return (
+                            <View
+                                key={i}
+                                style={[
+                                    vnStyles.waveformBar,
+                                    {
+                                        height: 3 + h * 13,
+                                        backgroundColor: isActive ? "#00DEAB" : "#D1D5DB",
+                                    },
+                                ]}
+                            />
+                        );
+                    })}
                 </View>
                 <Text style={vnStyles.timeText}>
                     {duration > 0
@@ -470,15 +506,15 @@ const vnStyles = StyleSheet.create({
         flex: 1,
         gap: 4,
     },
-    trackBg: {
-        height: 4,
-        backgroundColor: "#D1D5DB",
-        borderRadius: 2,
-        overflow: "hidden",
+    waveformRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 2,
+        height: 16,
     },
-    trackFill: {
-        height: "100%",
-        backgroundColor: "#00DEAB",
+    waveformBar: {
+        flex: 1,
+        borderRadius: 1,
     },
     timeText: {
         fontSize: 10,
@@ -497,12 +533,10 @@ function DateFilterPanel({ onFilterChange }: { onFilterChange: (start: Date | nu
     const [startDate, setStartDate] = useState<Date | null>(today);
     const [endDate, setEndDate] = useState<Date | null>(today);
     const [selectedRange, setSelectedRange] = useState<string | null>("Today");
-    const isFirstRender = useRef(true);
+    // Fires on mount too (no first-render skip) so the header's Date chip
+    // reflects the "Today" default immediately instead of only after the
+    // user picks a different range.
     useEffect(() => {
-        if (isFirstRender.current) {
-            isFirstRender.current = false;
-            return;
-        }
         onFilterChange(startDate, endDate);
     }, [startDate, endDate, onFilterChange]);
 
@@ -608,15 +642,59 @@ const dp = StyleSheet.create({
 
 const ATTACH_TABS = ["Images", "Videos", "Docs", "Links"];
 
+const IMAGE_EXTS = ["jpg", "jpeg", "png", "gif", "webp", "heic"];
+const VIDEO_EXTS = ["mp4", "mov", "avi", "webm", "mkv", "m4v", "3gp"];
+const AUDIO_EXTS = ["mp3", "wav", "m4a", "ogg", "caf"];
+
+function getAttachmentExt(a: MessageAttachment): string {
+    return (a.name || a.url || "").split(".").pop()?.toLowerCase() || "";
+}
+
+function isImageAttachment(a: MessageAttachment): boolean {
+    return IMAGE_EXTS.includes(getAttachmentExt(a)) || (a.type || "").startsWith("image/");
+}
+
+function isVideoAttachment(a: MessageAttachment): boolean {
+    return VIDEO_EXTS.includes(getAttachmentExt(a)) || (a.type || "").startsWith("video/");
+}
+
+function isAudioAttachment(a: MessageAttachment): boolean {
+    return AUDIO_EXTS.includes(getAttachmentExt(a)) || (a.type || "").startsWith("audio/");
+}
+
+// Matches http(s) URLs embedded in a message's plain text.
+const URL_PATTERN = /(https?:\/\/[^\s]+)/gi;
+
 function AttachmentsPanel({ messages }: { messages: ChatMessage[] }) {
     const [activeTab, setActiveTab] = useState("Images");
 
-    const imageAttachments = messages.flatMap((m) =>
-        (m.attachments || []).filter((a) => {
-            const ext = (a.name || a.url || "").split(".").pop()?.toLowerCase();
-            return ["jpg", "jpeg", "png", "gif", "webp"].includes(ext || "");
-        })
+    const imageAttachments = useMemo(
+        () => messages.flatMap((m) => (m.attachments || []).filter(isImageAttachment)),
+        [messages]
     );
+    const videoAttachments = useMemo(
+        () => messages.flatMap((m) => (m.attachments || []).filter(isVideoAttachment)),
+        [messages]
+    );
+    const docAttachments = useMemo(
+        () =>
+            messages.flatMap((m) =>
+                (m.attachments || []).filter(
+                    (a) => !isImageAttachment(a) && !isVideoAttachment(a) && !isAudioAttachment(a)
+                )
+            ),
+        [messages]
+    );
+    const links = useMemo(() => {
+        const found: { url: string; createdAt?: string }[] = [];
+        for (const m of messages) {
+            const matches = m.text?.match(URL_PATTERN);
+            if (matches) {
+                for (const url of matches) found.push({ url, createdAt: m.createdAt });
+            }
+        }
+        return found;
+    }, [messages]);
 
     return (
         <View style={ap.container}>
@@ -649,7 +727,7 @@ function AttachmentsPanel({ messages }: { messages: ChatMessage[] }) {
                         {imageAttachments.map((item, index) => (
                             <Image
                                 key={index}
-                                source={{ uri: item.url }}
+                                source={{ uri: resolveFileUrl(item.url) }}
                                 style={ap.imageThumb}
                             />
                         ))}
@@ -660,10 +738,68 @@ function AttachmentsPanel({ messages }: { messages: ChatMessage[] }) {
                     </View>
                 )
             )}
-            {activeTab !== "Images" && (
-                <View style={ap.emptyTab}>
-                    <Text style={ap.emptyTabText}>No {activeTab.toLowerCase()} found</Text>
-                </View>
+            {activeTab === "Videos" && (
+                videoAttachments.length > 0 ? (
+                    <View style={ap.fileList}>
+                        {videoAttachments.map((item, index) => (
+                            <TouchableOpacity
+                                key={index}
+                                style={ap.fileRow}
+                                activeOpacity={0.7}
+                                onPress={() => Linking.openURL(resolveFileUrl(item.url)).catch(() => { })}
+                            >
+                                <Ionicons name="videocam" size={18} color="#00DEAB" />
+                                <Text style={ap.fileName} numberOfLines={1}>{item.name || "Video"}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                ) : (
+                    <View style={ap.emptyTab}>
+                        <Text style={ap.emptyTabText}>No videos found</Text>
+                    </View>
+                )
+            )}
+            {activeTab === "Docs" && (
+                docAttachments.length > 0 ? (
+                    <View style={ap.fileList}>
+                        {docAttachments.map((item, index) => (
+                            <TouchableOpacity
+                                key={index}
+                                style={ap.fileRow}
+                                activeOpacity={0.7}
+                                onPress={() => Linking.openURL(resolveFileUrl(item.url)).catch(() => { })}
+                            >
+                                <Ionicons name="document-text" size={18} color="#00DEAB" />
+                                <Text style={ap.fileName} numberOfLines={1}>{item.name || "Document"}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                ) : (
+                    <View style={ap.emptyTab}>
+                        <Text style={ap.emptyTabText}>No docs found</Text>
+                    </View>
+                )
+            )}
+            {activeTab === "Links" && (
+                links.length > 0 ? (
+                    <View style={ap.fileList}>
+                        {links.map((item, index) => (
+                            <TouchableOpacity
+                                key={index}
+                                style={ap.fileRow}
+                                activeOpacity={0.7}
+                                onPress={() => Linking.openURL(item.url).catch(() => { })}
+                            >
+                                <Ionicons name="link" size={18} color="#00DEAB" />
+                                <Text style={ap.fileName} numberOfLines={1}>{item.url}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                ) : (
+                    <View style={ap.emptyTab}>
+                        <Text style={ap.emptyTabText}>No links found</Text>
+                    </View>
+                )
             )}
         </View>
     );
@@ -718,6 +854,24 @@ const ap = StyleSheet.create({
         fontSize: 13,
         color: "#9CA3AF",
         fontFamily: "SF_Pro_Regular",
+    },
+    fileList: {
+        paddingHorizontal: 16,
+        paddingTop: 6,
+    },
+    fileRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: "#F3F4F6",
+    },
+    fileName: {
+        flex: 1,
+        fontSize: 13,
+        color: "#1F2937",
+        fontFamily: "SF_Pro_Medium",
     },
 });
 
@@ -858,6 +1012,8 @@ const MessageBubble = React.memo(function MessageBubble({
     currentUserId,
     members,
     showSenderName = false,
+    isChannel = false,
+    repliedMessage,
     onLongPress,
     onReactionPress,
 }: {
@@ -865,14 +1021,36 @@ const MessageBubble = React.memo(function MessageBubble({
     currentUserId: number;
     members?: RoomMember[];
     showSenderName?: boolean;
+    isChannel?: boolean;
+    repliedMessage?: ChatMessage | null;
     onLongPress?: (msg: ChatMessage) => void;
     onReactionPress?: (msg: ChatMessage, emoji: string) => void;
 }) {
     const own = isOwnMessage(message, currentUserId);
     const senderMember = members?.find((m) => m.id === message.sender_id);
     const senderName = message.sender_name || (senderMember ? `${senderMember.first_name} ${senderMember.last_name}` : "");
-    const initials = getMessageInitials(senderName);
+    const senderImage = message.sender_image ?? senderMember?.image ?? null;
     const time = formatMessageTime(message.createdAt);
+
+    // Read receipt — only meaningful for a 1:1 direct chat's own messages
+    // (a channel/group has many readers, so a single tick pair doesn't map
+    // cleanly the way it does in WhatsApp's 1:1 view).
+    const otherMember = members?.find((m) => m.id !== currentUserId);
+    const isReadByOther =
+        !isChannel && !!otherMember && (message.is_read ?? []).includes(otherMember.id);
+
+    const repliedSenderMember = repliedMessage
+        ? members?.find((m) => m.id === repliedMessage.sender_id)
+        : undefined;
+    const repliedSenderName = repliedMessage
+        ? isOwnMessage(repliedMessage, currentUserId)
+            ? "You"
+            : repliedMessage.sender_name ||
+              (repliedSenderMember ? `${repliedSenderMember.first_name} ${repliedSenderMember.last_name}` : "")
+        : "";
+    const repliedPreviewText = repliedMessage
+        ? repliedMessage.text || (repliedMessage.attachments?.length ? "📎 Attachment" : "")
+        : "";
 
     const likedByMe = new Set(
         (message.reactions ?? []).filter((r) => r.users.includes(currentUserId)).map((r) => r.emoji)
@@ -925,6 +1103,20 @@ const MessageBubble = React.memo(function MessageBubble({
                             delayLongPress={250}
                             style={[styles.incomingBubble, message.is_pinned && styles.bubblePinnedIncoming]}
                         >
+                            {repliedMessage ? (
+                                <View style={styles.quotedPreview}>
+                                    <Text style={styles.quotedSender} numberOfLines={1}>{repliedSenderName}</Text>
+                                    <Text style={styles.quotedText} numberOfLines={1}>{repliedPreviewText}</Text>
+                                </View>
+                            ) : null}
+                            {message.is_forwarded ? (
+                                <View style={styles.forwardedRow}>
+                                    <Ionicons name="arrow-redo-outline" size={11} color="#6B7280" />
+                                    <Text style={styles.forwardedText}>
+                                        Forwarded{message.forwarded_from_name ? ` from ${message.forwarded_from_name}` : ""}
+                                    </Text>
+                                </View>
+                            ) : null}
                             {audioAtt ? (
                                 <VoiceNotePlayer audioUrl={audioAtt.url} />
                             ) : null}
@@ -979,9 +1171,14 @@ const MessageBubble = React.memo(function MessageBubble({
                             </View>
                         )}
                     </View>
-                    <View style={styles.avatar}>
-                        <Text style={styles.avatarText}>{initials}</Text>
-                    </View>
+                    <Avatar
+                        name={senderName}
+                        imagePath={senderImage}
+                        size={34}
+                        borderRadius={20}
+                        fontSize={14}
+                        fontFamily="SF_Pro_Regular"
+                    />
                 </View>
             </View>
         );
@@ -990,19 +1187,44 @@ const MessageBubble = React.memo(function MessageBubble({
     return (
         <View style={styles.messageWrapper}>
             <View style={styles.outgoingRow}>
-                <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{initials}</Text>
-                </View>
+                <Avatar
+                    name={senderName}
+                    imagePath={senderImage}
+                    size={34}
+                    borderRadius={20}
+                    fontSize={14}
+                    fontFamily="SF_Pro_Regular"
+                />
                 <View style={styles.outgoingContent}>
                     <Text style={styles.senderMetaOutgoing}>
                         {showSenderName ? `${senderName} ` : null}
                         <Text style={styles.timeMeta}>{showSenderName ? `| ${time}` : time}</Text>
+                        {" "}
+                        <Ionicons
+                            name={isReadByOther ? "checkmark-done" : "checkmark"}
+                            size={13}
+                            color={isReadByOther ? "#0DDFAB" : "#9CA3AF"}
+                        />
                     </Text>
                     <Pressable
                         onLongPress={() => onLongPress?.(message)}
                         delayLongPress={250}
                         style={[styles.outgoingBubble, message.is_pinned && styles.bubblePinnedOutgoing]}
                     >
+                        {repliedMessage ? (
+                            <View style={styles.quotedPreview}>
+                                <Text style={styles.quotedSender} numberOfLines={1}>{repliedSenderName}</Text>
+                                <Text style={styles.quotedText} numberOfLines={1}>{repliedPreviewText}</Text>
+                            </View>
+                        ) : null}
+                        {message.is_forwarded ? (
+                            <View style={styles.forwardedRow}>
+                                <Ionicons name="arrow-redo-outline" size={11} color="#6B7280" />
+                                <Text style={styles.forwardedText}>
+                                    Forwarded{message.forwarded_from_name ? ` from ${message.forwarded_from_name}` : ""}
+                                </Text>
+                            </View>
+                        ) : null}
                         {audioAtt ? (
                             <VoiceNotePlayer audioUrl={audioAtt.url} />
                         ) : null}
@@ -1338,9 +1560,10 @@ export default function ConversationScreen() {
         roomPermissions,
         roomCreator,
         setSearchQuery,
-        typingUsers,
         fetchPinnedMessages,
+        setCurrentRoom,
     } = useChat();
+    const { typingUsers } = useChatPresence();
     const authState = useAuth();
     const currentUserId = authState?.state?.user?.id ?? 0;
     const currentUserName = authState?.state?.user
@@ -1535,6 +1758,19 @@ export default function ConversationScreen() {
     const [firstVisibleDate, setFirstVisibleDate] = useState<Date | null>(null);
     const [dateFilterStart, setDateFilterStart] = useState<Date | null>(null);
     const [dateFilterEnd, setDateFilterEnd] = useState<Date | null>(null);
+
+    // Scroll-to-bottom FAB — the list is inverted, so offset 0 is the
+    // newest message; show the button once the user has scrolled away from it.
+    const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+    const handleMessagesScroll = useCallback(
+        (e: { nativeEvent: { contentOffset: { y: number } } }) => {
+            setShowScrollToBottom(e.nativeEvent.contentOffset.y > 300);
+        },
+        []
+    );
+    const scrollToBottom = useCallback(() => {
+        scrollRef.current?.scrollToOffset({ offset: 0, animated: true });
+    }, []);
 
     const startRecording = useCallback(async () => {
         if (!roomId || recordingBusyRef.current || isRecording) return;
@@ -1834,6 +2070,8 @@ export default function ConversationScreen() {
         } catch (err) {
             console.log("[Conv] Send message error:", err);
             setMessage(text);
+            setMentionedUserIds(mentions);
+            setReplyTo(replyTo);
         } finally {
             setSending(false);
         }
@@ -1970,11 +2208,19 @@ export default function ConversationScreen() {
         setDateFilterEnd(end);
     }, []);
 
-    // Derive current room from rooms list (setCurrentRoom is never called)
+    // Derive current room from rooms list
     const currentRoom = useMemo(
         () => state.rooms.find((r) => r._id === roomId || r.id.toString() === roomId),
         [state.rooms, roomId]
     );
+
+    // Mirror the actively-viewed room into ChatContext so incoming-message
+    // handling (unread count bump, toast) can correctly detect "the user is
+    // already looking at this room" instead of always treating it as unread.
+    useEffect(() => {
+        setCurrentRoom(currentRoom ?? null);
+        return () => setCurrentRoom(null);
+    }, [currentRoom, setCurrentRoom]);
 
     // ── @-mention candidates (derived from the room's member list) ─────────
     const roomMembers = useMemo(
@@ -1997,6 +2243,18 @@ export default function ConversationScreen() {
         setSelectedMsgForModal(msg);
     }, []);
 
+    // Lookup for the "replying to" quote preview — only messages already
+    // loaded in this screen can be shown; older, un-paginated-in replies
+    // simply render without a preview (bubble degrades gracefully).
+    const messageById = useMemo(() => {
+        const map = new Map<string, ChatMessage>();
+        for (const m of state.messages) {
+            map.set(m._id, m);
+            map.set(String(m.id), m);
+        }
+        return map;
+    }, [state.messages]);
+
     const renderItem = useCallback(({ item, index }: { item: ChatMessage; index: number }) => (
         <View
             style={{
@@ -2009,11 +2267,13 @@ export default function ConversationScreen() {
                 currentUserId={currentUserId}
                 members={currentRoom?.members}
                 showSenderName={isChannel}
+                isChannel={isChannel}
+                repliedMessage={item.parent_id ? messageById.get(item.parent_id) : null}
                 onLongPress={handleLongPress}
                 onReactionPress={handleReactEmoji}
             />
         </View>
-    ), [currentUserId, currentRoom?.members, isChannel, handleLongPress, handleReactEmoji]);
+    ), [currentUserId, currentRoom?.members, isChannel, messageById, handleLongPress, handleReactEmoji]);
 
     // Inverted messages list for native bottom-anchored chat layout
     const invertedMessages = useMemo(() => {
@@ -2078,16 +2338,23 @@ export default function ConversationScreen() {
                                     <Ionicons name="chevron-back" size={22} color="#1D1D1D" />
                                 </TouchableOpacity>
 
-                                <View style={styles.headerAvatar}>
-                                    <Text style={styles.headerAvatarText}>{initials}</Text>
-                                </View>
+                                <Avatar
+                                    name={name}
+                                    imagePath={!isChannel ? roomMembers[0]?.image : null}
+                                    size={32}
+                                    borderRadius={6}
+                                    fontSize={14}
+                                    fontFamily="SF_Pro_Semibold"
+                                />
 
                                 <View style={styles.headerInfo}>
                                     <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
                                     <Text style={styles.headerStatus}>
                                         {isChannel
                                             ? `${roomPermissions.length} member${roomPermissions.length !== 1 ? "s" : ""}`
-                                            : "Active"}
+                                            : roomMembers[0]?.isOnline
+                                                ? "Active"
+                                                : "Offline"}
                                     </Text>
                                 </View>
                             </View>
@@ -2241,17 +2508,17 @@ export default function ConversationScreen() {
                                 const fullName = memberInfo
                                     ? `${memberInfo.first_name} ${memberInfo.last_name}`
                                     : `User #${perm.userId}`;
-                                const initials = memberInfo
-                                    ? (memberInfo.first_name?.charAt(0) ?? "") +
-                                    (memberInfo.last_name?.charAt(0) ?? "")
-                                    : String(perm.userId).charAt(0);
                                 return (
                                     <View key={perm.userId} style={styles.memberRow}>
-                                        <View style={styles.memberAvatar}>
-                                            <Text style={styles.memberAvatarText}>
-                                                {initials}
-                                            </Text>
-                                        </View>
+                                        <Avatar
+                                            name={fullName}
+                                            imagePath={memberInfo?.image}
+                                            size={32}
+                                            borderRadius={16}
+                                            fontSize={12}
+                                            fontFamily="SF_Pro_Semibold"
+                                            style={styles.memberAvatar}
+                                        />
                                         <Text style={styles.memberName} numberOfLines={1}>
                                             {fullName}
                                         </Text>
@@ -2396,10 +2663,22 @@ export default function ConversationScreen() {
                         }
                         onViewableItemsChanged={onViewableItemsChangedRef}
                         viewabilityConfig={viewabilityConfig}
+                        onScroll={handleMessagesScroll}
+                        scrollEventThrottle={100}
                         showsVerticalScrollIndicator={false}
                         keyboardShouldPersistTaps="handled"
                         contentContainerStyle={styles.scrollContent}
                     />
+
+                    {showScrollToBottom && (
+                        <TouchableOpacity
+                            style={(styles as any).scrollToBottomBtn}
+                            activeOpacity={0.85}
+                            onPress={scrollToBottom}
+                        >
+                            <Ionicons name="chevron-down" size={20} color="#1D1D1D" />
+                        </TouchableOpacity>
+                    )}
 
                     {/* ── Reply Preview ── */}
                     {replyTo && (
@@ -2821,6 +3100,24 @@ const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: "#fff" },
     safe: { flex: 1 },
     flex: { flex: 1 },
+    scrollToBottomBtn: {
+        position: "absolute",
+        right: 14,
+        bottom: 14,
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: "#fff",
+        alignItems: "center",
+        justifyContent: "center",
+        shadowColor: "#000",
+        shadowOpacity: 0.15,
+        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 2 },
+        elevation: 5,
+        borderWidth: 1,
+        borderColor: "#E5E7EB",
+    },
 
     // ── Header ──
     header: {
@@ -3040,6 +3337,37 @@ const styles = StyleSheet.create({
         fontFamily: "SF_Pro_Regular",
         color: TEXT_PRIMARY,
         lineHeight: 20,
+    },
+    forwardedRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        marginBottom: 4,
+    },
+    forwardedText: {
+        fontSize: 11,
+        fontFamily: "SF_Pro_Regular",
+        fontStyle: "italic",
+        color: "#6B7280",
+    },
+    quotedPreview: {
+        borderLeftWidth: 3,
+        borderLeftColor: "#00DEAB",
+        backgroundColor: "rgba(0,222,171,0.08)",
+        borderRadius: 6,
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        marginBottom: 6,
+    },
+    quotedSender: {
+        fontSize: 12,
+        fontFamily: "SF_Pro_Semibold",
+        color: "#00A67E",
+    },
+    quotedText: {
+        fontSize: 12,
+        fontFamily: "SF_Pro_Regular",
+        color: "#6B7280",
     },
     timeMeta: {
         fontSize: 11,

@@ -14,8 +14,13 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
+import Animated from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import CalendarPicker from "./CalendarPicker";
 import FloatingInput from "./FloatingInput";
+import SheetDragHandle from "./SheetDragHandle";
+import { useSwipeToDismiss } from "@/hooks/useSwipeToDismiss";
 
 export type FilterPerson = {
   id: number;
@@ -186,15 +191,29 @@ function PersonPickerField({
             if (!open) onFocus();
           }}
           onFocus={onFocus}
-          rightIcon={query.length > 0 ? undefined : "search-outline"}
         />
-        {query.length > 0 && (
+        {query.length > 0 ? (
           <TouchableOpacity
             style={styles.personClearBtn}
             onPress={() => onChangeQuery("")}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
+        ) : (
+          // Tapping an already-focused TextInput doesn't re-fire onFocus, so
+          // once opened there was previously no way to close this dropdown
+          // again — this chevron is an explicit, always-reachable toggle.
+          <TouchableOpacity
+            style={styles.personClearBtn}
+            onPress={() => (open ? onCloseDropdown() : onFocus())}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons
+              name={open ? "chevron-up" : "chevron-down"}
+              size={18}
+              color="#9CA3AF"
+            />
           </TouchableOpacity>
         )}
       </View>
@@ -294,6 +313,11 @@ export default function FilterModal({
   onReset,
   loading = false,
 }: Props) {
+  // KeyboardAvoidingView pads for the full keyboard height, but the sheet's
+  // own bottom edge sits above the home-indicator safe area — without this
+  // offset that mismatch shows up as an empty gap between the sheet and the
+  // keyboard once it's open.
+  const insets = useSafeAreaInsets();
   const [selectedStatus, setSelectedStatus] = useState<string | null>(initialStatus);
   const [selectedPriority, setSelectedPriority] = useState<string | null>(initialPriority);
   const [selectedLeaveMode, setSelectedLeaveMode] = useState<string | null>(null);
@@ -413,6 +437,8 @@ export default function FilterModal({
     onClose?.();
   };
 
+  const { panGesture, animatedStyle } = useSwipeToDismiss(visible, handleManualClose);
+
   const handleReset = () => {
     setSelectedStatus(null);
     setSelectedPriority(null);
@@ -448,29 +474,37 @@ export default function FilterModal({
       <KeyboardAvoidingView
         style={styles.keyboardAvoider}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? insets.bottom : 0}
       >
       <Pressable style={styles.overlay} onPress={handleManualClose}>
         {/* Remount on open so all filter state re-initializes from the latest
             props instead of syncing props into state inside an effect. */}
-        <Pressable
-          style={styles.sheet}
-          onPress={() => {}}
+        <Animated.View
+          style={[styles.sheet, { paddingBottom: insets.bottom }, animatedStyle]}
           key={visible ? "filter-sheet-open" : "filter-sheet-closed"}
         >
-            {/* Header row */}
-            <View style={styles.headerRow}>
-              <TouchableOpacity onPress={handleReset} disabled={resetting}>
-                {resetting ? (
-                  <ActivityIndicator size="small" color="#1D1D1D" />
-                ) : (
-                  <Text style={styles.resetText}>Reset</Text>
-                )}
-              </TouchableOpacity>
-              <Text style={styles.titleText}>Filter</Text>
-              <TouchableOpacity style={styles.closeBtn} onPress={handleManualClose}>
-                <Ionicons name="close" size={16} color="#fff" />
-              </TouchableOpacity>
-            </View>
+          <Pressable onPress={() => {}}>
+            {/* Drag handle + header are the swipe-down-to-dismiss zone —
+                kept separate from the ScrollView below so dragging doesn't
+                fight the list's own vertical scroll. */}
+            <GestureDetector gesture={panGesture}>
+              <View>
+                <SheetDragHandle />
+                <View style={styles.headerRow}>
+                  <TouchableOpacity onPress={handleReset} disabled={resetting}>
+                    {resetting ? (
+                      <ActivityIndicator size="small" color="#1D1D1D" />
+                    ) : (
+                      <Text style={styles.resetText}>Reset</Text>
+                    )}
+                  </TouchableOpacity>
+                  <Text style={styles.titleText}>Filter</Text>
+                  <TouchableOpacity style={styles.closeBtn} onPress={handleManualClose}>
+                    <Ionicons name="close" size={16} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </GestureDetector>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
               {/* Status */}
@@ -765,7 +799,8 @@ export default function FilterModal({
               )}
             </TouchableOpacity>
           </Pressable>
-        </Pressable>
+        </Animated.View>
+      </Pressable>
       </KeyboardAvoidingView>
     </Modal>
   );

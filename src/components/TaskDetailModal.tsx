@@ -34,6 +34,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
+import Animated from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSwipeToDismiss } from "@/hooks/useSwipeToDismiss";
+import SheetDragHandle from "./SheetDragHandle";
 import { STATUS_COLORS, StatusType } from "./TaskRow";
 
 export type DependencyDisplay = {
@@ -481,6 +486,10 @@ export default function TaskDetailModal({
   task,
   initialTab = "details",
 }: Props) {
+  const { panGesture, animatedStyle } = useSwipeToDismiss(visible, onClose);
+  // Compensates KeyboardAvoidingView's padding for the home-indicator safe
+  // area, otherwise that inset shows up as an empty gap above the keyboard.
+  const insets = useSafeAreaInsets();
   const { state: authState } = useAuth();
   const {
     state: taskState,
@@ -1042,14 +1051,21 @@ export default function TaskDetailModal({
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? insets.bottom : 0}
       >
         <View style={styles.overlay}>
-          <View style={styles.sheet}>
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-              <Ionicons name="close" size={16} color="#fff" />
-            </TouchableOpacity>
+          <Animated.View style={[styles.sheet, { paddingBottom: insets.bottom }, animatedStyle]}>
+            {/* Drag handle + close button + tabs are the swipe-down-to-
+                dismiss zone — kept separate from the ScrollViews below so
+                dragging doesn't fight their own vertical scroll. */}
+            <GestureDetector gesture={panGesture}>
+              <View>
+                <SheetDragHandle />
+                <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
+                  <Ionicons name="close" size={16} color="#fff" />
+                </TouchableOpacity>
 
-            <View style={styles.tabs}>
+                <View style={styles.tabs}>
               <TouchableOpacity
                 style={[
                   styles.tab,
@@ -1085,7 +1101,9 @@ export default function TaskDetailModal({
                 </Text>
                 <View style={styles.tabDot} />
               </TouchableOpacity>
-            </View>
+                </View>
+              </View>
+            </GestureDetector>
 
             {activeTab === "details" && (
               <View style={styles.tabContent}>
@@ -1343,7 +1361,7 @@ export default function TaskDetailModal({
                 </View>
               </View>
             )}
-          </View>
+          </Animated.View>
         </View>
       </KeyboardAvoidingView>
     </Modal>

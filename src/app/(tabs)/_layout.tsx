@@ -1,7 +1,7 @@
-import AppHeader from "@/components/headerapp";
 import CustomTabBar from "@/components/CustomTabBar";
-import { useAuth } from "@/hooks/useAuth";
+import AppHeader from "@/components/headerapp";
 import { SearchProvider, useSearch } from "@/context/SearchContext";
+import { useAuth } from "@/hooks/useAuth";
 import { Tabs, useSegments } from "expo-router";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -62,16 +62,25 @@ function TabLayoutContent() {
           showSearch: true,
           placeholder: "Search Chat",
         }
-      : HEADER_CONFIGS[currentRoute] ?? DEFAULT_CONFIG;
+      : (HEADER_CONFIGS[currentRoute] ?? DEFAULT_CONFIG);
 
   // Collapses the Tasks search bar to just its toggle icon once the task
   // list has scrolled — the greeting text and stat cards are unaffected.
   const forceSearchOpen =
-    currentRoute === "tasks" ? config.forceSearchOpen && !isHeaderCompact : config.forceSearchOpen;
+    currentRoute === "tasks"
+      ? config.forceSearchOpen && !isHeaderCompact
+      : config.forceSearchOpen;
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
-      <View style={{ overflow: "visible", zIndex: 99999, paddingTop: insets.top, backgroundColor: "#fff" }}>
+      <View
+        style={{
+          overflow: "visible",
+          zIndex: 99999,
+          paddingTop: insets.top,
+          backgroundColor: "#fff",
+        }}
+      >
         <AppHeader
           greeting={config.greeting}
           subGreeting={config.subGreeting}
@@ -82,7 +91,7 @@ function TabLayoutContent() {
         />
       </View>
       <Tabs
-        screenOptions={{ headerShown: false, tabBarHideOnKeyboard: true}}
+        screenOptions={{ headerShown: false, tabBarHideOnKeyboard: true }}
         tabBar={(props) => <CustomTabBar {...props} />}
       >
         <Tabs.Screen name="tasks" />

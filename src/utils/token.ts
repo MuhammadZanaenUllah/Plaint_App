@@ -96,3 +96,50 @@ export function isTokenExpired(token: string): boolean {
   if (!exp) return true;
   return Date.now() >= exp * 1000;
 }
+
+const BIO_TOKEN_KEY = "bio_token";
+const BIO_USER_KEY = "bio_user";
+const BIO_COMPANY_KEY = "bio_company";
+
+export async function saveBiometricSession(
+  token: string,
+  user: any,
+  company: any
+): Promise<void> {
+  await Promise.all([
+    SecureStore.setItemAsync(BIO_TOKEN_KEY, token),
+    SecureStore.setItemAsync(BIO_USER_KEY, JSON.stringify(user)),
+    SecureStore.setItemAsync(BIO_COMPANY_KEY, JSON.stringify(company)),
+  ]);
+}
+
+export async function getBiometricSession(): Promise<{
+  token: string;
+  user: any;
+  company: any;
+} | null> {
+  try {
+    const token = await SecureStore.getItemAsync(BIO_TOKEN_KEY);
+    const rawUser = await SecureStore.getItemAsync(BIO_USER_KEY);
+    const rawCompany = await SecureStore.getItemAsync(BIO_COMPANY_KEY);
+
+    if (!token || !rawUser || !rawCompany) return null;
+    if (isTokenExpired(token)) return null;
+
+    return {
+      token,
+      user: JSON.parse(rawUser),
+      company: JSON.parse(rawCompany),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function removeBiometricSession(): Promise<void> {
+  await Promise.all([
+    SecureStore.deleteItemAsync(BIO_TOKEN_KEY),
+    SecureStore.deleteItemAsync(BIO_USER_KEY),
+    SecureStore.deleteItemAsync(BIO_COMPANY_KEY),
+  ]);
+}

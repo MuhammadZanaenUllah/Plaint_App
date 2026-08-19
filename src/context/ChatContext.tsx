@@ -51,8 +51,6 @@ type ChatAction =
   | { type: "SET_ONLINE_USERS"; userIds: string[] }
   | { type: "USER_ONLINE"; userId: string }
   | { type: "USER_OFFLINE"; userId: string }
-  | { type: "SET_TYPING_USERS"; roomId: string; userId: number; userName: string; isTyping: boolean }
-  | { type: "SET_SOCKET_CONNECTED"; connected: boolean }
   | { type: "LOGOUT" };
 
 const initialState: ChatState = {
@@ -203,10 +201,6 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ),
         })),
       };
-    case "SET_TYPING_USERS":
-      return state;
-    case "SET_SOCKET_CONNECTED":
-      return state;
     case "LOGOUT":
       return initialState;
     default:
@@ -216,6 +210,17 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
 // ─── Context Value ────────────────────────────────────────────────────────────
 
+// Typing/presence state changes on nearly every socket event (typing pings,
+// online/offline blips) but only conversation.tsx actually reads it. Keeping
+// it out of ChatContextValue means chat.tsx, InboxModal, notifications.tsx,
+// etc. — which call useChat() for room/message data only — don't re-render
+// on every one of those events. See ChatPresenceContext/useChatPresence below.
+export type ChatPresenceValue = {
+  socketConnected: boolean;
+  onlineUserIds: string[];
+  typingUsers: Map<string, Map<number, string>>;
+};
+
 export type ChatContextValue = {
   state: ChatState;
 
@@ -223,11 +228,6 @@ export type ChatContextValue = {
   postTypes: CustomPostType[];
   roomPermissions: MemberPermission[];
   roomCreator: number | null;
-
-  // Socket state
-  socketConnected: boolean;
-  onlineUserIds: string[];
-  typingUsers: Map<string, Map<number, string>>;
 
   // Room actions
   fetchRooms: () => Promise<void>;
@@ -333,6 +333,7 @@ export type ChatContextValue = {
 };
 
 const ChatContext = createContext<ChatContextValue | null>(null);
+const ChatPresenceContext = createContext<ChatPresenceValue | null>(null);
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -493,6 +494,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }
         if (params.postType) {
           body.postType = params.postType;
+        }
+        if (params.is_forwarded) {
+          body.is_forwarded = params.is_forwarded;
+        }
+        if (params.forwarded_from_name) {
+          body.forwarded_from_name = params.forwarded_from_name;
         }
 
         const res = await chatService.sendTextMessage(body);
@@ -1276,15 +1283,19 @@ useEffect(() => {
 
 // ── Memoized Value ──────────────────────────────────────────────────────
 
+// Isolated from `value` below — this changes on nearly every socket event,
+// and only conversation.tsx (via useChatPresence) needs it.
+const presenceValue: ChatPresenceValue = useMemo(
+  () => ({ socketConnected, onlineUserIds, typingUsers }),
+  [socketConnected, onlineUserIds, typingUsers]
+);
+
 const value: ChatContextValue = useMemo(
   () => ({
     state,
     postTypes: state.postTypes,
     roomPermissions: state.roomPermissions,
     roomCreator: state.roomCreator,
-    socketConnected,
-    onlineUserIds,
-    typingUsers,
     fetchRooms,
     getOrCreateRoom,
     setCurrentRoom,
@@ -1325,9 +1336,6 @@ const value: ChatContextValue = useMemo(
     state.postTypes,
     state.roomPermissions,
     state.roomCreator,
-    socketConnected,
-    onlineUserIds,
-    typingUsers,
     fetchRooms,
     getOrCreateRoom,
     setCurrentRoom,
@@ -1365,15 +1373,32 @@ const value: ChatContextValue = useMemo(
   ]
 );
 
-return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
+return (
+  <ChatContext.Provider value={value}>
+    <ChatPresenceContext.Provider value={presenceValue}>
+      {children}
+    </ChatPresenceContext.Provider>
+  </ChatContext.Provider>
+);
 }
 
-// ─── Hook ─────────────────────────────────────────────────────────────────────
+// ─── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useChat(): ChatContextValue {
   const ctx = useContext(ChatContext);
   if (!ctx) {
     throw new Error("useChat must be used within a ChatProvider");
+  }
+  return ctx;
+}
+
+// Typing/online-presence state, split out of useChat() so components that
+// don't read it (chat list, notifications, InboxModal) don't re-render on
+// every typing ping or presence change. Use this only where actually needed.
+export function useChatPresence(): ChatPresenceValue {
+  const ctx = useContext(ChatPresenceContext);
+  if (!ctx) {
+    throw new Error("useChatPresence must be used within a ChatProvider");
   }
   return ctx;
 }

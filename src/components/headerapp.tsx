@@ -1,31 +1,33 @@
 import Icons from "@/constants/icons";
-import { useAuth } from "@/hooks/useAuth";
 import { useSearch } from "@/context/SearchContext";
-import { viewTask } from "@/services/api/tasks.service";
+import { useAuth } from "@/hooks/useAuth";
 import {
   getPushNotificationSettings,
   updatePushNotificationSettings,
 } from "@/services/api/push.service";
+import { viewTask } from "@/services/api/tasks.service";
+import { NotificationItem } from "@/types/chat.types";
 import { showInfo } from "@/utils/toast";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import {
+  Modal,
   Pressable,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import Animated, { FadeInDown, FadeOutUp } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Avatar from "./Avatar";
 import InboxModal from "./InboxModal";
 import TaskDetailModal, {
   TaskDetail,
   buildTaskDetailFromViewTask,
 } from "./TaskDetailModal";
-import { NotificationItem } from "@/types/chat.types";
 
 const { BellIcon, FilterIcon, FilterIconBlack } = Icons;
 
@@ -49,6 +51,8 @@ export default function AppHeader({
   onFilterPress,
 }: AppHeaderProps) {
   const { state: authState, logout } = useAuth();
+  const insets = useSafeAreaInsets();
+  const menuTopPosition = Math.max(insets.top + 60, 70);
   const { setSearchText } = useSearch();
   const [searchOpen, setSearchOpen] = useState(false);
   const isSearchVisible = forceSearchOpen || searchOpen;
@@ -63,12 +67,6 @@ export default function AppHeader({
     setSearch(text);
     setSearchText(text);
   };
-
-  const userInitials = (() => {
-    const user = authState.user;
-    if (!user) return "U";
-    return ((user.first_name?.[0] ?? "") + (user.last_name?.[0] ?? "")).toUpperCase();
-  })();
 
   const handleLogout = async () => {
     setShowProfileMenu(false);
@@ -94,11 +92,16 @@ export default function AppHeader({
       const prev = pushEnabled;
       setPushEnabled(value);
       try {
-        const res = await updatePushNotificationSettings({ push_enabled: value });
+        const res = await updatePushNotificationSettings({
+          push_enabled: value,
+        });
         setPushEnabled(res?.settings?.push_enabled ?? value);
       } catch {
         setPushEnabled(prev);
-        showInfo("Notifications", "Could not update push notification settings.");
+        showInfo(
+          "Notifications",
+          "Could not update push notification settings.",
+        );
       }
     },
     [pushEnabled],
@@ -127,21 +130,26 @@ export default function AppHeader({
   }, []);
 
   return (
-    <Pressable style={styles.headerContainer} onPress={() => searchOpen && setSearchOpen(false)}>
+    <Pressable
+      style={styles.headerContainer}
+      onPress={() => searchOpen && setSearchOpen(false)}
+    >
       <View style={styles.header}>
         <View style={{ flexDirection: "column", width: "70%" }}>
-          <Text style={styles.greeting} >{greeting}</Text>
+          <Text style={styles.greeting}>{greeting}</Text>
           <Text style={styles.subGreeting}>{subGreeting}</Text>
         </View>
 
         <View style={styles.headerRight}>
           {showSearch && !forceSearchOpen && (
-            <TouchableOpacity onPress={() => setSearchOpen(!searchOpen)} hitSlop={8}>
+            <TouchableOpacity
+              onPress={() => setSearchOpen(!searchOpen)}
+              hitSlop={8}
+            >
               <Ionicons name="search-outline" size={22} color="#000000" />
             </TouchableOpacity>
           )}
 
-          
           <TouchableOpacity
             style={styles.bellWrap}
             activeOpacity={0.75}
@@ -152,53 +160,47 @@ export default function AppHeader({
           </TouchableOpacity>
 
           <TouchableOpacity onPress={openProfileMenu}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{userInitials}</Text>
-            </View>
+            <Avatar
+              name={`${authState.user?.first_name ?? ""} ${authState.user?.last_name ?? ""}`}
+              imagePath={authState.user?.image}
+              size={30}
+              borderRadius={5}
+              backgroundColor="#1D1D1D"
+            />
           </TouchableOpacity>
         </View>
       </View>
 
-      {showProfileMenu && (
-        <>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => setShowProfileMenu(false)}
-          />
-
-          <View style={styles.profileMenu}>
+      <Modal
+        visible={showProfileMenu}
+        transparent
+        animationType="none"
+        onRequestClose={() => setShowProfileMenu(false)}
+      >
+        <Pressable
+          style={styles.menuOverlay}
+          onPress={() => setShowProfileMenu(false)}
+        >
+          <View style={[styles.profileMenu, { top: menuTopPosition }]}>
             <TouchableOpacity
               style={styles.menuItem}
               activeOpacity={0.75}
-              onPress={() => setShowProfileMenu(false)}
+              onPress={() => {
+                setShowProfileMenu(false);
+                router.push("/settings");
+              }}
             >
-              <Ionicons name="notifications-outline" size={18} color="#6B7280" />
-              <Text style={styles.menuText}>Push Notifications</Text>
-              <Switch
-                value={pushEnabled}
-                onValueChange={handlePushToggle}
-                disabled={pushSettingsLoading}
-                trackColor={{ false: "#D1D5DB", true: "#00DEAB" }}
-                thumbColor="#fff"
-                style={{ marginLeft: "auto", transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
-              />
+              <Ionicons name="settings-outline" size={18} color="#6B7280" />
+              <Text style={styles.menuText}>App Settings</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={handleLogout}
-            >
-              <MaterialCommunityIcons
-                name="logout"
-                size={18}
-                color="#6B7280"
-              />
-
+            <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
+              <MaterialCommunityIcons name="logout" size={18} color="#6B7280" />
               <Text style={styles.menuText}>Sign out</Text>
             </TouchableOpacity>
           </View>
-        </>
-      )}
+        </Pressable>
+      </Modal>
 
       {showSearch && isSearchVisible && (
         <Animated.View
@@ -338,33 +340,23 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "#fff",
   },
-  avatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 5,
-    backgroundColor: "#1D1D1D",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatarText: {
-    color: "#fff",
-    fontFamily: "SF_Pro_Bold",
-    fontSize: 12,
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: "transparent",
   },
   profileMenu: {
     position: "absolute",
-    top: 70,
+    top: 120,
     right: 16,
-    width: 208,
+    width: 150,
     backgroundColor: "#fff",
-    borderRadius: 4,
+    borderRadius: 10,
     paddingVertical: 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 8,
-    zIndex: 999,
   },
   menuItem: {
     flexDirection: "row",

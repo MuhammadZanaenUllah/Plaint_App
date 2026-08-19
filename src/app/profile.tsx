@@ -9,6 +9,8 @@ import {
   SafeAreaView,
   StatusBar,
 } from "react-native";
+import { useAuth } from "@/hooks/useAuth";
+import { getUserAvatarUrl } from "@/utils/userHelpers";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
@@ -139,6 +141,8 @@ function AccountRow({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function Profile() {
+  const { state: authState } = useAuth();
+  const user = authState.user;
   const [profileImage, setProfileImage] = useState<string | null>(null);
 
   const pickImage = useCallback(async () => {
@@ -195,17 +199,11 @@ export default function Profile() {
           <View style={styles.profileRingContainer}>
             <View style={styles.profileRing}>
               <View style={styles.profileImageWrap}>
-                {profileImage ? (
-                  <Image
-                    source={{ uri: profileImage }}
-                    style={styles.profileImageFull}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.profileImagePlaceholder}>
-                    <Ionicons name="person" size={52} color="#aaa" />
-                  </View>
-                )}
+                <Image
+                  source={{ uri: profileImage || getUserAvatarUrl(user) }}
+                  style={styles.profileImageFull}
+                  resizeMode="cover"
+                />
               </View>
             </View>
 
@@ -302,8 +300,17 @@ export default function Profile() {
         <View style={{ height: 20 }} />
       </ScrollView>
 
-      {/* ── Logout Button ── */}
+      {/* ── Settings & Logout ── */}
       <View style={styles.logoutWrap}>
+        <TouchableOpacity
+          style={[styles.logoutBtn, { backgroundColor: "#F3F4F6", marginBottom: 10 }]}
+          activeOpacity={0.85}
+          onPress={() => router.push("/settings")}
+        >
+          <Ionicons name="settings-outline" size={20} color="#1D1D1D" />
+          <Text style={[styles.logoutText, { color: "#1D1D1D" }]}>App Settings</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.logoutBtn} activeOpacity={0.85} onPress={() => router.replace("/login")}>
           <Feather name="log-out" size={20} color="#fff" />
           <Text style={styles.logoutText}>Logout</Text>
