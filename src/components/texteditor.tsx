@@ -26,6 +26,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useRef,
   useState,
@@ -42,11 +43,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import { GestureDetector } from 'react-native-gesture-handler';
-import Animated from 'react-native-reanimated';
 import { RichEditor, actions } from 'react-native-pell-rich-editor';
-import { useSwipeToDismiss } from '@/hooks/useSwipeToDismiss';
-import SheetDragHandle from './SheetDragHandle';
 
 const EMOJIS = [
   '😀', '😁', '😂', '🙂', '😉', '😍',
@@ -102,8 +99,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const richText = useRef<RichEditor>(null);
     const [emojiVisible, setEmojiVisible] = useState(false);
     const [linkVisible, setLinkVisible] = useState(false);
-    const emojiSwipe = useSwipeToDismiss(emojiVisible, () => setEmojiVisible(false));
-    const linkSwipe = useSwipeToDismiss(linkVisible, () => setLinkVisible(false));
     const [linkUrl, setLinkUrl] = useState('');
     const [linkText, setLinkText] = useState('');
     const [focused, setFocused] = useState(false);
@@ -290,36 +285,33 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           </ScrollView>
         )}
 
-        {/* Emoji picker */}
+        {/* Emoji picker modal */}
         <Modal
           visible={emojiVisible}
           transparent
           animationType="fade"
           onRequestClose={() => setEmojiVisible(false)}
         >
-          <Pressable
-            style={styles.modalOverlay}
-            onPress={() => setEmojiVisible(false)}
-          >
-            <Animated.View style={[styles.emojiSheet, emojiSwipe.animatedStyle]}>
-              <GestureDetector gesture={emojiSwipe.panGesture}>
-                <View>
-                  <SheetDragHandle />
-                  <Text style={styles.sheetTitle}>Insert emoji</Text>
-                </View>
-              </GestureDetector>
-              <View style={styles.emojiGrid}>
-                {EMOJIS.map((emoji) => (
-                  <TouchableOpacity
-                    key={emoji}
-                    style={styles.emojiCell}
-                    onPress={() => insertEmoji(emoji)}
-                  >
-                    <Text style={styles.emojiText}>{emoji}</Text>
-                  </TouchableOpacity>
-                ))}
+          <Pressable style={styles.modalOverlay} onPress={() => setEmojiVisible(false)}>
+            <Pressable style={styles.emojiSheet} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.handleRow}>
+                <View style={styles.handleGrip} />
+                <Text style={styles.sheetTitle}>Insert emoji</Text>
               </View>
-            </Animated.View>
+              <View style={styles.emojiSheetBody}>
+                <View style={styles.emojiGrid}>
+                  {EMOJIS.map((emoji) => (
+                    <TouchableOpacity
+                      key={emoji}
+                      style={styles.emojiCell}
+                      onPress={() => insertEmoji(emoji)}
+                    >
+                      <Text style={styles.emojiText}>{emoji}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </Pressable>
           </Pressable>
         </Modal>
 
@@ -330,54 +322,49 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           animationType="fade"
           onRequestClose={() => setLinkVisible(false)}
         >
-          <Pressable
-            style={styles.modalOverlay}
-            onPress={() => setLinkVisible(false)}
-          >
-            <Animated.View style={linkSwipe.animatedStyle}>
-            <Pressable style={styles.linkSheet} onPress={() => { }}>
-              <GestureDetector gesture={linkSwipe.panGesture}>
-                <View>
-                  <SheetDragHandle />
-                  <Text style={styles.sheetTitle}>Insert link</Text>
+          <Pressable style={styles.modalOverlay} onPress={() => setLinkVisible(false)}>
+            <Pressable style={styles.linkSheet} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.handleRow}>
+                <View style={styles.handleGrip} />
+                <Text style={styles.sheetTitle}>Insert link</Text>
+              </View>
+              <View style={styles.linkSheetBody}>
+                <TextInput
+                  style={styles.linkInput}
+                  placeholder="https://example.com"
+                  placeholderTextColor="#B3B3B3"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType={Platform.select({
+                    ios: 'url',
+                    android: 'default',
+                  })}
+                  value={linkUrl}
+                  onChangeText={setLinkUrl}
+                />
+                <TextInput
+                  style={styles.linkInput}
+                  placeholder="Display text (optional)"
+                  placeholderTextColor="#B3B3B3"
+                  value={linkText}
+                  onChangeText={setLinkText}
+                />
+                <View style={styles.linkActionsRow}>
+                  <TouchableOpacity
+                    style={[styles.linkButton, styles.linkButtonGhost]}
+                    onPress={() => setLinkVisible(false)}
+                  >
+                    <Text style={styles.linkButtonGhostText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.linkButton}
+                    onPress={confirmLink}
+                  >
+                    <Text style={styles.linkButtonText}>Insert</Text>
+                  </TouchableOpacity>
                 </View>
-              </GestureDetector>
-              <TextInput
-                style={styles.linkInput}
-                placeholder="https://example.com"
-                placeholderTextColor="#B3B3B3"
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType={Platform.select({
-                  ios: 'url',
-                  android: 'default',
-                })}
-                value={linkUrl}
-                onChangeText={setLinkUrl}
-              />
-              <TextInput
-                style={styles.linkInput}
-                placeholder="Display text (optional)"
-                placeholderTextColor="#B3B3B3"
-                value={linkText}
-                onChangeText={setLinkText}
-              />
-              <View style={styles.linkActionsRow}>
-                <TouchableOpacity
-                  style={[styles.linkButton, styles.linkButtonGhost]}
-                  onPress={() => setLinkVisible(false)}
-                >
-                  <Text style={styles.linkButtonGhostText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.linkButton}
-                  onPress={confirmLink}
-                >
-                  <Text style={styles.linkButtonText}>Insert</Text>
-                </TouchableOpacity>
               </View>
             </Pressable>
-            </Animated.View>
           </Pressable>
         </Modal>
       </View>
@@ -390,6 +377,13 @@ RichTextEditor.displayName = 'RichTextEditor';
 export default RichTextEditor;
 
 const styles = StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
   // ── Idle state styles ────────────────────────────────────────────────────
   idleRow: {
     flexDirection: 'row',
@@ -460,21 +454,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    justifyContent: 'flex-end',
+  handleRow: {
+    paddingTop: 12,
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+  },
+  handleGrip: {
+    width: 38,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#D1D5DB',
+    alignSelf: 'center',
+    marginBottom: 12,
   },
   emojiSheet: {
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
+  },
+  emojiSheetBody: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
   },
   sheetTitle: {
     fontSize: 13,
     color: '#1A1A1A',
-    marginBottom: 12,
     fontWeight: '600',
   },
   emojiGrid: {
@@ -494,7 +498,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
+  },
+  linkSheetBody: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
   },
   linkInput: {
     borderWidth: 1,

@@ -16,6 +16,7 @@ import { getUserAvatarUrl } from "@/utils/userHelpers";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
+import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
@@ -51,11 +52,46 @@ export default function SettingsScreen() {
 
   // Cache & Modal states
   const [cacheCleared, setCacheCleared] = useState(false);
+  const [cacheSizeText, setCacheSizeText] = useState("0.0 KB");
   const [passwordModalVisible, setPasswordModalVisible] = useState(false);
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [updatingPassword, setUpdatingPassword] = useState(false);
+
+  const calculateCacheSize = useCallback(async () => {
+    try {
+      if (!FileSystem.cacheDirectory) {
+        setCacheSizeText("0.0 KB");
+        return;
+      }
+      const files = await FileSystem.readDirectoryAsync(FileSystem.cacheDirectory);
+      let totalBytes = 0;
+      for (const file of files) {
+        try {
+          const info = await FileSystem.getInfoAsync(FileSystem.cacheDirectory + file);
+          if (info.exists && !info.isDirectory) {
+            totalBytes += info.size ?? 0;
+          }
+        } catch {
+          // ignore individual unreadable files
+        }
+      }
+      if (totalBytes === 0) {
+        setCacheSizeText("0.0 KB (Clean)");
+      } else if (totalBytes < 1024 * 1024) {
+        setCacheSizeText(`${(totalBytes / 1024).toFixed(1)} KB temporary data`);
+      } else {
+        setCacheSizeText(`${(totalBytes / (1024 * 1024)).toFixed(1)} MB temporary data`);
+      }
+    } catch {
+      setCacheSizeText("0.0 KB");
+    }
+  }, []);
+
+  useEffect(() => {
+    calculateCacheSize();
+  }, [calculateCacheSize]);
 
   // Redesigned Custom Confirmation Alert State
   const [alertConfig, setAlertConfig] = useState<{
@@ -256,11 +292,28 @@ export default function SettingsScreen() {
       confirmBgColor: "#00DEAB",
       onConfirm: async () => {
         setAlertConfig((prev) => ({ ...prev, visible: false }));
-        await SecureStore.deleteItemAsync("pref_sound");
-        await SecureStore.deleteItemAsync("pref_email_summary");
-        await SecureStore.deleteItemAsync("pref_haptics");
-        setCacheCleared(true);
-        showSuccess("Local cache and settings cleared successfully");
+        try {
+          if (FileSystem.cacheDirectory) {
+            const files = await FileSystem.readDirectoryAsync(FileSystem.cacheDirectory);
+            for (const file of files) {
+              try {
+                await FileSystem.deleteAsync(FileSystem.cacheDirectory + file, { idempotent: true });
+              } catch {
+                // ignore individually locked files
+              }
+            }
+          }
+          await SecureStore.deleteItemAsync("pref_sound").catch(() => {});
+          await SecureStore.deleteItemAsync("pref_email_summary").catch(() => {});
+          await SecureStore.deleteItemAsync("pref_haptics").catch(() => {});
+          setCacheCleared(true);
+          setCacheSizeText("0.0 KB (Cleaned)");
+          triggerHaptic("success");
+          showSuccess("Local cache and temporary files cleared successfully");
+        } catch (err) {
+          console.log("[Cache] Clear error:", err);
+          showError("Failed to clear some cache files");
+        }
       },
     });
   };
@@ -603,7 +656,7 @@ export default function SettingsScreen() {
               <View style={styles.rowTextWrap}>
                 <Text style={styles.rowTitle}>Clear Cache</Text>
                 <Text style={styles.rowSub}>
-                  {cacheCleared ? "0.0 KB (Cleaned)" : "4.2 MB temporary data"}
+                  {cacheCleared ? "0.0 KB (Cleaned)" : cacheSizeText}
                 </Text>
               </View>
               <Text style={styles.actionLinkText}>Clear</Text>

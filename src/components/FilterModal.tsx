@@ -1,11 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Keyboard,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,13 +11,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { GestureDetector } from "react-native-gesture-handler";
-import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import CalendarPicker from "./CalendarPicker";
 import FloatingInput from "./FloatingInput";
-import SheetDragHandle from "./SheetDragHandle";
-import { useSwipeToDismiss } from "@/hooks/useSwipeToDismiss";
 
 export type FilterPerson = {
   id: number;
@@ -372,6 +365,8 @@ export default function FilterModal({
   // even when the parent reset is instant.
   const resetStartedAtRef = useRef(0);
 
+  const snapPoints = useMemo(() => ["90%"], []);
+
   useEffect(() => {
     if (visible) {
       waitForRealLoadRef.current = false;
@@ -379,11 +374,34 @@ export default function FilterModal({
       applyingSessionRef.current = 0;
       setCreatedByOpen(false);
       setAssignedToOpen(false);
+      setSelectedStatus(initialStatus);
+      setSelectedPriority(initialPriority);
+      setSelectedLeaveMode(null);
+      setSelectedLeaveType(null);
+      setStartDate(initialStartDate);
+      setEndDate(initialEndDate);
+      setCalendarOpen(false);
+      setSelectedCreatedBy(
+        initialCreatedBy === null || initialCreatedBy === undefined
+          ? []
+          : Array.isArray(initialCreatedBy)
+            ? initialCreatedBy
+            : [initialCreatedBy]
+      );
+      setSelectedAssignedTo(
+        initialAssignedTo === null || initialAssignedTo === undefined
+          ? []
+          : Array.isArray(initialAssignedTo)
+            ? initialAssignedTo
+            : [initialAssignedTo]
+      );
+      setCreatedByQuery("");
+      setAssignedToQuery("");
     } else {
       setCreatedByOpen(false);
       setAssignedToOpen(false);
     }
-  }, [visible]);
+  }, [visible, initialStatus, initialPriority, initialStartDate, initialEndDate, initialCreatedBy, initialAssignedTo]);
 
   // If Apply was tapped while data was still loading, keep the modal open
   // (spinner in the button) and close it as soon as the load finishes.
@@ -437,8 +455,6 @@ export default function FilterModal({
     onClose?.();
   };
 
-  const { panGesture, animatedStyle } = useSwipeToDismiss(visible, handleManualClose);
-
   const handleReset = () => {
     setSelectedStatus(null);
     setSelectedPriority(null);
@@ -463,50 +479,57 @@ export default function FilterModal({
     onReset?.();
   };
 
-  return (
-    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={handleManualClose}>
-      {/* Tap-outside-to-dismiss via nested Pressables (the sheet's onPress is
-          a no-op that absorbs the tap so it never reaches the overlay) —
-          the same pattern the calendar popup below already uses. The old
-          single TouchableWithoutFeedback wrapping both together let taps on
-          a TextInput (which doesn't block touch propagation the way a
-          TouchableOpacity does) bubble up and close the whole sheet. */}
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoider}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? insets.bottom : 0}
-      >
-      <Pressable style={styles.overlay} onPress={handleManualClose}>
-        {/* Remount on open so all filter state re-initializes from the latest
-            props instead of syncing props into state inside an effect. */}
-        <Animated.View
-          style={[styles.sheet, { paddingBottom: insets.bottom }, animatedStyle]}
-          key={visible ? "filter-sheet-open" : "filter-sheet-closed"}
-        >
-          <Pressable onPress={() => {}}>
-            {/* Drag handle + header are the swipe-down-to-dismiss zone —
-                kept separate from the ScrollView below so dragging doesn't
-                fight the list's own vertical scroll. */}
-            <GestureDetector gesture={panGesture}>
-              <View>
-                <SheetDragHandle />
-                <View style={styles.headerRow}>
-                  <TouchableOpacity onPress={handleReset} disabled={resetting}>
-                    {resetting ? (
-                      <ActivityIndicator size="small" color="#1D1D1D" />
-                    ) : (
-                      <Text style={styles.resetText}>Reset</Text>
-                    )}
-                  </TouchableOpacity>
-                  <Text style={styles.titleText}>Filter</Text>
-                  <TouchableOpacity style={styles.closeBtn} onPress={handleManualClose}>
-                    <Ionicons name="close" size={16} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </GestureDetector>
+  const handleApplyPress = () => {
+    onApply?.({
+      status: selectedStatus,
+      priority: selectedPriority,
+      startDate,
+      endDate,
+      createdBy: selectedCreatedBy.length > 0 ? (selectedCreatedBy.length === 1 ? selectedCreatedBy[0] : selectedCreatedBy) : null,
+      assignedTo: selectedAssignedTo.length > 0 ? (selectedAssignedTo.length === 1 ? selectedAssignedTo[0] : selectedAssignedTo) : null,
+    });
+    if (loading) {
+      waitForRealLoadRef.current = true;
+      waitForResetRef.current = false;
+      applyingSessionRef.current += 1;
+      setApplying(true);
+      setResetting(false);
+    } else {
+      waitForResetRef.current = false;
+      applyingSessionRef.current = 0;
+      setApplying(false);
+      setResetting(false);
+      onClose?.();
+    }
+  };
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      statusBarTranslucent
+      onRequestClose={handleManualClose}
+    >
+      <Pressable style={styles.modalOverlay} onPress={handleManualClose}>
+        <Pressable style={styles.sheetContainer} onPress={(e) => e.stopPropagation()}>
+          <View style={styles.dragHandleBar}>
+            <View style={styles.dragHandlePill} />
+          </View>
+          <View style={styles.headerRow}>
+            <TouchableOpacity onPress={handleReset} disabled={resetting}>
+              {resetting ? (
+                <ActivityIndicator size="small" color="#1D1D1D" />
+              ) : (
+                <Text style={styles.resetText}>Reset</Text>
+              )}
+            </TouchableOpacity>
+            <Text style={styles.titleText}>Filter</Text>
+            <TouchableOpacity style={styles.closeBtn} onPress={handleManualClose}>
+              <Ionicons name="close" size={16} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
               {/* Status */}
               {showStatus && (
                 <>
@@ -756,41 +779,14 @@ export default function FilterModal({
                   </Pressable>
                 </Pressable>
               </Modal>
-            </ScrollView>
+          </ScrollView>
 
-            {/* Apply */}
+          <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
             <TouchableOpacity
               style={[styles.applyBtn, applying && styles.applyBtnDisabled]}
               activeOpacity={0.85}
               disabled={applying}
-              onPress={() => {
-                onApply?.({
-                  status: selectedStatus,
-                  priority: selectedPriority,
-                  startDate,
-                  endDate,
-                  createdBy: selectedCreatedBy.length > 0 ? (selectedCreatedBy.length === 1 ? selectedCreatedBy[0] : selectedCreatedBy) : null,
-                  assignedTo: selectedAssignedTo.length > 0 ? (selectedAssignedTo.length === 1 ? selectedAssignedTo[0] : selectedAssignedTo) : null,
-                });
-                if (loading) {
-                  // Real backend load in flight — keep the modal open with a
-                  // spinner in the Apply button and close as soon as it
-                  // finishes.
-                  waitForRealLoadRef.current = true;
-                  waitForResetRef.current = false;
-                  applyingSessionRef.current += 1;
-                  setApplying(true);
-                  setResetting(false);
-                } else {
-                  // Data is already loaded — the filter applies instantly, so
-                  // close the modal right away.
-                  waitForResetRef.current = false;
-                  applyingSessionRef.current = 0;
-                  setApplying(false);
-                  setResetting(false);
-                  onClose?.();
-                }
-              }}
+              onPress={handleApplyPress}
             >
               {applying ? (
                 <ActivityIndicator size="small" color="#1D1D1D" />
@@ -798,36 +794,56 @@ export default function FilterModal({
                 <Text style={styles.applyText}>Apply</Text>
               )}
             </TouchableOpacity>
-          </Pressable>
-        </Animated.View>
+          </View>
+        </Pressable>
       </Pressable>
-      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  keyboardAvoider: {
+  modalOverlay: {
     flex: 1,
-  },
-  overlay: {
-    flex: 1,
-    justifyContent: "flex-end",
     backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  sheetContainer: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: "90%",
+    minHeight: "50%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 24,
   },
   sheet: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingHorizontal: 16,
-    paddingTop: 20,
-    maxHeight: "92%",
+  },
+  dragHandleBar: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 12,
+    paddingBottom: 2,
+  },
+  dragHandlePill: {
+    width: 38,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#D1D5DB",
   },
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 20,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 12,
   },
   resetText: {
     fontSize: 16,
@@ -847,7 +863,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  scrollContent: { paddingBottom: 16 },
+  footer: {
+    backgroundColor: "#fff",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+  },
+  scrollContent: { paddingHorizontal: 16, paddingBottom: 16 },
   sectionLabel: {
     fontSize: 16,
     fontFamily: "SF_Pro_Semibold",
@@ -951,8 +974,11 @@ const styles = StyleSheet.create({
   },
   personClearBtn: {
     position: "absolute",
-    right: 12,
-    top: 14,
+    right: 14,
+    // FloatingInput has its own marginTop: 10 before its border box starts,
+    // so this needs +10 over the 13 FloatingInput uses internally for its
+    // own icons (secureToggle/rightIcon) to land at the same vertical center.
+    top: 23,
     zIndex: 10,
   },
   personInlineList: {
@@ -1046,8 +1072,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: "center",
-    marginTop: 8,
-    marginBottom: 30,
   },
   applyBtnDisabled: { opacity: 0.7 },
   applyText: {

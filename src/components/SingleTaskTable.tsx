@@ -1005,8 +1005,9 @@ const TaskCellContent = memo(function TaskCellContent({
         <Avatar
           name={item.createdBy}
           imagePath={item.createdByAvatar}
-          size={21}
-          borderRadius={10.5}
+          size={24}
+          borderRadius={6}
+          fontSize={10}
           style={styles.avatarImage}
         />
         <Text style={styles.cellText} numberOfLines={1}>
@@ -1240,7 +1241,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
               name={item.assignedTo}
               imagePath={item.assignedToAvatar}
               size={24}
-              borderRadius={2}
+              borderRadius={6}
               backgroundColor="#00DEAB"
               fontSize={10}
               style={styles.initialsAssignee}
@@ -1260,7 +1261,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
               name={item.assignedTo}
               imagePath={item.assignedToAvatar}
               size={24}
-              borderRadius={2}
+              borderRadius={6}
               backgroundColor="#00DEAB"
               fontSize={10}
               style={styles.initialsAssignee}
@@ -1596,28 +1597,9 @@ const styles = StyleSheet.create({
     paddingRight: 6,
   },
   avatarImage: {
-    width: 21,
-    height: 21,
-    borderRadius: 10.5,
-    marginRight: 6,
-    backgroundColor: "#E5E7EB",
-  },
-  initialsCreator: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    backgroundColor: "#00DEAB",
-    alignItems: "center",
-    justifyContent: "center",
     marginRight: 6,
   },
   initialsAssignee: {
-    width: 24,
-    height: 24,
-    borderRadius: 2,
-    backgroundColor: "#00DEAB",
-    alignItems: "center",
-    justifyContent: "center",
     marginRight: 6,
   },
   initialsText: { fontSize: 10, fontWeight: "700", color: "#fff" },

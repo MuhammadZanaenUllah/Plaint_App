@@ -1,6 +1,6 @@
+import { getStoredToken } from "@/utils/token";
 import { useEffect, useMemo, useState } from "react";
 import { Image, StyleProp, Text, View, ViewStyle } from "react-native";
-import { getStoredToken } from "@/utils/token";
 
 type Props = {
   /** Full name (or best-effort name) used for the initials fallback. */
@@ -41,7 +41,10 @@ function getServerOrigin(): string {
 // URLs in order and fall back to initials only once all of them fail —
 // this can only improve on the current initials-only behavior, never
 // regress it.
-function buildCandidateUrls(imagePath: string, token: string | null): { uri: string; headers?: Record<string, string> }[] {
+function buildCandidateUrls(
+  imagePath: string,
+  token: string | null,
+): { uri: string; headers?: Record<string, string> }[] {
   if (/^(https?:|data:)/.test(imagePath)) {
     return [{ uri: imagePath }];
   }
@@ -51,38 +54,41 @@ function buildCandidateUrls(imagePath: string, token: string | null): { uri: str
   const hasDir = clean.includes("/");
 
   const relPaths = hasDir
-    ? [
-        clean,
-        `public/${clean}`,
-        `storage/${clean}`,
-        `uploads/${clean}`,
-      ]
+    ? [clean, `public/${clean}`, `storage/${clean}`, `uploads/${clean}`]
     : [
+        // Documented convention for user profile images on this backend
+        // (documents/IMAGE_AND_AUDIO_HANDLING.md §1 — REACT_APP_USER_DOCS_PATH).
+        `users/docs/${clean}`,
+        `users/images/${clean}`,
         `uploads/users/${clean}`,
         `uploads/profile/${clean}`,
         `profile/${clean}`,
         `users/${clean}`,
         `storage/users/${clean}`,
         `storage/profile/${clean}`,
-        `public/uploads/users/${clean}`,
-        `public/uploads/profile/${clean}`,
-        `public/users/${clean}`,
         `images/users/${clean}`,
         `images/profile/${clean}`,
-        `users/docs/${clean}`,
         `uploads/${clean}`,
         clean,
       ];
 
-  const authHeaders = token ? { authToken: token, "x-access-token": token } : undefined;
+  const authHeaders = token
+    ? { authToken: token, "x-access-token": token }
+    : undefined;
   const candidates: { uri: string; headers?: Record<string, string> }[] = [];
   for (const rel of relPaths) {
-    candidates.push({ uri: `${origin}/${rel}`, headers: authHeaders });
-    candidates.push({ uri: `${origin}/public/${rel}`, headers: authHeaders });
+    // Direct static `/public/...` access is disabled on this backend — every
+    // file must go through the authenticated `secure-file` proxy as
+    // `?p=public/<rest-of-path>` (IMAGE_AND_AUDIO_HANDLING.md §1, §4), so try
+    // that first. The direct URLs below are kept only as a last-resort
+    // fallback for environments where static serving happens to be open.
+    const securePath = rel.startsWith("public/") ? rel : `public/${rel}`;
     candidates.push({
-      uri: `${origin}/api/v1/secure-file?p=${encodeURIComponent(rel)}`,
+      uri: `${origin}/api/v1/secure-file?p=${encodeURIComponent(securePath)}`,
       headers: authHeaders,
     });
+    candidates.push({ uri: `${origin}/public/${rel}`, headers: authHeaders });
+    candidates.push({ uri: `${origin}/${rel}`, headers: authHeaders });
   }
   return candidates;
 }
@@ -107,7 +113,7 @@ export default function Avatar({
 
   const candidates = useMemo(
     () => (imagePath ? buildCandidateUrls(imagePath, token) : []),
-    [imagePath, token]
+    [imagePath, token],
   );
   const [candidateIndex, setCandidateIndex] = useState(0);
 
@@ -128,12 +134,30 @@ export default function Avatar({
     style,
   ];
 
-  const exhausted = candidates.length === 0 || candidateIndex >= candidates.length;
+  const exhausted =
+    candidates.length === 0 || candidateIndex >= candidates.length;
+
+  useEffect(() => {
+    if (exhausted) {
+      // console.log(
+      //   `[Avatar] Showing initials for "${name}" — imagePath=${JSON.stringify(imagePath)}, ` +
+      //     (candidates.length === 0
+      //       ? "no imagePath provided"
+      //       : `all ${candidates.length} candidate URL(s) failed to load`)
+      // );
+    }
+  }, [exhausted]);
 
   if (exhausted) {
     return (
       <View style={circleStyle}>
-        <Text style={{ color: textColor, fontSize: fontSize ?? Math.round(size * 0.4), fontFamily }}>
+        <Text
+          style={{
+            color: textColor,
+            fontSize: fontSize ?? Math.round(size * 0.4),
+            fontFamily,
+          }}
+        >
           {getInitials(name)}
         </Text>
       </View>
@@ -145,7 +169,18 @@ export default function Avatar({
       <Image
         source={candidates[candidateIndex]}
         style={{ width: size, height: size }}
-        onError={() => setCandidateIndex((i) => i + 1)}
+        onError={(e) => {
+          // console.log(
+          //   `[Avatar] Candidate ${candidateIndex + 1}/${candidates.length} failed for "${name}": ` +
+          //     `${candidates[candidateIndex]?.uri} — ${e.nativeEvent?.error ?? "unknown error"}`,
+          // );
+          setCandidateIndex((i) => i + 1);
+        }}
+        onLoad={() => {
+          // console.log(
+          //   `[Avatar] Loaded successfully for "${name}": ${candidates[candidateIndex]?.uri}`,
+          // );
+        }}
       />
     </View>
   );

@@ -1,43 +1,41 @@
-import RichTextEditor, { RichTextEditorRef } from "@/components/texteditor";
-import { Ionicons } from "@expo/vector-icons";
-import { useRef, useState, useEffect, useMemo } from "react";
-import {
-  Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { useAuth } from "@/hooks/useAuth";
-import { useTasks } from "@/hooks/useTasks";
-import { extractErrorMessage } from "@/utils/errorHandler";
-import { showInfo, showError, showSuccess } from "@/utils/toast";
-import { uiStatusToApi } from "@/utils/statusMapper";
-import type { UiTaskStatus, RecurringPeriod } from "@/types/task.types";
-import { ALL_STATUSES, STATUS_COLORS } from "@/components/TaskRow";
-import { getSocket, onSocketEvent, type UserUpdatePayload } from "@/services/socket/socketService";
-import DocumentPickerButton from "@/features/attachments/components/DocumentPickerButton";
-import type { SelectedFile } from "@/features/attachments/types/attachment.types";
-import * as Sharing from "expo-sharing";
-import * as FileSystem from "expo-file-system/legacy";
+import CalendarPicker from "@/components/CalendarPicker";
 import {
   CriticalTaskPopUpModal,
   OrderCriticalTasksModal,
   type CriticalTask,
 } from "@/components/CriticalTaskModal";
-import CalendarPicker from "@/components/CalendarPicker";
 import FloatingInput from "@/components/FloatingInput";
-import SheetDragHandle from "@/components/SheetDragHandle";
-import { useSwipeToDismiss } from "@/hooks/useSwipeToDismiss";
-import { GestureDetector } from "react-native-gesture-handler";
-import Animated from "react-native-reanimated";
+import { ALL_STATUSES, STATUS_COLORS } from "@/components/TaskRow";
+import RichTextEditor, { RichTextEditorRef } from "@/components/texteditor";
+import DocumentPickerButton from "@/features/attachments/components/DocumentPickerButton";
+import type { SelectedFile } from "@/features/attachments/types/attachment.types";
+import { useAuth } from "@/hooks/useAuth";
+import { useTasks } from "@/hooks/useTasks";
+import {
+  getSocket,
+  onSocketEvent,
+  type UserUpdatePayload,
+} from "@/services/socket/socketService";
+import type { RecurringPeriod, UiTaskStatus } from "@/types/task.types";
+import { extractErrorMessage } from "@/utils/errorHandler";
+import { uiStatusToApi } from "@/utils/statusMapper";
+import { showError, showInfo, showSuccess } from "@/utils/toast";
+import { Ionicons } from "@expo/vector-icons";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Keyboard,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Props = { visible: boolean; onClose: () => void; onCreated?: () => void };
@@ -64,17 +62,29 @@ const PRIORITY_OPTIONS = [
 
 // "Recurring" is intentionally excluded — recurrence is modeled via the
 // separate recurring-task toggle below, not as a selectable status.
-const STATUSES = ALL_STATUSES.filter((s) => s !== "Recurring" && s !== "Pending-Approval").map((s) => ({
+const STATUSES = ALL_STATUSES.filter(
+  (s) => s !== "Recurring" && s !== "Pending-Approval",
+).map((s) => ({
   label: s,
   color: STATUS_COLORS[s]?.text ?? "#00DFAB",
 }));
 
-export default function CreateTaskModal({ visible, onClose, onCreated }: Props) {
+export default function CreateTaskModal({
+  visible,
+  onClose,
+  onCreated,
+}: Props) {
   // Compensates KeyboardAvoidingView's padding for the home-indicator safe
   // area, otherwise that inset shows up as an empty gap above the keyboard.
   const insets = useSafeAreaInsets();
   const { state: authState } = useAuth();
-  const { state: taskState, createTask, fetchAllTasks, allMappedTasks, reorderCritical } = useTasks();
+  const {
+    state: taskState,
+    createTask,
+    fetchAllTasks,
+    allMappedTasks,
+    reorderCritical,
+  } = useTasks();
 
   const companyIdRef = useRef(authState.company?.company_id ?? 0);
   companyIdRef.current = authState.company?.company_id ?? 0;
@@ -102,7 +112,13 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
   const isAdvanced = authState.hasAdvancedTaskModule === true;
 
   const [activePanel, setActivePanel] = useState<
-    "assigned" | "dueDate" | "priority" | "approval" | "status" | "recurring" | null
+    | "assigned"
+    | "dueDate"
+    | "priority"
+    | "approval"
+    | "status"
+    | "recurring"
+    | null
   >(null);
   const [selectedDueDate, setSelectedDueDate] = useState<Date | null>(null);
   const [effortHours, setEffortHours] = useState<string>("");
@@ -123,16 +139,21 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
   const [assignedUserName, setAssignedUserName] = useState<string>("");
 
   const [selectedPriority, setSelectedPriority] = useState<string>("Normal");
-  const [selectedPriorityId, setSelectedPriorityId] = useState<number | null>(null);
+  const [selectedPriorityId, setSelectedPriorityId] = useState<number | null>(
+    null,
+  );
   const [selectedApproval, setSelectedApproval] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
   // recurringOpen removed — now uses recurringModalVisible popup
   const [isRecurringEnabled, setIsRecurringEnabled] = useState(false);
-  const [recurringPeriod, setRecurringPeriod] = useState<RecurringPeriod | null>(null);
+  const [recurringPeriod, setRecurringPeriod] =
+    useState<RecurringPeriod | null>(null);
   const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
   const [recurringTime, setRecurringTime] = useState<string>("09:00");
   const [recurringTotalCount, setRecurringTotalCount] = useState<string>("");
-  const [recurringExcludeDays, setRecurringExcludeDays] = useState<string[]>([]);
+  const [recurringExcludeDays, setRecurringExcludeDays] = useState<string[]>(
+    [],
+  );
   const [recurringWeekDay, setRecurringWeekDay] = useState<string | null>(null);
   const [recurringMonthDate, setRecurringMonthDate] = useState<string>("");
   const [recurringAnnualMonth, setRecurringAnnualMonth] = useState<string>("");
@@ -140,10 +161,13 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
 
   const [assignModalVisible, setAssignModalVisible] = useState(false);
   const [recurringModalVisible, setRecurringModalVisible] = useState(false);
-  const [dependenciesModalVisible, setDependenciesModalVisible] = useState(false);
+  const [dependenciesModalVisible, setDependenciesModalVisible] =
+    useState(false);
   const [depSearch, setDepSearch] = useState("");
   const [depFocused, setDepFocused] = useState(false);
-  const [selectedDependencies, setSelectedDependencies] = useState<number[]>([]);
+  const [selectedDependencies, setSelectedDependencies] = useState<number[]>(
+    [],
+  );
 
   const [loading, setLoading] = useState(false);
 
@@ -155,7 +179,9 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
   // pendingPayload: the task payload waiting to be created once user resolves conflict
   const pendingPayloadRef = useRef<Record<string, any> | null>(null);
   // existingCriticalTasks for the selected assignee
-  const [assigneeCriticalTasks, setAssigneeCriticalTasks] = useState<CriticalTask[]>([]);
+  const [assigneeCriticalTasks, setAssigneeCriticalTasks] = useState<
+    CriticalTask[]
+  >([]);
   // placeholder for the new task in the order modal (actual id set after creation)
   const PENDING_NEW_TASK_ID = -1;
 
@@ -276,16 +302,25 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
       return;
     }
 
-    const descriptionHtml = await descriptionEditorRef.current?.getContentHtml();
+    const descriptionHtml =
+      await descriptionEditorRef.current?.getContentHtml();
     const companyId = authState.company?.company_id ?? 0;
     const companyIdentifier = authState.company?.company_identifier ?? "";
     const isRecurring = isRecurringEnabled;
     const priority = selectedPriority.toLowerCase() as "normal" | "critical";
 
-    const totalCountNum = recurringTotalCount ? parseInt(recurringTotalCount, 10) : 0;
-    const monthDateNum = recurringMonthDate ? parseInt(recurringMonthDate, 10) : null;
-    const annualMonthNum = recurringAnnualMonth ? parseInt(recurringAnnualMonth, 10) : null;
-    const annualDateNum = recurringAnnualDate ? parseInt(recurringAnnualDate, 10) : null;
+    const totalCountNum = recurringTotalCount
+      ? parseInt(recurringTotalCount, 10)
+      : 0;
+    const monthDateNum = recurringMonthDate
+      ? parseInt(recurringMonthDate, 10)
+      : null;
+    const annualMonthNum = recurringAnnualMonth
+      ? parseInt(recurringAnnualMonth, 10)
+      : null;
+    const annualDateNum = recurringAnnualDate
+      ? parseInt(recurringAnnualDate, 10)
+      : null;
 
     const requestPayload = {
       title: title.trim(),
@@ -298,7 +333,10 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
       task_priority: priority,
       bump_to_front: priority === "critical", // default; overridden per popup choice
       approval_required: selectedApproval === "Yes" ? 1 : 0,
-      status: uiStatusToApi((selectedStatus as UiTaskStatus) ?? (isRecurring ? "Recurring" : "Pending")),
+      status: uiStatusToApi(
+        (selectedStatus as UiTaskStatus) ??
+          (isRecurring ? "Recurring" : "Pending"),
+      ),
       description: descriptionHtml ?? description,
       project_id: null,
       sprint_id: null,
@@ -307,11 +345,16 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
       recurring_period: isRecurring ? recurringPeriod : null,
       recurring_time: isRecurring && recurringTime ? recurringTime : null,
       recurring_total_count: isRecurring ? totalCountNum : 0,
-      recurring_exclude_days: isRecurring && recurringPeriod === "daily" ? recurringExcludeDays : [],
-      recurring_week_day: isRecurring && recurringPeriod === "weekly" ? recurringWeekDay : null,
-      recurring_month_date: isRecurring && recurringPeriod === "monthly" ? monthDateNum : null,
-      recurring_annual_month: isRecurring && recurringPeriod === "annually" ? annualMonthNum : null,
-      recurring_annual_date: isRecurring && recurringPeriod === "annually" ? annualDateNum : null,
+      recurring_exclude_days:
+        isRecurring && recurringPeriod === "daily" ? recurringExcludeDays : [],
+      recurring_week_day:
+        isRecurring && recurringPeriod === "weekly" ? recurringWeekDay : null,
+      recurring_month_date:
+        isRecurring && recurringPeriod === "monthly" ? monthDateNum : null,
+      recurring_annual_month:
+        isRecurring && recurringPeriod === "annually" ? annualMonthNum : null,
+      recurring_annual_date:
+        isRecurring && recurringPeriod === "annually" ? annualDateNum : null,
       effort_hours: isAdvanced ? parseFloat(effortHours) || 0 : 0,
       effort_unit: isAdvanced ? effortUnit : "hours",
       depends_on: selectedDependencies,
@@ -329,7 +372,7 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
           t.asigned_to === assignedUserId &&
           t.task_priority === "critical" &&
           t.status !== "Complete" &&
-          t.status !== "Rejected"
+          t.status !== "Rejected",
       );
 
       if (activeCritical.length > 0) {
@@ -341,7 +384,7 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
             title: t.title,
             dueDate: t.due_date ?? undefined,
             status: t.status,
-          }))
+          })),
         );
         setCriticalPopupVisible(true);
         return; // wait for user choice
@@ -356,12 +399,22 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
   const doCreateTask = async (payload: Record<string, any>) => {
     setLoading(true);
     try {
-      console.log(`[CreateTaskModal] FULL PAYLOAD:`, JSON.stringify(payload, null, 2));
+      console.log(
+        `[CreateTaskModal] FULL PAYLOAD:`,
+        JSON.stringify(payload, null, 2),
+      );
       const response = await createTask(payload as any);
-      console.log(`[CreateTaskModal] BACKEND RESPONSE:`, JSON.stringify(response, null, 2));
+      console.log(
+        `[CreateTaskModal] BACKEND RESPONSE:`,
+        JSON.stringify(response, null, 2),
+      );
       showSuccess("Success", "Task created successfully.");
-      fetchAllTasks(payload.company_id as number, { silent: true }).catch((err) =>
-        console.error("[CreateTaskModal] fetchAllTasks after create failed:", err)
+      fetchAllTasks(payload.company_id as number, { silent: true }).catch(
+        (err) =>
+          console.error(
+            "[CreateTaskModal] fetchAllTasks after create failed:",
+            err,
+          ),
       );
       resetForm();
       onClose();
@@ -383,10 +436,18 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
     const payload = { ...pendingPayloadRef.current, bump_to_front: true };
     setLoading(true);
     try {
-      console.log(`[CreateTaskModal] Critical Option 1 PAYLOAD:`, JSON.stringify(payload, null, 2));
+      console.log(
+        `[CreateTaskModal] Critical Option 1 PAYLOAD:`,
+        JSON.stringify(payload, null, 2),
+      );
       await createTask(payload as any);
-      showSuccess("Success", "Critical task created and scheduled at top priority.");
-      fetchAllTasks(authState.company?.company_id ?? 0, { silent: true }).catch(() => {});
+      showSuccess(
+        "Success",
+        "Critical task created and scheduled at top priority.",
+      );
+      fetchAllTasks(authState.company?.company_id ?? 0, { silent: true }).catch(
+        () => {},
+      );
       pendingPayloadRef.current = null;
       resetForm();
       onClose();
@@ -412,9 +473,11 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
     const companyId = authState.company?.company_id ?? 0;
     try {
       // Replace placeholder id -1 with the real new task id
-      const newTaskId = pendingPayloadRef.current?._newTaskId as number | undefined;
+      const newTaskId = pendingPayloadRef.current?._newTaskId as
+        | number
+        | undefined;
       const resolvedIds = orderedIds.map((id) =>
-        id === PENDING_NEW_TASK_ID && newTaskId ? newTaskId : id
+        id === PENDING_NEW_TASK_ID && newTaskId ? newTaskId : id,
       );
       await reorderCritical({ orderedIds: resolvedIds, company_id: companyId });
       fetchAllTasks(companyId, { silent: true }).catch(() => {});
@@ -487,12 +550,15 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
     onClose();
   };
 
-  const { panGesture, animatedStyle } = useSwipeToDismiss(visible, handleModalClose);
-
+  // BottomSheetModal is presented/dismissed imperatively via this ref,
+  // driven by the `visible` prop — it handles its own safe-area padding,
+  // keyboard avoidance, backdrop, and swipe-to-dismiss internally, instead
+  // of the hand-rolled KeyboardAvoidingView/Animated.View/GestureDetector
+  // stack this used to need.
   const handleSelectPriority = (label: string) => {
     setSelectedPriority(label);
     const priority = taskState.priorities.find(
-      (p) => p.name.toLowerCase() === label.toLowerCase()
+      (p) => p.name.toLowerCase() === label.toLowerCase(),
     );
     setSelectedPriorityId(priority?.id ?? null);
   };
@@ -501,7 +567,7 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
   useEffect(() => {
     if (visible && !selectedPriorityId) {
       const normalPriority = taskState.priorities.find(
-        (p) => p.name.toLowerCase() === "normal"
+        (p) => p.name.toLowerCase() === "normal",
       );
       if (normalPriority) {
         setSelectedPriority("Normal");
@@ -521,445 +587,259 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
 
   return (
     <>
-    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={handleModalClose}>
-      <Pressable
-        style={styles.overlay}
-        onPress={handleModalClose}
+      <Modal
+        visible={visible}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={handleModalClose}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={Platform.OS === "ios" ? insets.bottom : 0}
-          style={{ width: "100%", justifyContent: "flex-end" }}
-        >
-          <Animated.View style={animatedStyle}>
-          <Pressable onPress={() => Keyboard.dismiss()} style={[styles.sheet, { paddingBottom: insets.bottom }]}>
-            {/* Drag handle + close button are the swipe-down-to-dismiss
-                zone — kept separate from the ScrollView below so dragging
-                doesn't fight its own vertical scroll. */}
-            <GestureDetector gesture={panGesture}>
-              <View>
-                <SheetDragHandle />
-                <TouchableOpacity
-                  style={styles.closeBtn}
-                  onPress={handleModalClose}
-                >
-                  <Ionicons name="close" size={18} color="#fff" />
-                </TouchableOpacity>
-              </View>
-            </GestureDetector>
-
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-            onScrollBeginDrag={() => Keyboard.dismiss()}
-            automaticallyAdjustKeyboardInsets={true}
-            decelerationRate="fast"
-            bounces
-            overScrollMode="never"
+        <Pressable style={styles.modalOverlay} onPress={handleModalClose}>
+          <Pressable
+            style={styles.sheetContainer}
+            onPress={(e) => e.stopPropagation()}
           >
-            <View style={[styles.titleInputWrap, (titleFocused || title.length > 0) && styles.titleInputWrapActive]}>
-              <TextInput
-                style={styles.titleInput}
+            <View style={styles.dragHandleBar}>
+              <View style={styles.dragHandlePill} />
+              <TouchableOpacity
+                style={styles.closeBtn}
+                onPress={handleModalClose}
+              >
+                <Ionicons name="close" size={18} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.scrollContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              <FloatingInput
+                label="Enter task title"
                 value={title}
                 onChangeText={setTitle}
-                onFocus={() => setTitleFocused(true)}
-                onBlur={() => setTitleFocused(false)}
-                placeholder={title.length > 0 ? "" : "Enter a task title"}
-                placeholderTextColor="#AAAAAA"
+                containerStyle={{ marginBottom: 16 }}
+                autoFocus={true}
+              />
+
+              <RichTextEditor
+                ref={descriptionEditorRef}
+                label="Description"
+                initialHTML={description}
+                onChangeHTML={setDescription}
+                onFocus={() => setDescFocused(true)}
+                onBlur={() => setDescFocused(false)}
+                editorHeight={140}
+                containerStyle={styles.descEditor}
                 autoFocus={false}
               />
-            </View>
 
-            <RichTextEditor
-              ref={descriptionEditorRef}
-              label="Description"
-              initialHTML={description}
-              onChangeHTML={setDescription}
-              onFocus={() => setDescFocused(true)}
-              onBlur={() => setDescFocused(false)}
-              editorHeight={140}
-              containerStyle={styles.descEditor}
-              autoFocus={false}
-            />
-
-            {/* ── Row 1 Chips: Assigned / Due Date / Priority ── */}
-            <View style={styles.chipsRow}>
-              {/* 1. Assigned to */}
-              <TouchableOpacity
-                style={[
-                  styles.designChip,
-                  (activePanel === "assigned" || !!assignedUserName) && styles.designChipDark,
-                ]}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setActivePanel((p) => (p === "assigned" ? null : "assigned"));
-                }}
-              >
-                <Ionicons
-                  name="people"
-                  size={16}
-                  color={activePanel === "assigned" || !!assignedUserName ? "#FFF" : "#6B7280"}
-                />
-                <Text
-                  allowFontScaling={false}
-                  style={[
-                    styles.designChipText,
-                    (activePanel === "assigned" || !!assignedUserName) && styles.designChipTextWhite,
-                  ]}
-                >
-                  {assignedUserName ? assignedUserName : "Assigned to"}
-                </Text>
-              </TouchableOpacity>
-
-              {/* 2. Due Date (normal) / Hrs (advanced task module) */}
-              {isAdvanced ? (
+              {/* ── Row 1 Chips: Assigned / Due Date / Priority ── */}
+              <View style={styles.chipsRow}>
+                {/* 1. Assigned to */}
                 <TouchableOpacity
                   style={[
                     styles.designChip,
-                    (activePanel === "dueDate" || !!effortHours) && styles.designChipDark,
+                    (activePanel === "assigned" || !!assignedUserName) &&
+                      styles.designChipDark,
                   ]}
                   onPress={() => {
                     Keyboard.dismiss();
-                    setActivePanel((p) => (p === "dueDate" ? null : "dueDate"));
-                  }}
-                >
-                  <Ionicons
-                    name="time"
-                    size={16}
-                    color={activePanel === "dueDate" || !!effortHours ? "#FFF" : "#6B7280"}
-                  />
-                  <Text
-                    allowFontScaling={false}
-                    style={[
-                      styles.designChipText,
-                      (activePanel === "dueDate" || !!effortHours) && styles.designChipTextWhite,
-                    ]}
-                  >
-                    {effortHours
-                      ? `${effortHours} ${effortUnitAbbrev}`
-                      : effortUnitAbbrev}
-                  </Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={[
-                    styles.designChip,
-                    (activePanel === "dueDate" || !!selectedDueDate) && styles.designChipDark,
-                  ]}
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    setActivePanel((p) => (p === "dueDate" ? null : "dueDate"));
-                  }}
-                >
-                  <Ionicons
-                    name="calendar"
-                    size={16}
-                    color={activePanel === "dueDate" || !!selectedDueDate ? "#FFF" : "#6B7280"}
-                  />
-                  <Text
-                    allowFontScaling={false}
-                    style={[
-                      styles.designChipText,
-                      (activePanel === "dueDate" || !!selectedDueDate) && styles.designChipTextWhite,
-                    ]}
-                  >
-                    {selectedDueDate
-                      ? selectedDueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                      : "Due Date"}
-                  </Text>
-                </TouchableOpacity>
-              )}
-
-              {/* 3. Priority */}
-              <TouchableOpacity
-                style={[
-                  styles.designChip,
-                  (activePanel === "priority" || !!selectedPriority) && styles.designChipDark,
-                ]}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setActivePanel((p) => (p === "priority" ? null : "priority"));
-                }}
-              >
-                <Ionicons
-                  name="star"
-                  size={16}
-                  color={activePanel === "priority" || !!selectedPriority ? "#FFF" : "#6B7280"}
-                />
-                <Text
-                  allowFontScaling={false}
-                  style={[
-                    styles.designChipText,
-                    (activePanel === "priority" || !!selectedPriority) && styles.designChipTextWhite,
-                  ]}
-                >
-                  {selectedPriority ? selectedPriority : "Priority"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* ── Row 1 Expanded Panels ── */}
-            {activePanel === "assigned" && (
-              <View style={styles.assignedPanelWrap}>
-                <FloatingInput
-                  label="Search people"
-                  value={assignSearch}
-                  onChangeText={setAssignSearch}
-                  autoCapitalize="none"
-                  rightIcon="search-outline"
-                />
-                <ScrollView
-                  style={{ maxHeight: 220, marginTop: 12 }}
-                  nestedScrollEnabled
-                  showsVerticalScrollIndicator={false}
-                >
-                  {filteredUsers.map((user) => {
-                    const isSelected = assignedUserId === user.id;
-                    const fullName = `${user.first_name} ${user.last_name}`;
-                    const initial = (user.first_name?.[0] || "U").toUpperCase();
-                    return (
-                      <TouchableOpacity
-                        key={user.id}
-                        style={[styles.peopleRow, isSelected && styles.peopleRowSelected]}
-                        onPress={() => {
-                          setAssignedUserId(user.id);
-                          setAssignedUserName(fullName);
-                          setActivePanel(null);
-                        }}
-                      >
-                        <View style={styles.peopleAvatar}>
-                          <Text allowFontScaling={false} style={styles.peopleAvatarText}>{initial}</Text>
-                        </View>
-                        <Text allowFontScaling={false} style={styles.peopleName}>{fullName}</Text>
-                        {isSelected && (
-                          <Ionicons name="checkmark" size={18} color="#00DFAB" style={{ marginLeft: "auto" }} />
-                        )}
-                      </TouchableOpacity>
+                    setActivePanel((p) =>
+                      p === "assigned" ? null : "assigned",
                     );
-                  })}
-                </ScrollView>
-              </View>
-            )}
-
-            {activePanel === "dueDate" && isAdvanced && (
-              <View style={styles.inlinePanelBox}>
-                <View style={styles.effortRow}>
-                  <FloatingInput
-                    label={EFFORT_UNITS.find((u) => u.value === effortUnit)?.label ?? "Hours"}
-                    value={effortHours}
-                    onChangeText={(text) => setEffortHours(text.replace(/[^0-9.]/g, ""))}
-                    keyboardType="numeric"
-                    autoFocus
-                    containerStyle={styles.effortInputWrap}
+                  }}
+                >
+                  <Ionicons
+                    name="people"
+                    size={16}
+                    color={
+                      activePanel === "assigned" || !!assignedUserName
+                        ? "#FFF"
+                        : "#6B7280"
+                    }
                   />
-                  <View>
-                    <TouchableOpacity
-                      style={styles.effortUnitBtn}
-                      onPress={() => setEffortUnitOpen((v) => !v)}
-                    >
-                      <Text allowFontScaling={false} style={styles.effortUnitBtnText}>
-                        {effortUnitAbbrev}
-                      </Text>
-                      <Ionicons name="chevron-down" size={14} color="#1D1D1D" />
-                    </TouchableOpacity>
-
-                    {effortUnitOpen && (
-                      <View style={styles.effortUnitDropdown}>
-                        {EFFORT_UNITS.map((u) => (
-                          <TouchableOpacity
-                            key={u.value}
-                            style={styles.effortUnitDropdownItem}
-                            onPress={() => {
-                              setEffortUnit(u.value);
-                              setEffortUnitOpen(false);
-                            }}
-                          >
-                            <Text
-                              allowFontScaling={false}
-                              style={[
-                                styles.effortUnitDropdownText,
-                                u.value === effortUnit && styles.effortUnitDropdownTextActive,
-                              ]}
-                            >
-                              {u.label}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    )}
-                  </View>
-                </View>
-              </View>
-            )}
-
-            {activePanel === "dueDate" && !isAdvanced && (
-              <View style={styles.inlinePanelBox}>
-                <CalendarPicker
-                  compact
-                  startDate={selectedDueDate}
-                  endDate={selectedDueDate}
-                  onSelectStart={(d) => {
-                    setSelectedDueDate(d);
-                    setActivePanel(null);
-                  }}
-                  onSelectEnd={(d) => {
-                    setSelectedDueDate(d);
-                    setActivePanel(null);
-                  }}
-                />
-              </View>
-            )}
-
-            {activePanel === "priority" && (
-              <View style={styles.inlineOptionsRow}>
-                {PRIORITY_OPTIONS.map((p) => {
-                  const isSelected = selectedPriority === p.label;
-                  return (
-                    <TouchableOpacity
-                      key={p.label}
-                      style={[
-                        styles.pillBtn,
-                        isSelected
-                          ? p.label === "Critical"
-                            ? styles.pillRed
-                            : styles.pillTeal
-                          : styles.pillGrey,
-                      ]}
-                      onPress={() => {
-                        handleSelectPriority(p.label);
-                        setActivePanel(null);
-                      }}
-                    >
-                      {isSelected ? (
-                        <Ionicons name="checkmark" size={14} color="#fff" />
-                      ) : (
-                        <View style={[styles.pillDot, { backgroundColor: p.dot }]} />
-                      )}
-                      <Text
-                        allowFontScaling={false}
-                        style={[styles.pillText, isSelected && styles.pillTextWhite]}
-                      >
-                        {p.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-
-            {/* ── Row 2 Chips & Inline Expanded Panels ── */}
-            <View style={styles.chipsRow}>
-              {/* 1. Approval Required Chip */}
-              <TouchableOpacity
-                style={[
-                  styles.designChip,
-                  (activePanel === "approval" || selectedApproval === "Yes") && styles.designChipDark,
-                ]}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setActivePanel((p) => (p === "approval" ? null : "approval"));
-                }}
-              >
-                <Ionicons
-                  name="folder"
-                  size={16}
-                  color={activePanel === "approval" || selectedApproval === "Yes" ? "#FFF" : "#6B7280"}
-                />
-                <Text
-                  allowFontScaling={false}
-                  style={[
-                    styles.designChipText,
-                    (activePanel === "approval" || selectedApproval === "Yes") && styles.designChipTextWhite,
-                  ]}
-                >
-                  Approval Required
-                </Text>
-              </TouchableOpacity>
-
-              {/* Approval Options (renders directly beneath Approval Required) */}
-              {activePanel === "approval" && (
-                <View style={{ width: "100%", marginVertical: 6 }}>
-                  <View style={styles.inlineOptionsRow}>
-                    <TouchableOpacity
-                      style={[styles.pillBtn, selectedApproval === "Yes" ? styles.pillTeal : styles.pillGrey]}
-                      onPress={() => { setSelectedApproval("Yes"); setActivePanel(null); }}
-                    >
-                      <Ionicons name="checkmark" size={14} color={selectedApproval === "Yes" ? "#fff" : "#71717A"} />
-                      <Text allowFontScaling={false} style={[styles.pillText, selectedApproval === "Yes" && styles.pillTextWhite]}>Yes</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.pillBtn, selectedApproval === "No" ? styles.pillTeal : styles.pillGrey]}
-                      onPress={() => { setSelectedApproval("No"); setActivePanel(null); }}
-                    >
-                      <Ionicons name="close" size={14} color={selectedApproval === "No" ? "#fff" : "#71717A"} />
-                      <Text allowFontScaling={false} style={[styles.pillText, selectedApproval === "No" && styles.pillTextWhite]}>No</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
-
-              {/* 2. Task Status Chip */}
-              <TouchableOpacity
-                style={[
-                  styles.designChip,
-                  (activePanel === "status" || !!selectedStatus) && styles.designChipDark,
-                ]}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setActivePanel((p) => (p === "status" ? null : "status"));
-                }}
-              >
-                <Ionicons
-                  name="sync-circle-outline"
-                  size={16}
-                  color={activePanel === "status" || !!selectedStatus ? "#FFF" : "#6B7280"}
-                />
-                <Text
-                  allowFontScaling={false}
-                  style={[
-                    styles.designChipText,
-                    (activePanel === "status" || !!selectedStatus) && styles.designChipTextWhite,
-                  ]}
-                >
-                  {selectedStatus ? selectedStatus : "Task Status"}
-                </Text>
-              </TouchableOpacity>
-
-              {/* Status Options (renders directly beneath Task Status) */}
-              {activePanel === "status" && (
-                <View style={{ width: "100%", marginVertical: 6 }}>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}
+                  <Text
+                    allowFontScaling={false}
+                    style={[
+                      styles.designChipText,
+                      (activePanel === "assigned" || !!assignedUserName) &&
+                        styles.designChipTextWhite,
+                    ]}
                   >
-                    {STATUSES.map((s) => {
-                      const isSelected = selectedStatus === s.label;
+                    {assignedUserName ? assignedUserName : "Assigned to"}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* 2. Due Date (normal) / Hrs (advanced task module) */}
+                {isAdvanced ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.designChip,
+                      (activePanel === "dueDate" || !!effortHours) &&
+                        styles.designChipDark,
+                    ]}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setActivePanel((p) =>
+                        p === "dueDate" ? null : "dueDate",
+                      );
+                    }}
+                  >
+                    <Ionicons
+                      name="time"
+                      size={16}
+                      color={
+                        activePanel === "dueDate" || !!effortHours
+                          ? "#FFF"
+                          : "#6B7280"
+                      }
+                    />
+                    <Text
+                      allowFontScaling={false}
+                      style={[
+                        styles.designChipText,
+                        (activePanel === "dueDate" || !!effortHours) &&
+                          styles.designChipTextWhite,
+                      ]}
+                    >
+                      {effortHours
+                        ? `${effortHours} ${effortUnitAbbrev}`
+                        : effortUnitAbbrev}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={[
+                      styles.designChip,
+                      (activePanel === "dueDate" || !!selectedDueDate) &&
+                        styles.designChipDark,
+                    ]}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setActivePanel((p) =>
+                        p === "dueDate" ? null : "dueDate",
+                      );
+                    }}
+                  >
+                    <Ionicons
+                      name="calendar"
+                      size={16}
+                      color={
+                        activePanel === "dueDate" || !!selectedDueDate
+                          ? "#FFF"
+                          : "#6B7280"
+                      }
+                    />
+                    <Text
+                      allowFontScaling={false}
+                      style={[
+                        styles.designChipText,
+                        (activePanel === "dueDate" || !!selectedDueDate) &&
+                          styles.designChipTextWhite,
+                      ]}
+                    >
+                      {selectedDueDate
+                        ? selectedDueDate.toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                          })
+                        : "Due Date"}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* 3. Priority */}
+                <TouchableOpacity
+                  style={[
+                    styles.designChip,
+                    (activePanel === "priority" || !!selectedPriority) &&
+                      styles.designChipDark,
+                  ]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setActivePanel((p) =>
+                      p === "priority" ? null : "priority",
+                    );
+                  }}
+                >
+                  <Ionicons
+                    name="star"
+                    size={16}
+                    color={
+                      activePanel === "priority" || !!selectedPriority
+                        ? "#FFF"
+                        : "#6B7280"
+                    }
+                  />
+                  <Text
+                    allowFontScaling={false}
+                    style={[
+                      styles.designChipText,
+                      (activePanel === "priority" || !!selectedPriority) &&
+                        styles.designChipTextWhite,
+                    ]}
+                  >
+                    {selectedPriority ? selectedPriority : "Priority"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* ── Row 1 Expanded Panels ── */}
+              {activePanel === "assigned" && (
+                <View style={styles.assignedPanelWrap}>
+                  <FloatingInput
+                    label="Search people"
+                    value={assignSearch}
+                    onChangeText={setAssignSearch}
+                    autoCapitalize="none"
+                    rightIcon="search-outline"
+                  />
+                  <ScrollView
+                    style={{ maxHeight: 220, marginTop: 12 }}
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator={false}
+                  >
+                    {filteredUsers.map((user) => {
+                      const isSelected = assignedUserId === user.id;
+                      const fullName = `${user.first_name} ${user.last_name}`;
+                      const initial = (
+                        user.first_name?.[0] || "U"
+                      ).toUpperCase();
                       return (
                         <TouchableOpacity
-                          key={s.label}
+                          key={user.id}
                           style={[
-                            styles.pillBtn,
-                            isSelected ? { backgroundColor: s.color } : styles.pillGrey,
+                            styles.peopleRow,
+                            isSelected && styles.peopleRowSelected,
                           ]}
                           onPress={() => {
-                            setSelectedStatus(s.label);
+                            setAssignedUserId(user.id);
+                            setAssignedUserName(fullName);
                             setActivePanel(null);
                           }}
                         >
-                          {isSelected ? (
-                            <Ionicons name="checkmark" size={14} color="#fff" />
-                          ) : (
-                            <View style={[styles.pillDot, { backgroundColor: s.color }]} />
-                          )}
+                          <View style={styles.peopleAvatar}>
+                            <Text
+                              allowFontScaling={false}
+                              style={styles.peopleAvatarText}
+                            >
+                              {initial}
+                            </Text>
+                          </View>
                           <Text
                             allowFontScaling={false}
-                            style={[styles.pillText, isSelected && styles.pillTextWhite]}
+                            style={styles.peopleName}
                           >
-                            {s.label}
+                            {fullName}
                           </Text>
+                          {isSelected && (
+                            <Ionicons
+                              name="checkmark"
+                              size={18}
+                              color="#00DFAB"
+                              style={{ marginLeft: "auto" }}
+                            />
+                          )}
                         </TouchableOpacity>
                       );
                     })}
@@ -967,89 +847,414 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
                 </View>
               )}
 
-              {/* 3. Recurring Task Chip */}
-              <TouchableOpacity
-                style={[
-                  styles.designChip,
-                  isRecurringEnabled && styles.designChipDark,
-                ]}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setActivePanel(null);
-                  setRecurringModalVisible(true);
-                }}
-              >
-                <Ionicons
-                  name="alarm-outline"
-                  size={16}
-                  color={isRecurringEnabled ? "#FFF" : "#6B7280"}
-                />
-                <Text
-                  allowFontScaling={false}
+              {activePanel === "dueDate" && isAdvanced && (
+                <View style={styles.inlinePanelBox}>
+                  <View style={styles.effortRow}>
+                    <FloatingInput
+                      label={
+                        EFFORT_UNITS.find((u) => u.value === effortUnit)
+                          ?.label ?? "Hours"
+                      }
+                      value={effortHours}
+                      onChangeText={(text) =>
+                        setEffortHours(text.replace(/[^0-9.]/g, ""))
+                      }
+                      keyboardType="numeric"
+                      autoFocus
+                      containerStyle={styles.effortInputWrap}
+                    />
+                    <View>
+                      <TouchableOpacity
+                        style={styles.effortUnitBtn}
+                        onPress={() => setEffortUnitOpen((v) => !v)}
+                      >
+                        <Text
+                          allowFontScaling={false}
+                          style={styles.effortUnitBtnText}
+                        >
+                          {effortUnitAbbrev}
+                        </Text>
+                        <Ionicons
+                          name="chevron-down"
+                          size={14}
+                          color="#1D1D1D"
+                        />
+                      </TouchableOpacity>
+
+                      {effortUnitOpen && (
+                        <View style={styles.effortUnitDropdown}>
+                          {EFFORT_UNITS.map((u) => (
+                            <TouchableOpacity
+                              key={u.value}
+                              style={styles.effortUnitDropdownItem}
+                              onPress={() => {
+                                setEffortUnit(u.value);
+                                setEffortUnitOpen(false);
+                              }}
+                            >
+                              <Text
+                                allowFontScaling={false}
+                                style={[
+                                  styles.effortUnitDropdownText,
+                                  u.value === effortUnit &&
+                                    styles.effortUnitDropdownTextActive,
+                                ]}
+                              >
+                                {u.label}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {activePanel === "dueDate" && !isAdvanced && (
+                <View style={styles.inlinePanelBox}>
+                  <CalendarPicker
+                    compact
+                    startDate={selectedDueDate}
+                    endDate={selectedDueDate}
+                    onSelectStart={(d) => {
+                      setSelectedDueDate(d);
+                      setActivePanel(null);
+                    }}
+                    onSelectEnd={(d) => {
+                      setSelectedDueDate(d);
+                      setActivePanel(null);
+                    }}
+                  />
+                </View>
+              )}
+
+              {activePanel === "priority" && (
+                <View style={styles.inlineOptionsRow}>
+                  {PRIORITY_OPTIONS.map((p) => {
+                    const isSelected = selectedPriority === p.label;
+                    return (
+                      <TouchableOpacity
+                        key={p.label}
+                        style={[
+                          styles.pillBtn,
+                          isSelected
+                            ? p.label === "Critical"
+                              ? styles.pillRed
+                              : styles.pillTeal
+                            : styles.pillGrey,
+                        ]}
+                        onPress={() => {
+                          handleSelectPriority(p.label);
+                          setActivePanel(null);
+                        }}
+                      >
+                        {isSelected ? (
+                          <Ionicons name="checkmark" size={14} color="#fff" />
+                        ) : (
+                          <View
+                            style={[styles.pillDot, { backgroundColor: p.dot }]}
+                          />
+                        )}
+                        <Text
+                          allowFontScaling={false}
+                          style={[
+                            styles.pillText,
+                            isSelected && styles.pillTextWhite,
+                          ]}
+                        >
+                          {p.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* ── Row 2 Chips & Inline Expanded Panels ── */}
+              <View style={styles.chipsRow}>
+                {/* 1. Approval Required Chip */}
+                <TouchableOpacity
                   style={[
-                    styles.designChipText,
-                    isRecurringEnabled && styles.designChipTextWhite,
+                    styles.designChip,
+                    (activePanel === "approval" ||
+                      selectedApproval === "Yes") &&
+                      styles.designChipDark,
                   ]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setActivePanel((p) =>
+                      p === "approval" ? null : "approval",
+                    );
+                  }}
                 >
-                  {isRecurringEnabled && recurringPeriod
-                    ? `Recurring: ${recurringPeriod}`
-                    : "Recurring Task"}
+                  <Ionicons
+                    name="folder"
+                    size={16}
+                    color={
+                      activePanel === "approval" || selectedApproval === "Yes"
+                        ? "#FFF"
+                        : "#6B7280"
+                    }
+                  />
+                  <Text
+                    allowFontScaling={false}
+                    style={[
+                      styles.designChipText,
+                      (activePanel === "approval" ||
+                        selectedApproval === "Yes") &&
+                        styles.designChipTextWhite,
+                    ]}
+                  >
+                    Approval Required
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Approval Options (renders directly beneath Approval Required) */}
+                {activePanel === "approval" && (
+                  <View style={{ width: "100%", marginVertical: 6 }}>
+                    <View style={styles.inlineOptionsRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.pillBtn,
+                          selectedApproval === "Yes"
+                            ? styles.pillTeal
+                            : styles.pillGrey,
+                        ]}
+                        onPress={() => {
+                          setSelectedApproval("Yes");
+                          setActivePanel(null);
+                        }}
+                      >
+                        <Ionicons
+                          name="checkmark"
+                          size={14}
+                          color={
+                            selectedApproval === "Yes" ? "#fff" : "#71717A"
+                          }
+                        />
+                        <Text
+                          allowFontScaling={false}
+                          style={[
+                            styles.pillText,
+                            selectedApproval === "Yes" && styles.pillTextWhite,
+                          ]}
+                        >
+                          Yes
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.pillBtn,
+                          selectedApproval === "No"
+                            ? styles.pillTeal
+                            : styles.pillGrey,
+                        ]}
+                        onPress={() => {
+                          setSelectedApproval("No");
+                          setActivePanel(null);
+                        }}
+                      >
+                        <Ionicons
+                          name="close"
+                          size={14}
+                          color={selectedApproval === "No" ? "#fff" : "#71717A"}
+                        />
+                        <Text
+                          allowFontScaling={false}
+                          style={[
+                            styles.pillText,
+                            selectedApproval === "No" && styles.pillTextWhite,
+                          ]}
+                        >
+                          No
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {/* 2. Task Status Chip */}
+                <TouchableOpacity
+                  style={[
+                    styles.designChip,
+                    (activePanel === "status" || !!selectedStatus) &&
+                      styles.designChipDark,
+                  ]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setActivePanel((p) => (p === "status" ? null : "status"));
+                  }}
+                >
+                  <Ionicons
+                    name="sync-circle-outline"
+                    size={16}
+                    color={
+                      activePanel === "status" || !!selectedStatus
+                        ? "#FFF"
+                        : "#6B7280"
+                    }
+                  />
+                  <Text
+                    allowFontScaling={false}
+                    style={[
+                      styles.designChipText,
+                      (activePanel === "status" || !!selectedStatus) &&
+                        styles.designChipTextWhite,
+                    ]}
+                  >
+                    {selectedStatus ? selectedStatus : "Task Status"}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Status Options (renders directly beneath Task Status) */}
+                {activePanel === "status" && (
+                  <View style={{ width: "100%", marginVertical: 6 }}>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}
+                    >
+                      {STATUSES.map((s) => {
+                        const isSelected = selectedStatus === s.label;
+                        return (
+                          <TouchableOpacity
+                            key={s.label}
+                            style={[
+                              styles.pillBtn,
+                              isSelected
+                                ? { backgroundColor: s.color }
+                                : styles.pillGrey,
+                            ]}
+                            onPress={() => {
+                              setSelectedStatus(s.label);
+                              setActivePanel(null);
+                            }}
+                          >
+                            {isSelected ? (
+                              <Ionicons
+                                name="checkmark"
+                                size={14}
+                                color="#fff"
+                              />
+                            ) : (
+                              <View
+                                style={[
+                                  styles.pillDot,
+                                  { backgroundColor: s.color },
+                                ]}
+                              />
+                            )}
+                            <Text
+                              allowFontScaling={false}
+                              style={[
+                                styles.pillText,
+                                isSelected && styles.pillTextWhite,
+                              ]}
+                            >
+                              {s.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                )}
+
+                {/* 3. Recurring Task Chip */}
+                <TouchableOpacity
+                  style={[
+                    styles.designChip,
+                    isRecurringEnabled && styles.designChipDark,
+                  ]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setActivePanel(null);
+                    setRecurringModalVisible(true);
+                  }}
+                >
+                  <Ionicons
+                    name="alarm-outline"
+                    size={16}
+                    color={isRecurringEnabled ? "#FFF" : "#6B7280"}
+                  />
+                  <Text
+                    allowFontScaling={false}
+                    style={[
+                      styles.designChipText,
+                      isRecurringEnabled && styles.designChipTextWhite,
+                    ]}
+                  >
+                    {isRecurringEnabled && recurringPeriod
+                      ? `Recurring: ${recurringPeriod}`
+                      : "Recurring Task"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.attachRow}>
+                <DocumentPickerButton onPick={handlePickFiles} />
+              </View>
+
+              {attachments.length > 0 && (
+                <View style={{ overflow: "visible", marginBottom: 0 }}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={[styles.tagsScroll, { overflow: "visible" }]}
+                    contentContainerStyle={styles.tagsScrollContent}
+                    decelerationRate="fast"
+                    bounces
+                    overScrollMode="never"
+                    nestedScrollEnabled={false}
+                  >
+                    {attachments.map((file, i) => (
+                      <View key={`${file.name}-${i}`} style={styles.tag}>
+                        <TouchableOpacity
+                          onPress={() => handleDownloadAttachment(file)}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                        >
+                          <Ionicons
+                            name="download-outline"
+                            size={14}
+                            color="#0DDFAB"
+                          />
+                        </TouchableOpacity>
+                        <Text style={styles.tagText} numberOfLines={1}>
+                          {file.name}
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => removeAttachment(i)}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          style={styles.tagClose}
+                        >
+                          <Text style={styles.tagCloseText}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+            </ScrollView>
+
+            <View
+              style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}
+            >
+              <TouchableOpacity
+                style={[styles.createBtn, loading && { opacity: 0.7 }]}
+                activeOpacity={0.85}
+                onPress={handleCreateTask}
+                disabled={loading}
+              >
+                <Text style={styles.createBtnText}>
+                  {loading ? "Creating..." : "+   Create Task"}
                 </Text>
               </TouchableOpacity>
             </View>
-
-            <View style={styles.attachRow}>
-              <DocumentPickerButton onPick={handlePickFiles} />
-            </View>
-
-            {attachments.length > 0 && (
-              <View style={{ overflow: "visible", marginBottom: 0 }}>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={[styles.tagsScroll, { overflow: "visible" }]}
-                  contentContainerStyle={styles.tagsScrollContent}
-                  decelerationRate="fast"
-                  bounces
-                  overScrollMode="never"
-                  nestedScrollEnabled={false}
-                >
-                  {attachments.map((file, i) => (
-                    <View key={`${file.name}-${i}`} style={styles.tag}>
-                      <TouchableOpacity
-                        onPress={() => handleDownloadAttachment(file)}
-                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                      >
-                        <Ionicons name="download-outline" size={14} color="#0DDFAB" />
-                      </TouchableOpacity>
-                      <Text style={styles.tagText} numberOfLines={1}>{file.name}</Text>
-                      <TouchableOpacity
-                        onPress={() => removeAttachment(i)}
-                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                        style={styles.tagClose}
-                      >
-                        <Text style={styles.tagCloseText}>✕</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-          </ScrollView>
-
-          <TouchableOpacity
-            style={[styles.createBtn, loading && { opacity: 0.7 }]}
-            activeOpacity={0.85}
-            onPress={handleCreateTask}
-            disabled={loading}
-          >
-            <Text style={styles.createBtnText}>{loading ? "Creating..." : "+   Create Task"}</Text>
-          </TouchableOpacity>
+          </Pressable>
         </Pressable>
-        </Animated.View>
-        </KeyboardAvoidingView>
-      </Pressable>
-    </Modal>
+      </Modal>
 
       {/* ── Critical Task: Conflict Popup ── */}
       <CriticalTaskPopUpModal
@@ -1094,16 +1299,29 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
           <Pressable style={styles.centerModalCard} onPress={() => {}}>
             <View style={styles.centerModalHeader}>
               <Text style={styles.centerModalTitle}>Assign Task</Text>
-              <TouchableOpacity onPress={() => setAssignModalVisible(false)} hitSlop={8}>
+              <TouchableOpacity
+                onPress={() => setAssignModalVisible(false)}
+                hitSlop={8}
+              >
                 <Ionicons name="close" size={20} color="#1D1D1D" />
               </TouchableOpacity>
             </View>
 
-            <View style={[styles.depSearchWrap, assignFocused && styles.searchWrapActive, { marginBottom: 12 }]}>
+            <View
+              style={[
+                styles.depSearchWrap,
+                assignFocused && styles.searchWrapActive,
+                { marginBottom: 12 },
+              ]}
+            >
               <Ionicons
                 name="search-outline"
                 size={18}
-                color={assignFocused || assignSearch.length > 0 ? "#1D1D1D" : "#AAAAAA"}
+                color={
+                  assignFocused || assignSearch.length > 0
+                    ? "#1D1D1D"
+                    : "#AAAAAA"
+                }
                 style={styles.depSearchIcon}
               />
               <TextInput
@@ -1129,7 +1347,9 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
                 {filteredUsers.map((user, index) => {
                   const fullName = `${user.first_name} ${user.last_name}`;
                   const isSelected = assignedUserId === user.id;
-                  const initials = ((user.first_name?.[0] ?? "") + (user.last_name?.[0] ?? "")).toUpperCase();
+                  const initials = (
+                    (user.first_name?.[0] ?? "") + (user.last_name?.[0] ?? "")
+                  ).toUpperCase();
                   const isLast = index === filteredUsers.length - 1;
 
                   return (
@@ -1153,7 +1373,11 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
                         {fullName}
                       </Text>
                       {isSelected && (
-                        <Ionicons name="checkmark-circle" size={18} color="#0DDFAB" />
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={18}
+                          color="#0DDFAB"
+                        />
                       )}
                     </TouchableOpacity>
                   );
@@ -1184,7 +1408,9 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
         >
           <Pressable style={styles.centerModalCard} onPress={() => {}}>
             <View style={styles.centerModalHeader}>
-              <Text style={styles.centerModalTitle}>Recurring Task Settings</Text>
+              <Text style={styles.centerModalTitle}>
+                Recurring Task Settings
+              </Text>
               {isRecurringEnabled && (
                 <TouchableOpacity
                   onPress={() => {
@@ -1194,19 +1420,38 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
                   }}
                   style={{ marginRight: 12 }}
                 >
-                  <Text style={{ fontSize: 13, color: "#EF4444", fontFamily: "SF_Pro_Medium" }}>Turn Off</Text>
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      color: "#EF4444",
+                      fontFamily: "SF_Pro_Medium",
+                    }}
+                  >
+                    Turn Off
+                  </Text>
                 </TouchableOpacity>
               )}
-              <TouchableOpacity onPress={() => setRecurringModalVisible(false)} hitSlop={8}>
+              <TouchableOpacity
+                onPress={() => setRecurringModalVisible(false)}
+                hitSlop={8}
+              >
                 <Ionicons name="close" size={20} color="#1D1D1D" />
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              style={{ maxHeight: 380 }}
+              showsVerticalScrollIndicator={false}
+            >
               <View style={styles.recurringCardBody}>
                 {/* 1. Recurrence Period Field */}
                 <View style={styles.fieldRow}>
-                  <Ionicons name="calendar-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
+                  <Ionicons
+                    name="calendar-outline"
+                    size={20}
+                    color="#1D1D1D"
+                    style={styles.fieldIcon}
+                  />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.fieldLabel}>Recurrence Period</Text>
                     <TouchableOpacity
@@ -1221,7 +1466,9 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
                         ]}
                       >
                         {recurringPeriod
-                          ? RECURRING_PERIODS.find((p) => p.value === recurringPeriod)?.label
+                          ? RECURRING_PERIODS.find(
+                              (p) => p.value === recurringPeriod,
+                            )?.label
                           : "+ Add Period"}
                       </Text>
                       <Ionicons name="chevron-down" size={14} color="#6B7280" />
@@ -1242,7 +1489,8 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
                             <Text
                               style={[
                                 styles.periodOptionText,
-                                recurringPeriod === p.value && styles.periodOptionTextSelected,
+                                recurringPeriod === p.value &&
+                                  styles.periodOptionTextSelected,
                               ]}
                             >
                               {p.label}
@@ -1254,148 +1502,214 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
                   </View>
                 </View>
 
-                  {/* 2. Exclude Days (when Daily is selected) */}
-                  {recurringPeriod === "daily" && (
-                    <View style={styles.fieldRow}>
-                      <Ionicons name="ban-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.fieldLabel}>Exclude Days</Text>
-                        <View style={styles.daysPillRow}>
-                          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => {
+                {/* 2. Exclude Days (when Daily is selected) */}
+                {recurringPeriod === "daily" && (
+                  <View style={styles.fieldRow}>
+                    <Ionicons
+                      name="ban-outline"
+                      size={20}
+                      color="#1D1D1D"
+                      style={styles.fieldIcon}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fieldLabel}>Exclude Days</Text>
+                      <View style={styles.daysPillRow}>
+                        {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
+                          (day) => {
                             const selected = recurringExcludeDays.includes(day);
                             return (
                               <TouchableOpacity
                                 key={day}
-                                style={[styles.dayPill, selected && styles.dayPillActive]}
+                                style={[
+                                  styles.dayPill,
+                                  selected && styles.dayPillActive,
+                                ]}
                                 onPress={() => {
                                   if (selected) {
-                                    setRecurringExcludeDays(recurringExcludeDays.filter((d) => d !== day));
+                                    setRecurringExcludeDays(
+                                      recurringExcludeDays.filter(
+                                        (d) => d !== day,
+                                      ),
+                                    );
                                   } else {
-                                    setRecurringExcludeDays([...recurringExcludeDays, day]);
+                                    setRecurringExcludeDays([
+                                      ...recurringExcludeDays,
+                                      day,
+                                    ]);
                                   }
                                 }}
                               >
-                                <Text style={[styles.dayPillText, selected && styles.dayPillTextActive]}>
+                                <Text
+                                  style={[
+                                    styles.dayPillText,
+                                    selected && styles.dayPillTextActive,
+                                  ]}
+                                >
                                   {day}
                                 </Text>
                               </TouchableOpacity>
                             );
-                          })}
-                        </View>
+                          },
+                        )}
                       </View>
                     </View>
-                  )}
+                  </View>
+                )}
 
-                  {/* 3. Week Day selector (when Weekly is selected) */}
-                  {recurringPeriod === "weekly" && (
-                    <View style={styles.fieldRow}>
-                      <Ionicons name="calendar-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.fieldLabel}>Week Day</Text>
-                        <View style={styles.daysPillRow}>
-                          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => {
+                {/* 3. Week Day selector (when Weekly is selected) */}
+                {recurringPeriod === "weekly" && (
+                  <View style={styles.fieldRow}>
+                    <Ionicons
+                      name="calendar-outline"
+                      size={20}
+                      color="#1D1D1D"
+                      style={styles.fieldIcon}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fieldLabel}>Week Day</Text>
+                      <View style={styles.daysPillRow}>
+                        {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
+                          (day) => {
                             const selected = recurringWeekDay === day;
                             return (
                               <TouchableOpacity
                                 key={day}
-                                style={[styles.dayPill, selected && styles.dayPillActive]}
-                                onPress={() => setRecurringWeekDay(selected ? null : day)}
+                                style={[
+                                  styles.dayPill,
+                                  selected && styles.dayPillActive,
+                                ]}
+                                onPress={() =>
+                                  setRecurringWeekDay(selected ? null : day)
+                                }
                               >
-                                <Text style={[styles.dayPillText, selected && styles.dayPillTextActive]}>
+                                <Text
+                                  style={[
+                                    styles.dayPillText,
+                                    selected && styles.dayPillTextActive,
+                                  ]}
+                                >
                                   {day}
                                 </Text>
                               </TouchableOpacity>
                             );
-                          })}
-                        </View>
+                          },
+                        )}
                       </View>
                     </View>
-                  )}
+                  </View>
+                )}
 
-                  {/* 4. Month Date (when Monthly is selected) */}
-                  {recurringPeriod === "monthly" && (
+                {/* 4. Month Date (when Monthly is selected) */}
+                {recurringPeriod === "monthly" && (
+                  <View style={styles.fieldRow}>
+                    <Ionicons
+                      name="calendar-outline"
+                      size={20}
+                      color="#1D1D1D"
+                      style={styles.fieldIcon}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fieldLabel}>Day of Month (1-31)</Text>
+                      <TextInput
+                        style={styles.fieldInput}
+                        placeholder="e.g. 15"
+                        placeholderTextColor="#AAAAAA"
+                        keyboardType="numeric"
+                        value={recurringMonthDate}
+                        onChangeText={setRecurringMonthDate}
+                      />
+                    </View>
+                  </View>
+                )}
+
+                {/* 5. Annual Month & Date (when Annually is selected) */}
+                {recurringPeriod === "annually" && (
+                  <>
                     <View style={styles.fieldRow}>
-                      <Ionicons name="calendar-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
+                      <Ionicons
+                        name="calendar-outline"
+                        size={20}
+                        color="#1D1D1D"
+                        style={styles.fieldIcon}
+                      />
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.fieldLabel}>Day of Month (1-31)</Text>
+                        <Text style={styles.fieldLabel}>Month (1-12)</Text>
                         <TextInput
                           style={styles.fieldInput}
-                          placeholder="e.g. 15"
+                          placeholder="e.g. 12"
                           placeholderTextColor="#AAAAAA"
                           keyboardType="numeric"
-                          value={recurringMonthDate}
-                          onChangeText={setRecurringMonthDate}
+                          value={recurringAnnualMonth}
+                          onChangeText={setRecurringAnnualMonth}
                         />
                       </View>
                     </View>
-                  )}
-
-                  {/* 5. Annual Month & Date (when Annually is selected) */}
-                  {recurringPeriod === "annually" && (
-                    <>
-                      <View style={styles.fieldRow}>
-                        <Ionicons name="calendar-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.fieldLabel}>Month (1-12)</Text>
-                          <TextInput
-                            style={styles.fieldInput}
-                            placeholder="e.g. 12"
-                            placeholderTextColor="#AAAAAA"
-                            keyboardType="numeric"
-                            value={recurringAnnualMonth}
-                            onChangeText={setRecurringAnnualMonth}
-                          />
-                        </View>
-                      </View>
-                      <View style={styles.fieldRow}>
-                        <Ionicons name="calendar-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.fieldLabel}>Day of Month (1-31)</Text>
-                          <TextInput
-                            style={styles.fieldInput}
-                            placeholder="e.g. 25"
-                            placeholderTextColor="#AAAAAA"
-                            keyboardType="numeric"
-                            value={recurringAnnualDate}
-                            onChangeText={setRecurringAnnualDate}
-                          />
-                        </View>
-                      </View>
-                    </>
-                  )}
-
-                  {/* 6. Run Time */}
-                  <View style={styles.fieldRow}>
-                    <Ionicons name="time-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.fieldLabel}>Run Time</Text>
-                      <TextInput
-                        style={styles.fieldInput}
-                        placeholder="09:00"
-                        placeholderTextColor="#AAAAAA"
-                        value={recurringTime}
-                        onChangeText={setRecurringTime}
+                    <View style={styles.fieldRow}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={20}
+                        color="#1D1D1D"
+                        style={styles.fieldIcon}
                       />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.fieldLabel}>
+                          Day of Month (1-31)
+                        </Text>
+                        <TextInput
+                          style={styles.fieldInput}
+                          placeholder="e.g. 25"
+                          placeholderTextColor="#AAAAAA"
+                          keyboardType="numeric"
+                          value={recurringAnnualDate}
+                          onChangeText={setRecurringAnnualDate}
+                        />
+                      </View>
                     </View>
-                  </View>
+                  </>
+                )}
 
-                  {/* 7. No. of Recurrences */}
-                  <View style={styles.fieldRow}>
-                    <Ionicons name="repeat-outline" size={20} color="#1D1D1D" style={styles.fieldIcon} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.fieldLabel}>No. of Recurrences</Text>
-                      <TextInput
-                        style={styles.fieldInput}
-                        placeholder="+ Add No"
-                        placeholderTextColor="#AAAAAA"
-                        keyboardType="numeric"
-                        value={recurringTotalCount}
-                        onChangeText={setRecurringTotalCount}
-                      />
-                    </View>
+                {/* 6. Run Time */}
+                <View style={styles.fieldRow}>
+                  <Ionicons
+                    name="time-outline"
+                    size={20}
+                    color="#1D1D1D"
+                    style={styles.fieldIcon}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.fieldLabel}>Run Time</Text>
+                    <TextInput
+                      style={styles.fieldInput}
+                      placeholder="09:00"
+                      placeholderTextColor="#AAAAAA"
+                      value={recurringTime}
+                      onChangeText={setRecurringTime}
+                    />
                   </View>
                 </View>
-              </ScrollView>
+
+                {/* 7. No. of Recurrences */}
+                <View style={styles.fieldRow}>
+                  <Ionicons
+                    name="repeat-outline"
+                    size={20}
+                    color="#1D1D1D"
+                    style={styles.fieldIcon}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.fieldLabel}>No. of Recurrences</Text>
+                    <TextInput
+                      style={styles.fieldInput}
+                      placeholder="+ Add No"
+                      placeholderTextColor="#AAAAAA"
+                      keyboardType="numeric"
+                      value={recurringTotalCount}
+                      onChangeText={setRecurringTotalCount}
+                    />
+                  </View>
+                </View>
+              </View>
+            </ScrollView>
 
             <TouchableOpacity
               style={styles.doneBtn}
@@ -1421,16 +1735,27 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
           <Pressable style={styles.centerModalCard} onPress={() => {}}>
             <View style={styles.centerModalHeader}>
               <Text style={styles.centerModalTitle}>Select Dependencies</Text>
-              <TouchableOpacity onPress={() => setDependenciesModalVisible(false)} hitSlop={8}>
+              <TouchableOpacity
+                onPress={() => setDependenciesModalVisible(false)}
+                hitSlop={8}
+              >
                 <Ionicons name="close" size={20} color="#1D1D1D" />
               </TouchableOpacity>
             </View>
 
-            <View style={[styles.depSearchWrap, depFocused && styles.searchWrapActive, { marginBottom: 12 }]}>
+            <View
+              style={[
+                styles.depSearchWrap,
+                depFocused && styles.searchWrapActive,
+                { marginBottom: 12 },
+              ]}
+            >
               <Ionicons
                 name="search-outline"
                 size={18}
-                color={depFocused || depSearch.length > 0 ? "#1D1D1D" : "#AAAAAA"}
+                color={
+                  depFocused || depSearch.length > 0 ? "#1D1D1D" : "#AAAAAA"
+                }
                 style={styles.depSearchIcon}
               />
               <TextInput
@@ -1457,10 +1782,12 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
                   const taskId = Number(task.id);
                   const isSelected = selectedDependencies.includes(taskId);
                   const titleWords = task.title.trim().split(/\s+/);
-                  const initials = (
-                    (titleWords[0]?.[0] ?? "") +
-                    (titleWords[1]?.[0] ?? "")
-                  ).toUpperCase() || task.assignedToInitials || "SB";
+                  const initials =
+                    (
+                      (titleWords[0]?.[0] ?? "") + (titleWords[1]?.[0] ?? "")
+                    ).toUpperCase() ||
+                    task.assignedToInitials ||
+                    "SB";
                   const isLast = index === displayedDepsTasks.length - 1;
 
                   return (
@@ -1480,7 +1807,11 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
                         {task.title}
                       </Text>
                       {isSelected && (
-                        <Ionicons name="checkmark-circle" size={18} color="#0DDFAB" />
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={18}
+                          color="#0DDFAB"
+                        />
                       )}
                     </TouchableOpacity>
                   );
@@ -1490,8 +1821,16 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
                     style={{ paddingVertical: 12, alignItems: "center" }}
                     onPress={() => setDepVisibleCount((prev) => prev + 20)}
                   >
-                    <Text style={{ fontSize: 13, color: "#0DDFAB", fontFamily: "SF_Pro_Semibold" }}>
-                      Load More Tasks ({availableTasksForDeps.length - depVisibleCount} remaining)
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        color: "#0DDFAB",
+                        fontFamily: "SF_Pro_Semibold",
+                      }}
+                    >
+                      Load More Tasks (
+                      {availableTasksForDeps.length - depVisibleCount}{" "}
+                      remaining)
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -1512,42 +1851,122 @@ export default function CreateTaskModal({ visible, onClose, onCreated }: Props) 
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.45)" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  sheetContainer: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: "90%",
+    minHeight: "50%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 24,
+  },
   sheet: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+  },
+  scrollContent: { paddingHorizontal: 20, paddingBottom: 24, paddingTop: 4 },
+  dragHandleBar: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 12,
+    paddingBottom: 20,
+    position: "relative",
+  },
+  dragHandlePill: {
+    width: 38,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#D1D5DB",
+  },
+  footer: {
+    backgroundColor: "#fff",
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 0,
-    maxHeight: "90%",
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
   },
-  scrollContent: { paddingBottom: 160, paddingTop: 10 },
-  // outerScroll: {overflow:'visible'},
   closeBtn: {
-    alignSelf: "flex-end",
-    width: 32, height: 32, borderRadius: 16,
+    position: "absolute",
+    right: 20,
+    top: 6,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: "#1D1D1D",
-    justifyContent: "center", alignItems: "center",
-    marginBottom: 10,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  titleInputWrap: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 12, marginBottom: 20 },
-  titleInputWrapActive: { borderWidth: 1, borderColor: "#1D1D1D", paddingTop: 20, borderRadius: 8 },
+  titleInputWrap: {
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
+    marginBottom: 20,
+  },
+  titleInputWrapActive: {
+    borderWidth: 1,
+    borderColor: "#1D1D1D",
+    paddingTop: 20,
+    borderRadius: 8,
+  },
   floatLabel: {
-    position: "absolute", top: 14, left: 14, fontSize: 15,
-    backgroundColor: "#fff", paddingHorizontal: 2, color: "#E6E6E6", fontFamily: "SF_Pro_Regular",
+    position: "absolute",
+    top: 14,
+    left: 14,
+    fontSize: 15,
+    backgroundColor: "#fff",
+    paddingHorizontal: 2,
+    color: "#E6E6E6",
+    fontFamily: "SF_Pro_Regular",
   },
-  floatLabelActive: { top: -9, left: 10, fontSize: 12, color: "#1D1D1D", paddingHorizontal: 4, fontFamily: "SF_Pro_Regular" },
-  titleInput: { fontSize: 16, color: "#1D1D1D", fontFamily: "SF_Pro_Regular", padding: 0, height: 20 },
+  floatLabelActive: {
+    top: -9,
+    left: 10,
+    fontSize: 12,
+    color: "#1D1D1D",
+    paddingHorizontal: 4,
+    fontFamily: "SF_Pro_Regular",
+  },
+  titleInput: {
+    fontSize: 16,
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Regular",
+    padding: 0,
+    height: 20,
+  },
   titleInputFloated: {},
   descEditor: { marginBottom: 20 },
-  descIdle: { flexDirection: "row", alignItems: "center", paddingVertical: 14, paddingHorizontal: 4, marginBottom: 20 },
-  descIdlePlaceholder: { fontSize: 15, color: "#E6E6E6", fontFamily: "SF_Pro_Regular" },
+  descIdle: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    marginBottom: 20,
+  },
+  descIdlePlaceholder: {
+    fontSize: 15,
+    color: "#E6E6E6",
+    fontFamily: "SF_Pro_Regular",
+  },
   chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 5, marginBottom: 5 },
   chip: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    borderWidth: 1, borderColor: "#AAAAAA", borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#AAAAAA",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   chipActive: { backgroundColor: "#1D1D1D", borderColor: "#1D1D1D" },
   chipLabel: { fontSize: 13, color: "#AAAAAA", fontFamily: "SF_Pro_Regular" },
@@ -1556,12 +1975,21 @@ const styles = StyleSheet.create({
   // Priority
   priorityRow: { flexDirection: "row", gap: 8, marginBottom: 5 },
   priorityChip: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    borderWidth: 1, borderColor: "#AAAAAA", borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#AAAAAA",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   priorityDot: { width: 8, height: 8, borderRadius: 4 },
-  priorityLabel: { fontSize: 13, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+  priorityLabel: {
+    fontSize: 13,
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Regular",
+  },
 
   // Assign panel
   assignPanel: { marginTop: 10, marginBottom: 10 },
@@ -1577,48 +2005,84 @@ const styles = StyleSheet.create({
   },
   searchWrapActive: { borderColor: "#1D1D1D" },
   searchLabel: {
-    position: "absolute", top: 12, left: 12,
-    fontSize: 14, color: "#AAAAAA", fontFamily: "SF_Pro_Regular",
+    position: "absolute",
+    top: 12,
+    left: 12,
+    fontSize: 14,
+    color: "#AAAAAA",
+    fontFamily: "SF_Pro_Regular",
   },
   searchLabelFloated: {
-    top: -9, left: 10,
-    backgroundColor: "#fff", paddingHorizontal: 4,
-    fontSize: 12, color: "#1D1D1D",
+    top: -9,
+    left: 10,
+    backgroundColor: "#fff",
+    paddingHorizontal: 4,
+    fontSize: 12,
+    color: "#1D1D1D",
   },
   searchInput: {
-    fontSize: 15, color: "#1D1D1D", fontFamily: "SF_Pro_Regular",
-    paddingRight: 28, padding: 0, height: 24,
+    fontSize: 15,
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Regular",
+    paddingRight: 28,
+    padding: 0,
+    height: 24,
   },
   searchIcon: { position: "absolute", right: 12, top: 12 },
   userRow: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    paddingHorizontal: 16, paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   userAvatar: {
-    width: 30, height: 30, borderRadius: 5,
+    width: 30,
+    height: 30,
+    borderRadius: 5,
     backgroundColor: "#0DDFAB",
-    justifyContent: "center", alignItems: "center",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  userAvatarText: { color: "#fff", fontSize: 12, fontFamily: "SF_Pro_Semibold" },
+  userAvatarText: {
+    color: "#fff",
+    fontSize: 12,
+    fontFamily: "SF_Pro_Semibold",
+  },
   userName: { fontSize: 14, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
 
   // Approval
   approvalRow: { flexDirection: "row", gap: 8, marginBottom: 4 },
   approvalChip: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    borderWidth: 1, borderColor: "#AAAAAA", borderRadius: 8,
-    paddingHorizontal: 20, paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#AAAAAA",
+    borderRadius: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
   },
   approvalChipSelected: { backgroundColor: "#0DDFAB", borderColor: "#0DDFAB" },
-  approvalLabel: { fontSize: 13, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+  approvalLabel: {
+    fontSize: 13,
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Regular",
+  },
   approvalLabelSelected: { color: "#fff" },
 
   // Status
   statusScroll: { marginBottom: 5 },
   statusChip: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    borderWidth: 1, borderColor: "#AAAAAA", borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 8, marginRight: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#AAAAAA",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginRight: 8,
   },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   statusLabel: { fontSize: 13, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
@@ -1703,7 +2167,8 @@ const styles = StyleSheet.create({
   // Attachments
   attachRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
   attachBtn: {
-    width: 38, height: 38,
+    width: 38,
+    height: 38,
     borderWidth: 1,
     borderColor: "#D1D5DB",
     backgroundColor: "#F9FAFB",
@@ -1750,11 +2215,18 @@ const styles = StyleSheet.create({
 
   // Create button
   createBtn: {
-    backgroundColor: "#00DEAB", borderRadius: 5,
-    paddingVertical: 16, alignItems: "center",
-    marginTop: 12, marginBottom: 30,
+    backgroundColor: "#00DEAB",
+    borderRadius: 5,
+    paddingVertical: 16,
+    alignItems: "center",
+    marginTop: 12,
+    marginBottom: 30,
   },
-  createBtnText: { fontSize: 16, color: "#1D1D1D", fontFamily: "SF_Pro_Semibold" },
+  createBtnText: {
+    fontSize: 16,
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Semibold",
+  },
 
   // Recurring Card & Field Styles
   recurringCard: {

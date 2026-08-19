@@ -27,6 +27,7 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -34,11 +35,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { GestureDetector } from "react-native-gesture-handler";
-import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useSwipeToDismiss } from "@/hooks/useSwipeToDismiss";
-import SheetDragHandle from "./SheetDragHandle";
 import { STATUS_COLORS, StatusType } from "./TaskRow";
 
 export type DependencyDisplay = {
@@ -486,7 +483,6 @@ export default function TaskDetailModal({
   task,
   initialTab = "details",
 }: Props) {
-  const { panGesture, animatedStyle } = useSwipeToDismiss(visible, onClose);
   // Compensates KeyboardAvoidingView's padding for the home-indicator safe
   // area, otherwise that inset shows up as an empty gap above the keyboard.
   const insets = useSafeAreaInsets();
@@ -1048,29 +1044,21 @@ export default function TaskDetailModal({
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? insets.bottom : 0}
-      >
-        <View style={styles.overlay}>
-          <Animated.View style={[styles.sheet, { paddingBottom: insets.bottom }, animatedStyle]}>
-            {/* Drag handle + close button + tabs are the swipe-down-to-
-                dismiss zone — kept separate from the ScrollViews below so
-                dragging doesn't fight their own vertical scroll. */}
-            <GestureDetector gesture={panGesture}>
-              <View>
-                <SheetDragHandle />
-                <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-                  <Ionicons name="close" size={16} color="#fff" />
-                </TouchableOpacity>
+      <Pressable style={styles.overlay} onPress={onClose}>
+        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+          <View style={styles.dragHandleBar}>
+            <View style={styles.dragHandlePill} />
+            <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
+              <Ionicons name="close" size={16} color="#fff" />
+            </TouchableOpacity>
+          </View>
 
-                <View style={styles.tabs}>
-              <TouchableOpacity
-                style={[
-                  styles.tab,
-                  activeTab === "details" && styles.tabActive,
-                ]}
+          <View style={styles.tabs}>
+            <TouchableOpacity
+              style={[
+                styles.tab,
+                activeTab === "details" && styles.tabActive,
+              ]}
                 onPress={() => setActiveTab("details")}
               >
                 <Text
@@ -1101,9 +1089,7 @@ export default function TaskDetailModal({
                 </Text>
                 <View style={styles.tabDot} />
               </TouchableOpacity>
-                </View>
               </View>
-            </GestureDetector>
 
             {activeTab === "details" && (
               <View style={styles.tabContent}>
@@ -1361,9 +1347,8 @@ export default function TaskDetailModal({
                 </View>
               </View>
             )}
-          </Animated.View>
-        </View>
-      </KeyboardAvoidingView>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 }
@@ -1378,20 +1363,34 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingTop: 16,
-    paddingHorizontal: 4,
+    paddingTop: 14,
+    paddingHorizontal: 16,
     maxHeight: "92%",
-    flex: 1,
+  },
+  dragHandleBar: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 4,
+    paddingBottom: 4,
+    position: "relative",
+  },
+  dragHandlePill: {
+    width: 38,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#D1D5DB",
   },
   closeBtn: {
-    alignSelf: "flex-end",
+    position: "absolute",
+    right: 16,
+    top: 2,
     width: 32,
     height: 32,
     borderRadius: 16,
     backgroundColor: "#1D1D1D",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 12,
   },
   tabs: {
     flexDirection: "row",

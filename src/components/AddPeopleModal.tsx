@@ -1,13 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
-  Dimensions,
-  FlatList,
   Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -15,11 +10,8 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
-import { GestureDetector } from "react-native-gesture-handler";
-import Reanimated from "react-native-reanimated";
+import { FlatList, Modal, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useSwipeToDismiss } from "@/hooks/useSwipeToDismiss";
-import SheetDragHandle from "./SheetDragHandle";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -311,8 +303,6 @@ const emptyStyles = StyleSheet.create({
 
 // ─── Main Modal Component ─────────────────────────────────────────────────────
 
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-
 export default function AddPeopleModal({
   visible,
   users,
@@ -326,7 +316,6 @@ export default function AddPeopleModal({
   // area, otherwise that inset shows up as an empty gap above the keyboard.
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
-  const [keyboardShown, setKeyboardShown] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
     new Set(),
   );
@@ -337,19 +326,6 @@ export default function AddPeopleModal({
       setSelectedUserIds(new Set());
     }
   }, [visible]);
-
-  useEffect(() => {
-    const show = Keyboard.addListener("keyboardDidShow", () =>
-      setKeyboardShown(true),
-    );
-    const hide = Keyboard.addListener("keyboardDidHide", () =>
-      setKeyboardShown(false),
-    );
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
 
   const filtered = users.filter(
     (u) =>
@@ -368,8 +344,6 @@ export default function AddPeopleModal({
     setSelectedUserIds(new Set());
     onClose();
   };
-
-  const { panGesture, animatedStyle } = useSwipeToDismiss(visible, handleClose);
 
   const handleSelect = (user: AddPeopleUser) => {
     if (isChannelMode) {
@@ -406,123 +380,100 @@ export default function AddPeopleModal({
       visible={visible}
       transparent
       animationType="slide"
-      onRequestClose={handleClose}
       statusBarTranslucent
+      onRequestClose={handleClose}
     >
-      {/* Dimmed backdrop — tap to close */}
-      <TouchableWithoutFeedback onPress={handleClose}>
-        <View style={modalStyles.backdrop} />
-      </TouchableWithoutFeedback>
-
-      {/* Bottom sheet */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? insets.bottom : 0}
-        style={modalStyles.kavWrapper}
-      >
-        <Reanimated.View
-          style={[
-            modalStyles.sheet,
-            {
-              minHeight: SCREEN_HEIGHT * 0.5,
-              maxHeight: SCREEN_HEIGHT * 0.88,
-              paddingBottom: insets.bottom,
-            },
-            animatedStyle,
-          ]}
-        >
-          {/* Drag handle + close button + title are the swipe-down-to-
-              dismiss zone — the search input and FlatList below are left
-              out so dragging doesn't fight typing or the list's scroll. */}
-          <GestureDetector gesture={panGesture}>
-            <View>
-              <SheetDragHandle />
-              <TouchableOpacity
-                style={modalStyles.closeBtn}
-                onPress={handleClose}
-                activeOpacity={0.8}
-                hitSlop={8}
-              >
-                <Ionicons name="close" size={17} color="#fff" />
-              </TouchableOpacity>
-
-              <Text style={modalStyles.title}>Add People</Text>
-            </View>
-          </GestureDetector>
-
-          {/* ── Floating label search ── */}
-          <FloatingSearchInput value={query} onChangeText={handleChangeText} />
-
-          {/* ── Channel Mode: Select All ── */}
-          {isChannelMode && (
-            <View style={modalStyles.channelControls}>
-              <TouchableOpacity
-                style={modalStyles.selectAllRow}
-                onPress={handleSelectAll}
-                activeOpacity={0.7}
-              >
-                <View
-                  style={[
-                    modalStyles.checkbox,
-                    selectedUserIds.size === filtered.length &&
-                      filtered.length > 0 &&
-                      modalStyles.checkboxActive,
-                  ]}
-                >
-                  {selectedUserIds.size === filtered.length &&
-                    filtered.length > 0 && (
-                      <Ionicons name="checkmark" size={14} color="#fff" />
-                    )}
-                </View>
-                <Text style={modalStyles.selectAllText}>Select All</Text>
-              </TouchableOpacity>
-
-              <View style={modalStyles.divider} />
-            </View>
-          )}
-
-          {/* ── Results / empty states ── */}
-
-          {filtered.length === 0 ? (
-            <EmptySearch />
-          ) : (
-            <FlatList
-              data={filtered}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <UserRow
-                  user={item}
-                  onPress={() => handleSelect(item)}
-                  isChannelMode={isChannelMode}
-                  isSelected={selectedUserIds.has(item.id)}
-                  onToggleSelect={() => toggleSelect(item.id)}
-                />
-              )}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              style={
-                keyboardShown ? { maxHeight: SCREEN_HEIGHT * 0.4 } : undefined
-              }
-              contentContainerStyle={{ paddingBottom: 32 }}
-            />
-          )}
-
-          {/* ── Channel Mode: Invite (bottom, primary action) ── */}
-          {isChannelMode && (
+      <Pressable style={modalStyles.modalOverlay} onPress={handleClose}>
+        <Pressable style={modalStyles.sheetContainer} onPress={(e) => e.stopPropagation()}>
+          <View style={modalStyles.dragHandleBar}>
+            <View style={modalStyles.dragHandlePill} />
+          </View>
+          <View style={modalStyles.handleWrap}>
             <TouchableOpacity
-              style={[
-                modalStyles.inviteBtn,
-                selectedUserIds.size === 0 && modalStyles.inviteBtnDisabled,
-              ]}
+              style={modalStyles.closeBtn}
+              onPress={handleClose}
               activeOpacity={0.8}
-              disabled={selectedUserIds.size === 0}
-              onPress={handleInvite}
+              hitSlop={8}
             >
-              <Text style={modalStyles.inviteBtnText}>Invite</Text>
+              <Ionicons name="close" size={17} color="#fff" />
             </TouchableOpacity>
+
+            <Text style={modalStyles.title}>Add People</Text>
+          </View>
+
+          <View style={modalStyles.body}>
+            {/* ── Floating label search ── */}
+            <FloatingSearchInput value={query} onChangeText={handleChangeText} />
+
+            {/* ── Channel Mode: Select All ── */}
+            {isChannelMode && (
+              <View style={modalStyles.channelControls}>
+                <TouchableOpacity
+                  style={modalStyles.selectAllRow}
+                  onPress={handleSelectAll}
+                  activeOpacity={0.7}
+                >
+                  <View
+                    style={[
+                      modalStyles.checkbox,
+                      selectedUserIds.size === filtered.length &&
+                        filtered.length > 0 &&
+                        modalStyles.checkboxActive,
+                    ]}
+                  >
+                    {selectedUserIds.size === filtered.length &&
+                      filtered.length > 0 && (
+                        <Ionicons name="checkmark" size={14} color="#fff" />
+                      )}
+                  </View>
+                  <Text style={modalStyles.selectAllText}>Select All</Text>
+                </TouchableOpacity>
+
+                <View style={modalStyles.divider} />
+              </View>
+            )}
+
+            {/* ── Results / empty states ── */}
+
+            {filtered.length === 0 ? (
+              <EmptySearch />
+            ) : (
+              <FlatList
+                data={filtered}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <UserRow
+                    user={item}
+                    onPress={() => handleSelect(item)}
+                    isChannelMode={isChannelMode}
+                    isSelected={selectedUserIds.has(item.id)}
+                    onToggleSelect={() => toggleSelect(item.id)}
+                  />
+                )}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 32 }}
+              />
+            )}
+          </View>
+
+          {isChannelMode && (
+            <View style={[modalStyles.footer, { paddingBottom: insets.bottom + 16 }]}>
+              <TouchableOpacity
+                style={[
+                  modalStyles.inviteBtn,
+                  selectedUserIds.size === 0 && modalStyles.inviteBtnDisabled,
+                ]}
+                activeOpacity={0.8}
+                disabled={selectedUserIds.size === 0}
+                onPress={handleInvite}
+              >
+                <Text style={modalStyles.inviteBtnText}>Invite</Text>
+              </TouchableOpacity>
+            </View>
           )}
-        </Reanimated.View>
-      </KeyboardAvoidingView>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 }
@@ -530,6 +481,23 @@ export default function AddPeopleModal({
 // ─── Modal Styles ─────────────────────────────────────────────────────────────
 
 const modalStyles = StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  sheetContainer: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: "88%",
+    minHeight: "50%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 24,
+  },
   backdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.38)",
@@ -544,12 +512,37 @@ const modalStyles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingTop: 32,
     shadowColor: "#000",
     shadowOpacity: 0.12,
     shadowRadius: 20,
     shadowOffset: { width: 0, height: -4 },
     elevation: 12,
+  },
+  dragHandleBar: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 12,
+    paddingBottom: 2,
+  },
+  dragHandlePill: {
+    width: 38,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#D1D5DB",
+  },
+  handleWrap: {
+    paddingTop: 10,
+  },
+  body: {
+    flex: 1,
+  },
+  footer: {
+    backgroundColor: "#fff",
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
   },
   closeBtn: {
     position: "absolute",

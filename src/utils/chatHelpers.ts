@@ -99,7 +99,10 @@ export function isOwnMessage(
   message: ChatMessage,
   currentUserId: number
 ): boolean {
-  return message.sender_id === currentUserId;
+  if (!message || !currentUserId) return false;
+  const sId = message.sender_id ?? (message as any).sender?.id ?? (message as any).user_id;
+  if (sId === undefined || sId === null) return false;
+  return String(sId) === String(currentUserId);
 }
 
 /** Get the last message preview text for a room. */
