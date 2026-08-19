@@ -87,7 +87,6 @@ Plaint_App/
 
 Ensure you have the following installed on your machine:
 - **Node.js**: `v18.x` or `v20.x`
-- **Node.js**: `v18.x` or `v20.x`
 - **Package Manager**: `npm`
 - **Expo CLI**: Installed globally or executed via `npx`
 - **Mobile Environment** *(Optional for native builds)*:
