@@ -87,7 +87,8 @@ Plaint_App/
 
 Ensure you have the following installed on your machine:
 - **Node.js**: `v18.x` or `v20.x`
-- **Package Manager**: `pnpm` (recommended) or `npm` / `yarn`
+- **Node.js**: `v18.x` or `v20.x`
+- **Package Manager**: `npm`
 - **Expo CLI**: Installed globally or executed via `npx`
 - **Mobile Environment** *(Optional for native builds)*:
   - iOS: **Xcode** & **CocoaPods** (macOS only)
@@ -121,8 +122,6 @@ EXPO_PUBLIC_API_BASE_URL=https://backend-planit.soulservices.com/api/v1
 
 2. **Install project dependencies:**
    ```bash
-   pnpm install
-   # or
    npm install
    ```
 
@@ -135,7 +134,7 @@ EXPO_PUBLIC_API_BASE_URL=https://backend-planit.soulservices.com/api/v1
 Start the Expo bundler server:
 
 ```bash
-pnpm start
+npm start
 # or
 npx expo start
 ```
@@ -148,11 +147,11 @@ Press `a` to launch in the Android Emulator, `i` for iOS Simulator, or `w` for W
 
 | Target | Command |
 |---|---|
-| **Android Development Build** | `pnpm android` *(runs `expo run:android`)* |
-| **iOS Development Build** | `pnpm ios` *(runs `expo run:ios`)* |
-| **Web Browser** | `pnpm web` *(runs `expo start --web`)* |
+| **Android Development Build** | `npm run android` *(runs `expo run:android`)* |
+| **iOS Development Build** | `npm run ios` *(runs `expo run:ios`)* |
+| **Web Browser** | `npm run web` *(runs `expo start --web`)* |
 | **TypeScript Check** | `npx tsc --noEmit` |
-| **ESLint Check** | `pnpm lint` *(runs `expo lint`)* |
+| **ESLint Check** | `npm run lint` *(runs `expo lint`)* |
 
 ---
 
