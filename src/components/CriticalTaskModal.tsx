@@ -21,7 +21,6 @@ import React, { useCallback, useEffect, useState } from "react";
 import { formatClockTime } from "@/utils/dateFormat";
 import {
   ActivityIndicator,
-  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -59,15 +58,14 @@ export function CriticalTaskPopUpModal({
   onStopAndStart,
   onWaitAndSchedule,
 }: CriticalTaskPopUpProps) {
+  // Rendered as a plain absolutely-positioned overlay instead of a second
+  // native <Modal> — this is shown while CreateTaskModal's own <Modal> is
+  // still open, and nesting a second native Modal on top of an open one is
+  // unreliable on iOS (it silently fails to present; Android tolerates it).
+  // The caller must render this INSIDE that outer Modal's JSX tree.
+  if (!visible) return null;
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      statusBarTranslucent
-      onRequestClose={onClose}
-    >
-      <View style={popup.overlay}>
+      <View style={[popup.overlay, popup.absoluteOverlay]}>
         <View style={popup.card}>
           {/* Close */}
           <TouchableOpacity style={popup.closeBtn} onPress={onClose} hitSlop={8}>
@@ -106,7 +104,6 @@ export function CriticalTaskPopUpModal({
           </TouchableOpacity>
         </View>
       </View>
-    </Modal>
   );
 }
 
@@ -117,6 +114,15 @@ const popup = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 24,
+  },
+  absoluteOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100,
+    elevation: 100,
   },
   card: {
     backgroundColor: "#fff",
@@ -254,15 +260,12 @@ export function OrderCriticalTasksModal({
     }
   };
 
+  // Same reasoning as CriticalTaskPopUpModal above: plain absolute overlay,
+  // not a nested native Modal — caller must render this inside the outer
+  // CreateTaskModal's <Modal> tree.
+  if (!visible) return null;
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      statusBarTranslucent
-      onRequestClose={onClose}
-    >
-      <View style={order.overlay}>
+      <View style={[order.overlay, order.absoluteOverlay]}>
         <View style={order.sheet}>
           {/* Header */}
           <View style={order.header}>
@@ -412,7 +415,6 @@ export function OrderCriticalTasksModal({
           </TouchableOpacity>
         </View>
       </View>
-    </Modal>
   );
 }
 
@@ -423,6 +425,15 @@ const order = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 16,
+  },
+  absoluteOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100,
+    elevation: 100,
   },
   sheet: {
     backgroundColor: "#fff",

@@ -1,3 +1,17 @@
+import { useAuth } from "@/hooks/useAuth";
+import * as chatService from "@/services/api/chat.service";
+import {
+  connectSocket,
+  onSocketEvent,
+  type TaskUpdatePayload,
+} from "@/services/socket/socketService";
+import { NotificationItem } from "@/types/chat.types";
+import {
+  extractMentionedUserIds,
+  mentionMarkupToDisplay,
+} from "@/utils/chatHelpers";
+import { extractErrorMessage } from "@/utils/errorHandler";
+import { showInfo } from "@/utils/toast";
 import React, {
   createContext,
   useCallback,
@@ -6,20 +20,6 @@ import React, {
   useMemo,
   useReducer,
 } from "react";
-import * as chatService from "@/services/api/chat.service";
-import { NotificationItem } from "@/types/chat.types";
-import { extractErrorMessage } from "@/utils/errorHandler";
-import { useAuth } from "@/hooks/useAuth";
-import {
-  connectSocket,
-  onSocketEvent,
-  type TaskUpdatePayload,
-} from "@/services/socket/socketService";
-import { showInfo } from "@/utils/toast";
-import {
-  extractMentionedUserIds,
-  mentionMarkupToDisplay,
-} from "@/utils/chatHelpers";
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ const initialState: NotificationState = {
 
 function notificationReducer(
   state: NotificationState,
-  action: NotificationAction
+  action: NotificationAction,
 ): NotificationState {
   switch (action.type) {
     case "SET_LOADING":
@@ -70,7 +70,7 @@ function notificationReducer(
           (action.notification.id < 0 &&
             n.id > 0 &&
             n.task_id === action.notification.task_id &&
-            (n.title ?? "").toLowerCase().startsWith("mentioned you"))
+            (n.title ?? "").toLowerCase().startsWith("mentioned you")),
       );
       if (exists) return state;
       const updated = [action.notification, ...state.notifications];
@@ -82,7 +82,7 @@ function notificationReducer(
     }
     case "MARK_READ": {
       const updated = state.notifications.map((n) =>
-        n.id === action.id ? { ...n, readed: 1 } : n
+        n.id === action.id ? { ...n, readed: 1 } : n,
       );
       return {
         ...state,
@@ -107,14 +107,20 @@ function notificationReducer(
 
 export type NotificationContextValue = {
   state: NotificationState;
-  fetchNotifications: (companyId: number, includeRead?: boolean, silent?: boolean) => Promise<void>;
+  fetchNotifications: (
+    companyId: number,
+    includeRead?: boolean,
+    silent?: boolean,
+  ) => Promise<void>;
   markRead: (notificationId: number) => Promise<void>;
   markAllRead: (companyId: number) => Promise<void>;
   addNotification: (notification: NotificationItem) => void;
   logout: () => void;
 };
 
-const NotificationContext = createContext<NotificationContextValue | null>(null);
+const NotificationContext = createContext<NotificationContextValue | null>(
+  null,
+);
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -142,13 +148,16 @@ export function NotificationProvider({
             notifications: res.data?.notifications ?? [],
           });
         } else {
-          dispatch({ type: "SET_ERROR", error: "Failed to load notifications" });
+          dispatch({
+            type: "SET_ERROR",
+            error: "Failed to load notifications",
+          });
         }
       } catch (error) {
         dispatch({ type: "SET_ERROR", error: extractErrorMessage(error) });
       }
     },
-    []
+    [],
   );
 
   const addNotification = useCallback((notification: NotificationItem) => {
@@ -174,71 +183,81 @@ export function NotificationProvider({
 
     connectSocket().catch(() => {});
 
-    const cleanupNotification = onSocketEvent("notification", (payload: unknown) => {
-      const typed = payload as {
-        assigned_to?: number;
-        company_id?: number;
-        data?: { assigned_to?: number; company_id?: number };
-      };
-      const assignedTo = typed.assigned_to ?? typed.data?.assigned_to;
-      if (assignedTo !== undefined && String(assignedTo) !== String(currentUserId)) {
-        return;
-      }
-      if (typed.company_id !== undefined && typed.company_id !== currentCompanyId) {
-        return;
-      }
-      if (currentCompanyId) {
-        fetchNotifications(currentCompanyId, true, true);
-      }
-    });
+    const cleanupNotification = onSocketEvent(
+      "notification",
+      (payload: unknown) => {
+        const typed = payload as {
+          assigned_to?: number;
+          company_id?: number;
+          data?: { assigned_to?: number; company_id?: number };
+        };
+        const assignedTo = typed.assigned_to ?? typed.data?.assigned_to;
+        if (
+          assignedTo !== undefined &&
+          String(assignedTo) !== String(currentUserId)
+        ) {
+          return;
+        }
+        if (
+          typed.company_id !== undefined &&
+          typed.company_id !== currentCompanyId
+        ) {
+          return;
+        }
+        if (currentCompanyId) {
+          fetchNotifications(currentCompanyId, true, true);
+        }
+      },
+    );
 
-    const cleanupTaskUpdate = onSocketEvent("task_update", (payload: unknown) => {
-      const p = payload as TaskUpdatePayload;
-      if (!p?.action) return;
-      if (String(p.company_id) !== String(currentCompanyId)) return;
-      if (p.action !== "add_note" && p.action !== "update_note") return;
+    const cleanupTaskUpdate = onSocketEvent(
+      "task_update",
+      (payload: unknown) => {
+        const p = payload as TaskUpdatePayload;
+        if (!p?.action) return;
+        if (String(p.company_id) !== String(currentCompanyId)) return;
+        if (p.action !== "add_note" && p.action !== "update_note") return;
 
-      const data = (p.data ?? {}) as Record<string, unknown>;
-      const note =
-        (data.note as Record<string, unknown> | undefined) ?? data;
-      const notesText = (note.notes as string) ?? "";
-      const mentionedIds = extractMentionedUserIds(notesText);
-      if (!mentionedIds.includes(currentUserId)) return;
+        const data = (p.data ?? {}) as Record<string, unknown>;
+        const note = (data.note as Record<string, unknown> | undefined) ?? data;
+        const notesText = (note.notes as string) ?? "";
+        const mentionedIds = extractMentionedUserIds(notesText);
+        if (!mentionedIds.includes(currentUserId)) return;
 
-      const authorId = Number(note.user_id ?? data.user_id ?? 0);
-      if (authorId === currentUserId) return;
-      const authorName =
-        (note.user_name as string) ||
-        (data.user_name as string) ||
-        "Someone";
-      const taskId = Number(data.task_id ?? data.mod_id ?? 0);
-      const noteId = Number(note.id ?? data.id ?? 0);
-      const createdAt = (note.createdAt as string) || new Date().toISOString();
-      const displayText = mentionMarkupToDisplay(notesText);
+        const authorId = Number(note.user_id ?? data.user_id ?? 0);
+        if (authorId === currentUserId) return;
+        const authorName =
+          (note.user_name as string) || (data.user_name as string) || "Someone";
+        const taskId = Number(data.task_id ?? data.mod_id ?? 0);
+        const noteId = Number(note.id ?? data.id ?? 0);
+        const createdAt =
+          (note.createdAt as string) || new Date().toISOString();
+        const displayText = mentionMarkupToDisplay(notesText);
 
-      showInfo(`${authorName} mentioned you`, displayText);
-      addNotification({
-        id: -Math.abs(noteId || Date.now()),
-        title: "Mentioned you in a comment",
-        task_id: taskId,
-        lead_id: 0,
-        created_by: authorId,
-        company_id: Number(p.company_id),
-        assigned_to: currentUserId,
-        typ: "task_mention",
-        identifier: "task",
-        description: displayText,
-        createdAt,
-        readed: 0,
-        assigned: {
-          id: authorId,
-          first_name: authorName,
-          last_name: "",
-          email: "",
-          image: "",
-        },
-      });
-    });
+        showInfo(`${authorName} mentioned you`, displayText);
+        addNotification({
+          id: -Math.abs(noteId || Date.now()),
+          title: "Mentioned you in a comment",
+          task_id: taskId,
+          lead_id: 0,
+          created_by: authorId,
+          company_id: Number(p.company_id),
+          assigned_to: currentUserId,
+          typ: "task_mention",
+          identifier: "task",
+          description: displayText,
+          createdAt,
+          readed: 0,
+          assigned: {
+            id: authorId,
+            first_name: authorName,
+            last_name: "",
+            email: "",
+            image: "",
+          },
+        });
+      },
+    );
 
     return () => {
       cleanupNotification();
@@ -281,14 +300,7 @@ export function NotificationProvider({
       addNotification,
       logout,
     }),
-    [
-      state,
-      fetchNotifications,
-      markRead,
-      markAllRead,
-      addNotification,
-      logout,
-    ]
+    [state, fetchNotifications, markRead, markAllRead, addNotification, logout],
   );
 
   return (
@@ -303,9 +315,7 @@ export function NotificationProvider({
 export function useNotifications(): NotificationContextValue {
   const ctx = useContext(NotificationContext);
   if (!ctx) {
-    throw new Error(
-      "useNotifications must be used within a NotificationProvider"
-    );
+    console.log("useNotifications must be used within a NotificationProvider");
   }
   return ctx;
 }

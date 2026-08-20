@@ -1,4 +1,3 @@
-import { ApiErrorEnvelope } from "@/types/api.types";
 import { getStoredToken } from "@/utils/token";
 
 const BASE_URL =
@@ -39,7 +38,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
   if (typeof body === "string" && body.includes("Un-Athunticated request")) {
     onAuthFailure?.();
-    throw new Error("Session expired. Please log in again.");
+    console.log("Session expired. Please log in again.");
   }
 
   if (typeof body === "object" && body !== null) {
@@ -60,11 +59,14 @@ async function handleResponse<T>(res: Response): Promise<T> {
         (typeof errObj.data === "string" && errObj.data.trim()) ||
         `Request failed (${res.status})`;
 
-      throw new Error(msg);
+      console.log(msg);
     }
   } else if (!res.ok) {
-    const msg = typeof body === "string" && body.trim().length > 0 ? body.trim() : `Request failed (${res.status})`;
-    throw new Error(msg);
+    const msg =
+      typeof body === "string" && body.trim().length > 0
+        ? body.trim()
+        : `Request failed (${res.status})`;
+    console.log(msg);
   }
 
   return body as T;
@@ -96,7 +98,12 @@ export async function apiPost<T>(
 ): Promise<T> {
   const token = await getStoredToken();
   const url = `${BASE_URL}${path}`;
-  console.log("[API] POST:", path, "body:", isFormData ? "(FormData)" : JSON.stringify(body).slice(0, 500));
+  console.log(
+    "[API] POST:",
+    path,
+    "body:",
+    isFormData ? "(FormData)" : JSON.stringify(body).slice(0, 500),
+  );
 
   const res = await fetch(url, {
     method: "POST",

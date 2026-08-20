@@ -3,6 +3,7 @@ import * as SecureStore from "expo-secure-store";
 const TOKEN_KEY = "auth_token";
 const USER_KEY = "auth_user";
 const COMPANY_KEY = "auth_company";
+const SESSION_EXPIRES_AT_KEY = "auth_session_expires_at";
 
 export async function getStoredToken(): Promise<string | null> {
   const token = await SecureStore.getItemAsync(TOKEN_KEY);
@@ -66,11 +67,36 @@ export async function removeStoredCompany(): Promise<void> {
   await SecureStore.deleteItemAsync(COMPANY_KEY);
 }
 
+// The login response's `sessionTimeoutMins` tells the client how long the
+// server considers this session's data (company/modules/permissions) fresh
+// — it's much shorter than the JWT's own multi-day `exp`. We track our own
+// expiry from it so a long-lived JWT doesn't let a restored session run on
+// stale company data (e.g. modules/package) indefinitely between real
+// logins; once it elapses, session restore is skipped and the user must log
+// in again to pick up current data.
+export async function setSessionExpiresAt(sessionTimeoutMins: number): Promise<void> {
+  const expiresAt = Date.now() + sessionTimeoutMins * 60 * 1000;
+  await SecureStore.setItemAsync(SESSION_EXPIRES_AT_KEY, String(expiresAt));
+}
+
+export async function isSessionExpired(): Promise<boolean> {
+  const raw = await SecureStore.getItemAsync(SESSION_EXPIRES_AT_KEY);
+  if (!raw) return false; // no recorded timeout — don't force-expire older sessions
+  const expiresAt = Number(raw);
+  if (!Number.isFinite(expiresAt)) return false;
+  return Date.now() >= expiresAt;
+}
+
+export async function removeSessionExpiresAt(): Promise<void> {
+  await SecureStore.deleteItemAsync(SESSION_EXPIRES_AT_KEY);
+}
+
 export async function clearAllAuth(): Promise<void> {
   await Promise.all([
     removeStoredToken(),
     removeStoredUser(),
     removeStoredCompany(),
+    removeSessionExpiresAt(),
   ]);
 }
 

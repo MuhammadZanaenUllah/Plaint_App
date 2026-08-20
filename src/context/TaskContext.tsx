@@ -1,38 +1,36 @@
+import { useAuth } from "@/hooks/useAuth";
+import * as tasksService from "@/services/api/tasks.service";
+import {
+  AddDependencyRequest,
+  AddNoteRequest,
+  CreateTaskRequest,
+  DependencyData,
+  MentionUser,
+  RecalculateScheduleRequest,
+  RemoveDependencyRequest,
+  ReopenTaskRequest,
+  ReorderCriticalRequest,
+  RescheduleReopenedRequest,
+  TaskFilter,
+  TaskListItem,
+  TaskListResponse,
+  TaskNote,
+  TaskOwner,
+  TaskPriority,
+  UpdateTaskStatusRequest,
+  ViewTaskData,
+} from "@/types/task.types";
+import { extractErrorMessage } from "@/utils/errorHandler";
+import { MappedTaskRow, mapTaskListResponse } from "@/utils/statusMapper";
 import React, {
   createContext,
   useCallback,
   useContext,
   useMemo,
-  useRef,
   useReducer,
+  useRef,
   useState,
 } from "react";
-import * as tasksService from "@/services/api/tasks.service";
-import { useAuth } from "@/hooks/useAuth";
-import {
-  TaskListItem,
-  TaskListResponse,
-  TaskPriority,
-  TaskOwner,
-  TaskNote,
-  MentionUser,
-  AddNoteRequest,
-  TaskFilter,
-  CreateTaskRequest,
-  UpdateTaskStatusRequest,
-  ViewTaskData,
-  DependencyData,
-  AddDependencyRequest,
-  RemoveDependencyRequest,
-  ReorderCriticalRequest,
-  RecalculateScheduleRequest,
-  RescheduleReopenedRequest,
-  ReopenTaskRequest,
-  ApproveTaskRequest,
-  RejectTaskRequest,
-} from "@/types/task.types";
-import { MappedTaskRow, mapTaskListResponse } from "@/utils/statusMapper";
-import { extractErrorMessage } from "@/utils/errorHandler";
 
 type TaskState = {
   assignedToMe: TaskListItem[];
@@ -141,7 +139,7 @@ function taskReducer(state: TaskState, action: TaskAction): TaskState {
       return {
         ...state,
         priorities: state.priorities.map((p) =>
-          p.id === action.priority.id ? action.priority : p
+          p.id === action.priority.id ? action.priority : p,
         ),
       };
     case "PRIORITY_DELETE":
@@ -194,54 +192,87 @@ export type TaskContextValue = {
   filteredMappedTasks: MappedTaskRow[];
   dueTodayCount: number;
   totalCount: number;
-  fetchAllTasks: (companyId: number, options?: { silent?: boolean }) => Promise<void>;
+  fetchAllTasks: (
+    companyId: number,
+    options?: { silent?: boolean },
+  ) => Promise<void>;
   fetchDueToday: (companyId: number) => Promise<void>;
   fetchFiltered: (companyId: number, filter: TaskFilter) => Promise<void>;
   setActiveFilter: (filter: TaskFilter | null) => void;
   createTask: (data: CreateTaskRequest) => Promise<number>;
   updateTaskStatusLocal: (taskId: string, status: string) => void;
-  updateTaskStatusApi: (taskId: number, data: UpdateTaskStatusRequest) => Promise<void>;
+  updateTaskStatusApi: (
+    taskId: number,
+    data: UpdateTaskStatusRequest,
+  ) => Promise<void>;
   refreshTasks: (companyId: number) => Promise<void>;
   viewTask: (taskId: number) => Promise<ViewTaskData | null>;
   addNote: (
     taskId: number,
     data: AddNoteRequest,
-    file?: { uri: string; name: string; type: string }
+    file?: { uri: string; name: string; type: string },
   ) => Promise<void>;
   fetchNotes: (
     taskId: number,
     companyId?: number,
-    companyIdentifier?: string
+    companyIdentifier?: string,
   ) => Promise<TaskNote[]>;
   fetchMentionUsers: (companyId: number) => Promise<MentionUser[]>;
   deleteNote: (
     noteId: number,
     companyId: number,
-    companyIdentifier: string
+    companyIdentifier: string,
   ) => Promise<void>;
   pinNote: (
     noteId: number,
     pinned: boolean,
     companyId: number,
-    companyIdentifier: string
+    companyIdentifier: string,
   ) => Promise<void>;
-  approveTask: (taskId: number, companyId: number, companyIdentifier: string) => Promise<void>;
-  rejectTask: (taskId: number, companyId: number, companyIdentifier: string, reason: string, additionalHours: number) => Promise<void>;
+  approveTask: (
+    taskId: number,
+    companyId: number,
+    companyIdentifier: string,
+  ) => Promise<void>;
+  rejectTask: (
+    taskId: number,
+    companyId: number,
+    companyIdentifier: string,
+    reason: string,
+    additionalHours: number,
+  ) => Promise<void>;
   deleteTask: (taskId: number) => Promise<void>;
-  recalculateSchedule: (taskId: number, data: RecalculateScheduleRequest) => Promise<void>;
-  getDependencies: (taskId: number, companyId: number) => Promise<DependencyData[]>;
+  recalculateSchedule: (
+    taskId: number,
+    data: RecalculateScheduleRequest,
+  ) => Promise<void>;
+  getDependencies: (
+    taskId: number,
+    companyId: number,
+  ) => Promise<DependencyData[]>;
   addDependency: (data: AddDependencyRequest) => Promise<void>;
   removeDependency: (data: RemoveDependencyRequest) => Promise<void>;
-  reorderCritical: (data: ReorderCriticalRequest) => Promise<{ blockedTasks: { id: number; title: string }[] }>;
-  rescheduleReopened: (taskId: number, data: RescheduleReopenedRequest) => Promise<void>;
+  reorderCritical: (
+    data: ReorderCriticalRequest,
+  ) => Promise<{ blockedTasks: { id: number; title: string }[] }>;
+  rescheduleReopened: (
+    taskId: number,
+    data: RescheduleReopenedRequest,
+  ) => Promise<void>;
   reopenTask: (taskId: number, data: ReopenTaskRequest) => Promise<void>;
   applyPriorityUpdate: (
     action: "create" | "update" | "delete",
-    data: { id: number; name?: string; color?: string; order?: number; company_id?: number }
+    data: {
+      id: number;
+      name?: string;
+      color?: string;
+      order?: number;
+      company_id?: number;
+    },
   ) => void;
   applyJobStatusUpdate: (
     action: "create" | "update" | "delete",
-    data: { id: number; name?: string; company_id?: number; status?: number }
+    data: { id: number; name?: string; company_id?: number; status?: number },
   ) => void;
   applyScheduleUpdate: (data: {
     id: number;
@@ -256,7 +287,9 @@ const TaskContext = createContext<TaskContextValue | null>(null);
 export function TaskProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(taskReducer, initialState);
   const [dueTodayCount, setDueTodayCount] = useState(0);
-  const [filteredMappedTasks, setFilteredMappedTasks] = useState<MappedTaskRow[]>([]);
+  const [filteredMappedTasks, setFilteredMappedTasks] = useState<
+    MappedTaskRow[]
+  >([]);
 
   const { state: authState } = useAuth();
   const companyId = authState.company?.company_id ?? null;
@@ -271,7 +304,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
         priority: [],
         status: [],
       }).assignedToMe,
-    [state.assignedToMe, state.taskOwners]
+    [state.assignedToMe, state.taskOwners],
   );
 
   const mappedCreatedByMe = useMemo(
@@ -284,7 +317,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
         priority: [],
         status: [],
       }).createdByMe,
-    [state.createdByMe, state.taskOwners]
+    [state.createdByMe, state.taskOwners],
   );
 
   const mappedAllOtherTasks = useMemo(
@@ -297,7 +330,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
         priority: [],
         status: [],
       }).allOtherTasks,
-    [state.allOtherTasks, state.taskOwners]
+    [state.allOtherTasks, state.taskOwners],
   );
 
   const allMappedTasks = useMemo(() => {
@@ -310,8 +343,17 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       status: [],
     };
     const mapped = mapTaskListResponse(response);
-    return [...mapped.assignedToMe, ...mapped.createdByMe, ...mapped.allOtherTasks];
-  }, [state.assignedToMe, state.createdByMe, state.allOtherTasks, state.taskOwners]);
+    return [
+      ...mapped.assignedToMe,
+      ...mapped.createdByMe,
+      ...mapped.allOtherTasks,
+    ];
+  }, [
+    state.assignedToMe,
+    state.createdByMe,
+    state.allOtherTasks,
+    state.taskOwners,
+  ]);
 
   const totalCount = allMappedTasks.length;
 
@@ -324,7 +366,9 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   const fetchAllTasks = useCallback(
     async (companyId: number, options?: { silent?: boolean }) => {
       if (inFlightFetchRef.current) {
-        console.log(`[TaskContext] fetchAllTasks already in flight — awaiting existing request instead of firing a new one`);
+        console.log(
+          `[TaskContext] fetchAllTasks already in flight — awaiting existing request instead of firing a new one`,
+        );
         return inFlightFetchRef.current;
       }
 
@@ -345,80 +389,117 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
         setDueTodayCount(
           data.tasks_assigned_to_me.length +
             data.tasksByme.length +
-            data.all_other_tasks.length
+            data.all_other_tasks.length,
         );
       };
 
       const run = async () => {
-      console.log(`[TaskContext] fetchAllTasks called with companyId=${companyId}, silent=${options?.silent}`);
-      if (!options?.silent) {
-        dispatch({ type: "SET_LOADING", loading: true });
-      }
-      setFilteredMappedTasks([]);
-    try {
-      if (options?.silent) {
-        // Background refresh (socket/pull-to-refresh) — no spinner is
-        // showing, so fetch both in parallel as before; there's nothing to
-        // paint sooner by staggering them.
-        const [res, todayRes] = await Promise.all([
-          tasksService.getAllTasks(companyId),
-          tasksService.getDueTodayTasks(companyId),
-        ]);
-
-        if (res.Good && res.data) {
-          const mergedData: TaskListResponse = {
-            ...res.data,
-            tasks_assigned_to_me: mergeArrays(res.data.tasks_assigned_to_me, todayRes.data?.tasks_assigned_to_me),
-            tasksByme: mergeArrays(res.data.tasksByme, todayRes.data?.tasksByme),
-            all_other_tasks: mergeArrays(res.data.all_other_tasks, todayRes.data?.all_other_tasks),
-          };
-          dispatch({ type: "LOAD_SUCCESS", data: mergedData });
-          dispatch({ type: "SET_FILTER", filter: null });
-          if (todayRes.Good && todayRes.data) applyDueTodayCount(todayRes.data);
-        } else {
-          console.error(`[TaskContext] getAllTasks failed:`, res.message);
-          dispatch({ type: "SET_ERROR", error: res.message ?? "Failed to load tasks" });
+        console.log(
+          `[TaskContext] fetchAllTasks called with companyId=${companyId}, silent=${options?.silent}`,
+        );
+        if (!options?.silent) {
+          dispatch({ type: "SET_LOADING", loading: true });
         }
-        return;
-      }
+        setFilteredMappedTasks([]);
+        try {
+          if (options?.silent) {
+            // Background refresh (socket/pull-to-refresh) — no spinner is
+            // showing, so fetch both in parallel as before; there's nothing to
+            // paint sooner by staggering them.
+            const [res, todayRes] = await Promise.all([
+              tasksService.getAllTasks(companyId),
+              tasksService.getDueTodayTasks(companyId),
+            ]);
 
-      // Foreground load — Phase 1: today's tasks only, paints almost
-      // instantly and turns off the loading spinner.
-      const todayRes = await tasksService.getDueTodayTasks(companyId);
-      if (todayRes.Good && todayRes.data) {
-        dispatch({ type: "LOAD_SUCCESS", data: todayRes.data, partial: true });
-        dispatch({ type: "SET_FILTER", filter: null });
-        applyDueTodayCount(todayRes.data);
-      }
+            if (res.Good && res.data) {
+              const mergedData: TaskListResponse = {
+                ...res.data,
+                tasks_assigned_to_me: mergeArrays(
+                  res.data.tasks_assigned_to_me,
+                  todayRes.data?.tasks_assigned_to_me,
+                ),
+                tasksByme: mergeArrays(
+                  res.data.tasksByme,
+                  todayRes.data?.tasksByme,
+                ),
+                all_other_tasks: mergeArrays(
+                  res.data.all_other_tasks,
+                  todayRes.data?.all_other_tasks,
+                ),
+              };
+              dispatch({ type: "LOAD_SUCCESS", data: mergedData });
+              dispatch({ type: "SET_FILTER", filter: null });
+              if (todayRes.Good && todayRes.data)
+                applyDueTodayCount(todayRes.data);
+            } else {
+              console.error(`[TaskContext] getAllTasks failed:`, res.message);
+              dispatch({
+                type: "SET_ERROR",
+                error: res.message ?? "Failed to load tasks",
+              });
+            }
+            return;
+          }
 
-      // Phase 2: the full (unpaginated) company task list, merged in once
-      // it arrives — no spinner, the screen already has Phase 1's data.
-      const res = await tasksService.getAllTasks(companyId);
-      console.log(`[TaskContext] getAllTasks response Good=${res.Good}, data keys:`, res.data ? Object.keys(res.data) : "null");
+          // Foreground load — Phase 1: today's tasks only, paints almost
+          // instantly and turns off the loading spinner.
+          const todayRes = await tasksService.getDueTodayTasks(companyId);
+          if (todayRes.Good && todayRes.data) {
+            dispatch({
+              type: "LOAD_SUCCESS",
+              data: todayRes.data,
+              partial: true,
+            });
+            dispatch({ type: "SET_FILTER", filter: null });
+            applyDueTodayCount(todayRes.data);
+          }
 
-      if (res.Good && res.data) {
-        const mergedData: TaskListResponse = {
-          ...res.data,
-          tasks_assigned_to_me: mergeArrays(res.data.tasks_assigned_to_me, todayRes.data?.tasks_assigned_to_me),
-          tasksByme: mergeArrays(res.data.tasksByme, todayRes.data?.tasksByme),
-          all_other_tasks: mergeArrays(res.data.all_other_tasks, todayRes.data?.all_other_tasks),
-        };
+          // Phase 2: the full (unpaginated) company task list, merged in once
+          // it arrives — no spinner, the screen already has Phase 1's data.
+          const res = await tasksService.getAllTasks(companyId);
+          console.log(
+            `[TaskContext] getAllTasks response Good=${res.Good}, data keys:`,
+            res.data ? Object.keys(res.data) : "null",
+          );
 
-        const taskCount = (mergedData.tasks_assigned_to_me?.length ?? 0) +
-          (mergedData.tasksByme?.length ?? 0) +
-          (mergedData.all_other_tasks?.length ?? 0);
-        console.log(`[TaskContext] Loaded ${taskCount} tasks total (assigned_to_me: ${mergedData.tasks_assigned_to_me?.length ?? 0}, by_me: ${mergedData.tasksByme?.length ?? 0}, other: ${mergedData.all_other_tasks?.length ?? 0})`);
+          if (res.Good && res.data) {
+            const mergedData: TaskListResponse = {
+              ...res.data,
+              tasks_assigned_to_me: mergeArrays(
+                res.data.tasks_assigned_to_me,
+                todayRes.data?.tasks_assigned_to_me,
+              ),
+              tasksByme: mergeArrays(
+                res.data.tasksByme,
+                todayRes.data?.tasksByme,
+              ),
+              all_other_tasks: mergeArrays(
+                res.data.all_other_tasks,
+                todayRes.data?.all_other_tasks,
+              ),
+            };
 
-        dispatch({ type: "LOAD_SUCCESS", data: mergedData });
-        dispatch({ type: "SET_FILTER", filter: null });
-      } else if (!todayRes.Good) {
-        console.error(`[TaskContext] getAllTasks failed:`, res.message);
-        dispatch({ type: "SET_ERROR", error: res.message ?? "Failed to load tasks" });
-      }
-    } catch (error) {
-      console.error(`[TaskContext] fetchAllTasks error:`, error);
-      dispatch({ type: "SET_ERROR", error: extractErrorMessage(error) });
-    }
+            const taskCount =
+              (mergedData.tasks_assigned_to_me?.length ?? 0) +
+              (mergedData.tasksByme?.length ?? 0) +
+              (mergedData.all_other_tasks?.length ?? 0);
+            console.log(
+              `[TaskContext] Loaded ${taskCount} tasks total (assigned_to_me: ${mergedData.tasks_assigned_to_me?.length ?? 0}, by_me: ${mergedData.tasksByme?.length ?? 0}, other: ${mergedData.all_other_tasks?.length ?? 0})`,
+            );
+
+            dispatch({ type: "LOAD_SUCCESS", data: mergedData });
+            dispatch({ type: "SET_FILTER", filter: null });
+          } else if (!todayRes.Good) {
+            console.error(`[TaskContext] getAllTasks failed:`, res.message);
+            dispatch({
+              type: "SET_ERROR",
+              error: res.message ?? "Failed to load tasks",
+            });
+          }
+        } catch (error) {
+          console.error(`[TaskContext] fetchAllTasks error:`, error);
+          dispatch({ type: "SET_ERROR", error: extractErrorMessage(error) });
+        }
       };
 
       const promise = run().finally(() => {
@@ -427,7 +508,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       inFlightFetchRef.current = promise;
       return promise;
     },
-    []
+    [],
   );
 
   const fetchDueToday = useCallback(async (companyId: number) => {
@@ -437,7 +518,10 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       if (res.Good && res.data) {
         dispatch({ type: "LOAD_SUCCESS", data: res.data });
       } else {
-        dispatch({ type: "SET_ERROR", error: res.message ?? "Failed to load due today tasks" });
+        dispatch({
+          type: "SET_ERROR",
+          error: res.message ?? "Failed to load due today tasks",
+        });
       }
     } catch (error) {
       dispatch({ type: "SET_ERROR", error: extractErrorMessage(error) });
@@ -468,7 +552,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: "SET_ERROR", error: extractErrorMessage(error) });
       }
     },
-    []
+    [],
   );
 
   const setActiveFilter = useCallback((filter: TaskFilter | null) => {
@@ -478,39 +562,49 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   const createTask = useCallback(
     async (data: CreateTaskRequest): Promise<number> => {
       const res = await tasksService.createTask(data);
-      if (res.Good && res.data && typeof res.data === "object" && "id" in res.data) {
+      if (
+        res.Good &&
+        res.data &&
+        typeof res.data === "object" &&
+        "id" in res.data
+      ) {
         return (res.data as { id: number }).id;
       }
-      throw new Error(typeof res.data === "string" ? res.data : "Failed to create task");
+      console.log(
+        typeof res.data === "string" ? res.data : "Failed to create task",
+      );
     },
-    []
+    [],
   );
 
-  const updateTaskStatusLocal = useCallback((taskId: string, status: string) => {
-    const update = (items: TaskListItem[]): TaskListItem[] =>
-      items.map((t) =>
-        String(t.id) === taskId
-          ? { ...t, status: status as TaskListItem["status"] }
-          : t
-      );
-    dispatch({
-      type: "LOAD_SUCCESS",
-      data: {
-        tasks_assigned_to_me: update(state.assignedToMe),
-        tasksByme: update(state.createdByMe),
-        all_other_tasks: update(state.allOtherTasks),
-        task_owner: state.taskOwners,
-        priority: state.priorities,
-        status: state.statusList,
-      },
-    });
-  }, [state]);
+  const updateTaskStatusLocal = useCallback(
+    (taskId: string, status: string) => {
+      const update = (items: TaskListItem[]): TaskListItem[] =>
+        items.map((t) =>
+          String(t.id) === taskId
+            ? { ...t, status: status as TaskListItem["status"] }
+            : t,
+        );
+      dispatch({
+        type: "LOAD_SUCCESS",
+        data: {
+          tasks_assigned_to_me: update(state.assignedToMe),
+          tasksByme: update(state.createdByMe),
+          all_other_tasks: update(state.allOtherTasks),
+          task_owner: state.taskOwners,
+          priority: state.priorities,
+          status: state.statusList,
+        },
+      });
+    },
+    [state],
+  );
 
   const refreshTasks = useCallback(
     async (companyId: number) => {
       await fetchAllTasks(companyId, { silent: true });
     },
-    [fetchAllTasks]
+    [fetchAllTasks],
   );
 
   const viewTaskAction = useCallback(
@@ -522,40 +616,40 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       }
       return null;
     },
-    [companyId]
+    [companyId],
   );
 
   const addNoteToTask = useCallback(
     async (
       taskId: number,
       data: AddNoteRequest,
-      file?: { uri: string; name: string; type: string }
+      file?: { uri: string; name: string; type: string },
     ) => {
       const res = await tasksService.addNote(taskId, data, file);
       if (!res.Good) {
-        throw new Error(res.message ?? "Failed to add comment");
+        console.log(res.message ?? "Failed to add comment");
       }
     },
-    []
+    [],
   );
 
   const fetchNotes = useCallback(
     async (
       taskId: number,
       companyId?: number,
-      companyIdentifier?: string
+      companyIdentifier?: string,
     ): Promise<TaskNote[]> => {
       const res = await tasksService.getTaskNotes(
         taskId,
         companyId,
-        companyIdentifier
+        companyIdentifier,
       );
       if (res.Good && Array.isArray(res.data)) {
         return res.data;
       }
       return [];
     },
-    []
+    [],
   );
 
   const fetchMentionUsers = useCallback(
@@ -567,7 +661,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       }
       return [];
     },
-    []
+    [],
   );
 
   const deleteNoteById = useCallback(
@@ -577,10 +671,10 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
         company_identifier: companyIdentifier,
       });
       if (!res.Good) {
-        throw new Error(res.message ?? "Failed to delete comment");
+        console.log(res.message ?? "Failed to delete comment");
       }
     },
-    []
+    [],
   );
 
   const pinNoteById = useCallback(
@@ -588,7 +682,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       noteId: number,
       pinned: boolean,
       companyId: number,
-      companyIdentifier: string
+      companyIdentifier: string,
     ) => {
       const res = await tasksService.pinNote(noteId, {
         pin_top: pinned ? 1 : 0,
@@ -596,97 +690,152 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
         company_identifier: companyIdentifier,
       });
       if (!res.Good) {
-        throw new Error(res.message ?? "Failed to pin comment");
+        console.log(res.message ?? "Failed to pin comment");
       }
     },
-    []
+    [],
   );
 
-  const approveTaskById = useCallback(async (taskId: number, companyId: number, companyIdentifier: string) => {
-    const res = await tasksService.approveTask(taskId, {
-      company_id: companyId,
-      company_identifier: companyIdentifier,
-    });
-    if (!res.Good) {
-      throw new Error(typeof res.data === "string" ? res.data : "Failed to approve task");
-    }
-  }, []);
+  const approveTaskById = useCallback(
+    async (taskId: number, companyId: number, companyIdentifier: string) => {
+      const res = await tasksService.approveTask(taskId, {
+        company_id: companyId,
+        company_identifier: companyIdentifier,
+      });
+      if (!res.Good) {
+        console.log(
+          typeof res.data === "string" ? res.data : "Failed to approve task",
+        );
+      }
+    },
+    [],
+  );
 
-  const rejectTaskById = useCallback(async (taskId: number, companyId: number, companyIdentifier: string, reason: string, additionalHours: number) => {
-    const res = await tasksService.rejectTask(taskId, {
-      company_id: companyId,
-      company_identifier: companyIdentifier,
-      reason,
-      additional_hours: additionalHours,
-    });
-    if (!res.Good) {
-      throw new Error(typeof res.data === "string" ? res.data : "Failed to reject task");
-    }
-  }, []);
+  const rejectTaskById = useCallback(
+    async (
+      taskId: number,
+      companyId: number,
+      companyIdentifier: string,
+      reason: string,
+      additionalHours: number,
+    ) => {
+      const res = await tasksService.rejectTask(taskId, {
+        company_id: companyId,
+        company_identifier: companyIdentifier,
+        reason,
+        additional_hours: additionalHours,
+      });
+      if (!res.Good) {
+        console.log(
+          typeof res.data === "string" ? res.data : "Failed to reject task",
+        );
+      }
+    },
+    [],
+  );
 
   const deleteTaskById = useCallback(async (taskId: number) => {
     const res = await tasksService.deleteTask(taskId);
     if (!res.Good) {
-      throw new Error(typeof res.data === "string" ? res.data : "Failed to delete task");
+      console.log(
+        typeof res.data === "string" ? res.data : "Failed to delete task",
+      );
     }
   }, []);
 
-  const recalculateScheduleById = useCallback(async (taskId: number, data: RecalculateScheduleRequest) => {
-    try {
-      await tasksService.recalculateSchedule(taskId, data);
-    } catch {
-      // fire-and-forget, scheduling result arrives via socket
-    }
-  }, []);
+  const recalculateScheduleById = useCallback(
+    async (taskId: number, data: RecalculateScheduleRequest) => {
+      try {
+        await tasksService.recalculateSchedule(taskId, data);
+      } catch {
+        // fire-and-forget, scheduling result arrives via socket
+      }
+    },
+    [],
+  );
 
-  const getDependenciesByTaskId = useCallback(async (taskId: number, companyId: number): Promise<DependencyData[]> => {
-    const res = await tasksService.getDependencies(taskId, companyId);
-    if (res.Good && Array.isArray(res.data)) {
-      return res.data;
-    }
-    return [];
-  }, []);
+  const getDependenciesByTaskId = useCallback(
+    async (taskId: number, companyId: number): Promise<DependencyData[]> => {
+      const res = await tasksService.getDependencies(taskId, companyId);
+      if (res.Good && Array.isArray(res.data)) {
+        return res.data;
+      }
+      return [];
+    },
+    [],
+  );
 
-  const addDependencyAction = useCallback(async (data: AddDependencyRequest) => {
-    const res = await tasksService.addDependency(data);
-    if (!res.Good) {
-      throw new Error(typeof res.data === "string" ? res.data : "Failed to add dependency");
-    }
-  }, []);
+  const addDependencyAction = useCallback(
+    async (data: AddDependencyRequest) => {
+      const res = await tasksService.addDependency(data);
+      if (!res.Good) {
+        console.log(
+          typeof res.data === "string" ? res.data : "Failed to add dependency",
+        );
+      }
+    },
+    [],
+  );
 
-  const removeDependencyAction = useCallback(async (data: RemoveDependencyRequest) => {
-    const res = await tasksService.removeDependency(data);
-    if (!res.Good) {
-      throw new Error(typeof res.data === "string" ? res.data : "Failed to remove dependency");
-    }
-  }, []);
+  const removeDependencyAction = useCallback(
+    async (data: RemoveDependencyRequest) => {
+      const res = await tasksService.removeDependency(data);
+      if (!res.Good) {
+        console.log(
+          typeof res.data === "string"
+            ? res.data
+            : "Failed to remove dependency",
+        );
+      }
+    },
+    [],
+  );
 
-  const reorderCriticalAction = useCallback(async (data: ReorderCriticalRequest) => {
-    const res = await tasksService.reorderCritical(data);
-    if (res.Good && res.data) {
-      return { blockedTasks: (res.data as any).blockedTasks ?? [] };
-    }
-    return { blockedTasks: [] };
-  }, []);
+  const reorderCriticalAction = useCallback(
+    async (data: ReorderCriticalRequest) => {
+      const res = await tasksService.reorderCritical(data);
+      if (res.Good && res.data) {
+        return { blockedTasks: (res.data as any).blockedTasks ?? [] };
+      }
+      return { blockedTasks: [] };
+    },
+    [],
+  );
 
-  const rescheduleReopenedAction = useCallback(async (taskId: number, data: RescheduleReopenedRequest) => {
-    const res = await tasksService.rescheduleReopened(taskId, data);
-    if (!res.Good) {
-      throw new Error(typeof res.data === "string" ? res.data : "Failed to reschedule task");
-    }
-  }, []);
+  const rescheduleReopenedAction = useCallback(
+    async (taskId: number, data: RescheduleReopenedRequest) => {
+      const res = await tasksService.rescheduleReopened(taskId, data);
+      if (!res.Good) {
+        console.log(
+          typeof res.data === "string" ? res.data : "Failed to reschedule task",
+        );
+      }
+    },
+    [],
+  );
 
-  const reopenTaskAction = useCallback(async (taskId: number, data: ReopenTaskRequest) => {
-    const res = await tasksService.reopenTask(taskId, data);
-    if (!res.Good) {
-      throw new Error(typeof res.data === "string" ? res.data : "Failed to reopen task");
-    }
-  }, []);
+  const reopenTaskAction = useCallback(
+    async (taskId: number, data: ReopenTaskRequest) => {
+      const res = await tasksService.reopenTask(taskId, data);
+      if (!res.Good) {
+        console.log(
+          typeof res.data === "string" ? res.data : "Failed to reopen task",
+        );
+      }
+    },
+    [],
+  );
 
   const applyPriorityUpdate = useCallback(
     (
       action: "create" | "update" | "delete",
-      data: { id: number; name?: string; color?: string; order?: number; company_id?: number }
+      data: {
+        id: number;
+        name?: string;
+        color?: string;
+        order?: number;
+        company_id?: number;
+      },
     ) => {
       switch (action) {
         case "create":
@@ -718,13 +867,13 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
           break;
       }
     },
-    []
+    [],
   );
 
   const applyJobStatusUpdate = useCallback(
     (
       action: "create" | "update" | "delete",
-      data: { id: number; name?: string; company_id?: number; status?: number }
+      data: { id: number; name?: string; company_id?: number; status?: number },
     ) => {
       switch (action) {
         case "create":
@@ -737,11 +886,15 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
           break;
       }
     },
-    []
+    [],
   );
 
   const applyScheduleUpdate = useCallback(
-    (data: { id: number; due_date?: string; remaining_effort_hours?: number }) => {
+    (data: {
+      id: number;
+      due_date?: string;
+      remaining_effort_hours?: number;
+    }) => {
       if (!data?.id) return;
       dispatch({
         type: "PATCH_TASK_SCHEDULE",
@@ -752,7 +905,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
         },
       });
     },
-    []
+    [],
   );
 
   const updateTaskStatusApi = useCallback(
@@ -760,10 +913,14 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       updateTaskStatusLocal(String(taskId), data.status);
       const res = await tasksService.updateTaskStatus(taskId, data);
       if (!res.Good) {
-        throw new Error(typeof res.data === "string" ? res.data : "Failed to update task status");
+        console.log(
+          typeof res.data === "string"
+            ? res.data
+            : "Failed to update task status",
+        );
       }
     },
-    [updateTaskStatusLocal]
+    [updateTaskStatusLocal],
   );
 
   const logout = useCallback(() => {
@@ -848,7 +1005,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       applyPriorityUpdate,
       applyJobStatusUpdate,
       logout,
-    ]
+    ],
   );
 
   return <TaskContext.Provider value={value}>{children}</TaskContext.Provider>;
@@ -857,7 +1014,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 export function useTasks(): TaskContextValue {
   const ctx = useContext(TaskContext);
   if (!ctx) {
-    throw new Error("useTasks must be used within a TaskProvider");
+    console.log("useTasks must be used within a TaskProvider");
   }
   return ctx;
 }

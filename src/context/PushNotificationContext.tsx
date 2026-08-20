@@ -1,3 +1,14 @@
+import { useAuth } from "@/hooks/useAuth";
+import { useChat } from "@/hooks/useChat";
+import * as pushService from "@/services/api/push.service";
+import type {
+  Platform,
+  PushNotificationData,
+  PushNotificationState,
+} from "@/types/push.types";
+import { getRoomDisplayName, getRoomInitials } from "@/utils/chatHelpers";
+import Constants from "expo-constants";
+import { router } from "expo-router";
 import React, {
   createContext,
   useCallback,
@@ -8,17 +19,6 @@ import React, {
   useState,
 } from "react";
 import { Platform as RNPlatform } from "react-native";
-import Constants from "expo-constants";
-import { router } from "expo-router";
-import { useAuth } from "@/hooks/useAuth";
-import { useChat } from "@/hooks/useChat";
-import { getRoomDisplayName, getRoomInitials } from "@/utils/chatHelpers";
-import * as pushService from "@/services/api/push.service";
-import type {
-  PushNotificationData,
-  PushNotificationState,
-  Platform,
-} from "@/types/push.types";
 
 let Notifications: typeof import("expo-notifications") | null = null;
 let Device: typeof import("expo-device") | null = null;
@@ -42,25 +42,30 @@ if (!isExpoGo) {
       });
     }
     hasNativeModule = true;
-    console.log("📲 [PushNotification] Native notification modules (expo-notifications, expo-device) loaded successfully.");
+    console.log(
+      "📲 [PushNotification] Native notification modules (expo-notifications, expo-device) loaded successfully.",
+    );
   } catch (err) {
-    console.log("📲 [PushNotification] Failed to initialize notifications native modules:", err);
+    console.log(
+      "📲 [PushNotification] Failed to initialize notifications native modules:",
+      err,
+    );
     hasNativeModule = false;
   }
 } else {
-  console.log("📲 [PushNotification] expo-notifications unavailable in Expo Go. Use a development build or standalone build for push notifications.");
+  console.log(
+    "📲 [PushNotification] expo-notifications unavailable in Expo Go. Use a development build or standalone build for push notifications.",
+  );
 }
 
 export type PushNotificationContextValue = {
   state: PushNotificationState;
-  registerForPushNotifications: (
-    companyId: number
-  ) => Promise<string | null>;
+  registerForPushNotifications: (companyId: number) => Promise<string | null>;
   unregisterDevice: (companyId: number) => Promise<void>;
   updateDeviceToken: (
     newToken: string,
     companyId?: number,
-    oldToken?: string
+    oldToken?: string,
   ) => Promise<void>;
   resetBadge: (companyId: number) => Promise<void>;
   handleNotificationTap: (data: PushNotificationData | null) => void;
@@ -83,7 +88,9 @@ export function PushNotificationProvider({
   children: React.ReactNode;
 }) {
   const [state, setState] = useState<PushNotificationState>(initialState);
-  const notificationResponseListener = useRef<{ remove: () => void } | null>(null);
+  const notificationResponseListener = useRef<{ remove: () => void } | null>(
+    null,
+  );
   const tokenListener = useRef<{ remove: () => void } | null>(null);
   const foregroundListener = useRef<{ remove: () => void } | null>(null);
   const notificationDataRef = useRef<PushNotificationData | null>(null);
@@ -94,20 +101,27 @@ export function PushNotificationProvider({
   const { state: chatState } = useChat();
 
   const requestPermissions = useCallback(async () => {
-    console.log("📲 [PushNotification] Requesting permissions & fetching push tokens...", {
-      hasNativeModule,
-      isDevice: Device?.isDevice,
-      platform: RNPlatform.OS,
-    });
+    console.log(
+      "📲 [PushNotification] Requesting permissions & fetching push tokens...",
+      {
+        hasNativeModule,
+        isDevice: Device?.isDevice,
+        platform: RNPlatform.OS,
+      },
+    );
 
     if (!hasNativeModule || !Device || !Notifications) {
-      console.warn("📲 [PushNotification] Cannot request permissions: Native modules are missing.");
+      console.warn(
+        "📲 [PushNotification] Cannot request permissions: Native modules are missing.",
+      );
       setState((prev) => ({ ...prev, permissionStatus: "denied" }));
       return null;
     }
 
     if (!Device.isDevice) {
-      console.warn("📲 [PushNotification] Physical device required for push notifications. Emulator detected.");
+      console.warn(
+        "📲 [PushNotification] Physical device required for push notifications. Emulator detected.",
+      );
       setState((prev) => ({ ...prev, permissionStatus: "denied" }));
       return null;
     }
@@ -115,21 +129,28 @@ export function PushNotificationProvider({
     try {
       const { status: existingStatus } =
         await Notifications.getPermissionsAsync();
-      console.log(`📲 [PushNotification] Existing notification permission status: ${existingStatus}`);
+      console.log(
+        `📲 [PushNotification] Existing notification permission status: ${existingStatus}`,
+      );
       let finalStatus = existingStatus;
 
       if (existingStatus !== "granted") {
-        console.log("📲 [PushNotification] Requesting notification permission from user...");
+        console.log(
+          "📲 [PushNotification] Requesting notification permission from user...",
+        );
         const { status } = await Notifications.requestPermissionsAsync();
         finalStatus = status;
       }
 
-      console.log(`📲 [PushNotification] Final notification permission status: ${finalStatus}`);
+      console.log(
+        `📲 [PushNotification] Final notification permission status: ${finalStatus}`,
+      );
 
       if (finalStatus !== "granted") {
         setState((prev) => ({
           ...prev,
-          permissionStatus: finalStatus as PushNotificationState["permissionStatus"],
+          permissionStatus:
+            finalStatus as PushNotificationState["permissionStatus"],
         }));
         return null;
       }
@@ -137,7 +158,9 @@ export function PushNotificationProvider({
       setState((prev) => ({ ...prev, permissionStatus: "granted" }));
 
       if (RNPlatform.OS === "android") {
-        console.log("📲 [PushNotification] Configuring Android Notification Channel: 'planit-notifications'");
+        console.log(
+          "📲 [PushNotification] Configuring Android Notification Channel: 'planit-notifications'",
+        );
         await Notifications.setNotificationChannelAsync(
           "planit-notifications",
           {
@@ -146,7 +169,7 @@ export function PushNotificationProvider({
             vibrationPattern: [0, 250, 250, 250],
             lightColor: "#00DEAB",
             sound: "notification.mp3",
-          }
+          },
         );
       }
 
@@ -154,12 +177,20 @@ export function PushNotificationProvider({
 
       // Fetch Expo Push Token (Notifications.getExpoPushTokenAsync)
       try {
-        const projectId = Constants.expoConfig?.extra?.eas?.projectId || Constants.easConfig?.projectId;
-        console.log(`📲 [PushNotification] Fetching Expo Push Token (EAS Project ID: ${projectId || "default"})...`);
-        const expoTokenData = await Notifications.getExpoPushTokenAsync(
-          projectId ? { projectId } : undefined
+        const projectId =
+          Constants.expoConfig?.extra?.eas?.projectId ||
+          Constants.easConfig?.projectId;
+        console.log(
+          `📲 [PushNotification] Fetching Expo Push Token (EAS Project ID: ${projectId || "default"})...`,
         );
-        if (expoTokenData && expoTokenData.data && typeof expoTokenData.data === "string") {
+        const expoTokenData = await Notifications.getExpoPushTokenAsync(
+          projectId ? { projectId } : undefined,
+        );
+        if (
+          expoTokenData &&
+          expoTokenData.data &&
+          typeof expoTokenData.data === "string"
+        ) {
           expoPushToken = expoTokenData.data;
         }
         // console.log("==================================================================");
@@ -167,42 +198,56 @@ export function PushNotificationProvider({
         console.log(expoPushToken);
         // console.log("==================================================================");
       } catch (expoErr) {
-        console.warn("📲 [PushNotification] Could not fetch Expo Push Token:", expoErr);
+        console.warn(
+          "📲 [PushNotification] Could not fetch Expo Push Token:",
+          expoErr,
+        );
       }
 
       return expoPushToken;
     } catch (err) {
-      console.warn("📲 [PushNotification] Error while checking permissions or getting push tokens:", err);
+      console.warn(
+        "📲 [PushNotification] Error while checking permissions or getting push tokens:",
+        err,
+      );
       return null;
     }
   }, []);
 
   const registerForPushNotifications = useCallback(
     async (companyId: number): Promise<string | null> => {
-      console.log(`📲 [PushNotification] registerForPushNotifications called for companyId: ${companyId}`);
+      console.log(
+        `📲 [PushNotification] registerForPushNotifications called for companyId: ${companyId}`,
+      );
       if (!hasNativeModule || !Device || !Notifications) {
-        console.warn("📲 [PushNotification] Registration aborted: Native modules missing.");
+        console.warn(
+          "📲 [PushNotification] Registration aborted: Native modules missing.",
+        );
         return null;
       }
       try {
         const token = await requestPermissions();
         if (!token || typeof token !== "string" || !token.trim()) {
-          console.warn("📲 [PushNotification] Registration aborted: Push token is null or empty.");
+          console.warn(
+            "📲 [PushNotification] Registration aborted: Push token is null or empty.",
+          );
           return null;
         }
 
         lastTokenRef.current = token;
 
-        const platform: Platform =
-          RNPlatform.OS === "ios" ? "ios" : "android";
+        const platform: Platform = RNPlatform.OS === "ios" ? "ios" : "android";
 
-        console.log("📲 [PushNotification] Sending Expo registration request to backend:", {
-          company_id: companyId,
-          platform,
-          token_type: "expo",
-          device_name: Device.modelName,
-          token_preview: `${token.substring(0, 25)}...`,
-        });
+        console.log(
+          "📲 [PushNotification] Sending Expo registration request to backend:",
+          {
+            company_id: companyId,
+            platform,
+            token_type: "expo",
+            device_name: Device.modelName,
+            token_preview: `${token.substring(0, 25)}...`,
+          },
+        );
 
         const res = await pushService.registerDevice({
           fcm_token: token,
@@ -213,10 +258,15 @@ export function PushNotificationProvider({
           company_id: companyId,
         });
 
-        console.log("📲 [PushNotification] Device registration API response:", res);
+        console.log(
+          "📲 [PushNotification] Device registration API response:",
+          res,
+        );
 
         if (res && res.Good) {
-          console.log(`📲 [PushNotification] Device registered successfully with backend. Device ID: ${res.device_id}`);
+          console.log(
+            `📲 [PushNotification] Device registered successfully with backend. Device ID: ${res.device_id}`,
+          );
           setState((prev) => ({
             ...prev,
             expoPushToken: token,
@@ -224,25 +274,30 @@ export function PushNotificationProvider({
             deviceId: res.device_id,
           }));
         } else {
-          console.warn("📲 [PushNotification] Device registration API returned Good: false", res);
+          console.warn(
+            "📲 [PushNotification] Device registration API returned Good: false",
+            res,
+          );
         }
 
         return token;
       } catch (error) {
         console.warn(
           "📲 [PushNotification] Device registration failed:",
-          error instanceof Error ? error.message : error
+          error instanceof Error ? error.message : error,
         );
         return null;
       }
     },
-    [requestPermissions]
+    [requestPermissions],
   );
 
   const unregisterDevice = useCallback(
     async (companyId: number) => {
       const token = lastTokenRef.current || state.expoPushToken;
-      console.log(`📲 [PushNotification] unregisterDevice called for companyId: ${companyId}, token: ${token ? token.substring(0, 20) + "..." : "NONE"}`);
+      console.log(
+        `📲 [PushNotification] unregisterDevice called for companyId: ${companyId}, token: ${token ? token.substring(0, 20) + "..." : "NONE"}`,
+      );
       if (!token) return;
 
       try {
@@ -254,23 +309,22 @@ export function PushNotificationProvider({
       } catch (error) {
         console.error(
           "📲 [PushNotification] Unregistration failed with error:",
-          error
+          error,
         );
       }
 
       setState(initialState);
       lastTokenRef.current = null;
     },
-    [state.expoPushToken]
+    [state.expoPushToken],
   );
 
   const updateDeviceToken = useCallback(
-    async (
-      newToken: string,
-      companyId?: number,
-      oldToken?: string
-    ) => {
-      console.log("📲 [PushNotification] updateDeviceToken called with newToken:", `${newToken.substring(0, 20)}...`);
+    async (newToken: string, companyId?: number, oldToken?: string) => {
+      console.log(
+        "📲 [PushNotification] updateDeviceToken called with newToken:",
+        `${newToken.substring(0, 20)}...`,
+      );
       try {
         const res = await pushService.updateDeviceToken({
           old_fcm_token: oldToken || lastTokenRef.current || undefined,
@@ -284,15 +338,17 @@ export function PushNotificationProvider({
       } catch (error) {
         console.error(
           "📲 [PushNotification] Token update failed with error:",
-          error
+          error,
         );
       }
     },
-    []
+    [],
   );
 
   const resetBadge = useCallback(async (companyId: number) => {
-    console.log(`📲 [PushNotification] Resetting notification badge count for companyId: ${companyId}`);
+    console.log(
+      `📲 [PushNotification] Resetting notification badge count for companyId: ${companyId}`,
+    );
     try {
       const res = await pushService.resetBadge({ company_id: companyId });
       console.log("📲 [PushNotification] Badge reset API response:", res);
@@ -302,13 +358,19 @@ export function PushNotificationProvider({
         await Notifications.setBadgeCountAsync(0).catch(() => {});
       }
     } catch (error) {
-      console.error("📲 [PushNotification] Badge reset failed with error:", error);
+      console.error(
+        "📲 [PushNotification] Badge reset failed with error:",
+        error,
+      );
     }
   }, []);
 
   const handleNotificationTap = useCallback(
     (data: PushNotificationData | null) => {
-      console.log("📲 [PushNotification] Handling notification tap navigation with data:", data);
+      console.log(
+        "📲 [PushNotification] Handling notification tap navigation with data:",
+        data,
+      );
       if (!data) {
         router.push("/(tabs)/tasks");
         return;
@@ -341,9 +403,7 @@ export function PushNotificationProvider({
             // backend payload only carries `type: "chat"` + `room_id`, so the
             // room lookup is required for DMs vs channels to render correctly.
             const targetRoom = chatState.rooms.find(
-              (r) =>
-                r._id === data.room_id ||
-                r.id.toString() === data.room_id
+              (r) => r._id === data.room_id || r.id.toString() === data.room_id,
             );
             if (targetRoom) {
               router.push({
@@ -376,14 +436,16 @@ export function PushNotificationProvider({
           break;
       }
     },
-    [chatState.rooms, currentUserId]
+    [chatState.rooms, currentUserId],
   );
 
   useEffect(() => {
     if (!hasNativeModule || !Notifications) return;
 
     try {
-      console.log("📲 [PushNotification] Subscribing to foreground notification & notification tap listeners...");
+      console.log(
+        "📲 [PushNotification] Subscribing to foreground notification & notification tap listeners...",
+      );
 
       foregroundListener.current =
         Notifications.addNotificationReceivedListener((notification: any) => {
@@ -401,68 +463,83 @@ export function PushNotificationProvider({
         });
 
       notificationResponseListener.current =
-        Notifications.addNotificationResponseReceivedListener((response: any) => {
-          const content = response.notification.request.content;
-          const data = content.data as PushNotificationData | null;
-          const actionIdentifier = response.actionIdentifier;
-          console.log("👉 [PUSH NOTIFICATION TAPPED / USER OPENED]:", {
-            actionIdentifier,
-            title: content.title,
-            body: content.body,
-            data: data,
-          });
-          notificationDataRef.current = data;
-          handleNotificationTap(data);
-        });
-
-      tokenListener.current = Notifications.addPushTokenListener((tokenData: any) => {
-        const newToken = tokenData.data;
-        console.log("🔄 [PUSH TOKEN AUTOMATICALLY REFRESHED]:", newToken);
-        if (
-          lastTokenRef.current &&
-          lastTokenRef.current !== newToken
-        ) {
-          pushService
-            .updateDeviceToken({
-              old_fcm_token: lastTokenRef.current,
-              new_fcm_token: newToken,
-            })
-            .then((res) => {
-              console.log("📲 [PushNotification] Auto token update API response:", res);
-              lastTokenRef.current = newToken;
-              setState((prev) => ({
-                ...prev,
-                expoPushToken: newToken,
-              }));
-            })
-            .catch((err) => {
-              console.error(
-                "📲 [PushNotification] Auto token update failed with error:",
-                err
-              );
+        Notifications.addNotificationResponseReceivedListener(
+          (response: any) => {
+            const content = response.notification.request.content;
+            const data = content.data as PushNotificationData | null;
+            const actionIdentifier = response.actionIdentifier;
+            console.log("👉 [PUSH NOTIFICATION TAPPED / USER OPENED]:", {
+              actionIdentifier,
+              title: content.title,
+              body: content.body,
+              data: data,
             });
-        } else {
-          lastTokenRef.current = newToken;
-          setState((prev) => ({
-            ...prev,
-            expoPushToken: newToken,
-          }));
-        }
-      });
+            notificationDataRef.current = data;
+            handleNotificationTap(data);
+          },
+        );
+
+      tokenListener.current = Notifications.addPushTokenListener(
+        (tokenData: any) => {
+          const newToken = tokenData.data;
+          console.log("🔄 [PUSH TOKEN AUTOMATICALLY REFRESHED]:", newToken);
+          if (lastTokenRef.current && lastTokenRef.current !== newToken) {
+            pushService
+              .updateDeviceToken({
+                old_fcm_token: lastTokenRef.current,
+                new_fcm_token: newToken,
+              })
+              .then((res) => {
+                console.log(
+                  "📲 [PushNotification] Auto token update API response:",
+                  res,
+                );
+                lastTokenRef.current = newToken;
+                setState((prev) => ({
+                  ...prev,
+                  expoPushToken: newToken,
+                }));
+              })
+              .catch((err) => {
+                console.error(
+                  "📲 [PushNotification] Auto token update failed with error:",
+                  err,
+                );
+              });
+          } else {
+            lastTokenRef.current = newToken;
+            setState((prev) => ({
+              ...prev,
+              expoPushToken: newToken,
+            }));
+          }
+        },
+      );
     } catch (err) {
-      console.warn("📲 [PushNotification] Error subscribing to notification listeners:", err);
+      console.warn(
+        "📲 [PushNotification] Error subscribing to notification listeners:",
+        err,
+      );
     }
 
     return () => {
-      console.log("📲 [PushNotification] Cleaning up notification listeners...");
+      console.log(
+        "📲 [PushNotification] Cleaning up notification listeners...",
+      );
       if (foregroundListener.current) {
-        try { foregroundListener.current.remove(); } catch {}
+        try {
+          foregroundListener.current.remove();
+        } catch {}
       }
       if (notificationResponseListener.current) {
-        try { notificationResponseListener.current.remove(); } catch {}
+        try {
+          notificationResponseListener.current.remove();
+        } catch {}
       }
       if (tokenListener.current) {
-        try { tokenListener.current.remove(); } catch {}
+        try {
+          tokenListener.current.remove();
+        } catch {}
       }
     };
   }, [handleNotificationTap]);
@@ -483,7 +560,7 @@ export function PushNotificationProvider({
       updateDeviceToken,
       resetBadge,
       handleNotificationTap,
-    ]
+    ],
   );
 
   return (
@@ -496,8 +573,8 @@ export function PushNotificationProvider({
 export function usePushNotifications(): PushNotificationContextValue {
   const ctx = useContext(PushNotificationContext);
   if (!ctx) {
-    throw new Error(
-      "usePushNotifications must be used within a PushNotificationProvider"
+    console.log(
+      "usePushNotifications must be used within a PushNotificationProvider",
     );
   }
   return ctx;
