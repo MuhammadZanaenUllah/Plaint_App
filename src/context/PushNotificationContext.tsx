@@ -573,7 +573,7 @@ export function PushNotificationProvider({
 export function usePushNotifications(): PushNotificationContextValue {
   const ctx = useContext(PushNotificationContext);
   if (!ctx) {
-    console.log(
+    throw new Error(
       "usePushNotifications must be used within a PushNotificationProvider",
     );
   }

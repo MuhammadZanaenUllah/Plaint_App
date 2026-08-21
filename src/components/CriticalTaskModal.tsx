@@ -122,7 +122,6 @@ const popup = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 100,
-    elevation: 100,
   },
   card: {
     backgroundColor: "#fff",
@@ -433,7 +432,6 @@ const order = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 100,
-    elevation: 100,
   },
   sheet: {
     backgroundColor: "#fff",

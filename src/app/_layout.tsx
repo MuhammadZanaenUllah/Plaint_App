@@ -6,6 +6,12 @@ import {
   usePushNotifications,
 } from "@/context/PushNotificationContext";
 import { TaskProvider } from "@/context/TaskContext";
+import { useUpdates } from "@/hooks/useUpdates";
+
+function UpdateLifecycle() {
+  useUpdates();
+  return null;
+}
 import {
   connectSocket,
   disconnectSocket,
@@ -222,6 +228,7 @@ export default function RootLayout() {
             <ChatProvider>
               <PushNotificationProvider>
                 <PushNotificationLifecycle />
+                <UpdateLifecycle />
                 <RootNavigator />
                 <Toast />
               </PushNotificationProvider>

@@ -155,46 +155,63 @@ export default function TasksScreen() {
     if (!companyId || allMappedTasks.length === 0) return;
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
+    const todayMs = todayStart.getTime();
 
-    const overdue = allMappedTasks.filter((t) => {
-      if (t.status === "Completed") return false;
-      const d = t._raw?.due_date ? new Date(t._raw.due_date) : null;
-      return d && !isNaN(d.getTime()) && d.getTime() < todayStart.getTime();
-    });
-
-    if (overdue.length > 0 && !overdueToastShownRef.current) {
-      overdueToastShownRef.current = true;
-      showInfo(
-        "Overdue Tasks",
-        `You have ${overdue.length} overdue task${overdue.length === 1 ? "" : "s"} that need attention.`,
-      );
+    // Full-list scan (Date parsing for every task) is only needed once per
+    // session, purely for the summary count — skip it on every subsequent
+    // silent socket refetch (this list can be 10k+ tasks company-wide, and
+    // this effect re-runs on every background refetch, not just user
+    // actions, so re-scanning it repeatedly was a real source of jank).
+    if (!overdueToastShownRef.current) {
+      let overdueCount = 0;
+      for (const t of allMappedTasks) {
+        if (t.status === "Completed") continue;
+        const raw = t._raw?.due_date;
+        if (!raw) continue;
+        const ms = new Date(raw).getTime();
+        if (!isNaN(ms) && ms < todayMs) overdueCount++;
+      }
+      if (overdueCount > 0) {
+        overdueToastShownRef.current = true;
+        showInfo(
+          "Overdue Tasks",
+          `You have ${overdueCount} overdue task${overdueCount === 1 ? "" : "s"} that need attention.`,
+        );
+      }
     }
 
     // Escalation popup for the assigner (current user created the task and
-    // assigned it to someone else).
+    // assigned it to someone else). Filter to the current user's own
+    // created-and-reassigned tasks — a much smaller subset than the full
+    // company list — before doing any date parsing/comparison.
     if (currentUserId > 0 && !delayTask) {
-      const myDelayed = overdue
-        .filter(
-          (t) =>
-            t._raw?.created_by === currentUserId &&
-            t._raw.asigned_to !== currentUserId,
-        )
-        .sort((a, b) => {
-          const da = a._raw?.due_date ? new Date(a._raw.due_date).getTime() : 0;
-          const db = b._raw?.due_date ? new Date(b._raw.due_date).getTime() : 0;
-          return da - db;
-        })
-        .find((t) => !delayPromptedIdsRef.current.has(Number(t.id)));
+      let earliest: (typeof allMappedTasks)[number] | null = null;
+      let earliestMs = Infinity;
 
-      if (myDelayed) {
-        delayPromptedIdsRef.current.add(Number(myDelayed.id));
-        const assignee = myDelayed._raw?.task_assigned_to;
+      for (const t of allMappedTasks) {
+        if (t.status === "Completed") continue;
+        if (t._raw?.created_by !== currentUserId) continue;
+        if (t._raw.asigned_to === currentUserId) continue;
+        if (delayPromptedIdsRef.current.has(Number(t.id))) continue;
+        const raw = t._raw?.due_date;
+        if (!raw) continue;
+        const ms = new Date(raw).getTime();
+        if (isNaN(ms) || ms >= todayMs) continue; // not overdue
+        if (ms < earliestMs) {
+          earliestMs = ms;
+          earliest = t;
+        }
+      }
+
+      if (earliest) {
+        delayPromptedIdsRef.current.add(Number(earliest.id));
+        const assignee = earliest._raw?.task_assigned_to;
         const assigneeName =
           `${assignee?.first_name ?? ""} ${assignee?.last_name ?? ""}`.trim() ||
-          `User #${myDelayed._raw?.asigned_to ?? ""}`;
+          `User #${earliest._raw?.asigned_to ?? ""}`;
         setDelayTask({
-          id: Number(myDelayed.id),
-          title: myDelayed._raw?.title ?? "Task",
+          id: Number(earliest.id),
+          title: earliest._raw?.title ?? "Task",
           assignedTo: assigneeName,
         });
       }

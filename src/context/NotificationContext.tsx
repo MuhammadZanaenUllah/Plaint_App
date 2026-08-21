@@ -315,7 +315,7 @@ export function NotificationProvider({
 export function useNotifications(): NotificationContextValue {
   const ctx = useContext(NotificationContext);
   if (!ctx) {
-    console.log("useNotifications must be used within a NotificationProvider");
+    throw new Error("useNotifications must be used within a NotificationProvider");
   }
   return ctx;
 }

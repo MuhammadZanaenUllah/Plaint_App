@@ -570,7 +570,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       ) {
         return (res.data as { id: number }).id;
       }
-      console.log(
+      throw new Error(
         typeof res.data === "string" ? res.data : "Failed to create task",
       );
     },
@@ -1014,7 +1014,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 export function useTasks(): TaskContextValue {
   const ctx = useContext(TaskContext);
   if (!ctx) {
-    console.log("useTasks must be used within a TaskProvider");
+    throw new Error("useTasks must be used within a TaskProvider");
   }
   return ctx;
 }

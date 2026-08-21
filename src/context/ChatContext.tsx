@@ -411,7 +411,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: "ADD_ROOM", room: res.room });
         return res.room;
       }
-      console.log("Failed to create room");
+      throw new Error("Failed to create room");
     },
     [],
   );
@@ -552,7 +552,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           dispatch({ type: "ADD_MESSAGE", message: res.message });
           return res.message;
         }
-        console.log("Failed to send message");
+        throw new Error("Failed to send message");
       }
 
       // Has attachments — send as FormData (multipart)
@@ -583,7 +583,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           dispatch({ type: "ADD_MESSAGE", message: response.message });
           return response.message;
         }
-        console.log("Failed to send message");
+        throw new Error("Failed to send message");
       }
 
       const res = await chatService.sendMessage(formData);
@@ -595,7 +595,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: "ADD_MESSAGE", message: res.message });
         return res.message;
       }
-      console.log("Failed to send message");
+      throw new Error("Failed to send message");
     },
     [],
   );
@@ -619,7 +619,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: "UPDATE_MESSAGE", message: res.message });
         return res.message;
       }
-      console.log("Failed to edit message");
+      throw new Error("Failed to edit message");
     },
     [],
   );
@@ -843,7 +843,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (res.Good && res.inviteLink) {
         return res.inviteLink;
       }
-      console.log("Failed to send invite");
+      throw new Error("Failed to send invite");
     },
     [],
   );
@@ -862,7 +862,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (res.Good && res.inviteLink) {
         return res.inviteLink;
       }
-      console.log("Failed to generate link");
+      throw new Error("Failed to generate link");
     },
     [],
   );
@@ -1526,7 +1526,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 export function useChat(): ChatContextValue {
   const ctx = useContext(ChatContext);
   if (!ctx) {
-    console.log("useChat must be used within a ChatProvider");
+    throw new Error("useChat must be used within a ChatProvider");
   }
   return ctx;
 }
@@ -1537,7 +1537,7 @@ export function useChat(): ChatContextValue {
 export function useChatPresence(): ChatPresenceValue {
   const ctx = useContext(ChatPresenceContext);
   if (!ctx) {
-    console.log("useChatPresence must be used within a ChatProvider");
+    throw new Error("useChatPresence must be used within a ChatProvider");
   }
   return ctx;
 }
