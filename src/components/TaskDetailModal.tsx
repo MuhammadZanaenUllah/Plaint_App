@@ -1353,8 +1353,8 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     paddingTop: 14,
     paddingHorizontal: 16,
-    minHeight: "92%",
-    maxHeight: "92%",
+    minHeight: "90%",
+    maxHeight: "90%",
   },
   dragHandleBar: {
     width: "100%",
