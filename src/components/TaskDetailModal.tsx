@@ -24,9 +24,7 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -1055,298 +1053,288 @@ export default function TaskDetailModal({
 
           <View style={styles.tabs}>
             <TouchableOpacity
-              style={[
-                styles.tab,
-                activeTab === "details" && styles.tabActive,
-              ]}
-                onPress={() => setActiveTab("details")}
+              style={[styles.tab, activeTab === "details" && styles.tabActive]}
+              onPress={() => setActiveTab("details")}
+            >
+              <Text
+                style={
+                  activeTab === "details"
+                    ? styles.tabActiveText
+                    : styles.tabInactiveText
+                }
               >
-                <Text
-                  style={
-                    activeTab === "details"
-                      ? styles.tabActiveText
-                      : styles.tabInactiveText
-                  }
-                >
-                  Task Details
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.tab,
-                  activeTab === "comments" && styles.tabActive,
-                ]}
-                onPress={() => setActiveTab("comments")}
+                Task Details
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "comments" && styles.tabActive]}
+              onPress={() => setActiveTab("comments")}
+            >
+              <Text
+                style={
+                  activeTab === "comments"
+                    ? styles.tabActiveText
+                    : styles.tabInactiveText
+                }
               >
-                <Text
-                  style={
-                    activeTab === "comments"
-                      ? styles.tabActiveText
-                      : styles.tabInactiveText
-                  }
-                >
-                  Comments
-                </Text>
-                <View style={styles.tabDot} />
-              </TouchableOpacity>
-              </View>
+                Comments
+              </Text>
+              <View style={styles.tabDot} />
+            </TouchableOpacity>
+          </View>
 
-            {activeTab === "details" && (
-              <View style={styles.tabContent}>
-                {detailLoading ? (
+          {activeTab === "details" && (
+            <View style={styles.tabContent}>
+              {detailLoading ? (
+                <ActivityIndicator
+                  size="small"
+                  color="#00DEAB"
+                  style={{ marginTop: 40 }}
+                />
+              ) : (
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.detailsScroll}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <Text style={styles.taskTitle}>{task.title}</Text>
+
+                  {INFO_ROWS.map((row, i) => (
+                    <View key={i} style={styles.infoRow}>
+                      <View style={styles.infoLabelWrap}>
+                        <Ionicons
+                          name={row.icon as any}
+                          size={16}
+                          color="#AAAAAA"
+                          style={{ marginRight: 6 }}
+                        />
+                        <Text style={styles.infoLabel}>{row.label}</Text>
+                      </View>
+                      <View style={styles.infoValueWrap}>{row.value}</View>
+                    </View>
+                  ))}
+
+                  <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Description</Text>
+                    <Text style={styles.descText}>
+                      {(apiTask?.description ?? task.description).replace(
+                        /<[^>]*>/g,
+                        "",
+                      )}
+                    </Text>
+                    <View style={styles.descBadgesRow}>
+                      {attachmentFiles.length > 0 && (
+                        <View style={styles.descBadge}>
+                          <Ionicons
+                            name="link-outline"
+                            size={13}
+                            color="#fff"
+                          />
+                          <Text style={styles.descBadgeText}>
+                            +{attachmentFiles.length}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+
+                  {depDisplay.length > 0 && (
+                    <SectionTable title="Dependencies" rows={depDisplay} />
+                  )}
+
+                  {attachmentFiles.length > 0 && (
+                    <View style={styles.section}>
+                      <View style={styles.attachHeader}>
+                        <Text style={styles.sectionTitle}>Attachments</Text>
+                        <View style={styles.cntBadgeGray}>
+                          <MaterialCommunityIcons
+                            name="file-tree-outline"
+                            size={13}
+                            color="#fff"
+                          />
+                          <Text style={styles.cntBadgeText}>
+                            +{attachmentFiles.length}
+                          </Text>
+                        </View>
+                      </View>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                      >
+                        {attachmentFiles.map((a, i) => (
+                          <View key={i} style={styles.attachTag}>
+                            <Ionicons
+                              name="download-outline"
+                              size={13}
+                              color="#00DEAB"
+                            />
+                            <Text style={styles.attachTagText}>{a}</Text>
+                            <Ionicons name="close" size={13} color="#00DEAB" />
+                          </View>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </ScrollView>
+              )}
+            </View>
+          )}
+
+          {activeTab === "comments" && (
+            <View style={[styles.commentsContainer, styles.tabComment]}>
+              {/* Sticky pinned message */}
+              {pinnedNotes.length > 0 && (
+                <PinnedCommentCard
+                  comment={pinnedNotes[0]}
+                  onUnpin={handlePinNote}
+                />
+              )}
+
+              {/* Only comments scroll */}
+              <ScrollView
+                style={styles.commentsList}
+                contentContainerStyle={styles.commentsListContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                {notesLoading ? (
                   <ActivityIndicator
                     size="small"
                     color="#00DEAB"
-                    style={{ marginTop: 40 }}
+                    style={{ marginTop: 20 }}
                   />
+                ) : notes.length === 0 ? (
+                  <View style={styles.emptyComments}>
+                    <Text style={styles.emptyCommentsText}>No Comments</Text>
+                  </View>
                 ) : (
-                  <ScrollView
-                    showsVerticalScrollIndicator={false}
-                    contentContainerStyle={styles.detailsScroll}
-                    keyboardShouldPersistTaps="handled"
-                  >
-                    <Text style={styles.taskTitle}>{task.title}</Text>
-
-                    {INFO_ROWS.map((row, i) => (
-                      <View key={i} style={styles.infoRow}>
-                        <View style={styles.infoLabelWrap}>
-                          <Ionicons
-                            name={row.icon as any}
-                            size={16}
-                            color="#AAAAAA"
-                            style={{ marginRight: 6 }}
-                          />
-                          <Text style={styles.infoLabel}>{row.label}</Text>
-                        </View>
-                        <View style={styles.infoValueWrap}>{row.value}</View>
-                      </View>
-                    ))}
-
-                    <View style={styles.section}>
-                      <Text style={styles.sectionTitle}>Description</Text>
-                      <Text style={styles.descText}>
-                        {(apiTask?.description ?? task.description).replace(
-                          /<[^>]*>/g,
-                          "",
-                        )}
-                      </Text>
-                      <View style={styles.descBadgesRow}>
-                        {attachmentFiles.length > 0 && (
-                          <View style={styles.descBadge}>
-                            <Ionicons
-                              name="link-outline"
-                              size={13}
-                              color="#fff"
-                            />
-                            <Text style={styles.descBadgeText}>
-                              +{attachmentFiles.length}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
-
-                    {depDisplay.length > 0 && (
-                      <SectionTable title="Dependencies" rows={depDisplay} />
-                    )}
-
-                    {attachmentFiles.length > 0 && (
-                      <View style={styles.section}>
-                        <View style={styles.attachHeader}>
-                          <Text style={styles.sectionTitle}>Attachments</Text>
-                          <View style={styles.cntBadgeGray}>
-                            <MaterialCommunityIcons
-                              name="file-tree-outline"
-                              size={13}
-                              color="#fff"
-                            />
-                            <Text style={styles.cntBadgeText}>
-                              +{attachmentFiles.length}
-                            </Text>
-                          </View>
-                        </View>
-                        <ScrollView
-                          horizontal
-                          showsHorizontalScrollIndicator={false}
-                        >
-                          {attachmentFiles.map((a, i) => (
-                            <View key={i} style={styles.attachTag}>
-                              <Ionicons
-                                name="download-outline"
-                                size={13}
-                                color="#00DEAB"
-                              />
-                              <Text style={styles.attachTagText}>{a}</Text>
-                              <Ionicons
-                                name="close"
-                                size={13}
-                                color="#00DEAB"
-                              />
-                            </View>
-                          ))}
-                        </ScrollView>
-                      </View>
-                    )}
-                  </ScrollView>
-                )}
-              </View>
-            )}
-
-            {activeTab === "comments" && (
-              <View style={[styles.commentsContainer, styles.tabComment]}>
-                {/* Sticky pinned message */}
-                {pinnedNotes.length > 0 && (
-                  <PinnedCommentCard
-                    comment={pinnedNotes[0]}
-                    onUnpin={handlePinNote}
-                  />
-                )}
-
-                {/* Only comments scroll */}
-                <ScrollView
-                  style={styles.commentsList}
-                  contentContainerStyle={styles.commentsListContent}
-                  showsVerticalScrollIndicator={false}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {notesLoading ? (
-                    <ActivityIndicator
-                      size="small"
-                      color="#00DEAB"
-                      style={{ marginTop: 20 }}
+                  notes.map((c, i) => (
+                    <CommentBubble
+                      key={c.id ?? i}
+                      comment={c}
+                      currentUserId={currentUserId}
+                      onPin={handlePinNote}
+                      onDelete={handleDeleteNote}
+                      index={i}
                     />
-                  ) : notes.length === 0 ? (
-                    <View style={styles.emptyComments}>
-                      <Text style={styles.emptyCommentsText}>No Comments</Text>
-                    </View>
-                  ) : (
-                    notes.map((c, i) => (
-                      <CommentBubble
-                        key={c.id ?? i}
-                        comment={c}
-                        currentUserId={currentUserId}
-                        onPin={handlePinNote}
-                        onDelete={handleDeleteNote}
-                        index={i}
-                      />
-                    ))
-                  )}
-                </ScrollView>
+                  ))
+                )}
+              </ScrollView>
 
-                {/* ── Mention Suggestions ── */}
-                {mentionActive && mentionCandidates.length > 0 && (
-                  <View style={styles.mentionSuggestions}>
-                    {mentionCandidates.map((user) => (
-                      <TouchableOpacity
-                        key={user.id}
-                        style={styles.mentionSuggestionItem}
-                        activeOpacity={0.6}
-                        onPress={() => selectMention(user)}
-                      >
-                        <View style={styles.mentionAvatar}>
-                          <Text style={styles.mentionAvatarText}>
-                            {`${user.first_name?.[0] ?? ""}${user.last_name?.[0] ?? ""}`.toUpperCase()}
-                          </Text>
-                        </View>
-                        <Text style={styles.mentionName} numberOfLines={1}>
-                          {`${user.first_name ?? ""} ${user.last_name ?? ""}`.trim() ||
-                            user.full_name ||
-                            `User ${user.id}`}
+              {/* ── Mention Suggestions ── */}
+              {mentionActive && mentionCandidates.length > 0 && (
+                <View style={styles.mentionSuggestions}>
+                  {mentionCandidates.map((user) => (
+                    <TouchableOpacity
+                      key={user.id}
+                      style={styles.mentionSuggestionItem}
+                      activeOpacity={0.6}
+                      onPress={() => selectMention(user)}
+                    >
+                      <View style={styles.mentionAvatar}>
+                        <Text style={styles.mentionAvatarText}>
+                          {`${user.first_name?.[0] ?? ""}${user.last_name?.[0] ?? ""}`.toUpperCase()}
                         </Text>
-                      </TouchableOpacity>
-                    ))}
+                      </View>
+                      <Text style={styles.mentionName} numberOfLines={1}>
+                        {`${user.first_name ?? ""} ${user.last_name ?? ""}`.trim() ||
+                          user.full_name ||
+                          `User ${user.id}`}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              <View
+                style={[
+                  styles.inputBox,
+                  {
+                    borderColor: isFocused ? "#1D1D1D" : "#E5E7EB",
+                  },
+                ]}
+              >
+                {(isFocused || commentText.length > 0) && (
+                  <View style={styles.inputLabelWrap}>
+                    <Text style={styles.inputLabelText}>Comment</Text>
                   </View>
                 )}
-
-                <View
-                  style={[
-                    styles.inputBox,
-                    {
-                      borderColor: isFocused ? "#1D1D1D" : "#E5E7EB",
-                    },
-                  ]}
-                >
-                  {(isFocused || commentText.length > 0) && (
-                    <View style={styles.inputLabelWrap}>
-                      <Text style={styles.inputLabelText}>Comment</Text>
-                    </View>
-                  )}
-                  <TextInput
-                    style={styles.inputField}
-                    value={commentText}
-                    onChangeText={handleCommentChange}
-                    onFocus={() => setIsFocused(true)}
-                    onBlur={() => setIsFocused(false)}
-                    multiline
-                    placeholder={
-                      !isFocused && commentText.length === 0 ? "Comment" : ""
-                    }
-                    placeholderTextColor="#9CA3AF"
-                    textAlignVertical="top"
-                  />
-                  <View style={styles.inputToolbar}>
-                    <View style={styles.toolbarLeft}>
-                      <TouchableOpacity style={styles.toolBtn}>
-                        <Ionicons name="add" size={16} color="#374151" />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.toolBtn}
-                        onPress={() => {
-                          const text = `${commentText}@`;
-                          setCommentText(text);
-                          setMentionQuery("");
-                          setMentionActive(true);
-                          if (companyId && !mentionUsersLoadedRef.current) {
-                            mentionUsersLoadedRef.current = true;
-                            fetchMentionUsers(companyId)
-                              .then(setMentionUsers)
-                              .catch(() => {
-                                mentionUsersLoadedRef.current = false;
-                              });
-                          }
-                        }}
-                      >
-                        <Ionicons name="at" size={16} color="#374151" />
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.toolBtn}>
-                        <Ionicons
-                          name="happy-outline"
-                          size={16}
-                          color="#374151"
-                        />
-                      </TouchableOpacity>
-                      {/* Voice recorder — hidden/disabled */}
-                      {/* <TouchableOpacity style={styles.toolBtn}>
+                <TextInput
+                  style={styles.inputField}
+                  value={commentText}
+                  onChangeText={handleCommentChange}
+                  onFocus={() => setIsFocused(true)}
+                  onBlur={() => setIsFocused(false)}
+                  multiline
+                  placeholder={
+                    !isFocused && commentText.length === 0 ? "Comment" : ""
+                  }
+                  placeholderTextColor="#9CA3AF"
+                  textAlignVertical="top"
+                />
+                <View style={styles.inputToolbar}>
+                  <View style={styles.toolbarLeft}>
+                    <TouchableOpacity style={styles.toolBtn}>
+                      <Ionicons name="add" size={16} color="#374151" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.toolBtn}
+                      onPress={() => {
+                        const text = `${commentText}@`;
+                        setCommentText(text);
+                        setMentionQuery("");
+                        setMentionActive(true);
+                        if (companyId && !mentionUsersLoadedRef.current) {
+                          mentionUsersLoadedRef.current = true;
+                          fetchMentionUsers(companyId)
+                            .then(setMentionUsers)
+                            .catch(() => {
+                              mentionUsersLoadedRef.current = false;
+                            });
+                        }
+                      }}
+                    >
+                      <Ionicons name="at" size={16} color="#374151" />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.toolBtn}>
+                      <Ionicons
+                        name="happy-outline"
+                        size={16}
+                        color="#374151"
+                      />
+                    </TouchableOpacity>
+                    {/* Voice recorder — hidden/disabled */}
+                    {/* <TouchableOpacity style={styles.toolBtn}>
                         <Ionicons
                           name="mic-outline"
                           size={16}
                           color="#374151"
                         />
                       </TouchableOpacity> */}
-                      {/* Video recorder — hidden/disabled */}
-                      {/* <TouchableOpacity style={styles.toolBtn}>
+                    {/* Video recorder — hidden/disabled */}
+                    {/* <TouchableOpacity style={styles.toolBtn}>
                         <Ionicons
                           name="videocam-outline"
                           size={16}
                           color="#374151"
                         />
                       </TouchableOpacity> */}
-                    </View>
-                    <TouchableOpacity
-                      style={[styles.sendBtn, sendingNote && { opacity: 0.5 }]}
-                      onPress={handleSendComment}
-                      disabled={sendingNote || !commentText.trim()}
-                    >
-                      {sendingNote ? (
-                        <ActivityIndicator size={12} color="#fff" />
-                      ) : (
-                        <Ionicons name="send" size={14} color="#fff" />
-                      )}
-                    </TouchableOpacity>
                   </View>
+                  <TouchableOpacity
+                    style={[styles.sendBtn, sendingNote && { opacity: 0.5 }]}
+                    onPress={handleSendComment}
+                    disabled={sendingNote || !commentText.trim()}
+                  >
+                    {sendingNote ? (
+                      <ActivityIndicator size={12} color="#fff" />
+                    ) : (
+                      <Ionicons name="send" size={14} color="#fff" />
+                    )}
+                  </TouchableOpacity>
                 </View>
               </View>
-            )}
+            </View>
+          )}
         </Pressable>
       </Pressable>
     </Modal>
@@ -1365,7 +1353,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     paddingTop: 14,
     paddingHorizontal: 16,
-    minHeight: "50%",
+    minHeight: "92%",
     maxHeight: "92%",
   },
   dragHandleBar: {
