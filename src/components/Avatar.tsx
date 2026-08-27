@@ -1,6 +1,7 @@
 import { getStoredToken } from "@/utils/token";
 import { useEffect, useMemo, useState } from "react";
 import { Image, StyleProp, Text, View, ViewStyle } from "react-native";
+import { fetch as nitroFetch } from "react-native-nitro-fetch";
 
 type Props = {
   /** Full name (or best-effort name) used for the initials fallback. */
@@ -32,15 +33,30 @@ function getServerOrigin(): string {
   return apiBase.replace(/\/api\/v1\/?$/, "").replace(/\/$/, "");
 }
 
-// The backend's exact convention for user profile images isn't documented —
-// some fields come back as full `/public/...` paths, others (e.g. the login
-// response's `userdata.image`) as a bare filename with no directory, and
-// direct static `/public/...` access may or may not require the
-// authenticated `secure-file` proxy depending on the file. Rather than
-// guess wrong and show a broken image, try a short list of plausible
-// URLs in order and fall back to initials only once all of them fail —
-// this can only improve on the current initials-only behavior, never
-// regress it.
+function isInvalidImagePath(path?: string | null): boolean {
+  if (!path || typeof path !== "string") return true;
+  const p = path.trim().toLowerCase();
+  return (
+    p === "" ||
+    p === "null" ||
+    p === "undefined" ||
+    p === "none" ||
+    p === "default.png" ||
+    p === "default.jpg" ||
+    p === "avatar.png" ||
+    p === "user.png" ||
+    p === "profile.png"
+  );
+}
+
+// Direct static `/public/...` access is disabled on the backend — every
+// protected file must go through the authenticated secure-file proxy
+// (`GET {origin}/api/v1/secure-file?p=public/<path>`, header: authToken).
+// This mirrors documents/IMAGE_AND_AUDIO_HANDLING.md's AuthenticatedImage,
+// which is this same backend's proven working pattern for the legacy web
+// client. The bare-filename candidate directories below are still a guess
+// (that convention isn't documented) — only the secure-file wrapping is
+// known-correct.
 function buildCandidateUrls(
   imagePath: string,
   token: string | null,
@@ -54,47 +70,97 @@ function buildCandidateUrls(
   const hasDir = clean.includes("/");
 
   const relPaths = hasDir
-    ? [clean, `public/${clean}`, `storage/${clean}`, `uploads/${clean}`]
+    ? [clean]
     : [
-        // Documented convention for user profile images on this backend
-        // (documents/IMAGE_AND_AUDIO_HANDLING.md §1 — REACT_APP_USER_DOCS_PATH).
-        `users/docs/${clean}`,
-        `users/images/${clean}`,
-        `uploads/users/${clean}`,
-        `uploads/profile/${clean}`,
-        `profile/${clean}`,
-        `users/${clean}`,
-        `storage/users/${clean}`,
-        `storage/profile/${clean}`,
-        `images/users/${clean}`,
-        `images/profile/${clean}`,
-        `uploads/${clean}`,
+        "users/docs/" + clean,
+        "users/images/" + clean,
+        "uploads/users/" + clean,
+        "uploads/profile/" + clean,
+        "profile/" + clean,
+        "users/" + clean,
+        "storage/users/" + clean,
+        "storage/profile/" + clean,
+        "images/users/" + clean,
+        "images/profile/" + clean,
+        "uploads/" + clean,
         clean,
       ];
 
+  // Matches services/api/client.ts's buildHeaders exactly — this backend's
+  // auth middleware is only confirmed to accept these two header names
+  // together (every other authenticated request in the app sends both).
   const authHeaders = token
-    ? { authToken: token, "x-access-token": token }
+    ? { "x-access-token": token, authToken: token }
     : undefined;
   const candidates: { uri: string; headers?: Record<string, string> }[] = [];
   for (const rel of relPaths) {
-    // Direct static `/public/...` access is disabled on this backend — every
-    // file must go through the authenticated `secure-file` proxy as
-    // `?p=public/<rest-of-path>` (IMAGE_AND_AUDIO_HANDLING.md §1, §4), so try
-    // that first. The direct URLs below are kept only as a last-resort
-    // fallback for environments where static serving happens to be open.
     const securePath = rel.startsWith("public/") ? rel : `public/${rel}`;
     candidates.push({
       uri: `${origin}/api/v1/secure-file?p=${encodeURIComponent(securePath)}`,
       headers: authHeaders,
     });
-    candidates.push({ uri: `${origin}/public/${rel}`, headers: authHeaders });
-    candidates.push({ uri: `${origin}/${rel}`, headers: authHeaders });
   }
   return candidates;
 }
 
+// Module-level cache of resolved data: URIs, keyed by the raw imagePath —
+// mirrors the web app's _blobCache so the same user's photo is only ever
+// fetched once per session, not once per row it appears in.
+const resolvedCache = new Map<string, string | null>();
+const inFlight = new Map<string, Promise<string | null>>();
+
+// Manual byte->base64 rather than Blob+FileReader — this app's fetch (and
+// its auth handling) is react-native-nitro-fetch, not RN's built-in fetch,
+// and there's no guarantee its Blob interops with the global FileReader.
+// Chunked to avoid a call-stack overflow from spreading a large byte array
+// into String.fromCharCode at once.
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function fetchAsDataUri(
+  uri: string,
+  headers?: Record<string, string>,
+): Promise<string | null> {
+  try {
+    const res = await nitroFetch(uri, { headers });
+    if (!res.ok) return null;
+    const contentType = res.headers.get("content-type") ?? "";
+    // Reject only obvious non-image error bodies (JSON/HTML error pages) —
+    // some file proxies don't set a strict image/* content-type on success.
+    if (/json|html|text\/plain/i.test(contentType)) return null;
+    const bytes = await res.bytes();
+    if (!bytes || bytes.byteLength === 0) return null;
+    const mime = contentType.startsWith("image/") ? contentType : "image/jpeg";
+    return `data:${mime};base64,${bytesToBase64(bytes)}`;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveFirstWorkingUri(
+  candidates: { uri: string; headers?: Record<string, string> }[],
+): Promise<string | null> {
+  for (const candidate of candidates) {
+    const dataUri = await fetchAsDataUri(candidate.uri, candidate.headers);
+    if (dataUri) return dataUri;
+  }
+  return null;
+}
+
 /** Profile photo with an initials-circle fallback (shown while resolving,
- *  when there's no image, or once every candidate URL has failed to load). */
+ *  when there's no image, or once every candidate URL has failed to load).
+ *
+ *  Images are fetched with the auth header via `fetch` + converted to a
+ *  `data:` URI rather than passed to <Image source={{ uri, headers }}> —
+ *  RN's native image loader doesn't reliably honor custom headers on every
+ *  platform/proxy combination, which is why this always fell back to
+ *  initials even for the "correct" secure-file URL. */
 export default function Avatar({
   name,
   imagePath,
@@ -112,14 +178,40 @@ export default function Avatar({
   }, []);
 
   const candidates = useMemo(
-    () => (imagePath ? buildCandidateUrls(imagePath, token) : []),
+    () => (!isInvalidImagePath(imagePath) ? buildCandidateUrls(imagePath!, token) : []),
     [imagePath, token],
   );
-  const [candidateIndex, setCandidateIndex] = useState(0);
+
+  const cacheKey = isInvalidImagePath(imagePath) ? "" : `${imagePath}`;
+  const [resolvedUri, setResolvedUri] = useState<string | null>(
+    () => resolvedCache.get(cacheKey) ?? null,
+  );
 
   useEffect(() => {
-    setCandidateIndex(0);
-  }, [candidates]);
+    if (candidates.length === 0) {
+      setResolvedUri(null);
+      return;
+    }
+    if (resolvedCache.has(cacheKey)) {
+      setResolvedUri(resolvedCache.get(cacheKey) ?? null);
+      return;
+    }
+
+    let cancelled = false;
+    let promise = inFlight.get(cacheKey);
+    if (!promise) {
+      promise = resolveFirstWorkingUri(candidates);
+      inFlight.set(cacheKey, promise);
+    }
+    promise.then((uri) => {
+      resolvedCache.set(cacheKey, uri);
+      inFlight.delete(cacheKey);
+      if (!cancelled) setResolvedUri(uri);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [candidates, cacheKey]);
 
   const circleStyle: StyleProp<ViewStyle> = [
     {
@@ -134,21 +226,7 @@ export default function Avatar({
     style,
   ];
 
-  const exhausted =
-    candidates.length === 0 || candidateIndex >= candidates.length;
-
-  useEffect(() => {
-    if (exhausted) {
-      // console.log(
-      //   `[Avatar] Showing initials for "${name}" — imagePath=${JSON.stringify(imagePath)}, ` +
-      //     (candidates.length === 0
-      //       ? "no imagePath provided"
-      //       : `all ${candidates.length} candidate URL(s) failed to load`)
-      // );
-    }
-  }, [exhausted]);
-
-  if (exhausted) {
+  if (!resolvedUri) {
     return (
       <View style={circleStyle}>
         <Text
@@ -167,20 +245,8 @@ export default function Avatar({
   return (
     <View style={circleStyle}>
       <Image
-        source={candidates[candidateIndex]}
+        source={{ uri: resolvedUri }}
         style={{ width: size, height: size }}
-        onError={(e) => {
-          // console.log(
-          //   `[Avatar] Candidate ${candidateIndex + 1}/${candidates.length} failed for "${name}": ` +
-          //     `${candidates[candidateIndex]?.uri} — ${e.nativeEvent?.error ?? "unknown error"}`,
-          // );
-          setCandidateIndex((i) => i + 1);
-        }}
-        onLoad={() => {
-          // console.log(
-          //   `[Avatar] Loaded successfully for "${name}": ${candidates[candidateIndex]?.uri}`,
-          // );
-        }}
       />
     </View>
   );

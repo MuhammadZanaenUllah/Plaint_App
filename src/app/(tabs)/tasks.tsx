@@ -1,5 +1,7 @@
+import AnimatedFAB from "@/components/AnimatedFAB";
 import CreateTaskModal from "@/components/CreateTaskModal";
 import FilterModal from "@/components/FilterModal";
+import { AssignableOwner } from "@/components/SingleTaskTable";
 import StatCard from "@/components/StatCard";
 import TaskDelay from "@/components/taskdelay";
 import TaskDetailModal, {
@@ -8,7 +10,6 @@ import TaskDetailModal, {
 } from "@/components/TaskDetailModal";
 import { STATUS_COLORS, StatusType, TaskRowProps } from "@/components/TaskRow";
 import TaskTable from "@/components/TaskTable";
-import { AssignableOwner } from "@/components/SingleTaskTable";
 import TaskTableSkeleton from "@/components/TaskTableSkeleton";
 import Icons from "@/constants/icons";
 import { useSearch } from "@/context/SearchContext";
@@ -23,11 +24,24 @@ import {
 import { canCreateTask } from "@/utils/permissions";
 import { uiStatusToApi } from "@/utils/statusMapper";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
-import { MaterialIcons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+import {
+  Dimensions,
+  Keyboard,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 
 const {
   AllTaskIcon: AllTasksIcon,
@@ -61,7 +75,16 @@ export default function TasksScreen() {
 
   useTaskSocket();
 
+  // Switching tabs re-filters/re-sorts up to the whole task list (hundreds
+  // of items for "All Tasks") synchronously as part of the same render that
+  // updates activeTab — on a mid-range device that's enough to briefly
+  // freeze the tap before the screen updates. activeTab (which drives the
+  // heavy displayedTasks computation) updates via a transition so React can
+  // treat it as interruptible/low-priority; selectedTab updates immediately
+  // so the tapped stat card highlights instantly regardless.
   const [activeTab, setActiveTab] = useState("today");
+  const [selectedTab, setSelectedTab] = useState("today");
+  const [isTabPending, startTabTransition] = useTransition();
   const [filterVisible, setFilterVisible] = useState(false);
   const [createVisible, setCreateVisible] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
@@ -102,6 +125,11 @@ export default function TasksScreen() {
   const overdueToastShownRef = useRef(false);
   const delayPromptedIdsRef = useRef<Set<number>>(new Set());
   const currentUserId = authState.user?.id ?? 0;
+
+  const statsScrollRef = useRef<ScrollView>(null);
+  const cardLayoutsRef = useRef<Record<string, { x: number; width: number }>>(
+    {},
+  );
 
   const companyIdentifier = authState.company?.company_identifier ?? "";
 
@@ -257,8 +285,6 @@ export default function TasksScreen() {
 
   const handleTabPress = useCallback(
     (tabId: string) => {
-      setActiveTab(tabId);
-      setVisibleCount(PAGE_SIZE);
       // Cancel any in-flight "load more" so a late page increment can't bleed
       // into the freshly-switched tab.
       if (loadMoreTimerRef.current) {
@@ -266,14 +292,29 @@ export default function TasksScreen() {
         loadMoreTimerRef.current = null;
       }
       setLoadingMore(false);
-      // Tabs are client-side filters over the loaded dataset — only the "all"
-      // tab performs a backend refresh (per documented design). This avoids
-      // redundant full-list requests on every tab switch.
+      // Highlight the tapped card immediately; defer the heavy list update.
+      setSelectedTab(tabId);
+      startTabTransition(() => {
+        setActiveTab(tabId);
+        setVisibleCount(PAGE_SIZE);
+      });
+
+      // Smoothly slide/scroll the horizontal ScrollView to center the selected stat card
+      const layout = cardLayoutsRef.current[tabId];
+      if (layout && statsScrollRef.current) {
+        const screenWidth = Dimensions.get("window").width;
+        const scrollToX = Math.max(
+          0,
+          layout.x + layout.width / 2 - screenWidth / 2,
+        );
+        statsScrollRef.current.scrollTo({ x: scrollToX, animated: true });
+      }
+
       if (tabId === "all" && companyId) {
         fetchAllTasks(companyId, { silent: true });
       }
     },
-    [companyId, fetchAllTasks],
+    [companyId, fetchAllTasks, startTabTransition],
   );
 
   const handleStatusChange = useCallback(
@@ -513,8 +554,10 @@ export default function TasksScreen() {
       title: row.title,
       createdBy: row.createdBy,
       createdByInitials: row.createdByInitials,
+      createdByAvatar: row.createdByAvatar,
       assignedTo: row.assignedTo,
       assignedToInitials: row.assignedToInitials,
+      assignedToAvatar: row.assignedToAvatar,
       dueDate: row.dueDate,
       status: row.status,
       priorityName: row.priorityName,
@@ -538,60 +581,6 @@ export default function TasksScreen() {
     () => mappedAssignedToMe.map(mapRowWithRaw),
     [mappedAssignedToMe, mapRowWithRaw],
   );
-
-  const tabCounts = useMemo(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayMs = todayStart.getTime();
-    const tomorrowStart = new Date(todayStart);
-    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-    const tomorrowMs = tomorrowStart.getTime();
-    const weekEnd = new Date(tomorrowStart);
-    weekEnd.setDate(weekEnd.getDate() + 7);
-    const weekEndMs = weekEnd.getTime();
-
-    let all = 0;
-    let today = 0;
-    let week = 0;
-    let overdue = 0;
-    let recurring = 0;
-    let completed = 0;
-
-    for (const t of allMappedTasks) {
-      if (t.status === "Completed") {
-        completed++;
-        continue;
-      }
-      all++;
-      if (t._raw?.is_recurring === true) recurring++;
-      if (t._raw?.due_date) {
-        const ms = Date.parse(t._raw.due_date);
-        if (!isNaN(ms)) {
-          if (ms >= todayMs && ms < tomorrowMs) today++;
-          if (ms >= tomorrowMs && ms < weekEndMs) week++;
-          if (ms < todayMs) overdue++;
-        }
-      }
-    }
-
-    const created = mappedCreatedByMe.filter(
-      (t) => t.status !== "Completed",
-    ).length;
-    const assigned = mappedAssignedToMe.filter(
-      (t) => t.status !== "Completed",
-    ).length;
-
-    return {
-      all,
-      today,
-      week,
-      overdue,
-      created,
-      assigned,
-      recurring,
-      completed,
-    };
-  }, [allMappedTasks, mappedCreatedByMe, mappedAssignedToMe]);
 
   const getTabCategoryScope = useCallback(
     (tabId: string) => {
@@ -680,97 +669,132 @@ export default function TasksScreen() {
     [],
   );
 
+  // Applies every active filter (status/priority/created-by/assigned-to/
+  // date range/search) to a tab-scoped task array. Shared by displayedTasks
+  // (the active tab's rows) and tabCounts (every stat card's count), so a
+  // card's number always matches what you'd actually see after tapping it.
+  const applyExtraFilters = useCallback(
+    (tasks: typeof allMappedRows, tabId: string) => {
+      let result = tasks;
+
+      if (activeStatusFilter) {
+        if (activeStatusFilter === "Recurring") {
+          result = result.filter(
+            (t) => t._raw?.is_recurring === true || t.status === "Recurring",
+          );
+        } else {
+          result = result.filter((t) => t.status === activeStatusFilter);
+        }
+      } else {
+        if (tabId === "completed") {
+          result = result.filter((t) => t.status === "Completed");
+        } else {
+          result = result.filter((t) => t.status !== "Completed");
+        }
+      }
+
+      if (activePriorityFilter) {
+        const tier = activePriorityFilter.toLowerCase();
+        result = result.filter((t) => t._raw?.task_priority === tier);
+      }
+
+      if (activeCreatedByFilter) {
+        const ids = Array.isArray(activeCreatedByFilter)
+          ? activeCreatedByFilter
+          : [activeCreatedByFilter];
+        if (ids.length > 0) {
+          result = result.filter((t) =>
+            ids.includes(Number(t._raw?.created_by)),
+          );
+        }
+      }
+
+      if (activeAssignedToFilter) {
+        const ids = Array.isArray(activeAssignedToFilter)
+          ? activeAssignedToFilter
+          : [activeAssignedToFilter];
+        if (ids.length > 0) {
+          result = result.filter((t) =>
+            ids.includes(Number(t._raw?.asigned_to)),
+          );
+        }
+      }
+
+      if (activeStartDateFilter || activeEndDateFilter) {
+        const startMs = activeStartDateFilter
+          ? new Date(activeStartDateFilter).setHours(0, 0, 0, 0)
+          : null;
+        const endMs = activeEndDateFilter
+          ? new Date(activeEndDateFilter).setHours(23, 59, 59, 999)
+          : null;
+
+        result = result.filter((t) => {
+          if (!t._raw?.due_date) return false;
+          const taskMs = Date.parse(t._raw.due_date);
+          if (isNaN(taskMs)) return false;
+          if (startMs !== null && taskMs < startMs) return false;
+          if (endMs !== null && taskMs > endMs) return false;
+          return true;
+        });
+      }
+
+      const query = searchText.trim().toLowerCase();
+      if (query) {
+        result = result.filter((t) => {
+          const haystack = [
+            t.title,
+            t.id,
+            t.assignedTo,
+            t.status,
+            t._raw?.description,
+            t._raw?.priority_name,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(query);
+        });
+      }
+
+      return result;
+    },
+    [
+      activeStatusFilter,
+      activePriorityFilter,
+      activeCreatedByFilter,
+      activeAssignedToFilter,
+      activeStartDateFilter,
+      activeEndDateFilter,
+      searchText,
+    ],
+  );
+
+  // Every stat card's count, recomputed under the currently active filters —
+  // each one is the same tab-scope + filter pipeline displayedTasks uses,
+  // just run for every tab id instead of only the active one.
+  const tabCounts = useMemo(() => {
+    const TAB_IDS = [
+      "all",
+      "today",
+      "week",
+      "overdue",
+      "created",
+      "assigned",
+      "recurring",
+      "completed",
+    ] as const;
+
+    const counts = {} as Record<(typeof TAB_IDS)[number], number>;
+    for (const id of TAB_IDS) {
+      counts[id] = applyExtraFilters(getTabCategoryScope(id), id).length;
+    }
+    return counts;
+  }, [getTabCategoryScope, applyExtraFilters]);
+
   const displayedTasks = useMemo(() => {
-    let tasks = getTabCategoryScope(activeTab);
-
-    if (activeStatusFilter) {
-      if (activeStatusFilter === "Recurring") {
-        tasks = tasks.filter(
-          (t) => t._raw?.is_recurring === true || t.status === "Recurring",
-        );
-      } else {
-        tasks = tasks.filter((t) => t.status === activeStatusFilter);
-      }
-    } else {
-      if (activeTab === "completed") {
-        tasks = tasks.filter((t) => t.status === "Completed");
-      } else {
-        tasks = tasks.filter((t) => t.status !== "Completed");
-      }
-    }
-
-    if (activePriorityFilter) {
-      const tier = activePriorityFilter.toLowerCase();
-      tasks = tasks.filter((t) => t._raw?.task_priority === tier);
-    }
-
-    if (activeCreatedByFilter) {
-      const ids = Array.isArray(activeCreatedByFilter)
-        ? activeCreatedByFilter
-        : [activeCreatedByFilter];
-      if (ids.length > 0) {
-        tasks = tasks.filter((t) => ids.includes(Number(t._raw?.created_by)));
-      }
-    }
-
-    if (activeAssignedToFilter) {
-      const ids = Array.isArray(activeAssignedToFilter)
-        ? activeAssignedToFilter
-        : [activeAssignedToFilter];
-      if (ids.length > 0) {
-        tasks = tasks.filter((t) => ids.includes(Number(t._raw?.asigned_to)));
-      }
-    }
-
-    if (activeStartDateFilter || activeEndDateFilter) {
-      const startMs = activeStartDateFilter
-        ? new Date(activeStartDateFilter).setHours(0, 0, 0, 0)
-        : null;
-      const endMs = activeEndDateFilter
-        ? new Date(activeEndDateFilter).setHours(23, 59, 59, 999)
-        : null;
-
-      tasks = tasks.filter((t) => {
-        if (!t._raw?.due_date) return false;
-        const taskMs = Date.parse(t._raw.due_date);
-        if (isNaN(taskMs)) return false;
-        if (startMs !== null && taskMs < startMs) return false;
-        if (endMs !== null && taskMs > endMs) return false;
-        return true;
-      });
-    }
-
-    const query = searchText.trim().toLowerCase();
-    if (query) {
-      tasks = tasks.filter((t) => {
-        const haystack = [
-          t.title,
-          t.id,
-          t.assignedTo,
-          t.status,
-          t._raw?.description,
-          t._raw?.priority_name,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return haystack.includes(query);
-      });
-    }
-
+    const tasks = applyExtraFilters(getTabCategoryScope(activeTab), activeTab);
     return sortByCritical(tasks);
-  }, [
-    activeTab,
-    getTabCategoryScope,
-    activeStatusFilter,
-    activePriorityFilter,
-    activeCreatedByFilter,
-    activeAssignedToFilter,
-    activeStartDateFilter,
-    activeEndDateFilter,
-    searchText,
-    sortByCritical,
-  ]);
+  }, [activeTab, getTabCategoryScope, applyExtraFilters, sortByCritical]);
 
   // ─── Infinite pagination over the fully-filtered/sorted tab dataset ──────
   const hasMore = visibleCount < displayedTasks.length;
@@ -892,26 +916,39 @@ export default function TasksScreen() {
       <View style={styles.root}>
         <View style={styles.safe}>
           <ScrollView
+            ref={statsScrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}
             style={styles.statsScroll}
             contentContainerStyle={styles.statsContent}
           >
             {statsList.map((s) => (
-              <StatCard
+              <View
                 key={s.id}
-                label={s.label}
-                count={s.count}
-                iconName={s.iconName}
-                active={activeTab === s.id}
-                onPress={() => handleTabPress(s.id)}
-                compact={isHeaderCompact}
-              />
+                onLayout={(e) => {
+                  const { x, width } = e.nativeEvent.layout;
+                  cardLayoutsRef.current[s.id] = { x, width };
+                }}
+              >
+                <StatCard
+                  label={s.label}
+                  count={s.count}
+                  iconName={s.iconName}
+                  active={selectedTab === s.id}
+                  onPress={() => handleTabPress(s.id)}
+                  compact={isHeaderCompact}
+                />
+              </View>
             ))}
           </ScrollView>
 
           <View style={styles.tableShell}>
-            <TaskTableSkeleton />
+            <TaskTableSkeleton
+              sectionTitle={
+                statsList.find((s) => s.id === selectedTab)?.label ??
+                "Due Today"
+              }
+            />
           </View>
         </View>
       </View>
@@ -921,7 +958,7 @@ export default function TasksScreen() {
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
-      <View style={styles.safe}>
+      <Pressable style={styles.safe} onPress={() => Keyboard.dismiss()}>
         <FilterModal
           visible={filterVisible}
           onClose={() => setFilterVisible(false)}
@@ -945,28 +982,36 @@ export default function TasksScreen() {
         />
 
         <ScrollView
+          ref={statsScrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.statsScroll}
           contentContainerStyle={styles.statsContent}
         >
           {statsList.map((s) => (
-            <StatCard
+            <View
               key={s.id}
-              label={s.label}
-              count={s.count}
-              iconName={s.iconName}
-              active={activeTab === s.id}
-              onPress={() => handleTabPress(s.id)}
-              compact={isHeaderCompact}
-            />
+              onLayout={(e) => {
+                const { x, width } = e.nativeEvent.layout;
+                cardLayoutsRef.current[s.id] = { x, width };
+              }}
+            >
+              <StatCard
+                label={s.label}
+                count={s.count}
+                iconName={s.iconName}
+                active={selectedTab === s.id}
+                onPress={() => handleTabPress(s.id)}
+                compact={isHeaderCompact}
+              />
+            </View>
           ))}
         </ScrollView>
 
-        <View style={styles.tableShell}>
+        <View style={[styles.tableShell, isTabPending && { opacity: 0.6 }]}>
           <TaskTable
             sectionTitle={
-              statsList.find((s) => s.id === activeTab)?.label ?? "Due Today"
+              statsList.find((s) => s.id === selectedTab)?.label ?? "Due Today"
             }
             tasks={visibleTasks}
             onTaskPress={handleTaskPress}
@@ -986,16 +1031,10 @@ export default function TasksScreen() {
             onAssigneeChange={handleAssigneeChange}
           />
         </View>
-      </View>
+      </Pressable>
 
       {canCreate ? (
-        <TouchableOpacity
-          style={styles.fab}
-          activeOpacity={0.85}
-          onPress={() => setCreateVisible(true)}
-        >
-          <MaterialIcons name="add" size={35} color="black" />
-        </TouchableOpacity>
+        <AnimatedFAB onPress={() => setCreateVisible(true)} />
       ) : null}
 
       {canCreate ? (
@@ -1030,14 +1069,14 @@ const styles = StyleSheet.create({
   },
   statsContent: {
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingBottom: 4,
     gap: 6,
     alignItems: "center",
   },
   tableShell: {
     flex: 1,
     paddingLeft: 16,
-    paddingTop: 8,
+    paddingTop: 2,
     paddingBottom: 0,
   },
   fab: {

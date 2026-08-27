@@ -77,6 +77,7 @@ export interface RichTextEditorProps {
   showToolbar?: boolean;
   containerStyle?: ViewStyle | (ViewStyle | undefined | false)[];
   autoFocus?: boolean;
+  borderless?: boolean;
 }
 
 const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
@@ -93,6 +94,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       onFocus: onFocusProp,
       onBlur: onBlurProp,
       autoFocus = false,
+      borderless = false,
     },
     ref
   ) => {
@@ -220,17 +222,17 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       );
     };
 
-    // ── Always render bordered box with floating label ─────────
+    // ── Border + floating label appear only while focused ──────
     return (
       <View
         style={[
           styles.container,
-          focused && styles.containerFocused,
+          focused && !borderless && styles.containerActive,
           containerStyle,
         ]}
       >
-        {/* Floating label cut into the top border */}
-        {!!label && (
+        {/* Floating label cut into the top border — only while focused */}
+        {!!label && !borderless && focused && (
           <View style={styles.labelWrapper}>
             <Text style={styles.labelText}>{label}</Text>
           </View>
@@ -252,7 +254,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             `,
             placeholderColor: '#B3B3B3',
           }}
-          style={styles.editor}
+          style={[styles.editor, { minHeight: editorHeight }]}
           initialHeight={editorHeight}
           androidLayerType="software"
           focusable
@@ -269,7 +271,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           }}
         />
 
-        {showToolbar && (
+        {showToolbar && focused && (
           // Custom toolbar — avoids RichToolbar's internal ScrollView
           // passing justifyContent to style (Invariant Violation).
           <ScrollView
@@ -402,17 +404,21 @@ const styles = StyleSheet.create({
 
   // ── Active / expanded state styles ───────────────────────────────────────
   container: {
-    borderWidth: 1,
-    borderColor: '#1D1D1D',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    paddingTop: 16,
-    backgroundColor: '#FFFFFF',
+    borderWidth: 0,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+    backgroundColor: 'transparent',
     position: 'relative',
   },
-  containerFocused: {
+  containerActive: {
+    borderWidth: 1,
     borderColor: '#1D1D1D',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    paddingTop: 20,
+    backgroundColor: '#FFFFFF',
   },
   labelWrapper: {
     position: 'absolute',
@@ -427,9 +433,7 @@ const styles = StyleSheet.create({
     color: '#1D1D1D',
     fontFamily: 'SF_Pro_Regular',
   },
-  editor: {
-    minHeight: 120,
-  },
+  editor: {},
   toolbar: {
     width: '80%',
     backgroundColor: '#F1F1F1',

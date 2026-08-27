@@ -562,9 +562,14 @@ export default function ChatScreen() {
                                                 onLongPress={() => toggleProjectExpand(project.id)}
                                             >
                                                 <View style={styles.avatarContainer}>
-                                                    <View style={styles.avatarBox}>
-                                                        <Text style={styles.avatarText}>{initials}</Text>
-                                                    </View>
+                                                    <Avatar
+                                                        name={displayName}
+                                                        imagePath={getRoomAvatar(project, currentUserId)}
+                                                        size={36}
+                                                        borderRadius={5}
+                                                        fontSize={15}
+                                                        fontFamily="SF_Pro_Medium"
+                                                    />
                                                     {unread && (
                                                         <View style={styles.onlineIndicator} />
                                                     )}
@@ -645,9 +650,14 @@ export default function ChatScreen() {
                                                                 onPress={() => handleRoomPress(channel)}
                                                             >
                                                                 <View style={styles.avatarContainer}>
-                                                                    <View style={[styles.avatarBox, { width: 32, height: 32 }]}>
-                                                                        <Text style={[styles.avatarText, { fontSize: 13 }]}>{channelInitials}</Text>
-                                                                    </View>
+                                                                    <Avatar
+                                                                        name={channelName}
+                                                                        imagePath={getRoomAvatar(channel, currentUserId)}
+                                                                        size={32}
+                                                                        borderRadius={5}
+                                                                        fontSize={13}
+                                                                        fontFamily="SF_Pro_Medium"
+                                                                    />
                                                                     {channelUnread && (
                                                                         <View style={styles.onlineIndicator} />
                                                                     )}

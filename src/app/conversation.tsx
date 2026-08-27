@@ -17,6 +17,7 @@ import {
   canPerformAction,
   filterMessagesByText,
   formatMessageTime,
+  getRoomAvatar,
   isOwnMessage,
   isSameDay,
   resolveFileUrl,
@@ -1167,7 +1168,12 @@ const MessageBubble = React.memo(function MessageBubble({
     (senderMember
       ? `${senderMember.first_name} ${senderMember.last_name}`
       : "");
-  const senderImage = message.sender_image ?? senderMember?.image ?? null;
+  const senderImage =
+    message.sender_image ??
+    senderMember?.image ??
+    (message as any).sender?.image ??
+    (message as any).user?.image ??
+    null;
   const time = formatMessageTime(message.createdAt);
 
   // Read receipt — only meaningful for a 1:1 direct chat's own messages
@@ -2747,6 +2753,9 @@ export default function ConversationScreen() {
         parent_id: replyTo?.id.toString(),
       });
       console.log("[Conv] Message sent successfully");
+      setTimeout(() => {
+        scrollRef.current?.scrollToOffset({ offset: 0, animated: true });
+      }, 50);
     } catch (err) {
       console.log("[Conv] Send message error:", err);
       setMessage(text);
@@ -2915,13 +2924,17 @@ export default function ConversationScreen() {
     [state.rooms, roomId],
   );
 
-  // Mirror the actively-viewed room into ChatContext so incoming-message
-  // handling (unread count bump, toast) can correctly detect "the user is
-  // already looking at this room" instead of always treating it as unread.
   useEffect(() => {
-    setCurrentRoom(currentRoom ?? null);
-    return () => setCurrentRoom(null);
-  }, [currentRoom, setCurrentRoom]);
+    if (currentRoom) {
+      setCurrentRoom(currentRoom);
+    }
+  }, [currentRoom?._id, currentRoom?.id, setCurrentRoom]);
+
+  useEffect(() => {
+    return () => {
+      setCurrentRoom(null);
+    };
+  }, [setCurrentRoom]);
 
   // ── @-mention candidates (derived from the room's member list) ─────────
   const roomMembers = useMemo(
@@ -3077,7 +3090,11 @@ export default function ConversationScreen() {
 
                 <Avatar
                   name={name}
-                  imagePath={!isChannel ? roomMembers[0]?.image : null}
+                  imagePath={
+                    !isChannel
+                      ? (roomMembers[0]?.image ?? (currentRoom as any)?.image)
+                      : ((currentRoom as any)?.image ?? (currentRoom as any)?.avatar)
+                  }
                   size={32}
                   borderRadius={6}
                   fontSize={14}
@@ -3387,14 +3404,17 @@ export default function ConversationScreen() {
             style={styles.scroll}
             inverted={true}
             data={invertedMessages}
-            keyExtractor={(item: ChatMessage) => item._id}
+            keyExtractor={(item: ChatMessage, idx: number) =>
+              String(item._id ?? item.id ?? `msg-${idx}`)
+            }
             renderItem={renderItem}
             onEndReached={handleLoadMore}
             onEndReachedThreshold={0.3}
-            windowSize={5}
-            maxToRenderPerBatch={8}
+            windowSize={11}
+            maxToRenderPerBatch={15}
             updateCellsBatchingPeriod={30}
-            initialNumToRender={15}
+            initialNumToRender={25}
+            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             ListHeaderComponent={
               search.trim() ? (
                 <View style={styles.searchResultBadge}>
@@ -3602,11 +3622,13 @@ export default function ConversationScreen() {
                   activeOpacity={0.6}
                   onPress={() => selectMention(member)}
                 >
-                  <View style={styles.mentionAvatar}>
-                    <Text style={styles.mentionAvatarText}>
-                      {`${member.first_name?.[0] ?? ""}${member.last_name?.[0] ?? ""}`.toUpperCase()}
-                    </Text>
-                  </View>
+                  <Avatar
+                    name={`${member.first_name ?? ""} ${member.last_name ?? ""}`}
+                    imagePath={member.image}
+                    size={24}
+                    borderRadius={12}
+                    fontSize={10}
+                  />
                   <Text style={styles.mentionName} numberOfLines={1}>
                     {`${member.first_name ?? ""} ${member.last_name ?? ""}`.trim() ||
                       `User ${member.id}`}
@@ -3982,7 +4004,9 @@ export default function ConversationScreen() {
             )}
             <FlatList
               data={state.rooms}
-              keyExtractor={(item) => item._id}
+              keyExtractor={(item: Room, idx: number) =>
+                String(item._id ?? item.id ?? `room-${idx}`)
+              }
               renderItem={({ item: room }) => {
                 const otherMembers = room.members?.filter(
                   (m) => m.id !== currentUserId,
@@ -3999,11 +4023,13 @@ export default function ConversationScreen() {
                     onPress={() => handleForward(room)}
                     disabled={forwarding}
                   >
-                    <View style={styles.forwardRoomAvatar}>
-                      <Text style={styles.forwardRoomAvatarText}>
-                        {displayName.charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
+                    <Avatar
+                      name={displayName}
+                      imagePath={getRoomAvatar(room, currentUserId)}
+                      size={28}
+                      borderRadius={6}
+                      fontSize={12}
+                    />
                     <Text style={styles.forwardRoomName} numberOfLines={1}>
                       {displayName}
                     </Text>

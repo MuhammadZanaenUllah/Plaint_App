@@ -24,6 +24,34 @@ export function formatShortDate(dateStr?: string, opts: FormatOptions = {}): str
   return `${d.getDate()}, ${d.toLocaleString("en-US", { month: "short" })}`;
 }
 
+/** "Today 3:29 PM" / "27, Aug 3:29 PM" — formatted task due date with time. */
+export function formatTaskDueDate(dateStr?: string, opts: FormatOptions = {}): string {
+  const { emptyPlaceholder = "-", invalidPlaceholder } = opts;
+  if (!dateStr) return emptyPlaceholder;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return invalidPlaceholder ?? dateStr;
+
+  const now = new Date();
+  const isToday =
+    d.getDate() === now.getDate() &&
+    d.getMonth() === now.getMonth() &&
+    d.getFullYear() === now.getFullYear();
+
+  const timeStr = formatClockTime(d);
+  const hasTime =
+    dateStr.includes("T") ||
+    dateStr.includes(":") ||
+    d.getHours() !== 0 ||
+    d.getMinutes() !== 0;
+
+  if (isToday) {
+    return hasTime ? `Today ${timeStr}` : "Today";
+  }
+
+  const datePart = `${d.getDate()}, ${d.toLocaleString("en-US", { month: "short" })}`;
+  return hasTime ? `${datePart} ${timeStr}` : datePart;
+}
+
 /** "3:45 PM" (or "3:45 pm" when `lowercase` is set). */
 export function formatClockTime(date: Date, lowercase = false): string {
   const time = date.toLocaleTimeString("en-US", {

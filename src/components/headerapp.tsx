@@ -12,6 +12,7 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import {
+  Keyboard,
   Modal,
   Pressable,
   StyleSheet,
@@ -132,7 +133,10 @@ export default function AppHeader({
   return (
     <Pressable
       style={styles.headerContainer}
-      onPress={() => searchOpen && setSearchOpen(false)}
+      onPress={() => {
+        Keyboard.dismiss();
+        if (searchOpen) setSearchOpen(false);
+      }}
     >
       <View style={styles.header}>
         <View style={{ flexDirection: "column", width: "70%" }}>
@@ -266,12 +270,12 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginHorizontal: 16,
     paddingRight: 2,
-    paddingVertical: 12,
-    height: 40,
+    paddingVertical: 4,
+    height: 34,
     gap: 4,
     alignItems: "center",
     backgroundColor: "#fff",
-    marginBottom: 12,
+    marginBottom: 6,
   },
   searchBox: {
     flex: 1,
@@ -279,20 +283,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 10,
     paddingHorizontal: 12,
-    height: 40,
+    height: 34,
     gap: 8,
   },
   searchInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     color: "#111827",
     fontFamily: "SF_Pro_Regular",
     padding: 0,
   },
   filterBtn: {
-    width: 35,
-    height: 35,
-    borderRadius: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 7,
     backgroundColor: "#E6E6E6",
     alignItems: "center",
     justifyContent: "center",
@@ -305,19 +309,19 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 15,
+    paddingTop: 8,
+    paddingBottom: 6,
   },
   greeting: {
-    fontSize: 18,
+    fontSize: 15,
     fontFamily: "SF_Pro_Semibold",
     color: "#111827",
   },
   subGreeting: {
-    fontSize: 12,
+    fontSize: 11,
     color: "#6B7280",
     fontFamily: "SF_Pro_Regular",
-    marginTop: 2,
+    marginTop: 1,
   },
   headerRight: {
     flexDirection: "row",

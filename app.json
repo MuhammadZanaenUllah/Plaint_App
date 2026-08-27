@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Plaint",
-    "slug": "plaint",
+    "name": "Planit",
+    "slug": "planit",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/ios-icon-default.png",
-    "scheme": "plaint",
+    "scheme": "planit",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": {

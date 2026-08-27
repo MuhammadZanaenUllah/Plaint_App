@@ -94,7 +94,22 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
     case "LOAD_ROOMS":
       return { ...state, rooms: action.rooms, loading: false, error: null };
-    case "SET_CURRENT_ROOM":
+    case "SET_CURRENT_ROOM": {
+      if (!action.room) {
+        return {
+          ...state,
+          currentRoom: null,
+        };
+      }
+      const isSameRoom =
+        state.currentRoom &&
+        (state.currentRoom._id === action.room._id || state.currentRoom.id === action.room.id);
+      if (isSameRoom) {
+        return {
+          ...state,
+          currentRoom: action.room,
+        };
+      }
       return {
         ...state,
         currentRoom: action.room,
@@ -102,6 +117,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         messagePage: 1,
         hasMore: false,
       };
+    }
     case "LOAD_MESSAGES":
       return {
         ...state,
@@ -112,9 +128,25 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         messagesLoading: false,
       };
     case "ADD_MESSAGE": {
-      const exists = state.messages.some((m) => m._id === action.message._id);
-      if (exists) return state;
-      return { ...state, messages: [...state.messages, action.message] };
+      const newIdStr = String(action.message._id ?? action.message.id ?? "");
+      const existsIndex = state.messages.findIndex((m) => {
+        if (action.message._id && m._id && String(m._id) === String(action.message._id)) return true;
+        if (action.message.id && m.id && String(m.id) === String(action.message.id)) return true;
+        if (newIdStr && (String(m._id) === newIdStr || String(m.id) === newIdStr)) return true;
+        return false;
+      });
+
+      if (existsIndex >= 0) {
+        const updated = [...state.messages];
+        updated[existsIndex] = { ...updated[existsIndex], ...action.message };
+        return { ...state, messages: updated };
+      }
+
+      const normalized = {
+        ...action.message,
+        _id: String(action.message._id ?? action.message.id ?? `msg-${Date.now()}-${Math.random()}`),
+      };
+      return { ...state, messages: [...state.messages, normalized] };
     }
     case "UPDATE_MESSAGE":
       return {

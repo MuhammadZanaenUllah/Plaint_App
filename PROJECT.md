@@ -1,4 +1,4 @@
-﻿# Plaint — Project Documentation
+# Plaint — Project Documentation
 
 > Last updated: 2026-07-21
 
@@ -440,10 +440,10 @@ All text uses SF Pro Text loaded via `expo-font`:
 
 | Key | Value |
 |---|---|
-| Name | Plaint |
+| Name | Planit |
 | Version | 1.0.0 |
 | Orientation | Portrait |
-| Scheme | `plaint` |
+| Scheme | `planit` |
 | UI Style | Automatic (light/dark) |
 | Splash bg | `#208AEF` |
 | Web output | Static |

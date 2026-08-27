@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     width: 142,
-    minHeight: 64,
+    minHeight: 56,
     gap: 8,
 
     backgroundColor: "#fff",
@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
 
     paddingHorizontal: 10,
-    paddingVertical: 10,
+    paddingVertical: 6,
   },
 
   cardCompact: {
@@ -158,23 +158,23 @@ const styles = StyleSheet.create({
   },
 
   label: {
-    fontSize: 12,
+    fontSize: 10,
     color: "#6B7280",
     fontFamily: "SF_Pro_Regular",
     fontWeight: "400",
   },
 
   labelCompact: {
-    fontSize: 12,
+    fontSize: 10,
     color: "#1D1D1D",
   },
 
   count: {
-    fontSize: 20,
+    fontSize: 14,
     fontFamily: "SF_Pro_Bold",
     fontWeight: "700",
     color: "#1D1D1D",
-    marginTop: 2,
+    marginTop: 0,
   },
 
   countCompact: {

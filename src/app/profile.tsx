@@ -10,6 +10,7 @@ import {
   StatusBar,
 } from "react-native";
 import { useAuth } from "@/hooks/useAuth";
+import Avatar from "@/components/Avatar";
 import { getUserAvatarUrl } from "@/utils/userHelpers";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -199,11 +200,24 @@ export default function Profile() {
           <View style={styles.profileRingContainer}>
             <View style={styles.profileRing}>
               <View style={styles.profileImageWrap}>
-                <Image
-                  source={{ uri: profileImage || getUserAvatarUrl(user) }}
-                  style={styles.profileImageFull}
-                  resizeMode="cover"
-                />
+                {profileImage ? (
+                  <Image
+                    source={{ uri: profileImage }}
+                    style={styles.profileImageFull}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <Avatar
+                    name={
+                      [user?.first_name, user?.last_name].filter(Boolean).join(" ") ||
+                      (user as any)?.full_name ||
+                      "User"
+                    }
+                    imagePath={user?.image}
+                    size={84}
+                    borderRadius={42}
+                  />
+                )}
               </View>
             </View>
 

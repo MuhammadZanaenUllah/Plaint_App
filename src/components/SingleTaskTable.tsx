@@ -1,17 +1,28 @@
 import Avatar from "@/components/Avatar";
 import Icons from "@/constants/icons";
 import { triggerHaptic } from "@/utils/haptics";
+import { showInfo } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
@@ -97,10 +108,10 @@ type StatusOverrides = Record<string, StatusType>;
 type AssigneeOverride = { name: string; initials: string; avatar?: string };
 type AssigneeOverrides = Record<string, AssigneeOverride>;
 
-const ROW_HEIGHT = 39;
-const DETAIL_ROW_HEIGHT = 91;
+const ROW_HEIGHT = 35;
+const DETAIL_ROW_HEIGHT = 85;
 const ACTION_REVEAL_WIDTH = 176;
-const ACTION_STRIP_HEIGHT = 39;
+const ACTION_STRIP_HEIGHT = 35;
 const ACTION_GRIP_WIDTH = (29 / 25) * ACTION_STRIP_HEIGHT;
 const MAX_TABLE_WIDTH = 640;
 const MIN_TABLE_WIDTH = 320;
@@ -146,9 +157,9 @@ function getTableMetrics(windowWidth: number) {
   const leadingWidth = 32;
   const actionWidth = 26;
   const dataWidth = contentWidth - leadingWidth - actionWidth;
-  const dueDateWidth = Math.max(80, Math.round(dataWidth * 0.3));
-  const createdByWidth = Math.max(88, Math.round(dataWidth * 0.31));
-  const titleWidth = Math.max(104, dataWidth - dueDateWidth - createdByWidth);
+  const dueDateWidth = Math.max(105, Math.round(dataWidth * 0.32));
+  const createdByWidth = Math.max(100, Math.round(dataWidth * 0.31));
+  const titleWidth = Math.max(85, dataWidth - dueDateWidth - createdByWidth);
 
   return {
     tableWidth,
@@ -277,6 +288,21 @@ function SingleTaskTable({
   const [rowViewportHeight, setRowViewportHeight] = useState(0);
   const [rowContentHeight, setRowContentHeight] = useState(0);
 
+  // Bumped whenever the list starts scrolling — the open Status/Assignee
+  // dropdown inside a swiped-open "details" row watches this to close
+  // itself, since it otherwise stays floating in place (not anchored to the
+  // row it belongs to) as the row scrolls away underneath it.
+  const [scrollCloseSignal, setScrollCloseSignal] = useState(0);
+
+  // Scroll back to the top row whenever the tab changes, so switching tabs
+  // always lands on the first task instead of wherever the previous tab
+  // happened to be scrolled to. useLayoutEffect (not useEffect) so this
+  // commits before paint — no visible flash of the old scroll position.
+  const rowsScrollRef = useRef<ScrollView>(null);
+  useLayoutEffect(() => {
+    rowsScrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [sectionTitle]);
+
   const augmentedTasks = useMemo(
     () =>
       tasks.map((task, index) => {
@@ -315,8 +341,11 @@ function SingleTaskTable({
 
   const handleStatusChange = useCallback(
     (task: TaskRowProps, rowIndex: number, nextStatus: StatusType) => {
+      if (task.canEditStatus === false) {
+        showInfo("Not Allowed", "You don't have permission to change this task's status.");
+        return;
+      }
       triggerHaptic("success");
-      if (task.canEditStatus === false) return;
       setStatusOverrides((previous) => ({
         ...previous,
         [getTaskKey(task, rowIndex)]: nextStatus,
@@ -328,8 +357,6 @@ function SingleTaskTable({
 
   const handleToggleComplete = useCallback(
     (task: TaskRowProps, rowIndex: number) => {
-      if (task.canEditStatus === false) return;
-      triggerHaptic("success");
       handleStatusChange(
         task,
         rowIndex,
@@ -499,7 +526,7 @@ function SingleTaskTable({
           },
         ]}
       >
-        <View style={{ width: metrics.leadingWidth }} />
+        <View style={{ width: 24 }} />
         <Text style={[styles.colHead, { width: metrics.titleWidth }]}>
           Task Title
         </Text>
@@ -519,6 +546,7 @@ function SingleTaskTable({
       />
 
       <ScrollView
+        ref={rowsScrollRef}
         showsVerticalScrollIndicator={false}
         style={styles.rowsScroll}
         contentContainerStyle={styles.rowsScrollContent}
@@ -531,6 +559,7 @@ function SingleTaskTable({
         }
         onContentSizeChange={(_width, height) => setRowContentHeight(height)}
         onScroll={handleScroll}
+        onScrollBeginDrag={() => setScrollCloseSignal((n) => n + 1)}
         scrollEventThrottle={16}
         nestedScrollEnabled
         refreshControl={
@@ -540,6 +569,8 @@ function SingleTaskTable({
               onRefresh={onRefresh}
               colors={["transparent"]}
               tintColor="transparent"
+              progressBackgroundColor="transparent"
+              progressViewOffset={Platform.OS === "android" ? -1000 : undefined}
             />
           ) : undefined
         }
@@ -582,6 +613,7 @@ function SingleTaskTable({
                 onAssigneeSelect={(owner) =>
                   handleAssigneeChange(task, rowIndex, owner)
                 }
+                scrollCloseSignal={scrollCloseSignal}
               />
             ))
           : null}
@@ -634,6 +666,7 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
   canReassign,
   assignableOwners,
   onAssigneeSelect,
+  scrollCloseSignal,
 }: {
   item: TaskRowProps;
   rowIndex: number;
@@ -652,6 +685,7 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
     status: StatusType,
   ) => void;
   isPreviewOpen: boolean;
+  scrollCloseSignal?: number;
   onPreviewStart: () => void;
   onPreviewEnd: () => void;
   canReassign?: boolean;
@@ -825,6 +859,7 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
             canReassign={canReassign}
             assignableOwners={assignableOwners}
             onAssigneeSelect={onAssigneeSelect}
+            scrollCloseSignal={scrollCloseSignal}
           />
         </Animated.View>
 
@@ -890,6 +925,7 @@ const LeadingCell = memo(function LeadingCell({
   onToggle: () => void;
 }) {
   const isCompleted = item.status === "Completed";
+  const canToggle = item.canEditStatus !== false;
   const priority = item.taskPriority?.toLowerCase() ?? "normal";
 
   const priorityLabel =
@@ -930,7 +966,7 @@ const LeadingCell = memo(function LeadingCell({
       )}
 
       <TouchableOpacity
-        style={styles.checkboxWrap}
+        style={[styles.checkboxWrap, !canToggle && { opacity: 0.5 }]}
         onPress={() => {
           triggerHaptic("success");
           onToggle();
@@ -1091,38 +1127,78 @@ const AssigneeDropdown = memo(function AssigneeDropdown({
   owners: AssignableOwner[];
   onSelect: (owner: AssignableOwner) => void;
 }) {
-  return (
-    <ScrollView
-      style={styles.assigneeDropdownScroll}
-      nestedScrollEnabled
-      showsVerticalScrollIndicator={false}
-    >
-      {owners.map((owner) => {
-        const name = getOwnerDisplayName(owner);
-        const isActive = name.split(/\s+/)[0] === currentAssigneeName;
+  const [searchQuery, setSearchQuery] = useState("");
 
-        return (
-          <TouchableOpacity
-            key={owner.id}
-            style={[styles.dropdownItem, isActive && styles.dropdownItemActive]}
-            onPress={() => onSelect(owner)}
-            activeOpacity={0.8}
-          >
-            <View style={styles.assigneeDropdownAvatar}>
-              <Text style={styles.assigneeDropdownAvatarText}>
-                {getOwnerInitials(owner)}
-              </Text>
-            </View>
-            <Text style={styles.assigneeDropdownText} numberOfLines={1}>
-              {name}
-            </Text>
-            {isActive ? (
-              <Ionicons name="checkmark" size={13} color="#0DDFAB" />
-            ) : null}
+  const filteredOwners = useMemo(() => {
+    if (!searchQuery.trim()) return owners;
+    const q = searchQuery.toLowerCase().trim();
+    return owners.filter((owner) => {
+      const name = getOwnerDisplayName(owner).toLowerCase();
+      return name.includes(q);
+    });
+  }, [owners, searchQuery]);
+
+  return (
+    <View style={styles.assigneeDropdownContainer}>
+      <View style={styles.assigneeSearchRow}>
+        <Ionicons name="search-outline" size={12} color="#9CA3AF" />
+        <TextInput
+          style={styles.assigneeSearchInput}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search..."
+          placeholderTextColor="#9CA3AF"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {searchQuery ? (
+          <TouchableOpacity onPress={() => setSearchQuery("")}>
+            <Ionicons name="close-circle" size={12} color="#9CA3AF" />
           </TouchableOpacity>
-        );
-      })}
-    </ScrollView>
+        ) : null}
+      </View>
+
+      <ScrollView
+        style={styles.assigneeDropdownScroll}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {filteredOwners.length === 0 ? (
+          <View style={styles.noUserRow}>
+            <Text style={styles.noUserText}>No user found</Text>
+          </View>
+        ) : (
+          filteredOwners.map((owner) => {
+            const name = getOwnerDisplayName(owner);
+            const isActive = name.split(/\s+/)[0] === currentAssigneeName;
+
+            return (
+              <TouchableOpacity
+                key={owner.id}
+                style={[styles.dropdownItem, isActive && styles.dropdownItemActive]}
+                onPress={() => onSelect(owner)}
+                activeOpacity={0.8}
+              >
+                <Avatar
+                  name={name}
+                  imagePath={owner.image}
+                  size={20}
+                  borderRadius={5}
+                  fontSize={9}
+                />
+                <Text style={styles.assigneeDropdownText} numberOfLines={1}>
+                  {name}
+                </Text>
+                {isActive ? (
+                  <Ionicons name="checkmark" size={12} color="#0DDFAB" />
+                ) : null}
+              </TouchableOpacity>
+            );
+          })
+        )}
+      </ScrollView>
+    </View>
   );
 });
 
@@ -1137,6 +1213,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
   canReassign,
   assignableOwners,
   onAssigneeSelect,
+  scrollCloseSignal,
 }: {
   item: TaskRowProps;
   stage: SwipeStage;
@@ -1148,6 +1225,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
   canReassign?: boolean;
   assignableOwners?: AssignableOwner[];
   onAssigneeSelect: (owner: AssignableOwner) => void;
+  scrollCloseSignal?: number;
 }) {
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
   const [assigneePickerOpen, setAssigneePickerOpen] = useState(false);
@@ -1158,6 +1236,15 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
       setAssigneePickerOpen(false);
     }
   }, [stage]);
+
+  // Close whichever picker is open the moment the list starts scrolling —
+  // it's not anchored to the row, so otherwise it stays floating in place
+  // while the row it belongs to scrolls away underneath it.
+  useEffect(() => {
+    setStatusPickerOpen(false);
+    setAssigneePickerOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollCloseSignal]);
   const colors = STATUS_COLORS[item.status] ?? {
     bg: "#FEF3C7",
     text: "#D97706",
@@ -1387,13 +1474,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
-    // container is edge-flush on the right (for the row chevron below) — pull
-    // this back in so the title/filter button stay visually inset like before.
+    marginBottom: 6,
     marginRight: 16,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 15,
     fontFamily: "SF_Pro_Medium",
     color: "#1F2937",
   },
@@ -1443,22 +1528,20 @@ const styles = StyleSheet.create({
     color: "#0DDFAB",
   },
   tableHeader: {
-    height: 31,
+    height: 26,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#E5E7EB",
     borderRadius: 4,
-    marginBottom: 8,
-    // Stays visually inset even though the container now extends edge-flush
-    // on the right for the row chevron below.
+    marginBottom: 4,
     marginRight: 16,
   },
   colHead: {
-    fontSize: 12,
+    fontSize: 10,
     fontFamily: "SF_Pro_Bold",
     fontWeight: "700",
     color: "#1D1D1D",
-    textAlign: "center",
+    textAlign: "left",
   },
   rowsScroll: {
     flex: 1,
@@ -1582,7 +1665,7 @@ const styles = StyleSheet.create({
   titleText: {
     minWidth: 0,
     flexShrink: 1,
-    fontSize: 12,
+    fontSize: 11,
     color: "#1F2937",
     fontFamily: "SF_Pro_Medium",
   },
@@ -1602,11 +1685,11 @@ const styles = StyleSheet.create({
   initialsAssignee: {
     marginRight: 6,
   },
-  initialsText: { fontSize: 10, fontWeight: "700", color: "#fff" },
+  initialsText: { fontSize: 9, fontWeight: "700", color: "#fff" },
   cellText: {
     minWidth: 0,
     flexShrink: 1,
-    fontSize: 12,
+    fontSize: 10.5,
     color: "#1F2937",
     fontFamily: "SF_Pro_Medium",
   },
@@ -1818,7 +1901,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 52,
     left: WAVE_BADGE_WIDTH + 6,
-    width: 180,
+    width: 190,
     zIndex: 9999,
     elevation: 9999,
     backgroundColor: "#fff",
@@ -1831,12 +1914,44 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     overflow: "hidden",
   },
+  assigneeDropdownContainer: {
+    paddingBottom: 2,
+  },
+  assigneeSearchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F3F4F6",
+    borderRadius: 6,
+    marginHorizontal: 6,
+    marginTop: 6,
+    marginBottom: 4,
+    paddingHorizontal: 6,
+    height: 26,
+    gap: 4,
+  },
+  assigneeSearchInput: {
+    flex: 1,
+    fontSize: 11,
+    fontFamily: "SF_Pro_Regular",
+    color: "#1D1D1D",
+    padding: 0,
+    height: 26,
+  },
+  noUserRow: {
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  noUserText: {
+    fontSize: 11,
+    color: "#9CA3AF",
+    fontFamily: "SF_Pro_Regular",
+  },
   assigneeDropdownScroll: {
-    maxHeight: 220,
+    maxHeight: 180,
   },
   assigneeDropdownAvatar: {
-    width: 22,
-    height: 22,
+    width: 20,
+    height: 20,
     borderRadius: 5,
     backgroundColor: "#F3F4F6",
     alignItems: "center",
@@ -1844,24 +1959,24 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   assigneeDropdownAvatarText: {
-    fontSize: 10,
+    fontSize: 9,
     fontFamily: "SF_Pro_Bold",
     color: "#374151",
   },
   assigneeDropdownText: {
     flex: 1,
-    fontSize: 12,
+    marginLeft: 8,
+    fontSize: 11,
     fontFamily: "SF_Pro_Regular",
     color: "#1F2937",
   },
   dropdownItem: {
-    height: 40,
+    height: 32,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    // paddingVertical: 2,
+    paddingHorizontal: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    borderBottomColor: "#F9FAFB",
   },
   dropdownItemActive: {
     backgroundColor: "#F0FDF9",

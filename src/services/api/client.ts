@@ -1,8 +1,20 @@
+import { fetch, prefetch, nitroFetchOnWorklet } from "react-native-nitro-fetch";
 import { getStoredToken } from "@/utils/token";
 
 const BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ??
   "https://backend-planit.soulservices.com/api/v1";
+
+/**
+ * Pre-warms DNS resolution and TCP/TLS socket connection to the API server on app launch.
+ */
+export function initNetworkPrewarm() {
+  try {
+    prefetch(BASE_URL, { headers: { prefetchKey: "api-base" } }).catch(() => {});
+  } catch (err) {
+    console.warn("[Network] Prewarm init error:", err);
+  }
+}
 
 type AuthFailureCallback = () => void;
 
@@ -144,4 +156,40 @@ export async function apiUpload<T>(
     body: formData,
   });
   return handleResponse<T>(res);
+}
+
+/**
+ * Offloads API GET request and JSON response parsing to a background C++ worklet thread.
+ * Ideal for fetching large collections (e.g. task lists or long message histories) without blocking UI.
+ */
+export async function apiGetWorklet<T>(
+  path: string,
+  params?: Record<string, string | number>,
+): Promise<T> {
+  const token = await getStoredToken();
+  const url = new URL(`${BASE_URL}${path}`);
+  if (params) {
+    Object.entries(params).forEach(([k, v]) =>
+      url.searchParams.set(k, String(v)),
+    );
+  }
+
+  return nitroFetchOnWorklet<T>(
+    url.toString(),
+    {
+      method: "GET",
+      headers: buildHeaders(token),
+    },
+    (payload) => {
+      "worklet";
+      if (payload.bodyString) {
+        try {
+          return JSON.parse(payload.bodyString) as T;
+        } catch {
+          return payload.bodyString as unknown as T;
+        }
+      }
+      return {} as T;
+    },
+  );
 }

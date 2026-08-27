@@ -1,8 +1,11 @@
+import { BottomSheet } from "@expo/ui";
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -363,9 +366,8 @@ export default function FilterModal({
   const waitForResetRef = useRef(false);
   // Timestamp of the last Reset tap, used to keep the loader visible briefly
   // even when the parent reset is instant.
+  const snapPoints = useMemo(() => ["88%"], []);
   const resetStartedAtRef = useRef(0);
-
-  const snapPoints = useMemo(() => ["90%"], []);
 
   useEffect(() => {
     if (visible) {
@@ -460,7 +462,7 @@ export default function FilterModal({
     setSelectedPriority(null);
     setSelectedLeaveMode(null);
     setSelectedLeaveType(null);
-    onChangeReason("");
+    onChangeReason?.("");
     setStartDate(null);
     setEndDate(null);
     setCalendarOpen(false);
@@ -471,12 +473,12 @@ export default function FilterModal({
     setCreatedByOpen(false);
     setAssignedToOpen(false);
     waitForRealLoadRef.current = false;
-    waitForResetRef.current = true;
-    resetStartedAtRef.current = Date.now();
-    applyingSessionRef.current += 1;
+    waitForResetRef.current = false;
+    applyingSessionRef.current = 0;
     setApplying(false);
-    setResetting(true);
+    setResetting(false);
     onReset?.();
+    onClose?.();
   };
 
   const handleApplyPress = () => {
@@ -504,32 +506,40 @@ export default function FilterModal({
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      statusBarTranslucent
-      onRequestClose={handleManualClose}
+    <BottomSheet
+      isPresented={visible}
+      onDismiss={handleManualClose}
+      snapPoints={["full"]}
+      showDragIndicator={false}
+      contentPadding={0}
     >
-      <Pressable style={styles.modalOverlay} onPress={handleManualClose}>
-        <Pressable style={styles.sheetContainer} onPress={(e) => e.stopPropagation()}>
-          <View style={styles.dragHandleBar}>
-            <View style={styles.dragHandlePill} />
-          </View>
-          <View style={styles.headerRow}>
-            <TouchableOpacity onPress={handleReset} disabled={resetting}>
-              {resetting ? (
-                <ActivityIndicator size="small" color="#1D1D1D" />
-              ) : (
-                <Text style={styles.resetText}>Reset</Text>
-              )}
-            </TouchableOpacity>
-            <Text style={styles.titleText}>Filter</Text>
-            <TouchableOpacity style={styles.closeBtn} onPress={handleManualClose}>
-              <Ionicons name="close" size={16} color="#fff" />
-            </TouchableOpacity>
-          </View>
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <View style={styles.sheetContainer}>
+        <View style={styles.dragHandleBar}>
+          <View style={styles.dragHandlePill} />
+        </View>
+        <View style={styles.headerRow}>
+          <TouchableOpacity onPress={handleReset} disabled={resetting}>
+            {resetting ? (
+              <ActivityIndicator size="small" color="#1D1D1D" />
+            ) : (
+              <Text style={styles.resetText}>Reset</Text>
+            )}
+          </TouchableOpacity>
+          <Text style={styles.titleText}>Filter</Text>
+          <TouchableOpacity style={styles.closeBtn} onPress={handleManualClose}>
+            <Ionicons name="close" size={16} color="#fff" />
+          </TouchableOpacity>
+        </View>
+
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{ flex: 1 }}
+        >
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.scrollContent}
+          >
               {/* Status */}
               {showStatus && (
                 <>
@@ -795,9 +805,9 @@ export default function FilterModal({
               )}
             </TouchableOpacity>
           </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+        </KeyboardAvoidingView>
+      </View>
+    </BottomSheet>
   );
 }
 
@@ -811,13 +821,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    maxHeight: "90%",
-    minHeight: "50%",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 24,
+    flex: 1,
+    overflow: "hidden",
   },
   sheet: {
     backgroundColor: "#fff",
@@ -870,7 +875,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#F3F4F6",
   },
-  scrollContent: { paddingHorizontal: 16, paddingBottom: 16 },
+  scrollContent: { paddingHorizontal: 16, paddingBottom: 40 },
   sectionLabel: {
     fontSize: 16,
     fontFamily: "SF_Pro_Semibold",

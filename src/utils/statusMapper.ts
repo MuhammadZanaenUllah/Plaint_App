@@ -5,7 +5,7 @@ import {
   TaskListResponse,
   TaskOwner,
 } from "@/types/task.types";
-import { formatShortDate } from "@/utils/dateFormat";
+import { formatTaskDueDate } from "@/utils/dateFormat";
 
 export type MappedTaskRow = {
   id: string;
@@ -78,13 +78,14 @@ function findOwner(taskOwners: TaskOwner[], id?: number) {
   return taskOwners.find((owner) => owner.id === id);
 }
 
-function truncateName(name: string): string {
-  const first = name.split(/\s+/)[0] ?? "";
-  return first || (name.length > 14 ? `${name.slice(0, 14)}...` : name);
+export function truncateName(name: string): string {
+  if (!name) return "";
+  const first = name.trim().split(/\s+/)[0] ?? "";
+  return first;
 }
 
 function formatDate(dateStr: string): string {
-  return formatShortDate(dateStr, { emptyPlaceholder: "" });
+  return formatTaskDueDate(dateStr, { emptyPlaceholder: "" });
 }
 
 export function mapTaskListItem(

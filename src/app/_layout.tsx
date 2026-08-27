@@ -12,6 +12,7 @@ function UpdateLifecycle() {
   useUpdates();
   return null;
 }
+import { initNetworkPrewarm } from "@/services/api/client";
 import {
   connectSocket,
   disconnectSocket,
@@ -23,6 +24,9 @@ import { useContext, useEffect, useRef } from "react";
 import { AppState, LogBox, Text, TextInput } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Toast from "react-native-toast-message";
+
+// Prewarm DNS resolution and TCP/TLS sockets for backend on app start
+initNetworkPrewarm();
 
 // Disable automatic system font scaling globally across all <Text> and <TextInput> components
 if ((Text as any).defaultProps) {

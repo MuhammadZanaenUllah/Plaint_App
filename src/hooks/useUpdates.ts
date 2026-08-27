@@ -34,7 +34,7 @@ export function useUpdates() {
           Toast.show({
             type: "info",
             text1: "Update Ready 🚀",
-            text2: "A new version of Plaint has been downloaded. Tap to restart.",
+            text2: "A new version of Planit has been downloaded. Tap to restart.",
             position: "bottom",
             visibilityTime: 10000,
             onPress: async () => {

@@ -6,25 +6,29 @@ export function getUserAvatarUrl(
     full_name?: string | null;
   } | null,
 ): string {
-  if (user?.image) {
-    if (
-      user.image.startsWith("http://") ||
-      user.image.startsWith("https://") ||
-      user.image.startsWith("data:")
-    ) {
-      return user.image;
+  const imagePath = user?.image;
+  if (
+    imagePath &&
+    typeof imagePath === "string" &&
+    imagePath.trim() !== "" &&
+    !["null", "undefined", "none", "default.png", "default.jpg"].includes(
+      imagePath.trim().toLowerCase(),
+    )
+  ) {
+    if (/^(https?:|data:)/.test(imagePath)) {
+      return imagePath;
     }
     const apiBase =
       process.env.EXPO_PUBLIC_API_BASE_URL ??
       "https://backend-planit.soulservices.com/api/v1";
-    const serverDomain = apiBase
-      .replace(/\/api\/v1\/?$/, "")
-      .replace(/\/$/, "");
-    const clean = user.image.replace(/^\/+/, "");
-    if (clean.includes("/")) {
-      return `${serverDomain}/${clean}`;
-    }
-    return `${serverDomain}/uploads/users/${clean}`;
+    const origin = apiBase.replace(/\/api\/v1\/?$/, "").replace(/\/$/, "");
+    const clean = imagePath.replace(/^\/+/, "");
+    const securePath = clean.startsWith("public/")
+      ? clean
+      : clean.includes("/")
+        ? `public/${clean}`
+        : `public/users/docs/${clean}`;
+    return `${origin}/api/v1/secure-file?p=${encodeURIComponent(securePath)}`;
   }
 
   const name =

@@ -38,12 +38,12 @@ export function getRoomAvatar(
   currentUserId: number
 ): string | null {
   if (room.type === "direct") {
-    const otherMember = room.members.find((m) => m.id !== currentUserId);
+    const otherMember = (room.members ?? []).find((m) => m.id !== currentUserId);
     if (otherMember?.image) {
       return otherMember.image;
     }
   }
-  return null;
+  return (room as any).image ?? (room as any).avatar ?? (room as any).icon ?? null;
 }
 
 /** Check if a room has unread messages. */

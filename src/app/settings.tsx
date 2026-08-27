@@ -12,6 +12,7 @@ import {
 } from "@/utils/haptics";
 import { showError, showSuccess } from "@/utils/toast";
 import { removeBiometricSession, saveBiometricSession } from "@/utils/token";
+import Avatar from "@/components/Avatar";
 import { getUserAvatarUrl } from "@/utils/userHelpers";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as LocalAuthentication from "expo-local-authentication";
@@ -396,12 +397,12 @@ export default function SettingsScreen() {
       >
         {/* ── User Profile Banner ── */}
         <View style={styles.profileCard}>
-          <View style={styles.avatar}>
-            <Image
-              source={{ uri: getUserAvatarUrl(user) }}
-              style={styles.profileAvatarImg}
-            />
-          </View>
+          <Avatar
+            name={fullName}
+            imagePath={user?.image}
+            size={54}
+            borderRadius={27}
+          />
           <View style={styles.profileInfo}>
             <Text style={styles.userName}>{fullName}</Text>
             <Text style={styles.userRole}>

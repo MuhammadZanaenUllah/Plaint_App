@@ -17,11 +17,17 @@ import {
   TaskNote,
   TaskOwner,
   TaskPriority,
+  UiTaskStatus,
   UpdateTaskStatusRequest,
+  UpdateTaskRequest,
   ViewTaskData,
 } from "@/types/task.types";
 import { extractErrorMessage } from "@/utils/errorHandler";
-import { MappedTaskRow, mapTaskListResponse } from "@/utils/statusMapper";
+import {
+  MappedTaskRow,
+  mapTaskListResponse,
+  uiStatusToApi,
+} from "@/utils/statusMapper";
 import React, {
   createContext,
   useCallback,
@@ -200,6 +206,7 @@ export type TaskContextValue = {
   fetchFiltered: (companyId: number, filter: TaskFilter) => Promise<void>;
   setActiveFilter: (filter: TaskFilter | null) => void;
   createTask: (data: CreateTaskRequest) => Promise<number>;
+  updateTask: (taskId: number, data: UpdateTaskRequest) => Promise<any>;
   updateTaskStatusLocal: (taskId: string, status: string) => void;
   updateTaskStatusApi: (
     taskId: number,
@@ -333,27 +340,14 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     [state.allOtherTasks, state.taskOwners],
   );
 
-  const allMappedTasks = useMemo(() => {
-    const response: TaskListResponse = {
-      tasks_assigned_to_me: state.assignedToMe,
-      tasksByme: state.createdByMe,
-      all_other_tasks: state.allOtherTasks,
-      task_owner: state.taskOwners,
-      priority: [],
-      status: [],
-    };
-    const mapped = mapTaskListResponse(response);
-    return [
-      ...mapped.assignedToMe,
-      ...mapped.createdByMe,
-      ...mapped.allOtherTasks,
-    ];
-  }, [
-    state.assignedToMe,
-    state.createdByMe,
-    state.allOtherTasks,
-    state.taskOwners,
-  ]);
+  // Reuses the already-mapped arrays above instead of re-running
+  // mapTaskListItem over every task a second time — /tasks/all returns
+  // 500+ tasks for some companies, so this used to double the per-tab-switch
+  // mapping cost for no reason.
+  const allMappedTasks = useMemo(
+    () => [...mappedAssignedToMe, ...mappedCreatedByMe, ...mappedAllOtherTasks],
+    [mappedAssignedToMe, mappedCreatedByMe, mappedAllOtherTasks],
+  );
 
   const totalCount = allMappedTasks.length;
 
@@ -908,6 +902,65 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // Patches a task's fields across all three local buckets immediately —
+  // mirrors updateTaskStatusLocal's approach (see that comment). /tasks/all
+  // is slow and unpaginated; refetching it right after a write can race the
+  // backend and momentarily (or, if the user navigates away before the
+  // write has propagated, indefinitely from the user's perspective) show
+  // stale data over the correct optimistic state. Patching locally makes
+  // the task list correct instantly, independent of any refetch timing.
+  const updateTaskLocal = useCallback(
+    (taskId: number, data: UpdateTaskRequest) => {
+      const newOwner =
+        data.assign_to != null
+          ? state.taskOwners.find((o) => o.id === data.assign_to)
+          : undefined;
+
+      const update = (items: TaskListItem[]): TaskListItem[] =>
+        items.map((t) => {
+          if (t.id !== taskId) return t;
+          const patched: TaskListItem = {
+            ...t,
+            title: data.title,
+            due_date: data.due_date ?? t.due_date,
+            priority: data.priority,
+            status: uiStatusToApi(data.status as UiTaskStatus),
+            description: data.description,
+            is_recurring: data.is_recurring,
+            approval_required: data.approval_required,
+            effort_hours: data.effort_hours,
+            effort_unit: data.effort_unit,
+            task_priority: data.task_priority,
+            asigned_to: data.assign_to,
+            assignee: data.assign_to,
+          };
+          if (newOwner && data.assign_to !== t.asigned_to) {
+            patched.task_assigned_to = {
+              id: newOwner.id,
+              first_name: newOwner.first_name,
+              last_name: newOwner.last_name,
+              image: newOwner.image ?? "",
+              role: 0,
+            };
+          }
+          return patched;
+        });
+
+      dispatch({
+        type: "LOAD_SUCCESS",
+        data: {
+          tasks_assigned_to_me: update(state.assignedToMe),
+          tasksByme: update(state.createdByMe),
+          all_other_tasks: update(state.allOtherTasks),
+          task_owner: state.taskOwners,
+          priority: state.priorities,
+          status: state.statusList,
+        },
+      });
+    },
+    [state],
+  );
+
   const updateTaskStatusApi = useCallback(
     async (taskId: number, data: UpdateTaskStatusRequest) => {
       updateTaskStatusLocal(String(taskId), data.status);
@@ -921,6 +974,20 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       }
     },
     [updateTaskStatusLocal],
+  );
+
+  const updateTask = useCallback(
+    async (taskId: number, data: UpdateTaskRequest) => {
+      updateTaskLocal(taskId, data);
+      const res = await tasksService.updateTask(taskId, data);
+      if (!res.Good) {
+        throw new Error(
+          typeof res.data === "string" ? res.data : "Failed to update task",
+        );
+      }
+      return res;
+    },
+    [updateTaskLocal],
   );
 
   const logout = useCallback(() => {
@@ -944,6 +1011,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       fetchFiltered,
       setActiveFilter,
       createTask,
+      updateTask,
       updateTaskStatusLocal,
       updateTaskStatusApi,
       refreshTasks,
