@@ -151,28 +151,30 @@ export default function TasksScreen() {
   // completed) and surfaces them in-app: a one-time summary toast plus, for
   // tasks the current user assigned to someone else, the TaskDelay escalation
   // popup (once per task per session).
+  // ── App-driven overdue / delay notifications (changes1.md §8.4-8.5) ─────
+  // The app detects overdue tasks client-side (due_date in the past and not
+  // completed) and surfaces them in-app: a one-time summary toast plus, for
+  // tasks the current user assigned to someone else, the TaskDelay escalation
+  // popup (once per task per session).
   useEffect(() => {
-    if (!companyId || allMappedTasks.length === 0) return;
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayMs = todayStart.getTime();
+    if (!companyId) return;
 
-    // Full-list scan (Date parsing for every task) is only needed once per
-    // session, purely for the summary count — skip it on every subsequent
-    // silent socket refetch (this list can be 10k+ tasks company-wide, and
-    // this effect re-runs on every background refetch, not just user
-    // actions, so re-scanning it repeatedly was a real source of jank).
-    if (!overdueToastShownRef.current) {
+    // 1. One-time summary toast scan across all company tasks (runs ONCE per session)
+    if (!overdueToastShownRef.current && allMappedTasks.length > 0) {
+      overdueToastShownRef.current = true;
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayMs = todayStart.getTime();
+
       let overdueCount = 0;
       for (const t of allMappedTasks) {
         if (t.status === "Completed") continue;
         const raw = t._raw?.due_date;
         if (!raw) continue;
-        const ms = new Date(raw).getTime();
+        const ms = Date.parse(raw);
         if (!isNaN(ms) && ms < todayMs) overdueCount++;
       }
       if (overdueCount > 0) {
-        overdueToastShownRef.current = true;
         showInfo(
           "Overdue Tasks",
           `You have ${overdueCount} overdue task${overdueCount === 1 ? "" : "s"} that need attention.`,
@@ -180,22 +182,25 @@ export default function TasksScreen() {
       }
     }
 
-    // Escalation popup for the assigner (current user created the task and
-    // assigned it to someone else). Filter to the current user's own
-    // created-and-reassigned tasks — a much smaller subset than the full
-    // company list — before doing any date parsing/comparison.
-    if (currentUserId > 0 && !delayTask) {
-      let earliest: (typeof allMappedTasks)[number] | null = null;
+    // 2. Escalation popup for tasks created by current user and assigned to others.
+    // Scan only `mappedCreatedByMe` (a small fraction of all company tasks).
+    if (currentUserId > 0 && !delayTask && mappedCreatedByMe.length > 0) {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayMs = todayStart.getTime();
+
+      let earliest: (typeof mappedCreatedByMe)[number] | null = null;
       let earliestMs = Infinity;
 
-      for (const t of allMappedTasks) {
+      for (const t of mappedCreatedByMe) {
         if (t.status === "Completed") continue;
         if (t._raw?.created_by !== currentUserId) continue;
-        if (t._raw.asigned_to === currentUserId) continue;
-        if (delayPromptedIdsRef.current.has(Number(t.id))) continue;
+        if (t._raw?.asigned_to === currentUserId) continue;
+        const taskId = Number(t.id);
+        if (delayPromptedIdsRef.current.has(taskId)) continue;
         const raw = t._raw?.due_date;
         if (!raw) continue;
-        const ms = new Date(raw).getTime();
+        const ms = Date.parse(raw);
         if (isNaN(ms) || ms >= todayMs) continue; // not overdue
         if (ms < earliestMs) {
           earliestMs = ms;
@@ -216,7 +221,7 @@ export default function TasksScreen() {
         });
       }
     }
-  }, [allMappedTasks, companyId, currentUserId, delayTask]);
+  }, [allMappedTasks, mappedCreatedByMe, companyId, currentUserId, delayTask]);
 
   const handleExtendDelay = useCallback(
     async (effort: string, unit: string) => {
@@ -521,13 +526,29 @@ export default function TasksScreen() {
     [],
   );
 
+  const allMappedRows = useMemo(
+    () => allMappedTasks.map(mapRowWithRaw),
+    [allMappedTasks, mapRowWithRaw],
+  );
+  const createdByMeRows = useMemo(
+    () => mappedCreatedByMe.map(mapRowWithRaw),
+    [mappedCreatedByMe, mapRowWithRaw],
+  );
+  const assignedToMeRows = useMemo(
+    () => mappedAssignedToMe.map(mapRowWithRaw),
+    [mappedAssignedToMe, mapRowWithRaw],
+  );
+
   const tabCounts = useMemo(() => {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
+    const todayMs = todayStart.getTime();
     const tomorrowStart = new Date(todayStart);
     tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+    const tomorrowMs = tomorrowStart.getTime();
     const weekEnd = new Date(tomorrowStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
+    const weekEndMs = weekEnd.getTime();
 
     let all = 0;
     let today = 0;
@@ -544,13 +565,11 @@ export default function TasksScreen() {
       all++;
       if (t._raw?.is_recurring === true) recurring++;
       if (t._raw?.due_date) {
-        const d = new Date(t._raw.due_date);
-        const ms = d.getTime();
+        const ms = Date.parse(t._raw.due_date);
         if (!isNaN(ms)) {
-          if (ms >= todayStart.getTime() && ms < tomorrowStart.getTime())
-            today++;
-          if (ms >= tomorrowStart.getTime() && ms < weekEnd.getTime()) week++;
-          if (ms < todayStart.getTime()) overdue++;
+          if (ms >= todayMs && ms < tomorrowMs) today++;
+          if (ms >= tomorrowMs && ms < weekEndMs) week++;
+          if (ms < todayMs) overdue++;
         }
       }
     }
@@ -576,65 +595,60 @@ export default function TasksScreen() {
 
   const getTabCategoryScope = useCallback(
     (tabId: string) => {
-      const all = allMappedTasks.map(mapRowWithRaw);
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
+      const todayMs = todayStart.getTime();
       const tomorrowStart = new Date(todayStart);
       tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+      const tomorrowMs = tomorrowStart.getTime();
       const weekEnd = new Date(tomorrowStart);
       weekEnd.setDate(weekEnd.getDate() + 7);
+      const weekEndMs = weekEnd.getTime();
 
-      const sortByDueDate = (
-        tasks: (TaskRowProps & {
-          _raw: import("@/types/task.types").TaskListItem;
-        })[],
-      ) =>
+      const sortByDueDate = (tasks: typeof allMappedRows) =>
         [...tasks].sort((a, b) => {
-          if (!a._raw?.due_date) return 1;
-          if (!b._raw?.due_date) return -1;
-          return (
-            new Date(a._raw.due_date).getTime() -
-            new Date(b._raw.due_date).getTime()
-          );
+          const msA = a._raw?.due_date ? Date.parse(a._raw.due_date) : Infinity;
+          const msB = b._raw?.due_date ? Date.parse(b._raw.due_date) : Infinity;
+          return (isNaN(msA) ? Infinity : msA) - (isNaN(msB) ? Infinity : msB);
         });
 
       switch (tabId) {
         case "today":
-          return all.filter((t) => {
+          return allMappedRows.filter((t) => {
             if (!t._raw?.due_date) return false;
-            const d = new Date(t._raw.due_date);
-            return d >= todayStart && d < tomorrowStart;
+            const ms = Date.parse(t._raw.due_date);
+            return !isNaN(ms) && ms >= todayMs && ms < tomorrowMs;
           });
         case "week":
           return sortByDueDate(
-            all.filter((t) => {
+            allMappedRows.filter((t) => {
               if (!t._raw?.due_date) return false;
-              const d = new Date(t._raw.due_date);
-              return d >= tomorrowStart && d < weekEnd;
+              const ms = Date.parse(t._raw.due_date);
+              return !isNaN(ms) && ms >= tomorrowMs && ms < weekEndMs;
             }),
           );
         case "overdue":
-          return all.filter((t) => {
+          return allMappedRows.filter((t) => {
             if (!t._raw?.due_date) return false;
-            const d = new Date(t._raw.due_date);
-            return d < todayStart;
+            const ms = Date.parse(t._raw.due_date);
+            return !isNaN(ms) && ms < todayMs;
           });
         case "created":
-          return sortByDueDate(mappedCreatedByMe.map(mapRowWithRaw));
+          return sortByDueDate(createdByMeRows);
         case "assigned":
-          return sortByDueDate(mappedAssignedToMe.map(mapRowWithRaw));
+          return sortByDueDate(assignedToMeRows);
         case "recurring":
           return sortByDueDate(
-            all.filter((t) => t._raw?.is_recurring === true),
+            allMappedRows.filter((t) => t._raw?.is_recurring === true),
           );
         case "completed":
-          return all.filter((t) => t.status === "Completed");
+          return allMappedRows.filter((t) => t.status === "Completed");
         case "all":
         default:
-          return all;
+          return allMappedRows;
       }
     },
-    [allMappedTasks, mappedCreatedByMe, mappedAssignedToMe, mapRowWithRaw],
+    [allMappedRows, createdByMeRows, assignedToMeRows],
   );
 
   // Sort: Critical tasks first (by critical_order ascending), then normal tasks (by due_date).
@@ -657,10 +671,9 @@ export default function TasksScreen() {
         const orderA = a._raw?.critical_order ?? 999;
         const orderB = b._raw?.critical_order ?? 999;
         if (orderA !== orderB) return orderA - orderB;
-        return (
-          new Date(a._raw.due_date || 0).getTime() -
-          new Date(b._raw.due_date || 0).getTime()
-        );
+        const msA = a._raw?.due_date ? Date.parse(a._raw.due_date) : 0;
+        const msB = b._raw?.due_date ? Date.parse(b._raw.due_date) : 0;
+        return (isNaN(msA) ? 0 : msA) - (isNaN(msB) ? 0 : msB);
       });
       return [...criticals, ...others];
     },
@@ -669,20 +682,6 @@ export default function TasksScreen() {
 
   const displayedTasks = useMemo(() => {
     let tasks = getTabCategoryScope(activeTab);
-    console.log(
-      `[TasksScreen] Calculating displayedTasks for activeTab="${activeTab}". Base category tasks count:`,
-      tasks.length,
-    );
-    if (tasks.length > 0) {
-      const ids = tasks.map((t) => t.id ?? "no-id").slice(0, 5);
-      console.log(
-        `[TasksScreen] First 5 task ids in displayedTasks: [${ids.join(", ")}]`,
-      );
-      const raw572 = tasks.find((t) => t.id === "572");
-      console.log(
-        `[TasksScreen] Task id=572 found in displayedTasks: ${!!raw572}, title: "${raw572?.title}"`,
-      );
-    }
 
     if (activeStatusFilter) {
       if (activeStatusFilter === "Recurring") {
@@ -692,10 +691,6 @@ export default function TasksScreen() {
       } else {
         tasks = tasks.filter((t) => t.status === activeStatusFilter);
       }
-      console.log(
-        `[TasksScreen] After status filter ("${activeStatusFilter}"):`,
-        tasks.length,
-      );
     } else {
       if (activeTab === "completed") {
         tasks = tasks.filter((t) => t.status === "Completed");
@@ -705,14 +700,8 @@ export default function TasksScreen() {
     }
 
     if (activePriorityFilter) {
-      // Priority in this app is the scheduling tier (`task_priority`:
-      // "normal" | "critical"), NOT the free-form `priority_name` string.
       const tier = activePriorityFilter.toLowerCase();
       tasks = tasks.filter((t) => t._raw?.task_priority === tier);
-      console.log(
-        `[TasksScreen] After priority filter ("${activePriorityFilter}"):`,
-        tasks.length,
-      );
     }
 
     if (activeCreatedByFilter) {
@@ -741,48 +730,16 @@ export default function TasksScreen() {
         ? new Date(activeEndDateFilter).setHours(23, 59, 59, 999)
         : null;
 
-      console.log(
-        `[TasksScreen] Applying Date Filter: Start=${startMs ? new Date(startMs).toISOString() : "None"}, End=${endMs ? new Date(endMs).toISOString() : "None"}`,
-      );
-
       tasks = tasks.filter((t) => {
-        if (!t._raw?.due_date) {
-          console.log(
-            `[TasksScreen] Skipping "${t.title}": due_date is missing`,
-          );
-          return false;
-        }
-        const taskDate = new Date(t._raw.due_date);
-        const taskMs = taskDate.getTime();
-        if (isNaN(taskMs)) {
-          console.log(
-            `[TasksScreen] Skipping "${t.title}": invalid due_date "${t._raw.due_date}"`,
-          );
-          return false;
-        }
-
-        if (startMs !== null && taskMs < startMs) {
-          console.log(
-            `[TasksScreen] Skipping "${t.title}" (${t._raw.due_date}): before start date`,
-          );
-          return false;
-        }
-
-        if (endMs !== null && taskMs > endMs) {
-          console.log(
-            `[TasksScreen] Skipping "${t.title}" (${t._raw.due_date}): after end date`,
-          );
-          return false;
-        }
-
+        if (!t._raw?.due_date) return false;
+        const taskMs = Date.parse(t._raw.due_date);
+        if (isNaN(taskMs)) return false;
+        if (startMs !== null && taskMs < startMs) return false;
+        if (endMs !== null && taskMs > endMs) return false;
         return true;
       });
-
-      console.log(`[TasksScreen] After date range filter:`, tasks.length);
     }
 
-    // Text search from the header search bar — matches title, id, assignee,
-    // status, priority and project/description text.
     const query = searchText.trim().toLowerCase();
     if (query) {
       tasks = tasks.filter((t) => {
@@ -801,7 +758,6 @@ export default function TasksScreen() {
       });
     }
 
-    // Always sort Critical tasks to the top, preserving relative order within each group
     return sortByCritical(tasks);
   }, [
     activeTab,
