@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { ReactNode, useCallback } from "react";
@@ -66,13 +67,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 6,
   },
   title: {
-    fontSize: 17,
+    fontSize: rf(17),
     fontFamily: "SF_Pro_Semibold",
     color: "#1C1C1E",
   },
   subtitle: {
     marginTop: 2,
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: "#8E8E93",
     flexShrink: 1,

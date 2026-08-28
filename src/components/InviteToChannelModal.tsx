@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 /**
  * InviteToChannelModal.tsx
  *
@@ -205,11 +206,11 @@ const perm = StyleSheet.create({
   },
   badgeText: {
     color: "#fff",
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
   },
   badgeTextCompact: {
-    fontSize: 13,
+    fontSize: rf(13),
   },
   menu: {
     position: "absolute",
@@ -237,12 +238,12 @@ const perm = StyleSheet.create({
     borderBottomColor: "#F3F4F6",
   },
   menuItemTitle: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
   menuItemDesc: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
     marginTop: 2,
@@ -333,7 +334,7 @@ const lt = StyleSheet.create({
     backgroundColor: "#00DEAB",
   },
   label: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
@@ -341,7 +342,7 @@ const lt = StyleSheet.create({
     color: "#00DEAB",
   },
   sub: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
     marginTop: 2,
@@ -651,7 +652,7 @@ const modal = StyleSheet.create({
     marginBottom: 18,
   },
   title: {
-    fontSize: 20,
+    fontSize: rf(20),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
@@ -685,13 +686,13 @@ const modal = StyleSheet.create({
     left: 10,
     backgroundColor: "#fff",
     paddingHorizontal: 3,
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: "#9CA3AF",
     zIndex: 1,
   },
   emailInput: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
     padding: 0,
@@ -708,12 +709,12 @@ const modal = StyleSheet.create({
   },
   inviteBtnText: {
     color: "#fff",
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Semibold",
   },
   // Sections
   sectionLabel: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Semibold",
     color: "#9CA3AF",
     letterSpacing: 0.8,
@@ -733,7 +734,7 @@ const modal = StyleSheet.create({
   },
   linkText: {
     flex: 1,
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
     marginRight: 8,
@@ -747,7 +748,7 @@ const modal = StyleSheet.create({
     backgroundColor: "#fff",
   },
   copyBtnText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Semibold",
     color: "#374151",
   },
@@ -767,22 +768,22 @@ const modal = StyleSheet.create({
   },
   memberInitial: {
     color: "#fff",
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
   },
   memberName: {
     flex: 1,
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
   },
   ownerTag: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: "#9CA3AF",
   },
   permTag: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
   },

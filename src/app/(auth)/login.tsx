@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 import FloatingInput from "@/components/FloatingInput";
@@ -210,7 +211,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   title: {
-    fontSize: 28,
+    fontSize: rf(28),
     fontFamily: "SF_Pro_Regular",
     textAlign: "center",
     color: "#111",
@@ -227,13 +228,13 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   loginBtnText: {
-    fontSize: 16,
+    fontSize: rf(16),
     fontFamily: "SF_Pro_Semibold",
     color: Colors.buttonText,
   },
   forgotText: {
     textAlign: "center",
-    fontSize: 14,
+    fontSize: rf(14),
     color: Colors.buttonText,
     fontFamily: "SF_Pro_Semibold",
   },

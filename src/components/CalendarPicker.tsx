@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -306,12 +307,12 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   monthLabel: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
   monthLabelCompact: {
-    fontSize: 12,
+    fontSize: rf(12),
   },
   triangle: {
     width: 0, height: 0,
@@ -328,13 +329,13 @@ const styles = StyleSheet.create({
   dayHeader: {
     width: "14.2%",
     textAlign: "center",
-    fontSize: 12,
+    fontSize: rf(12),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Medium",
     paddingVertical: 4,
   },
   dayHeaderCompact: {
-    fontSize: 11,
+    fontSize: rf(11),
     paddingVertical: 2,
   },
   grid: {
@@ -363,12 +364,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#00DEAB",
   },
   dayText: {
-    fontSize: 13,
+    fontSize: rf(13),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Medium",
   },
   dayTextCompact: {
-    fontSize: 11,
+    fontSize: rf(11),
   },
   cellToday: {
   borderWidth: 1.5,
@@ -393,7 +394,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   doneBtnText: {
-    color: "#fff", fontSize: 15,
+    color: "#fff", fontSize: rf(15),
     fontFamily: "SF_Pro_Semibold",
   },
   dropdown: {
@@ -426,13 +427,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   dropdownText: {
-    fontSize: 15,
+    fontSize: rf(15),
     textAlign: "center",
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Medium",
   },
   dropdownTextCompact: {
-    fontSize: 12,
+    fontSize: rf(12),
   },
   selectedItem: {},
   selectedText: {},

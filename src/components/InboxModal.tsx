@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import { useNotifications } from "@/context/NotificationContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
@@ -414,7 +415,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   title: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Medium",
     color: "#1C1C1E",
   },
@@ -423,7 +424,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   markReadText: {
-    fontSize: 11.5,
+    fontSize: rf(11.5),
     fontFamily: "SF_Pro_Semibold",
     color: "#556EE6",
   },
@@ -434,7 +435,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
   },
   viewAllText: {
-    fontSize: 11.5,
+    fontSize: rf(11.5),
     fontFamily: "SF_Pro_Semibold",
     color: "#00DEAB",
   },
@@ -456,7 +457,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   tabText: {
-    fontSize: 11.5,
+    fontSize: rf(11.5),
     textAlign: "center",
     fontFamily: "SF_Pro_Medium",
     color: "#8E8E93",
@@ -481,7 +482,7 @@ const styles = StyleSheet.create({
   },
   unreadBadgeText: {
     color: "#fff",
-    fontSize: 9,
+    fontSize: rf(9),
     fontFamily: "SF_Pro_Bold",
   },
   listScroll: {
@@ -497,7 +498,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   emptyText: {
-    fontSize: 13,
+    fontSize: rf(13),
     color: "#8E8E93",
     fontFamily: "SF_Pro_Medium",
   },
@@ -527,7 +528,7 @@ const styles = StyleSheet.create({
   },
   avatarText: {
     color: "#fff",
-    fontSize: 10,
+    fontSize: rf(10),
     fontFamily: "SF_Pro_Bold",
   },
   infoCol: {
@@ -535,7 +536,7 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
   messageText: {
-    fontSize: 11,
+    fontSize: rf(11),
     lineHeight: 14,
   },
   senderName: {
@@ -555,7 +556,7 @@ const styles = StyleSheet.create({
     marginRight: 3,
   },
   timeText: {
-    fontSize: 9.5,
+    fontSize: rf(9.5),
     fontFamily: "SF_Pro_Regular",
     color: "#8E8E93",
   },

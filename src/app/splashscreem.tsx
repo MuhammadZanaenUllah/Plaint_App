@@ -1,5 +1,6 @@
 //this is the onboarding screen 
 import TopMintGlow from "@/components/gradientheader";
+import { rf } from "@/utils/responsive";
 import { Colors } from "@/theme/root";
 import useAppFonts from "@/theme/useAppFonts";
 import { router } from "expo-router";
@@ -209,7 +210,7 @@ const styles = StyleSheet.create({
   dot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: "#E6E6E6" },
   dotActive: { backgroundColor: "#000000", width: 7, height: 7 },
   headline: {
-    fontSize: 22,
+    fontSize: rf(22),
     // fontWeight: "800",
     color: "#1a1a1a",
     fontFamily: "SF_Pro_Semibold",
@@ -218,7 +219,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   description: {
-    fontSize: 12.3,
+    fontSize: rf(12.3),
     color: "#6B7280",
     fontFamily: "SF_Pro_Medium",
     textAlign: "center",
@@ -242,7 +243,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   ctaText: {
-    fontSize: 17,
+    fontSize: rf(17),
     // fontWeight: "900",
     fontFamily: "SF_Pro_Bold",
     color: Colors.buttonText,

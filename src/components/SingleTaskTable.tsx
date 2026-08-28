@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import Avatar from "@/components/Avatar";
 import Icons from "@/constants/icons";
 import { triggerHaptic } from "@/utils/haptics";
@@ -1478,7 +1479,7 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   sectionTitle: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Medium",
     color: "#1F2937",
   },
@@ -1489,7 +1490,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   syncSubText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#9CA3AF",
   },
@@ -1523,7 +1524,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   filterBadgeText: {
-    fontSize: 9,
+    fontSize: rf(9),
     fontFamily: "SF_Pro_Bold",
     color: "#0DDFAB",
   },
@@ -1537,7 +1538,7 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   colHead: {
-    fontSize: 10,
+    fontSize: rf(10),
     fontFamily: "SF_Pro_Bold",
     fontWeight: "700",
     color: "#1D1D1D",
@@ -1578,13 +1579,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   previewPillText: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Bold",
     color: "#FFFFFF",
   },
   previewTitleText: {
     flex: 1,
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
@@ -1624,7 +1625,7 @@ const styles = StyleSheet.create({
   },
   accentExpandedText: {
     color: "#FFFFFF",
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Bold",
   },
   accent: {
@@ -1665,7 +1666,7 @@ const styles = StyleSheet.create({
   titleText: {
     minWidth: 0,
     flexShrink: 1,
-    fontSize: 11,
+    fontSize: rf(11),
     color: "#1F2937",
     fontFamily: "SF_Pro_Medium",
   },
@@ -1685,11 +1686,11 @@ const styles = StyleSheet.create({
   initialsAssignee: {
     marginRight: 6,
   },
-  initialsText: { fontSize: 9, fontWeight: "700", color: "#fff" },
+  initialsText: { fontSize: rf(9), fontWeight: "700", color: "#fff" },
   cellText: {
     minWidth: 0,
     flexShrink: 1,
-    fontSize: 10.5,
+    fontSize: rf(10.5),
     color: "#1F2937",
     fontFamily: "SF_Pro_Medium",
   },
@@ -1753,7 +1754,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   actionText: {
-    fontSize: 12,
+    fontSize: rf(12),
     color: "#050505",
     fontFamily: "SF_Pro_Medium",
   },
@@ -1769,7 +1770,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   actionStatusBoxText: {
-    fontSize: 11.5,
+    fontSize: rf(11.5),
     fontFamily: "SF_Pro_Medium",
   },
   actionDropdown: {
@@ -1815,7 +1816,7 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   swipeHeaderText: {
-    fontSize: 12.5,
+    fontSize: rf(12.5),
     color: "#050505",
     fontFamily: "SF_Pro_Medium",
   },
@@ -1862,7 +1863,7 @@ const styles = StyleSheet.create({
   swipeStatusText: {
     flex: 1,
     minWidth: 0,
-    fontSize: 11.5,
+    fontSize: rf(11.5),
     fontWeight: "600",
     marginRight: 2,
   },
@@ -1931,7 +1932,7 @@ const styles = StyleSheet.create({
   },
   assigneeSearchInput: {
     flex: 1,
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
     padding: 0,
@@ -1942,7 +1943,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   noUserText: {
-    fontSize: 11,
+    fontSize: rf(11),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
   },
@@ -1959,14 +1960,14 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   assigneeDropdownAvatarText: {
-    fontSize: 9,
+    fontSize: rf(9),
     fontFamily: "SF_Pro_Bold",
     color: "#374151",
   },
   assigneeDropdownText: {
     flex: 1,
     marginLeft: 8,
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: "#1F2937",
   },
@@ -1989,7 +1990,7 @@ const styles = StyleSheet.create({
   },
   dropdownText: {
     flex: 1,
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
   },
   centeredState: {
@@ -1998,7 +1999,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   emptyText: {
-    fontSize: 13,
+    fontSize: rf(13),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
   },
@@ -2008,7 +2009,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   footerText: {
-    fontSize: 12,
+    fontSize: rf(12),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
   },

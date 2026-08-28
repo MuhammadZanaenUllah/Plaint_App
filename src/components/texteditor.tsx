@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 // components/ui/RichTextEditor.tsx
 //
 // Reusable rich text editor styled after the "Description" field in the
@@ -397,7 +398,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   idlePlaceholder: {
-    fontSize: 15,
+    fontSize: rf(15),
     color: '#E6E6E6',
     fontFamily: 'SF_Pro_Regular',
   },
@@ -428,7 +429,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   labelText: {
-    fontSize: 12,
+    fontSize: rf(12),
     // fontWeight: '500',
     color: '#1D1D1D',
     fontFamily: 'SF_Pro_Regular',
@@ -455,7 +456,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   toolbarLabel: {
-    fontSize: 16,
+    fontSize: rf(16),
     lineHeight: 22,
   },
   handleRow: {
@@ -481,7 +482,7 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   sheetTitle: {
-    fontSize: 13,
+    fontSize: rf(13),
     color: '#1A1A1A',
     fontWeight: '600',
   },
@@ -496,7 +497,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emojiText: {
-    fontSize: 26,
+    fontSize: rf(26),
   },
   linkSheet: {
     backgroundColor: '#FFFFFF',
@@ -514,7 +515,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 12,
-    fontSize: 15,
+    fontSize: rf(15),
     color: '#1A1A1A',
   },
   linkActionsRow: {

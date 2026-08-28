@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import FloatingInput from "@/components/FloatingInput";
 import TopMintGlow from "@/components/gradientheader";
 import Images from "@/constants/images";
@@ -153,7 +154,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   title: {
-    fontSize: 28,
+    fontSize: rf(28),
     fontFamily: "SF_Pro_Regular",
     textAlign: "center",
     color: "#111",
@@ -167,7 +168,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 10,
     textAlign: "center",
-    fontSize: 12,
+    fontSize: rf(12),
   },
   loginBtn: {
     backgroundColor: Colors.bgButtonColor,
@@ -177,13 +178,13 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   loginBtnText: {
-    fontSize: 16,
+    fontSize: rf(16),
     fontFamily: "SF_Pro_Semibold",
     color: Colors.buttonText,
   },
   backText: {
     textAlign: "center",
-    fontSize: 14,
+    fontSize: rf(14),
     color: Colors.buttonText,
     fontFamily: "SF_Pro_Semibold",
   },

@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import { useRef, useState } from "react";
 import {
@@ -268,7 +269,7 @@ const styles = StyleSheet.create({
         marginBottom: 14,
     },
     title: {
-        fontSize: 17,
+        fontSize: rf(17),
         fontWeight: "700",
         color: "#111827",
         letterSpacing: -0.2,
@@ -284,7 +285,7 @@ const styles = StyleSheet.create({
 
     // Body
     body: {
-        fontSize: 13.5,
+        fontSize: rf(13.5),
         lineHeight: 21,
         color: "#4B5563",
         marginBottom: 22,
@@ -326,7 +327,7 @@ const styles = StyleSheet.create({
     },
     textInput: {
         flex: 1,
-        fontSize: 14,
+        fontSize: rf(14),
         color: "#111827",
         paddingVertical: 0,
         height: "100%",
@@ -344,7 +345,7 @@ const styles = StyleSheet.create({
         height: "100%",
     },
     unitText: {
-        fontSize: 13.5,
+        fontSize: rf(13.5),
         color: "#374151",
         fontWeight: "500",
     },
@@ -381,7 +382,7 @@ const styles = StyleSheet.create({
         backgroundColor: "#F0FFF8",
     },
     dropdownItemText: {
-        fontSize: 13.5,
+        fontSize: rf(13.5),
         color: "#374151",
     },
     dropdownItemTextActive: {
@@ -405,7 +406,7 @@ const styles = StyleSheet.create({
         backgroundColor: "#fff",
     },
     cancelText: {
-        fontSize: 13.5,
+        fontSize: rf(13.5),
         fontWeight: "600",
         color: "#6B7280",
     },
@@ -419,7 +420,7 @@ const styles = StyleSheet.create({
         backgroundColor: "#A7F3E0",
     },
     extendText: {
-        fontSize: 13.5,
+        fontSize: rf(13.5),
         fontWeight: "700",
         color: "#fff",
     },

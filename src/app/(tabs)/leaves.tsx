@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import DynamicTable, { Column } from "@/components/DynamicTable";
 import FilterModal from "@/components/FilterModal";
 import StatCard from "@/components/StatCard";
@@ -370,7 +371,7 @@ const styles = StyleSheet.create({
         justifyContent: "center",
     },
     sectionLabel: {
-        fontSize: 10,
+        fontSize: rf(10),
         fontFamily: "SF_Pro_Medium",
         color: "#737373",
         // fontWeight: "700",
@@ -413,7 +414,7 @@ const styles = StyleSheet.create({
         marginTop: 20,
     },
     cellText: {
-        fontSize: 12,
+        fontSize: rf(12),
         color: "#1D1D1D",
         flexShrink: 1,
         fontFamily: "SF_Pro_Medium",
@@ -432,7 +433,7 @@ const styles = StyleSheet.create({
         alignSelf: "flex-start",
     },
     statusBadgeText: {
-        fontSize: 11,
+        fontSize: rf(11),
         fontWeight: "600",
         fontFamily: "SF_Pro_Medium",
     },

@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import FilterModal from "@/components/FilterModal";
 import ScreenHeader from "@/components/ScreenHeader";
 import {
@@ -551,12 +552,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   filterBadgeText: {
-    fontSize: 9,
+    fontSize: rf(9),
     fontFamily: "SF_Pro_Bold",
     color: "#0DDFAB",
   },
   markReadText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Semibold",
     color: "#556EE6",
   },
@@ -581,7 +582,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   tabText: {
-    fontSize: 13,
+    fontSize: rf(13),
     textAlign: "center",
     fontFamily: "SF_Pro_Medium",
     color: "#8E8E93",
@@ -606,7 +607,7 @@ const styles = StyleSheet.create({
   },
   unreadBadgeText: {
     color: "#fff",
-    fontSize: 10,
+    fontSize: rf(10),
     fontFamily: "SF_Pro_Bold",
   },
   listScroll: {
@@ -622,7 +623,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   emptyText: {
-    fontSize: 14,
+    fontSize: rf(14),
     color: "#8E8E93",
     fontFamily: "SF_Pro_Medium",
   },
@@ -655,7 +656,7 @@ const styles = StyleSheet.create({
   },
   avatarText: {
     color: "#fff",
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Bold",
   },
   infoCol: {
@@ -663,7 +664,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   messageText: {
-    fontSize: 12.5,
+    fontSize: rf(12.5),
     lineHeight: 16,
   },
   senderName: {
@@ -683,12 +684,12 @@ const styles = StyleSheet.create({
     marginRight: 3,
   },
   timeText: {
-    fontSize: 10.5,
+    fontSize: rf(10.5),
     fontFamily: "SF_Pro_Regular",
     color: "#8E8E93",
   },
   typeText: {
-    fontSize: 10.5,
+    fontSize: rf(10.5),
     fontFamily: "SF_Pro_Semibold",
     color: "#00DEAB",
   },

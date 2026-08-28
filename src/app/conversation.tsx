@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import AddPeopleModal from "@/components/AddPeopleModal";
 import Avatar from "@/components/Avatar";
 import CalendarPicker from "@/components/CalendarPicker";
@@ -532,7 +533,7 @@ const attModalStyles = StyleSheet.create({
     marginBottom: 20,
   },
   title: {
-    fontSize: 16,
+    fontSize: rf(16),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
@@ -553,7 +554,7 @@ const attModalStyles = StyleSheet.create({
     justifyContent: "center",
   },
   optionLabel: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Medium",
     color: "#4B5563",
   },
@@ -594,7 +595,7 @@ const vnStyles = StyleSheet.create({
     borderRadius: 1,
   },
   timeText: {
-    fontSize: 10,
+    fontSize: rf(10),
     color: "#6B7280",
     fontFamily: "SF_Pro_Regular",
   },
@@ -710,7 +711,7 @@ const dp = StyleSheet.create({
   },
   rangeItemActive: {},
   rangeText: {
-    fontSize: 11.5,
+    fontSize: rf(11.5),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
   },
@@ -972,7 +973,7 @@ const ap = StyleSheet.create({
     borderBottomColor: "#00DEAB",
   },
   tabText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#9CA3AF",
   },
@@ -1009,7 +1010,7 @@ const ap = StyleSheet.create({
     marginBottom: 10,
   },
   emptyTabText: {
-    fontSize: 13,
+    fontSize: rf(13),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
   },
@@ -1035,7 +1036,7 @@ const ap = StyleSheet.create({
   },
   fileName: {
     flex: 1,
-    fontSize: 13,
+    fontSize: rf(13),
     color: "#1F2937",
     fontFamily: "SF_Pro_Medium",
   },
@@ -1139,7 +1140,7 @@ const ddStyles = StyleSheet.create({
     zIndex: 1,
   },
   text: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Medium",
     color: "#4B5563",
   },
@@ -2011,13 +2012,13 @@ const delModalStyles = StyleSheet.create({
     marginBottom: 12,
   },
   title: {
-    fontSize: 18,
+    fontSize: rf(18),
     fontFamily: "SF_Pro_Bold",
     color: "#1F2937",
     marginBottom: 4,
   },
   subtitle: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
     textAlign: "center",
@@ -2038,7 +2039,7 @@ const delModalStyles = StyleSheet.create({
   },
   deleteEveryoneText: {
     color: "#FFFFFF",
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
   },
   deleteSelfBtn: {
@@ -2054,7 +2055,7 @@ const delModalStyles = StyleSheet.create({
   },
   deleteSelfText: {
     color: "#EF4444",
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
   },
   cancelBtn: {
@@ -2067,7 +2068,7 @@ const delModalStyles = StyleSheet.create({
   },
   cancelText: {
     color: "#4B5563",
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Medium",
   },
 });
@@ -2119,7 +2120,7 @@ const waModalStyles = StyleSheet.create({
     justifyContent: "center",
   },
   emojiText: {
-    fontSize: 20,
+    fontSize: rf(20),
   },
   emojiItemPlus: {
     width: 30,
@@ -2150,13 +2151,13 @@ const waModalStyles = StyleSheet.create({
     borderBottomLeftRadius: 4,
   },
   senderName: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Semibold",
     color: "#00DEAB",
     marginBottom: 2,
   },
   bubbleText: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Regular",
     lineHeight: 20,
   },
@@ -2195,7 +2196,7 @@ const waModalStyles = StyleSheet.create({
     marginRight: 12,
   },
   menuText: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Medium",
     color: "#1F2937",
   },
@@ -3363,7 +3364,7 @@ export default function ConversationScreen() {
               {postTypes.length === 0 && (
                 <Text
                   style={{
-                    fontSize: 12,
+                    fontSize: rf(12),
                     color: "#9CA3AF",
                     fontFamily: "SF_Pro_Regular",
                     padding: 12,
@@ -3401,7 +3402,7 @@ export default function ConversationScreen() {
                     </Text>
                     <Text
                       style={{
-                        fontSize: 11,
+                        fontSize: rf(11),
                         color: "#6B7280",
                         fontFamily: "SF_Pro_Regular",
                       }}
@@ -3414,7 +3415,7 @@ export default function ConversationScreen() {
               {state.roomPermissions.length === 0 && (
                 <Text
                   style={{
-                    fontSize: 12,
+                    fontSize: rf(12),
                     color: "#9CA3AF",
                     fontFamily: "SF_Pro_Regular",
                     padding: 12,
@@ -3536,7 +3537,7 @@ export default function ConversationScreen() {
                   <Ionicons name="search-outline" size={32} color="#D1D5DB" />
                   <Text
                     style={{
-                      fontSize: 13,
+                      fontSize: rf(13),
                       color: "#9CA3AF",
                       fontFamily: "SF_Pro_Regular",
                       marginTop: 8,
@@ -3554,7 +3555,7 @@ export default function ConversationScreen() {
                   <Ionicons name="calendar-outline" size={32} color="#D1D5DB" />
                   <Text
                     style={{
-                      fontSize: 13,
+                      fontSize: rf(13),
                       color: "#9CA3AF",
                       fontFamily: "SF_Pro_Regular",
                       marginTop: 8,
@@ -3568,7 +3569,7 @@ export default function ConversationScreen() {
                 <View style={{ padding: 40, alignItems: "center" }}>
                   <Text
                     style={{
-                      fontSize: 13,
+                      fontSize: rf(13),
                       color: "#9CA3AF",
                       fontFamily: "SF_Pro_Regular",
                       textAlign: "center",
@@ -4189,17 +4190,17 @@ const styles = StyleSheet.create({
   },
   headerAvatarText: {
     color: "#fff",
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
   },
   headerInfo: { flex: 1 },
   headerName: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Medium",
     color: TEXT_PRIMARY,
   },
   headerStatus: {
-    fontSize: 10,
+    fontSize: rf(10),
     fontFamily: "SF_Pro_Regular",
     color: "#8A8A8A",
     marginTop: 1,
@@ -4226,14 +4227,14 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: rf(14),
     color: "#111827",
     fontFamily: "SF_Pro_Regular",
     padding: 0,
   },
   cancelBtn: { paddingHorizontal: 4 },
   cancelText: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Medium",
     color: TEAL,
   },
@@ -4261,7 +4262,7 @@ const styles = StyleSheet.create({
     borderColor: "#1D1D1D",
   },
   filterChipText: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: "#8A8A8A",
   },
@@ -4287,14 +4288,14 @@ const styles = StyleSheet.create({
   },
   iconStack: { marginBottom: 14 },
   workspaceTitle: {
-    fontSize: 20,
+    fontSize: rf(20),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
     marginBottom: 8,
     textAlign: "center",
   },
   workspaceDescription: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_SECONDARY,
     textAlign: "center",
@@ -4317,7 +4318,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   searchResultText: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Medium",
     color: "#6B7280",
   },
@@ -4333,7 +4334,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   senderMeta: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_SECONDARY,
     marginBottom: 5,
@@ -4359,7 +4360,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   senderMetaOutgoing: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_SECONDARY,
     marginBottom: 5,
@@ -4375,7 +4376,7 @@ const styles = StyleSheet.create({
   },
 
   bubbleText: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
     lineHeight: 20,
@@ -4387,7 +4388,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   forwardedText: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     fontStyle: "italic",
     color: "#6B7280",
@@ -4402,17 +4403,17 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   quotedSender: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Semibold",
     color: "#00A67E",
   },
   quotedText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
   },
   timeMeta: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_SECONDARY,
   },
@@ -4431,7 +4432,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   pinBadgeText: {
-    fontSize: 10,
+    fontSize: rf(10),
     fontFamily: "SF_Pro_Regular",
     color: "#00A67E",
     textTransform: "uppercase",
@@ -4450,13 +4451,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   pinnedBannerTitle: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: "#00A67E",
     marginBottom: 1,
   },
   pinnedBannerText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
   },
@@ -4479,7 +4480,7 @@ const styles = StyleSheet.create({
     borderColor: "#FACC15",
   },
   reactionText: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
   },
@@ -4509,7 +4510,7 @@ const styles = StyleSheet.create({
   },
   avatarText: {
     color: "#fff",
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Regular",
     letterSpacing: 0.3,
   },
@@ -4536,12 +4537,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   replyPreviewName: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Semibold",
     color: TEXT_PRIMARY,
   },
   replyPreviewText: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_SECONDARY,
   },
@@ -4562,12 +4563,12 @@ const styles = StyleSheet.create({
   },
   uploadProgressText: {
     flex: 1,
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_SECONDARY,
   },
   uploadProgressPercent: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Semibold",
     color: "#00DEAB",
   },
@@ -4623,12 +4624,12 @@ const styles = StyleSheet.create({
   },
   mentionAvatarText: {
     color: "#fff",
-    fontSize: 10,
+    fontSize: rf(10),
     fontFamily: "SF_Pro_Bold",
   },
   mentionName: {
     flex: 1,
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Medium",
     color: "#1F2937",
   },
@@ -4656,7 +4657,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   typingText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#9CA3AF",
     fontStyle: "italic",
@@ -4674,7 +4675,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F9FAFB",
   },
   viewOnlyText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
   },
@@ -4693,7 +4694,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
   },
   textInput: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
     padding: 0,
@@ -4724,7 +4725,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 6,
     right: 8,
-    fontSize: 9,
+    fontSize: rf(9),
     color: TEXT_PRIMARY,
     fontFamily: "SF_Pro_Semibold",
   },
@@ -4762,12 +4763,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#EF4444",
   },
   recordingTimerText: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
     color: "#EF4444",
   },
   recordingHintText: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
     marginLeft: 2,
@@ -4800,7 +4801,7 @@ const styles = StyleSheet.create({
   addPeopleChannelText: {
     color: "#fff",
     fontFamily: "SF_Pro_Medium",
-    fontSize: 13,
+    fontSize: rf(13),
   },
 
   // Post Type
@@ -4814,7 +4815,7 @@ const styles = StyleSheet.create({
   },
   postTypeToggleText: {
     color: "#1D1D1D",
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Medium",
   },
   postTypeToggleTextActive: {
@@ -4835,7 +4836,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   postTypeChipText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Medium",
   },
 
@@ -4858,7 +4859,7 @@ const styles = StyleSheet.create({
   },
   postTypeListLabel: {
     flex: 1,
-    fontSize: 11.5,
+    fontSize: rf(11.5),
     fontFamily: "SF_Pro_Medium",
   },
 
@@ -4887,12 +4888,12 @@ const styles = StyleSheet.create({
   },
   memberAvatarText: {
     color: "#fff",
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Semibold",
   },
   memberName: {
     flex: 1,
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
   },
@@ -4914,7 +4915,7 @@ const styles = StyleSheet.create({
     maxWidth: 340,
   },
   emojiPickerTitle: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Medium",
     color: TEXT_PRIMARY,
     textAlign: "center",
@@ -4930,7 +4931,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   emojiText: {
-    fontSize: 26,
+    fontSize: rf(26),
   },
 
   // ── Forward Picker ──
@@ -4951,7 +4952,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#F3F4F6",
   },
   forwardTitle: {
-    fontSize: 16,
+    fontSize: rf(16),
     fontFamily: "SF_Pro_Medium",
     color: TEXT_PRIMARY,
   },
@@ -4961,13 +4962,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#F9FAFB",
   },
   forwardPreviewLabel: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Medium",
     color: TEXT_SECONDARY,
     marginBottom: 4,
   },
   forwardPreviewText: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
   },
@@ -4990,12 +4991,12 @@ const styles = StyleSheet.create({
   },
   forwardRoomAvatarText: {
     color: "#fff",
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
   },
   forwardRoomName: {
     flex: 1,
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
   },
@@ -5008,7 +5009,7 @@ const styles = StyleSheet.create({
     width: "85%",
   },
   editTitle: {
-    fontSize: 16,
+    fontSize: rf(16),
     fontFamily: "SF_Pro_Medium",
     color: TEXT_PRIMARY,
     marginBottom: 12,
@@ -5019,7 +5020,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
     minHeight: 80,
@@ -5037,7 +5038,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   editCancelText: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Medium",
     color: TEXT_SECONDARY,
   },
@@ -5051,7 +5052,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   editSaveText: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Medium",
     color: "#fff",
   },
@@ -5084,7 +5085,7 @@ const styles = StyleSheet.create({
   },
   docName: {
     flex: 1,
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
   },
@@ -5110,12 +5111,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   editingBannerTitle: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Semibold",
     color: TEAL,
   },
   editingBannerText: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
   },

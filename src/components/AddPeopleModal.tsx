@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -159,7 +160,7 @@ const searchStyles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
     paddingVertical: 0,
@@ -250,7 +251,7 @@ const rowStyles = StyleSheet.create({
   },
   initials: {
     color: "#fff",
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Regular",
     letterSpacing: 0.3,
   },
@@ -259,12 +260,12 @@ const rowStyles = StyleSheet.create({
     gap: 2,
   },
   name: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
   },
   email: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
   },
@@ -290,12 +291,12 @@ const emptyStyles = StyleSheet.create({
     gap: 8,
   },
   text: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Semibold",
     color: "#6B7280",
   },
   sub: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#9CA3AF",
   },
@@ -562,7 +563,7 @@ const modalStyles = StyleSheet.create({
     elevation: 5,
   },
   title: {
-    fontSize: 26,
+    fontSize: rf(26),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
     marginHorizontal: 20,
@@ -585,7 +586,7 @@ const modalStyles = StyleSheet.create({
   },
   inviteBtnText: {
     color: "#fff",
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Medium",
   },
   selectAllRow: {
@@ -608,7 +609,7 @@ const modalStyles = StyleSheet.create({
     borderColor: "#00DEAB",
   },
   selectAllText: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
   },

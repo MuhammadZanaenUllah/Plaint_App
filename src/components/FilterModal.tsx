@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -1022,12 +1023,12 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   resetText: {
-    fontSize: 16,
+    fontSize: rf(16),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Medium",
   },
   titleText: {
-    fontSize: 18,
+    fontSize: rf(18),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
@@ -1048,7 +1049,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: { paddingHorizontal: 16, paddingBottom: 16 },
   sectionLabel: {
-    fontSize: 16,
+    fontSize: rf(16),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
     marginBottom: 12,
@@ -1082,7 +1083,7 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   chipText: {
-    fontSize: 13,
+    fontSize: rf(13),
     color: "#18181B",
     fontFamily: "SF_Pro_Medium",
   },
@@ -1129,12 +1130,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   personAvatarTextSmall: {
-    fontSize: 10,
+    fontSize: rf(10),
     fontFamily: "SF_Pro_Bold",
     color: "#374151",
   },
   selectedPersonChipText: {
-    fontSize: 12,
+    fontSize: rf(12),
     color: "#1F2937",
     fontFamily: "SF_Pro_Medium",
     maxWidth: 120,
@@ -1144,7 +1145,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   clearAllText: {
-    fontSize: 12,
+    fontSize: rf(12),
     color: "#EF4444",
     fontFamily: "SF_Pro_Medium",
   },
@@ -1187,13 +1188,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   personAvatarText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Bold",
     color: "#374151",
   },
   personOptionText: {
     flex: 1,
-    fontSize: 13,
+    fontSize: rf(13),
     color: "#1F2937",
     fontFamily: "SF_Pro_Regular",
   },
@@ -1209,7 +1210,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   personEmpty: {
-    fontSize: 13,
+    fontSize: rf(13),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
   },
@@ -1220,7 +1221,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   calHeaderText: {
-    fontSize: 16,
+    fontSize: rf(16),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
     textDecorationLine: "underline",
@@ -1251,7 +1252,7 @@ const styles = StyleSheet.create({
   },
   applyBtnDisabled: { opacity: 0.7 },
   applyText: {
-    fontSize: 16,
+    fontSize: rf(16),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Bold",
   },

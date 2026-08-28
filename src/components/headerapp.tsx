@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import Icons from "@/constants/icons";
 import { useSearch } from "@/context/SearchContext";
 import { useAuth } from "@/hooks/useAuth";
@@ -288,7 +289,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    fontSize: 13,
+    fontSize: rf(13),
     color: "#111827",
     fontFamily: "SF_Pro_Regular",
     padding: 0,
@@ -313,12 +314,12 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
   greeting: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Semibold",
     color: "#111827",
   },
   subGreeting: {
-    fontSize: 11,
+    fontSize: rf(11),
     color: "#6B7280",
     fontFamily: "SF_Pro_Regular",
     marginTop: 1,
@@ -370,7 +371,7 @@ const styles = StyleSheet.create({
   },
   menuText: {
     marginLeft: 5,
-    fontSize: 12,
+    fontSize: rf(12),
     color: "#212529",
     fontFamily: "SF_Pro_Medium",
   },

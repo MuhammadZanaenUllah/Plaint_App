@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import AnimatedFAB from "@/components/AnimatedFAB";
 import CreateTaskModal from "@/components/CreateTaskModal";
 import FilterModal from "@/components/FilterModal";
@@ -186,9 +187,7 @@ export default function TasksScreen() {
     // 1. One-time summary toast scan across all company tasks (runs ONCE per session)
     if (!overdueToastShownRef.current && allMappedTasks.length > 0) {
       overdueToastShownRef.current = true;
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const todayMs = todayStart.getTime();
+      const nowMs = Date.now();
 
       let overdueCount = 0;
       for (const t of allMappedTasks) {
@@ -196,7 +195,7 @@ export default function TasksScreen() {
         const raw = t._raw?.due_date;
         if (!raw) continue;
         const ms = Date.parse(raw);
-        if (!isNaN(ms) && ms < todayMs) overdueCount++;
+        if (!isNaN(ms) && ms < nowMs) overdueCount++;
       }
       if (overdueCount > 0) {
         showInfo(
@@ -215,9 +214,7 @@ export default function TasksScreen() {
       !hasPromptedDelayThisSessionRef.current &&
       mappedCreatedByMe.length > 0
     ) {
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const todayMs = todayStart.getTime();
+      const nowMs = Date.now();
 
       let earliest: (typeof mappedCreatedByMe)[number] | null = null;
       let earliestMs = Infinity;
@@ -231,7 +228,7 @@ export default function TasksScreen() {
         const raw = t._raw?.due_date;
         if (!raw) continue;
         const ms = Date.parse(raw);
-        if (isNaN(ms) || ms >= todayMs) continue; // not overdue
+        if (isNaN(ms) || ms >= nowMs) continue; // not overdue
         if (ms < earliestMs) {
           earliestMs = ms;
           earliest = t;
@@ -587,6 +584,7 @@ export default function TasksScreen() {
 
   const getTabCategoryScope = useCallback(
     (tabId: string) => {
+      const nowMs = Date.now();
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const todayMs = todayStart.getTime();
@@ -609,7 +607,7 @@ export default function TasksScreen() {
           return allMappedRows.filter((t) => {
             if (!t._raw?.due_date) return false;
             const ms = Date.parse(t._raw.due_date);
-            return !isNaN(ms) && ms >= todayMs && ms < tomorrowMs;
+            return !isNaN(ms) && ms >= todayMs && ms < tomorrowMs && ms >= nowMs;
           });
         case "week":
           return sortByDueDate(
@@ -621,9 +619,9 @@ export default function TasksScreen() {
           );
         case "overdue":
           return allMappedRows.filter((t) => {
-            if (!t._raw?.due_date) return false;
+            if (!t._raw?.due_date || t.status === "Completed") return false;
             const ms = Date.parse(t._raw.due_date);
-            return !isNaN(ms) && ms < todayMs;
+            return !isNaN(ms) && ms < nowMs;
           });
         case "created":
           return sortByDueDate(createdByMeRows);
@@ -1076,5 +1074,5 @@ const styles = StyleSheet.create({
     elevation: 6,
     zIndex: 99,
   },
-  fabIcon: { fontSize: 28, color: "#fff", lineHeight: 32 },
+  fabIcon: { fontSize: rf(28), color: "#fff", lineHeight: 32 },
 });

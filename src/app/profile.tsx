@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import React, { useState, useCallback } from "react";
 import {
   View,
@@ -355,7 +356,7 @@ const styles = StyleSheet.create({
   },
   topBarTitle: {
     flex: 1,
-    fontSize: 20,
+    fontSize: rf(20),
     fontFamily: "SF_Pro_Bold",
     color: "#1D1D1D",
   },
@@ -393,7 +394,7 @@ const styles = StyleSheet.create({
   avatarText: {
     color: "#fff",
     fontFamily: "SF_Pro_Bold",
-    fontSize: 12,
+    fontSize: rf(12),
   },
 
   // Scroll
@@ -469,13 +470,13 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   profileName: {
-    fontSize: 20,
+    fontSize: rf(20),
     fontFamily: "SF_Pro_Bold",
     color: "#1D1D1D",
     marginBottom: 4,
   },
   profileRole: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: "#6B6B6B",
     marginBottom: 10,
@@ -490,7 +491,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   contactQuickText: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
   },
@@ -511,7 +512,7 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   cardTitle: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
     marginBottom: 12,
@@ -542,12 +543,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   infoLabel: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
   },
   infoValue: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: "#6B6B6B",
     flexShrink: 1,
@@ -572,7 +573,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   logoutText: {
-    fontSize: 16,
+    fontSize: rf(16),
     fontFamily: "SF_Pro_Semibold",
     color: "#fff",
   },

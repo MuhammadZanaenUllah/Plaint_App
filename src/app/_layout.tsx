@@ -26,21 +26,10 @@ function UpdateLifecycle() {
   return null;
 }
 
-// Prewarm DNS resolution and TCP/TLS sockets for backend on app start
-initNetworkPrewarm();
+import { setupGlobalFontScaling } from "@/utils/responsive";
 
 // Disable automatic system font scaling globally across all <Text> and <TextInput> components
-if ((Text as any).defaultProps) {
-  (Text as any).defaultProps.allowFontScaling = false;
-} else {
-  (Text as any).defaultProps = { allowFontScaling: false };
-}
-
-if ((TextInput as any).defaultProps) {
-  (TextInput as any).defaultProps.allowFontScaling = false;
-} else {
-  (TextInput as any).defaultProps = { allowFontScaling: false };
-}
+setupGlobalFontScaling();
 
 // Silence console.log in production builds — warn/error are left intact for
 // crash diagnostics. Metro's __DEV__ global is available with no extra tooling.

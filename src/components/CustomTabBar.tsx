@@ -50,10 +50,6 @@ const TABS: TabItem[] = [
     activeIcon: ChatIconBlack,
     inactiveIcon: ChatIconWhite,
   },
-  {
-    name: "test-sheet",
-    ionicon: "flask-outline",
-  },
 ];
 
 const SPRING_CONFIG = {

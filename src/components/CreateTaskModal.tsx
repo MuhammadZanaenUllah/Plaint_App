@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import CalendarPicker from "@/components/CalendarPicker";
 import {
   CriticalTaskPopUpModal,
@@ -1463,7 +1464,7 @@ export default function CreateTaskModal({
                   >
                     <Text
                       style={{
-                        fontSize: 13,
+                        fontSize: rf(13),
                         color: "#EF4444",
                         fontFamily: "SF_Pro_Medium",
                       }}
@@ -1879,7 +1880,7 @@ export default function CreateTaskModal({
                     >
                       <Text
                         style={{
-                          fontSize: 13,
+                          fontSize: rf(13),
                           color: "#0DDFAB",
                           fontFamily: "SF_Pro_Semibold",
                         }}
@@ -2014,12 +2015,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   titleFloatLabelText: {
-    fontSize: 12,
+    fontSize: rf(12),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
   },
   borderlessTitleInput: {
-    fontSize: 18,
+    fontSize: rf(18),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
     padding: 0,
@@ -2044,7 +2045,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   descIdlePlaceholder: {
-    fontSize: 15,
+    fontSize: rf(15),
     color: "#E6E6E6",
     fontFamily: "SF_Pro_Regular",
   },
@@ -2060,7 +2061,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   chipActive: { backgroundColor: "#1D1D1D", borderColor: "#1D1D1D" },
-  chipLabel: { fontSize: 13, color: "#AAAAAA", fontFamily: "SF_Pro_Regular" },
+  chipLabel: { fontSize: rf(13), color: "#AAAAAA", fontFamily: "SF_Pro_Regular" },
   chipLabelActive: { color: "#fff" },
 
   // Priority
@@ -2077,7 +2078,7 @@ const styles = StyleSheet.create({
   },
   priorityDot: { width: 8, height: 8, borderRadius: 4 },
   priorityLabel: {
-    fontSize: 13,
+    fontSize: rf(13),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
   },
@@ -2099,7 +2100,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 12,
     left: 12,
-    fontSize: 14,
+    fontSize: rf(14),
     color: "#AAAAAA",
     fontFamily: "SF_Pro_Regular",
   },
@@ -2108,11 +2109,11 @@ const styles = StyleSheet.create({
     left: 10,
     backgroundColor: "#fff",
     paddingHorizontal: 4,
-    fontSize: 12,
+    fontSize: rf(12),
     color: "#1D1D1D",
   },
   searchInput: {
-    fontSize: 15,
+    fontSize: rf(15),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
     paddingRight: 28,
@@ -2137,10 +2138,10 @@ const styles = StyleSheet.create({
   },
   userAvatarText: {
     color: "#fff",
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Semibold",
   },
-  userName: { fontSize: 14, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+  userName: { fontSize: rf(14), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
 
   // Approval
   approvalRow: { flexDirection: "row", gap: 8, marginBottom: 4 },
@@ -2156,7 +2157,7 @@ const styles = StyleSheet.create({
   },
   approvalChipSelected: { backgroundColor: "#0DDFAB", borderColor: "#0DDFAB" },
   approvalLabel: {
-    fontSize: 13,
+    fontSize: rf(13),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
   },
@@ -2176,7 +2177,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
-  statusLabel: { fontSize: 13, color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+  statusLabel: { fontSize: rf(13), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
 
   // Dependencies Panel
   depPanel: {
@@ -2203,7 +2204,7 @@ const styles = StyleSheet.create({
   },
   depSearchInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: rf(14),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
     padding: 0,
@@ -2215,7 +2216,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   depEmptyText: {
-    fontSize: 13,
+    fontSize: rf(13),
     color: "#AAAAAA",
     fontFamily: "SF_Pro_Regular",
   },
@@ -2245,12 +2246,12 @@ const styles = StyleSheet.create({
   },
   depTaskAvatarText: {
     color: "#FFFFFF",
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Semibold",
   },
   depTaskTitle: {
     flex: 1,
-    fontSize: 14,
+    fontSize: rf(14),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
   },
@@ -2290,7 +2291,7 @@ const styles = StyleSheet.create({
   },
   tagText: {
     flex: 1,
-    fontSize: 12.5,
+    fontSize: rf(12.5),
     color: "#0DDFAB",
     fontFamily: "SF_Pro_Regular",
   },
@@ -2298,7 +2299,7 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   tagCloseText: {
-    fontSize: 13,
+    fontSize: rf(13),
     color: "#0DDFAB",
     fontFamily: "SF_Pro_Regular",
     lineHeight: 16,
@@ -2329,7 +2330,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   createBtnText: {
-    fontSize: 15,
+    fontSize: rf(15),
     color: "#FFFFFF",
     fontFamily: "SF_Pro_Semibold",
   },
@@ -2358,7 +2359,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   recurringCardTitle: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
@@ -2378,7 +2379,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   fieldLabel: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
     marginBottom: 4,
@@ -2390,7 +2391,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   fieldSelectText: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
   },
@@ -2417,7 +2418,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#F3F4F6",
   },
   periodOptionText: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
   },
@@ -2444,7 +2445,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F0FDF9",
   },
   dayPillText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
   },
@@ -2453,7 +2454,7 @@ const styles = StyleSheet.create({
     color: "#0DDFAB",
   },
   fieldInput: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
     paddingVertical: 4,
@@ -2509,7 +2510,7 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   centerModalTitle: {
-    fontSize: 18,
+    fontSize: rf(18),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
@@ -2523,7 +2524,7 @@ const styles = StyleSheet.create({
   },
   doneBtnText: {
     color: "#fff",
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Semibold",
   },
   designChip: {
@@ -2542,7 +2543,7 @@ const styles = StyleSheet.create({
     borderColor: "#1D1D1D",
   },
   designChipText: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Medium",
     color: "#4B5563",
   },
@@ -2580,7 +2581,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
   effortUnitBtnText: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
@@ -2608,7 +2609,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#F3F4F6",
   },
   effortUnitDropdownText: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: "#4B5563",
   },
@@ -2650,7 +2651,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   pillText: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Medium",
     color: "#18181B",
   },
@@ -2685,11 +2686,11 @@ const styles = StyleSheet.create({
   },
   peopleAvatarText: {
     color: "#FFFFFF",
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Semibold",
   },
   peopleName: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: "#1F2937",
   },

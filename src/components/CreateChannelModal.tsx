@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -91,7 +92,7 @@ const inputStyles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Medium",
     color: "#1D1D1D",
     paddingVertical: 0,
@@ -233,7 +234,7 @@ const modalStyles = StyleSheet.create({
     marginRight: 12,
   },
   mainTitle: {
-    fontSize: 20,
+    fontSize: rf(20),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
@@ -248,7 +249,7 @@ const modalStyles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   projectBadgeText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Medium",
     color: "#00DEAB",
     maxWidth: 200,
@@ -271,7 +272,7 @@ const modalStyles = StyleSheet.create({
   },
   nextBtnText: {
     color: "#fff",
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Semibold",
   },
 });

@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import AddPeopleModal from "@/components/AddPeopleModal";
 import Avatar from "@/components/Avatar";
 import CreateChannelModal from "@/components/CreateChannelModal";
@@ -947,7 +948,7 @@ const styles = StyleSheet.create({
         backgroundColor: "#1D1D1D",
     },
     chipText: {
-        fontSize: 12,
+        fontSize: rf(12),
         fontFamily: "SF_Pro_Semibold",
         color: "#1D1D1D",
     },
@@ -1004,7 +1005,7 @@ const styles = StyleSheet.create({
     },
     avatarText: {
         color: "#fff",
-        fontSize: 15,
+        fontSize: rf(15),
         fontFamily: "SF_Pro_Medium",
     },
     onlineIndicator: {
@@ -1024,12 +1025,12 @@ const styles = StyleSheet.create({
         gap: 2,
     },
     chatName: {
-        fontSize: 15,
+        fontSize: rf(15),
         fontFamily: "SF_Pro_Semibold",
         color: "#1D1D1D",
     },
     chatSnippet: {
-        fontSize: 13,
+        fontSize: rf(13),
         fontFamily: "SF_Pro_Regular",
         color: "#4B5563",
     },
@@ -1041,7 +1042,7 @@ const styles = StyleSheet.create({
         minWidth: 80,
     },
     chatTime: {
-        fontSize: 11,
+        fontSize: rf(11),
         fontFamily: "SF_Pro_Medium",
         color: "#9CA3AF",
     },
@@ -1055,7 +1056,7 @@ const styles = StyleSheet.create({
     },
     unreadBubbleText: {
         color: "#0DDFAB",
-        fontSize: 10,
+        fontSize: rf(10),
         fontFamily: "SF_Pro_Semibold",
     },
 
@@ -1072,14 +1073,14 @@ const styles = StyleSheet.create({
         marginBottom: 16,
     },
     workspaceTitle: {
-        fontSize: 22,
+        fontSize: rf(22),
         fontFamily: "SF_Pro_Regular",
         color: "#1D1D1D",
         marginBottom: 8,
         textAlign: "center",
     },
     workspaceDescription: {
-        fontSize: 12,
+        fontSize: rf(12),
         fontFamily: "SF_Pro_Regular",
         color: "#4B5563",
         textAlign: "center",
@@ -1105,7 +1106,7 @@ const styles = StyleSheet.create({
     },
     addPeopleText: {
         color: "#fff",
-        fontSize: 14,
+        fontSize: rf(14),
         fontFamily: "SF_Pro_Semibold",
     },
 
@@ -1146,7 +1147,7 @@ const styles = StyleSheet.create({
         borderRadius: 6,
     },
     channelName: {
-        fontSize: 15,
+        fontSize: rf(15),
         fontFamily: "SF_Pro_Semibold",
         color: "#1D1D1D",
     },
@@ -1164,7 +1165,7 @@ const styles = StyleSheet.create({
     },
     subAvatarText: {
         color: "#fff",
-        fontSize: 15,
+        fontSize: rf(15),
         fontFamily: "SF_Pro_Medium",
     },
     channelInfo: {
@@ -1173,7 +1174,7 @@ const styles = StyleSheet.create({
         gap: 2,
     },
     channelSnippet: {
-        fontSize: 13,
+        fontSize: rf(13),
         fontFamily: "SF_Pro_Regular",
         color: "#4B5563",
     },

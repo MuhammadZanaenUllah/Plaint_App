@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import { useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -63,7 +64,7 @@ export default function FloatingInput({
   });
   const labelSize = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: [15, 12],
+    outputRange: [rf(15), rf(12)],
   });
 
   return (
@@ -154,7 +155,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   input: {
-    fontSize: 15,
+    fontSize: rf(15),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
     padding: 0,

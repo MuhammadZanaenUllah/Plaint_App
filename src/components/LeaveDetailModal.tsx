@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import {
@@ -184,7 +185,7 @@ const styles = StyleSheet.create({
         marginBottom: 14,
     },
     title: {
-        fontSize: 18,
+        fontSize: rf(18),
         fontFamily: "SF_Pro_Semibold",
         color: "#1D1D1D",
     },
@@ -205,7 +206,7 @@ const styles = StyleSheet.create({
         width: 140,
     },
     labelText: {
-        fontSize: 14,
+        fontSize: rf(14),
         fontFamily: "SF_Pro_Medium",
         color: "#495057",
     },
@@ -213,7 +214,7 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     valueText: {
-        fontSize: 14,
+        fontSize: rf(14),
         fontFamily: "SF_Pro_Regular",
         color: "#212529",
     },
@@ -225,20 +226,20 @@ const styles = StyleSheet.create({
         borderWidth: 1,
     },
     statusText: {
-        fontSize: 12,
+        fontSize: rf(12),
         fontFamily: "SF_Pro_Semibold",
     },
     reasonSection: {
         marginTop: 16,
     },
     reasonTitle: {
-        fontSize: 14,
+        fontSize: rf(14),
         fontFamily: "SF_Pro_Semibold",
         color: "#495057",
         marginBottom: 6,
     },
     reasonText: {
-        fontSize: 14,
+        fontSize: rf(14),
         fontFamily: "SF_Pro_Regular",
         color: "#666666",
         lineHeight: 20,

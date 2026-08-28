@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 /**
  * DynamicTable.tsx
  *
@@ -903,7 +904,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
-  sectionTitle: { fontSize: 18, fontFamily: "SF_Pro_Medium", color: "#1F2937" },
+  sectionTitle: { fontSize: rf(18), fontFamily: "SF_Pro_Medium", color: "#1F2937" },
   chevronBox: {
     width: 25,
     height: 25,
@@ -943,13 +944,13 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   colHead: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Medium",
     color: "#1F2937",
     paddingRight: 4,
   },
   compactColHead: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Medium",
     color: "#1F2937",
     paddingRight: 4,
@@ -1010,7 +1011,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   emptyText: {
-    fontSize: 13,
+    fontSize: rf(13),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
   },

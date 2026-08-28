@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import Icons from "@/constants/icons";
 import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
 
@@ -221,7 +222,7 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   sectionTitle: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Medium",
     color: "#1F2937",
   },
@@ -244,7 +245,7 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   colHead: {
-    fontSize: 10,
+    fontSize: rf(10),
     fontFamily: "SF_Pro_Bold",
     fontWeight: "700",
     color: "#1D1D1D",

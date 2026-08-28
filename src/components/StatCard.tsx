@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import {
@@ -158,19 +159,19 @@ const styles = StyleSheet.create({
   },
 
   label: {
-    fontSize: 10,
+    fontSize: rf(10),
     color: "#6B7280",
     fontFamily: "SF_Pro_Regular",
     fontWeight: "400",
   },
 
   labelCompact: {
-    fontSize: 10,
+    fontSize: rf(10),
     color: "#1D1D1D",
   },
 
   count: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Bold",
     fontWeight: "700",
     color: "#1D1D1D",
@@ -178,7 +179,7 @@ const styles = StyleSheet.create({
   },
 
   countCompact: {
-    fontSize: 13,
+    fontSize: rf(13),
     marginTop: 0,
   },
 });

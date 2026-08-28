@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import { useEffect } from "react";
 import { StyleSheet, Text } from "react-native";
 import Animated, {
@@ -109,7 +110,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   text: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },

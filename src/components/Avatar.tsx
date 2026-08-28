@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import {
   getCachedImageUri,
   resolveImageUri,
@@ -173,7 +174,7 @@ export default function Avatar({
         <Text
           style={{
             color: textColor,
-            fontSize: fontSize ?? Math.round(size * 0.4),
+            fontSize: rf(fontSize ?? Math.round(size * 0.4)),
             fontFamily,
           }}
         >

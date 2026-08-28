@@ -1,3 +1,5 @@
+import { rf } from "@/utils/responsive";
+
 export const Colors = {
   primary: '#1ED9A5',
   primaryDark: '#12C298',
@@ -26,28 +28,28 @@ export const Spacing = {
 
 export const Typography = {
   logo: {
-    fontSize: 22,
+    fontSize: rf(22),
     fontWeight: '800' as const,
     letterSpacing: 1,
   },
   heading: {
-    fontSize: 24,
+    fontSize: rf(24),
     fontWeight: '600' as const,
   },
   label: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontWeight: '400' as const,
   },
   input: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontWeight: '500' as const,
   },
   button: {
-    fontSize: 16,
+    fontSize: rf(16),
     fontWeight: '700' as const,
   },
   link: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontWeight: '600' as const,
   },
 };

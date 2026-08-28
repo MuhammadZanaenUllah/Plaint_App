@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 /**
  * CriticalTaskModal.tsx
  *
@@ -150,13 +151,13 @@ const popup = StyleSheet.create({
     alignItems: "center",
   },
   title: {
-    fontSize: 18,
+    fontSize: rf(18),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
     marginBottom: 10,
   },
   subtitle: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
     lineHeight: 19,
@@ -172,7 +173,7 @@ const popup = StyleSheet.create({
     backgroundColor: "#FFF5F5",
   },
   optionAText: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
     color: "#E53535",
     lineHeight: 20,
@@ -186,7 +187,7 @@ const popup = StyleSheet.create({
     backgroundColor: "#F9FAFB",
   },
   optionBText: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Regular",
     color: "#374151",
     lineHeight: 20,
@@ -473,12 +474,12 @@ const order = StyleSheet.create({
     marginTop: 2,
   },
   headerTitle: {
-    fontSize: 17,
+    fontSize: rf(17),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
   headerSub: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#9CA3AF",
     marginTop: 2,
@@ -493,7 +494,7 @@ const order = StyleSheet.create({
     marginBottom: 4,
   },
   thCell: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Semibold",
     color: "#9CA3AF",
     textTransform: "uppercase",
@@ -527,12 +528,12 @@ const order = StyleSheet.create({
     backgroundColor: "#00DEAB",
   },
   rankText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Semibold",
     color: "#fff",
   },
   cellTitle: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
   },
@@ -541,18 +542,18 @@ const order = StyleSheet.create({
     color: "#059669",
   },
   cellText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
   },
   newTag: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: "#00DEAB",
     marginTop: 2,
   },
   dueDateText: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: "#00DEAB",
   },
@@ -583,7 +584,7 @@ const order = StyleSheet.create({
   },
   confirmText: {
     color: "#fff",
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Semibold",
   },
 });

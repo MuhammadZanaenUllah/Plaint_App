@@ -1,3 +1,4 @@
+import { rf } from "@/utils/responsive";
 import { useAuth } from "@/hooks/useAuth";
 import {
   getPushNotificationSettings,
@@ -872,12 +873,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: rf(18),
     fontFamily: "SF_Pro_Bold",
     color: "#1D1D1D",
   },
   headerSubtitle: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
     marginTop: 1,
@@ -918,25 +919,25 @@ const styles = StyleSheet.create({
   avatarText: {
     color: "#FFFFFF",
     fontFamily: "SF_Pro_Bold",
-    fontSize: 18,
+    fontSize: rf(18),
   },
   profileInfo: {
     marginLeft: 12,
     flex: 1,
   },
   userName: {
-    fontSize: 16,
+    fontSize: rf(16),
     fontFamily: "SF_Pro_Bold",
     color: "#1D1D1D",
   },
   userRole: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Medium",
     color: "#00DEAB",
     marginTop: 2,
   },
   userEmail: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
     marginTop: 2,
@@ -950,7 +951,7 @@ const styles = StyleSheet.create({
     borderColor: "#B2F2E5",
   },
   companyBadgeText: {
-    fontSize: 10,
+    fontSize: rf(10),
     fontFamily: "SF_Pro_Semibold",
     color: "#00A881",
   },
@@ -958,7 +959,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   sectionHeader: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Bold",
     color: "#6B7280",
     letterSpacing: 0.8,
@@ -1004,12 +1005,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   rowTitle: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Medium",
     color: "#1D1D1D",
   },
   rowSub: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
     marginTop: 2,
@@ -1025,7 +1026,7 @@ const styles = StyleSheet.create({
     paddingTop: 2,
   },
   intensityLabel: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Medium",
     color: "#6B7280",
     marginBottom: 8,
@@ -1053,7 +1054,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   segmentedBtnText: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Medium",
     color: "#6B7280",
   },
@@ -1062,12 +1063,12 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Bold",
   },
   actionLinkText: {
-    fontSize: 13,
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Semibold",
     color: "#EF4444",
   },
   tagText: {
-    fontSize: 11,
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Medium",
     color: "#10B981",
     backgroundColor: "#ECFDF5",
@@ -1088,7 +1089,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   logoutButtonText: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Bold",
     color: "#EF4444",
   },
@@ -1116,12 +1117,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   modalTitle: {
-    fontSize: 16,
+    fontSize: rf(16),
     fontFamily: "SF_Pro_Bold",
     color: "#1D1D1D",
   },
   modalLabel: {
-    fontSize: 12,
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Medium",
     color: "#374151",
     marginBottom: 6,
@@ -1133,7 +1134,7 @@ const styles = StyleSheet.create({
     borderColor: "#D1D5DB",
     borderRadius: 8,
     paddingHorizontal: 12,
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
     backgroundColor: "#F9FAFB",
@@ -1149,7 +1150,7 @@ const styles = StyleSheet.create({
   modalSaveBtnText: {
     color: "#FFFFFF",
     fontFamily: "SF_Pro_Bold",
-    fontSize: 14,
+    fontSize: rf(14),
   },
   alertCard: {
     width: "88%",
@@ -1173,14 +1174,14 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   alertTitle: {
-    fontSize: 19,
+    fontSize: rf(19),
     fontFamily: "SF_Pro_Bold",
     color: "#1D1D1D",
     textAlign: "center",
     marginBottom: 8,
   },
   alertDescription: {
-    fontSize: 14,
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
     textAlign: "center",
@@ -1201,7 +1202,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   alertCancelBtnText: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Semibold",
     color: "#4B5563",
   },
@@ -1213,7 +1214,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   alertConfirmBtnText: {
-    fontSize: 15,
+    fontSize: rf(15),
     fontFamily: "SF_Pro_Bold",
     color: "#FFFFFF",
   },
