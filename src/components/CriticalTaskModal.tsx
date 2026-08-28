@@ -62,8 +62,8 @@ export function CriticalTaskPopUpModal({
   // <Modal> — this is shown while CreateTaskModal's own sheet is still
   // open, and nesting a native Modal on top of an open sheet/modal is
   // unreliable on iOS (it silently fails to present; Android tolerates it).
-  // The caller must render this INSIDE that outer JSX tree (now the
-  // RNHostView hosted by CreateTaskModal's BottomSheet).
+  // The caller must render this as a sibling inside CreateTaskModal's own
+  // BottomSheetModal content tree, not as a separately-mounted <Modal>.
   if (!visible) return null;
   return (
       <View style={[popup.overlay, popup.absoluteOverlay]}>
@@ -261,8 +261,8 @@ export function OrderCriticalTasksModal({
   };
 
   // Same reasoning as CriticalTaskPopUpModal above: plain absolute overlay,
-  // not a nested native Modal — caller must render this inside the outer
-  // CreateTaskModal's <Modal> tree.
+  // not a nested native Modal — caller must render this as a sibling inside
+  // CreateTaskModal's own BottomSheetModal content tree.
   if (!visible) return null;
   return (
       <View style={[order.overlay, order.absoluteOverlay]}>

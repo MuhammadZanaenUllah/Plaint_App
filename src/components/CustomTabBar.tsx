@@ -2,6 +2,7 @@ import Icons from "@/constants/icons";
 import { triggerHaptic } from "@/utils/haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { BottomTabBarProps } from "expo-router/js-tabs";
+import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { Keyboard, Pressable, StyleSheet, View } from "react-native";
 import Animated, {
@@ -48,6 +49,10 @@ const TABS: TabItem[] = [
     name: "chat",
     activeIcon: ChatIconBlack,
     inactiveIcon: ChatIconWhite,
+  },
+  {
+    name: "test-sheet",
+    ionicon: "flask-outline",
   },
 ];
 
@@ -119,7 +124,11 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
               }}
               onPress={() => {
                 triggerHaptic("selection");
-                navigation.navigate(tab.name);
+                if (tab.name === "test-sheet") {
+                  router.push("/test-sheet");
+                } else {
+                  navigation.navigate(tab.name);
+                }
               }}
               hitSlop={{ top: 10, bottom: 10, left: 15, right: 15 }}
             >
@@ -161,7 +170,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 14,
     paddingVertical: 7,
-    gap: 60,
+    gap: 28,
     shadowColor: "#000",
     shadowOpacity: 0.18,
     shadowRadius: 16,

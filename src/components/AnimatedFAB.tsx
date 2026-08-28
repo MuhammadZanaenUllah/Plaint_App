@@ -1,5 +1,5 @@
-import React, { useEffect } from "react";
-import { Pressable, StyleSheet, ViewStyle } from "react-native";
+import React, { useEffect, useState } from "react";
+import { Keyboard, Pressable, StyleSheet, View, ViewStyle } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -28,18 +28,28 @@ export default function AnimatedFAB({
   size = 32,
   color = "#1D1D1D",
 }: AnimatedFABProps) {
-  const scale = useSharedValue(0);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const scale = useSharedValue(1);
   const pulseScale = useSharedValue(1);
   const pulseOpacity = useSharedValue(0.6);
   const rotation = useSharedValue(0);
 
   useEffect(() => {
-    // Spring entrance
-    scale.value = withSpring(1, {
-      damping: 12,
-      stiffness: 120,
+    const showKeyboard = Keyboard.addListener("keyboardDidShow", () => {
+      setKeyboardVisible(true);
     });
 
+    const hideKeyboard = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardVisible(false);
+    });
+
+    return () => {
+      showKeyboard.remove();
+      hideKeyboard.remove();
+    };
+  }, []);
+
+  useEffect(() => {
     // Continuous subtle breathing pulse ring
     pulseScale.value = withRepeat(
       withTiming(1.35, { duration: 1800, easing: Easing.out(Easing.ease) }),
@@ -76,6 +86,10 @@ export default function AnimatedFAB({
     opacity: pulseOpacity.value,
   }));
 
+  if (keyboardVisible) {
+    return <View style={{ height: 0 }} />;
+  }
+
   return (
     <AnimatedPressable
       style={[styles.container, fabAnimatedStyle, style]}
@@ -109,8 +123,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 8,
-    elevation: 8,
-    zIndex: 99,
+    elevation: 9999,
+    zIndex: 99999,
   },
   pulseRing: {
     position: "absolute",

@@ -24,8 +24,16 @@ import {
   formatShortDate,
 } from "@/utils/dateFormat";
 import { apiStatusToUi, truncateName } from "@/utils/statusMapper";
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetScrollView,
+  type BottomSheetBackdropProps,
+} from "@gorhom/bottom-sheet";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+const SNAP_POINTS = ["65%", "94%"];
 import {
   ActivityIndicator,
   Modal,
@@ -496,6 +504,40 @@ export default function TaskDetailModal({
     fetchMentionUsers,
     updateTask: updateTaskApi,
   } = useTasks();
+
+  const sheetRef = useRef<BottomSheetModal>(null);
+  const hasPresentedRef = useRef(false);
+
+  const handleModalClose = useCallback(() => {
+    hasPresentedRef.current = false;
+    onClose();
+  }, [onClose]);
+
+  useEffect(() => {
+    if (visible) {
+      if (!hasPresentedRef.current) {
+        hasPresentedRef.current = true;
+        sheetRef.current?.present();
+      }
+    } else {
+      if (hasPresentedRef.current) {
+        hasPresentedRef.current = false;
+        sheetRef.current?.dismiss();
+      }
+    }
+  }, [visible]);
+
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        appearsOnIndex={0}
+        disappearsOnIndex={-1}
+        pressBehavior="close"
+      />
+    ),
+    [],
+  );
 
   const [activeTab, setActiveTab] = useState<"details" | "comments">(
     initialTab,
@@ -1315,22 +1357,28 @@ export default function TaskDetailModal({
   ];
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      statusBarTranslucent
-      onRequestClose={onClose}
+    <BottomSheetModal
+      ref={sheetRef}
+      snapPoints={SNAP_POINTS}
+      enableDynamicSizing={false}
+      onDismiss={handleModalClose}
+      backdropComponent={renderBackdrop}
+      handleIndicatorStyle={styles.dragHandlePill}
+      backgroundStyle={styles.sheetBackground}
+      enablePanDownToClose
+      keyboardBehavior="extend"
+      keyboardBlurBehavior="restore"
+      android_keyboardInputMode="adjustResize"
     >
-      <View style={styles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={styles.sheet}>
-          <View style={styles.dragHandleBar}>
-            <View style={styles.dragHandlePill} />
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-              <Ionicons name="close" size={16} color="#fff" />
-            </TouchableOpacity>
-          </View>
+      <View style={styles.sheetContainer}>
+        <View style={styles.dragHandleBar}>
+          <TouchableOpacity
+            style={styles.closeBtn}
+            onPress={() => sheetRef.current?.close()}
+          >
+            <Ionicons name="close" size={16} color="#fff" />
+          </TouchableOpacity>
+        </View>
 
           <View style={styles.tabs}>
             <TouchableOpacity
@@ -1669,7 +1717,6 @@ export default function TaskDetailModal({
               </View>
             </View>
           )}
-        </View>
 
         {/* ── Assignee Picker Popover ── */}
         {assignPickerVisible && (
@@ -2047,7 +2094,7 @@ export default function TaskDetailModal({
           </Pressable>
         )}
       </View>
-    </Modal>
+    </BottomSheetModal>
   );
 }
 
@@ -2056,6 +2103,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "flex-end",
     backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  sheetContainer: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  sheetBackground: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
   },
   sheet: {
     backgroundColor: "#fff",

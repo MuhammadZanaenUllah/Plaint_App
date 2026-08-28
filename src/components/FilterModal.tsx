@@ -1,6 +1,13 @@
-import { BottomSheet, RNHostView } from "@expo/ui";
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetScrollView,
+  type BottomSheetBackdropProps,
+} from "@gorhom/bottom-sheet";
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+const SNAP_POINTS = ["65%", "90%"];
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -486,14 +493,44 @@ export default function FilterModal({
     onClose?.();
   }, [visible, resetting, loading, resetTick, onClose]);
 
-  const handleManualClose = () => {
+  const sheetRef = useRef<BottomSheetModal>(null);
+  const hasPresentedRef = useRef(false);
+
+  const handleManualClose = useCallback(() => {
+    hasPresentedRef.current = false;
     waitForRealLoadRef.current = false;
     waitForResetRef.current = false;
     setApplying(false);
     setResetting(false);
     applyingSessionRef.current = 0;
     onClose?.();
-  };
+  }, [onClose]);
+
+  useEffect(() => {
+    if (visible) {
+      if (!hasPresentedRef.current) {
+        hasPresentedRef.current = true;
+        sheetRef.current?.present();
+      }
+    } else {
+      if (hasPresentedRef.current) {
+        hasPresentedRef.current = false;
+        sheetRef.current?.dismiss();
+      }
+    }
+  }, [visible]);
+
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        appearsOnIndex={0}
+        disappearsOnIndex={-1}
+        pressBehavior="close"
+      />
+    ),
+    [],
+  );
 
   const handleReset = () => {
     setSelectedStatus(null);
@@ -516,7 +553,7 @@ export default function FilterModal({
     setApplying(false);
     setResetting(false);
     onReset?.();
-    onClose?.();
+    handleManualClose();
   };
 
   const handleApplyPress = () => {
@@ -549,57 +586,52 @@ export default function FilterModal({
       applyingSessionRef.current = 0;
       setApplying(false);
       setResetting(false);
-      onClose?.();
+      handleManualClose();
     }
   };
 
   return (
-    <BottomSheet
-      isPresented={visible}
+    <BottomSheetModal
+      ref={sheetRef}
+      snapPoints={SNAP_POINTS}
+      enableDynamicSizing={false}
       onDismiss={handleManualClose}
-      snapPoints={["half", "full"]}
-      showDragIndicator={false}
-      contentPadding={0}
+      backdropComponent={renderBackdrop}
+      handleIndicatorStyle={styles.dragHandlePill}
+      backgroundStyle={styles.sheetBackground}
+      enablePanDownToClose
+      keyboardBehavior="extend"
+      keyboardBlurBehavior="restore"
+      android_keyboardInputMode="adjustResize"
     >
-      <RNHostView>
-        <View>
-          <Pressable
-            style={styles.backdropTapArea}
-            onPress={handleManualClose}
-          />
-          <View
-            style={[styles.sheetContainer, { maxHeight: windowHeight * 0.85 }]}
+      <View style={styles.sheetContainer}>
+        <View style={styles.headerRow}>
+          <TouchableOpacity onPress={handleReset} disabled={resetting}>
+            {resetting ? (
+              <ActivityIndicator size="small" color="#1D1D1D" />
+            ) : (
+              <Text style={styles.resetText}>Reset</Text>
+            )}
+          </TouchableOpacity>
+          <Text style={styles.titleText}>Filter</Text>
+          <TouchableOpacity
+            style={styles.closeBtn}
+            onPress={() => sheetRef.current?.close()}
           >
-            <View style={styles.dragHandleBar}>
-              <View style={styles.dragHandlePill} />
-            </View>
-            <View style={styles.headerRow}>
-              <TouchableOpacity onPress={handleReset} disabled={resetting}>
-                {resetting ? (
-                  <ActivityIndicator size="small" color="#1D1D1D" />
-                ) : (
-                  <Text style={styles.resetText}>Reset</Text>
-                )}
-              </TouchableOpacity>
-              <Text style={styles.titleText}>Filter</Text>
-              <TouchableOpacity
-                style={styles.closeBtn}
-                onPress={handleManualClose}
-              >
-                <Ionicons name="close" size={16} color="#fff" />
-              </TouchableOpacity>
-            </View>
+            <Ionicons name="close" size={16} color="#fff" />
+          </TouchableOpacity>
+        </View>
 
-            <KeyboardAvoidingView
-              behavior={Platform.OS === "ios" ? "padding" : undefined}
-              style={{ flexGrow: 0, flexShrink: 1 }}
-            >
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                style={{ flexGrow: 0, flexShrink: 1 }}
-                contentContainerStyle={styles.scrollContent}
-              >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{ flexGrow: 0, flexShrink: 1 }}
+        >
+          <BottomSheetScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            style={{ flexGrow: 0, flexShrink: 1 }}
+            contentContainerStyle={styles.scrollContent}
+          >
                 {/* Status */}
                 {showStatus && (
                   <>
@@ -912,32 +944,30 @@ export default function FilterModal({
                     </Pressable>
                   </Pressable>
                 </Modal>
-              </ScrollView>
+          </BottomSheetScrollView>
 
-              <View
-                style={[
-                  styles.footer,
-                  { paddingBottom: insets.bottom > 0 ? insets.bottom + 4 : 16 },
-                ]}
-              >
-                <TouchableOpacity
-                  style={[styles.applyBtn, applying && styles.applyBtnDisabled]}
-                  activeOpacity={0.85}
-                  disabled={applying}
-                  onPress={handleApplyPress}
-                >
-                  {applying ? (
-                    <ActivityIndicator size="small" color="#1D1D1D" />
-                  ) : (
-                    <Text style={styles.applyText}>Apply</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </KeyboardAvoidingView>
+          <View
+            style={[
+              styles.footer,
+              { paddingBottom: insets.bottom > 0 ? insets.bottom + 4 : 16 },
+            ]}
+          >
+            <TouchableOpacity
+              style={[styles.applyBtn, applying && styles.applyBtnDisabled]}
+              activeOpacity={0.85}
+              disabled={applying}
+              onPress={handleApplyPress}
+            >
+              {applying ? (
+                <ActivityIndicator size="small" color="#1D1D1D" />
+              ) : (
+                <Text style={styles.applyText}>Apply</Text>
+              )}
+            </TouchableOpacity>
           </View>
-        </View>
-      </RNHostView>
-    </BottomSheet>
+        </KeyboardAvoidingView>
+      </View>
+    </BottomSheetModal>
   );
 }
 
@@ -959,6 +989,11 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: "hidden",
+  },
+  sheetBackground: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
   },
   sheet: {
     backgroundColor: "#fff",

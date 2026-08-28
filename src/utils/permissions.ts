@@ -8,9 +8,12 @@ import { TaskListItem } from "@/types/task.types";
  * both "1" and "yes" style values are accepted.
  */
 export function isUserHead(user?: UserData | null): boolean {
-  if (!user?.is_head) return false;
-  const value = String(user.is_head).trim().toLowerCase();
-  return value !== "" && value !== "0" && value !== "false" && value !== "no";
+  if (!user) return false;
+  if (user.is_head !== undefined && user.is_head !== null) {
+    const value = String(user.is_head).trim().toLowerCase();
+    return value !== "" && value !== "0" && value !== "false" && value !== "no";
+  }
+  return false;
 }
 
 /** True when the current user may create tasks (shows the create-task FAB).

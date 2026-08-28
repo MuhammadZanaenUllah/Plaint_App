@@ -7,23 +7,24 @@ import {
 } from "@/context/PushNotificationContext";
 import { TaskProvider } from "@/context/TaskContext";
 import { useUpdates } from "@/hooks/useUpdates";
-
-function UpdateLifecycle() {
-  useUpdates();
-  return null;
-}
 import { initNetworkPrewarm } from "@/services/api/client";
 import {
   connectSocket,
   disconnectSocket,
 } from "@/services/socket/socketService";
 import useAppFonts from "@/theme/useAppFonts";
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useContext, useEffect, useRef } from "react";
 import { AppState, LogBox, Text, TextInput } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Toast from "react-native-toast-message";
+
+function UpdateLifecycle() {
+  useUpdates();
+  return null;
+}
 
 // Prewarm DNS resolution and TCP/TLS sockets for backend on app start
 initNetworkPrewarm();
@@ -226,20 +227,22 @@ function RootNavigator() {
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#fff" }}>
-      <AuthProvider>
-        <TaskProvider>
-          <NotificationProvider>
-            <ChatProvider>
-              <PushNotificationProvider>
-                <PushNotificationLifecycle />
-                <UpdateLifecycle />
-                <RootNavigator />
-                <Toast />
-              </PushNotificationProvider>
-            </ChatProvider>
-          </NotificationProvider>
-        </TaskProvider>
-      </AuthProvider>
+      <BottomSheetModalProvider>
+        <AuthProvider>
+          <TaskProvider>
+            <NotificationProvider>
+              <ChatProvider>
+                <PushNotificationProvider>
+                  <PushNotificationLifecycle />
+                  <UpdateLifecycle />
+                  <RootNavigator />
+                  <Toast />
+                </PushNotificationProvider>
+              </ChatProvider>
+            </NotificationProvider>
+          </TaskProvider>
+        </AuthProvider>
+      </BottomSheetModalProvider>
     </GestureHandlerRootView>
   );
 }

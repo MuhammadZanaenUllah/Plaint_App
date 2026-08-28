@@ -124,6 +124,7 @@ export default function TasksScreen() {
   } | null>(null);
   const overdueToastShownRef = useRef(false);
   const delayPromptedIdsRef = useRef<Set<number>>(new Set());
+  const hasPromptedDelayThisSessionRef = useRef(false);
   const currentUserId = authState.user?.id ?? 0;
 
   const statsScrollRef = useRef<ScrollView>(null);
@@ -178,12 +179,7 @@ export default function TasksScreen() {
   // The app detects overdue tasks client-side (due_date in the past and not
   // completed) and surfaces them in-app: a one-time summary toast plus, for
   // tasks the current user assigned to someone else, the TaskDelay escalation
-  // popup (once per task per session).
-  // ── App-driven overdue / delay notifications (changes1.md §8.4-8.5) ─────
-  // The app detects overdue tasks client-side (due_date in the past and not
-  // completed) and surfaces them in-app: a one-time summary toast plus, for
-  // tasks the current user assigned to someone else, the TaskDelay escalation
-  // popup (once per task per session).
+  // popup (at most once per session to prevent infinite popup loops & app freeze).
   useEffect(() => {
     if (!companyId) return;
 
@@ -211,8 +207,14 @@ export default function TasksScreen() {
     }
 
     // 2. Escalation popup for tasks created by current user and assigned to others.
-    // Scan only `mappedCreatedByMe` (a small fraction of all company tasks).
-    if (currentUserId > 0 && !delayTask && mappedCreatedByMe.length > 0) {
+    // Limit to at most 1 prompt per session so accounts with many delayed tasks don't get trapped
+    // in an endless loop of sequential modal popups freezing the app.
+    if (
+      currentUserId > 0 &&
+      !delayTask &&
+      !hasPromptedDelayThisSessionRef.current &&
+      mappedCreatedByMe.length > 0
+    ) {
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const todayMs = todayStart.getTime();
@@ -237,6 +239,7 @@ export default function TasksScreen() {
       }
 
       if (earliest) {
+        hasPromptedDelayThisSessionRef.current = true;
         delayPromptedIdsRef.current.add(Number(earliest.id));
         const assignee = earliest._raw?.task_assigned_to;
         const assigneeName =
@@ -905,56 +908,6 @@ export default function TasksScreen() {
     ];
   }, [tabCounts, partial]);
 
-  // Whenever tasks are loading, show the skeleton (with the real, live stat-card
-  // filter bar above). This covers every load path — initial fetch, logout+login,
-  // and app re-open with restored context — so the skeleton is always used and
-  // never the inline TaskTable spinner. Silent refetches (pull-to-refresh, "all"
-  // tab, status changes, create task) keep `loading` false, so they continue to
-  // render the normal table with their own refresh/footer behavior unchanged.
-  if (taskState.loading) {
-    return (
-      <View style={styles.root}>
-        <View style={styles.safe}>
-          <ScrollView
-            ref={statsScrollRef}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.statsScroll}
-            contentContainerStyle={styles.statsContent}
-          >
-            {statsList.map((s) => (
-              <View
-                key={s.id}
-                onLayout={(e) => {
-                  const { x, width } = e.nativeEvent.layout;
-                  cardLayoutsRef.current[s.id] = { x, width };
-                }}
-              >
-                <StatCard
-                  label={s.label}
-                  count={s.count}
-                  iconName={s.iconName}
-                  active={selectedTab === s.id}
-                  onPress={() => handleTabPress(s.id)}
-                  compact={isHeaderCompact}
-                />
-              </View>
-            ))}
-          </ScrollView>
-
-          <View style={styles.tableShell}>
-            <TaskTableSkeleton
-              sectionTitle={
-                statsList.find((s) => s.id === selectedTab)?.label ??
-                "Due Today"
-              }
-            />
-          </View>
-        </View>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
@@ -1008,29 +961,56 @@ export default function TasksScreen() {
           ))}
         </ScrollView>
 
-        <View style={[styles.tableShell, isTabPending && { opacity: 0.6 }]}>
-          <TaskTable
-            sectionTitle={
-              statsList.find((s) => s.id === selectedTab)?.label ?? "Due Today"
-            }
-            tasks={visibleTasks}
-            onTaskPress={handleTaskPress}
-            onCommentPress={handleCommentPress}
-            onStatusChange={handleStatusChange}
-            onFilterPress={handleOpenFilter}
-            loading={taskState.loading}
-            activeFilterCount={activeFilterCount}
-            hasMore={hasMore}
-            loadingMore={loadingMore}
-            onLoadMore={loadMore}
-            onRefresh={handleRefresh}
-            refreshing={refreshing}
-            onScrollOffsetChange={handleTableScrollOffset}
-            canReassign={canCreate}
-            assignableOwners={taskState.taskOwners}
-            onAssigneeChange={handleAssigneeChange}
-          />
-        </View>
+        {taskState.loading ? (
+          // Whenever tasks are loading, show the skeleton (with the real,
+          // live stat-card filter bar above). This covers every load path —
+          // initial fetch, logout+login, and app re-open with restored
+          // context — so the skeleton is always used and never the inline
+          // TaskTable spinner. Silent refetches (pull-to-refresh, "all" tab,
+          // status changes, create task) keep `loading` false, so they
+          // continue to render the normal table with their own
+          // refresh/footer behavior unchanged.
+          //
+          // Rendered inline here (rather than as a separate early return)
+          // so AnimatedFAB/CreateTaskModal/TaskDetailModal/TaskDelay below
+          // stay mounted across the loading -> loaded transition instead of
+          // being torn down and rebuilt — a background refetch flipping
+          // `loading` while the create-task sheet was open used to unmount
+          // it mid-open.
+          <View style={styles.tableShell}>
+            <TaskTableSkeleton
+              sectionTitle={
+                statsList.find((s) => s.id === selectedTab)?.label ??
+                "Due Today"
+              }
+            />
+          </View>
+        ) : (
+          <View style={[styles.tableShell, isTabPending && { opacity: 0.6 }]}>
+            <TaskTable
+              sectionTitle={
+                statsList.find((s) => s.id === selectedTab)?.label ??
+                "Due Today"
+              }
+              tasks={visibleTasks}
+              onTaskPress={handleTaskPress}
+              onCommentPress={handleCommentPress}
+              onStatusChange={handleStatusChange}
+              onFilterPress={handleOpenFilter}
+              loading={taskState.loading}
+              activeFilterCount={activeFilterCount}
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+              onLoadMore={loadMore}
+              onRefresh={handleRefresh}
+              refreshing={refreshing}
+              onScrollOffsetChange={handleTableScrollOffset}
+              canReassign={canCreate}
+              assignableOwners={taskState.taskOwners}
+              onAssigneeChange={handleAssigneeChange}
+            />
+          </View>
+        )}
       </Pressable>
 
       {canCreate ? (
