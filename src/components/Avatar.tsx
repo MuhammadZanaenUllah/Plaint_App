@@ -1,7 +1,10 @@
-import { getStoredToken } from "@/utils/token";
+import {
+  getCachedImageUri,
+  resolveImageUri,
+  useAuthToken,
+} from "@/utils/secureImageFetch";
 import { useEffect, useMemo, useState } from "react";
 import { Image, StyleProp, Text, View, ViewStyle } from "react-native";
-import { fetch as nitroFetch } from "react-native-nitro-fetch";
 
 type Props = {
   /** Full name (or best-effort name) used for the initials fallback. */
@@ -103,56 +106,6 @@ function buildCandidateUrls(
   return candidates;
 }
 
-// Module-level cache of resolved data: URIs, keyed by the raw imagePath —
-// mirrors the web app's _blobCache so the same user's photo is only ever
-// fetched once per session, not once per row it appears in.
-const resolvedCache = new Map<string, string | null>();
-const inFlight = new Map<string, Promise<string | null>>();
-
-// Manual byte->base64 rather than Blob+FileReader — this app's fetch (and
-// its auth handling) is react-native-nitro-fetch, not RN's built-in fetch,
-// and there's no guarantee its Blob interops with the global FileReader.
-// Chunked to avoid a call-stack overflow from spreading a large byte array
-// into String.fromCharCode at once.
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
-
-async function fetchAsDataUri(
-  uri: string,
-  headers?: Record<string, string>,
-): Promise<string | null> {
-  try {
-    const res = await nitroFetch(uri, { headers });
-    if (!res.ok) return null;
-    const contentType = res.headers.get("content-type") ?? "";
-    // Reject only obvious non-image error bodies (JSON/HTML error pages) —
-    // some file proxies don't set a strict image/* content-type on success.
-    if (/json|html|text\/plain/i.test(contentType)) return null;
-    const bytes = await res.bytes();
-    if (!bytes || bytes.byteLength === 0) return null;
-    const mime = contentType.startsWith("image/") ? contentType : "image/jpeg";
-    return `data:${mime};base64,${bytesToBase64(bytes)}`;
-  } catch {
-    return null;
-  }
-}
-
-async function resolveFirstWorkingUri(
-  candidates: { uri: string; headers?: Record<string, string> }[],
-): Promise<string | null> {
-  for (const candidate of candidates) {
-    const dataUri = await fetchAsDataUri(candidate.uri, candidate.headers);
-    if (dataUri) return dataUri;
-  }
-  return null;
-}
-
 /** Profile photo with an initials-circle fallback (shown while resolving,
  *  when there's no image, or once every candidate URL has failed to load).
  *
@@ -172,19 +125,19 @@ export default function Avatar({
   fontFamily = "SF_Pro_Bold",
   style,
 }: Props) {
-  const [token, setToken] = useState<string | null>(null);
-  useEffect(() => {
-    getStoredToken().then(setToken);
-  }, []);
+  const token = useAuthToken();
 
   const candidates = useMemo(
-    () => (!isInvalidImagePath(imagePath) ? buildCandidateUrls(imagePath!, token) : []),
+    () =>
+      token !== undefined && !isInvalidImagePath(imagePath)
+        ? buildCandidateUrls(imagePath!, token)
+        : [],
     [imagePath, token],
   );
 
   const cacheKey = isInvalidImagePath(imagePath) ? "" : `${imagePath}`;
-  const [resolvedUri, setResolvedUri] = useState<string | null>(
-    () => resolvedCache.get(cacheKey) ?? null,
+  const [resolvedUri, setResolvedUri] = useState<string | null>(() =>
+    getCachedImageUri(cacheKey),
   );
 
   useEffect(() => {
@@ -192,20 +145,8 @@ export default function Avatar({
       setResolvedUri(null);
       return;
     }
-    if (resolvedCache.has(cacheKey)) {
-      setResolvedUri(resolvedCache.get(cacheKey) ?? null);
-      return;
-    }
-
     let cancelled = false;
-    let promise = inFlight.get(cacheKey);
-    if (!promise) {
-      promise = resolveFirstWorkingUri(candidates);
-      inFlight.set(cacheKey, promise);
-    }
-    promise.then((uri) => {
-      resolvedCache.set(cacheKey, uri);
-      inFlight.delete(cacheKey);
+    resolveImageUri(cacheKey, candidates).then((uri) => {
       if (!cancelled) setResolvedUri(uri);
     });
     return () => {

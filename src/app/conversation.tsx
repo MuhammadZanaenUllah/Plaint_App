@@ -732,7 +732,12 @@ const VIDEO_EXTS = ["mp4", "mov", "avi", "webm", "mkv", "m4v", "3gp"];
 const AUDIO_EXTS = ["mp3", "wav", "m4a", "ogg", "caf"];
 
 function getAttachmentExt(a: MessageAttachment): string {
-  return (a.name || a.url || "").split(".").pop()?.toLowerCase() || "";
+  // Prefer `url` over `name` (the server-assigned filename in `name` is
+  // often extension-less/generic, e.g. "attachment") and strip any
+  // query/hash suffix before splitting so `foo.jpg?token=…` still resolves
+  // to `jpg` instead of `jpg?token=…`.
+  const candidate = (a.url || a.name || "").split(/[?#]/)[0];
+  return candidate.split(".").pop()?.toLowerCase() || "";
 }
 
 function isImageAttachment(a: MessageAttachment): boolean {
@@ -829,13 +834,17 @@ function AttachmentsPanel({ messages }: { messages: ChatMessage[] }) {
         (imageAttachments.length > 0 ? (
           <View style={ap.imageGrid}>
             {imageAttachments.map((item, index) => (
-              <SecureImage key={index} url={item.url} style={ap.imageThumb} />
+              <TouchableOpacity
+                key={index}
+                activeOpacity={0.85}
+                style={ap.imageThumbWrap}
+              >
+                <SecureImage url={item.url} style={ap.imageThumb} />
+              </TouchableOpacity>
             ))}
           </View>
         ) : (
-          <View style={ap.emptyTab}>
-            <Text style={ap.emptyTabText}>No images found</Text>
-          </View>
+          <EmptyAttachTab icon="image-outline" label="No images found" />
         ))}
       {activeTab === "Videos" &&
         (videoAttachments.length > 0 ? (
@@ -849,17 +858,18 @@ function AttachmentsPanel({ messages }: { messages: ChatMessage[] }) {
                   Linking.openURL(resolveFileUrl(item.url)).catch(() => {})
                 }
               >
-                <Ionicons name="videocam" size={18} color="#00DEAB" />
+                <View style={ap.fileIconBadge}>
+                  <Ionicons name="videocam" size={16} color="#00DEAB" />
+                </View>
                 <Text style={ap.fileName} numberOfLines={1}>
                   {item.name || "Video"}
                 </Text>
+                <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
               </TouchableOpacity>
             ))}
           </View>
         ) : (
-          <View style={ap.emptyTab}>
-            <Text style={ap.emptyTabText}>No videos found</Text>
-          </View>
+          <EmptyAttachTab icon="videocam-outline" label="No videos found" />
         ))}
       {activeTab === "Docs" &&
         (docAttachments.length > 0 ? (
@@ -873,17 +883,18 @@ function AttachmentsPanel({ messages }: { messages: ChatMessage[] }) {
                   Linking.openURL(resolveFileUrl(item.url)).catch(() => {})
                 }
               >
-                <Ionicons name="document-text" size={18} color="#00DEAB" />
+                <View style={ap.fileIconBadge}>
+                  <Ionicons name="document-text" size={16} color="#00DEAB" />
+                </View>
                 <Text style={ap.fileName} numberOfLines={1}>
                   {item.name || "Document"}
                 </Text>
+                <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
               </TouchableOpacity>
             ))}
           </View>
         ) : (
-          <View style={ap.emptyTab}>
-            <Text style={ap.emptyTabText}>No docs found</Text>
-          </View>
+          <EmptyAttachTab icon="document-text-outline" label="No docs found" />
         ))}
       {activeTab === "Links" &&
         (links.length > 0 ? (
@@ -895,21 +906,50 @@ function AttachmentsPanel({ messages }: { messages: ChatMessage[] }) {
                 activeOpacity={0.7}
                 onPress={() => Linking.openURL(item.url).catch(() => {})}
               >
-                <Ionicons name="link" size={18} color="#00DEAB" />
+                <View style={ap.fileIconBadge}>
+                  <Ionicons name="link" size={16} color="#00DEAB" />
+                </View>
                 <Text style={ap.fileName} numberOfLines={1}>
                   {item.url}
                 </Text>
+                <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
               </TouchableOpacity>
             ))}
           </View>
         ) : (
-          <View style={ap.emptyTab}>
-            <Text style={ap.emptyTabText}>No links found</Text>
-          </View>
+          <EmptyAttachTab icon="link-outline" label="No links found" />
         ))}
     </View>
   );
 }
+
+function EmptyAttachTab({
+  icon,
+  label,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  label: string;
+}) {
+  return (
+    <View style={ap.emptyTab}>
+      <View style={ap.emptyTabIconCircle}>
+        <Ionicons name={icon} size={22} color="#C7CBD1" />
+      </View>
+      <Text style={ap.emptyTabText}>{label}</Text>
+    </View>
+  );
+}
+
+// `width: "25%"` + `aspectRatio: 1` with no explicit height (inside a
+// `flexWrap` row) doesn't reliably resolve a nonzero size in RN's Yoga
+// layout — it rendered as an invisible 0-height box even once the image
+// itself was confirmed loaded and cached. Explicit pixel dimensions (same
+// approach as the message bubble's fixed 220×180 attachedImage, which
+// always rendered correctly) sidesteps that.
+const ATTACHMENT_GRID_GAP = 3;
+const ATTACHMENT_THUMB_SIZE =
+  Math.floor((Dimensions.get("window").width - ATTACHMENT_GRID_GAP * 4) / 3) -
+  ATTACHMENT_GRID_GAP;
 
 const ap = StyleSheet.create({
   container: { paddingBottom: 4 },
@@ -929,7 +969,7 @@ const ap = StyleSheet.create({
     borderBottomColor: "transparent",
   },
   tabActive: {
-    borderBottomColor: "#1D1D1D",
+    borderBottomColor: "#00DEAB",
   },
   tabText: {
     fontSize: 12,
@@ -943,18 +983,30 @@ const ap = StyleSheet.create({
   imageGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    paddingHorizontal: 1,
-    paddingTop: 2,
+    gap: ATTACHMENT_GRID_GAP,
+    padding: ATTACHMENT_GRID_GAP,
+  },
+  imageThumbWrap: {
+    borderRadius: 10,
+    overflow: "hidden",
   },
   imageThumb: {
-    width: "25%",
-    aspectRatio: 1,
-    backgroundColor: "#1a1a2e",
-    borderColor: "#fff",
+    width: ATTACHMENT_THUMB_SIZE,
+    height: ATTACHMENT_THUMB_SIZE,
+    backgroundColor: "#EDEEF1",
   },
   emptyTab: {
-    padding: 24,
+    padding: 32,
     alignItems: "center",
+  },
+  emptyTabIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
   },
   emptyTabText: {
     fontSize: 13,
@@ -968,10 +1020,18 @@ const ap = StyleSheet.create({
   fileRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
+  },
+  fileIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#E6FBF5",
+    alignItems: "center",
+    justifyContent: "center",
   },
   fileName: {
     flex: 1,

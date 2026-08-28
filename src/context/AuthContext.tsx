@@ -2,6 +2,7 @@ import * as authService from "@/services/api/auth.service";
 import { setAuthFailureHandler } from "@/services/api/client";
 import { getModules } from "@/services/api/modules.service";
 import { Company, UserData } from "@/types/auth.types";
+import { invalidateAuthTokenCache } from "@/utils/secureImageFetch";
 import {
   clearAllAuth,
   getBiometricSession,
@@ -246,6 +247,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await setStoredUser(successRes.user.userdata);
       await setStoredCompany(successRes.user.company);
       await setSessionExpiresAt(successRes.sessionTimeoutMins);
+      invalidateAuthTokenCache();
 
       const bioEnabled = await SecureStore.getItemAsync(
         "pref_biometrics_enabled",
@@ -308,6 +310,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     await clearAllAuth();
+    invalidateAuthTokenCache();
     dispatch({ type: "LOGOUT" });
   }, []);
 
