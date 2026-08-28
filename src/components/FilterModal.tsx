@@ -1,6 +1,5 @@
-import { BottomSheet } from "@expo/ui";
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -10,7 +9,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -138,7 +136,7 @@ function PersonPickerField({
     const q = query.trim().toLowerCase();
     if (!q) return owners;
     return owners.filter((o) =>
-      getUserDisplayName(o).toLowerCase().includes(q)
+      getUserDisplayName(o).toLowerCase().includes(q),
     );
   }, [owners, query]);
 
@@ -180,7 +178,11 @@ function PersonPickerField({
       {/* Search Input */}
       <View style={{ position: "relative", width: "100%" }}>
         <FloatingInput
-          label={selectedOwners.length > 0 ? `${label} (${selectedOwners.length})` : label}
+          label={
+            selectedOwners.length > 0
+              ? `${label} (${selectedOwners.length})`
+              : label
+          }
           value={query}
           onChangeText={(text) => {
             onChangeQuery(text);
@@ -256,9 +258,17 @@ function PersonPickerField({
                         {getUserDisplayName(owner)}
                       </Text>
                       {isSelected ? (
-                        <Ionicons name="checkmark-circle" size={18} color="#0DDFAB" />
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={18}
+                          color="#0DDFAB"
+                        />
                       ) : (
-                        <Ionicons name="add-circle-outline" size={18} color="#D1D5DB" />
+                        <Ionicons
+                          name="add-circle-outline"
+                          size={18}
+                          color="#D1D5DB"
+                        />
                       )}
                     </TouchableOpacity>
                   );
@@ -314,20 +324,33 @@ export default function FilterModal({
   // offset that mismatch shows up as an empty gap between the sheet and the
   // keyboard once it's open.
   const insets = useSafeAreaInsets();
-  const [selectedStatus, setSelectedStatus] = useState<string | null>(initialStatus);
-  const [selectedPriority, setSelectedPriority] = useState<string | null>(initialPriority);
-  const [selectedLeaveMode, setSelectedLeaveMode] = useState<string | null>(null);
-  const [selectedLeaveType, setSelectedLeaveType] = useState<string | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState<string | null>(
+    initialStatus,
+  );
+  const [selectedPriority, setSelectedPriority] = useState<string | null>(
+    initialPriority,
+  );
+  const [selectedLeaveMode, setSelectedLeaveMode] = useState<string | null>(
+    null,
+  );
+  const [selectedLeaveType, setSelectedLeaveType] = useState<string | null>(
+    null,
+  );
   const [startDate, setStartDate] = useState<Date | null>(initialStartDate);
   const [endDate, setEndDate] = useState<Date | null>(initialEndDate);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [selectedCreatedBy, setSelectedCreatedBy] = useState<number[]>(() => {
     if (initialCreatedBy === null || initialCreatedBy === undefined) return [];
-    return Array.isArray(initialCreatedBy) ? initialCreatedBy : [initialCreatedBy];
+    return Array.isArray(initialCreatedBy)
+      ? initialCreatedBy
+      : [initialCreatedBy];
   });
   const [selectedAssignedTo, setSelectedAssignedTo] = useState<number[]>(() => {
-    if (initialAssignedTo === null || initialAssignedTo === undefined) return [];
-    return Array.isArray(initialAssignedTo) ? initialAssignedTo : [initialAssignedTo];
+    if (initialAssignedTo === null || initialAssignedTo === undefined)
+      return [];
+    return Array.isArray(initialAssignedTo)
+      ? initialAssignedTo
+      : [initialAssignedTo];
   });
   const [createdByQuery, setCreatedByQuery] = useState("");
   const [assignedToQuery, setAssignedToQuery] = useState("");
@@ -338,7 +361,7 @@ export default function FilterModal({
     setSelectedCreatedBy((prev) =>
       prev.includes(owner.id)
         ? prev.filter((id) => id !== owner.id)
-        : [...prev, owner.id]
+        : [...prev, owner.id],
     );
   };
 
@@ -346,7 +369,7 @@ export default function FilterModal({
     setSelectedAssignedTo((prev) =>
       prev.includes(owner.id)
         ? prev.filter((id) => id !== owner.id)
-        : [...prev, owner.id]
+        : [...prev, owner.id],
     );
   };
   const [applying, setApplying] = useState(false);
@@ -388,14 +411,14 @@ export default function FilterModal({
           ? []
           : Array.isArray(initialCreatedBy)
             ? initialCreatedBy
-            : [initialCreatedBy]
+            : [initialCreatedBy],
       );
       setSelectedAssignedTo(
         initialAssignedTo === null || initialAssignedTo === undefined
           ? []
           : Array.isArray(initialAssignedTo)
             ? initialAssignedTo
-            : [initialAssignedTo]
+            : [initialAssignedTo],
       );
       setCreatedByQuery("");
       setAssignedToQuery("");
@@ -403,7 +426,15 @@ export default function FilterModal({
       setCreatedByOpen(false);
       setAssignedToOpen(false);
     }
-  }, [visible, initialStatus, initialPriority, initialStartDate, initialEndDate, initialCreatedBy, initialAssignedTo]);
+  }, [
+    visible,
+    initialStatus,
+    initialPriority,
+    initialStartDate,
+    initialEndDate,
+    initialCreatedBy,
+    initialAssignedTo,
+  ]);
 
   // If Apply was tapped while data was still loading, keep the modal open
   // (spinner in the button) and close it as soon as the load finishes.
@@ -487,8 +518,18 @@ export default function FilterModal({
       priority: selectedPriority,
       startDate,
       endDate,
-      createdBy: selectedCreatedBy.length > 0 ? (selectedCreatedBy.length === 1 ? selectedCreatedBy[0] : selectedCreatedBy) : null,
-      assignedTo: selectedAssignedTo.length > 0 ? (selectedAssignedTo.length === 1 ? selectedAssignedTo[0] : selectedAssignedTo) : null,
+      createdBy:
+        selectedCreatedBy.length > 0
+          ? selectedCreatedBy.length === 1
+            ? selectedCreatedBy[0]
+            : selectedCreatedBy
+          : null,
+      assignedTo:
+        selectedAssignedTo.length > 0
+          ? selectedAssignedTo.length === 1
+            ? selectedAssignedTo[0]
+            : selectedAssignedTo
+          : null,
     });
     if (loading) {
       waitForRealLoadRef.current = true;
@@ -506,30 +547,31 @@ export default function FilterModal({
   };
 
   return (
-    <BottomSheet
-      isPresented={visible}
-      onDismiss={handleManualClose}
-      snapPoints={["full"]}
-      showDragIndicator={false}
-      contentPadding={0}
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      statusBarTranslucent
+      onRequestClose={handleManualClose}
     >
-      <View style={styles.sheetContainer}>
-        <View style={styles.dragHandleBar}>
-          <View style={styles.dragHandlePill} />
-        </View>
-        <View style={styles.headerRow}>
-          <TouchableOpacity onPress={handleReset} disabled={resetting}>
-            {resetting ? (
-              <ActivityIndicator size="small" color="#1D1D1D" />
-            ) : (
-              <Text style={styles.resetText}>Reset</Text>
-            )}
-          </TouchableOpacity>
-          <Text style={styles.titleText}>Filter</Text>
-          <TouchableOpacity style={styles.closeBtn} onPress={handleManualClose}>
-            <Ionicons name="close" size={16} color="#fff" />
-          </TouchableOpacity>
-        </View>
+      <Pressable style={styles.modalOverlay} onPress={handleManualClose}>
+        <Pressable style={styles.sheetContainer} onPress={(e) => e.stopPropagation()}>
+          <View style={styles.dragHandleBar}>
+            <View style={styles.dragHandlePill} />
+          </View>
+          <View style={styles.headerRow}>
+            <TouchableOpacity onPress={handleReset} disabled={resetting}>
+              {resetting ? (
+                <ActivityIndicator size="small" color="#1D1D1D" />
+              ) : (
+                <Text style={styles.resetText}>Reset</Text>
+              )}
+            </TouchableOpacity>
+            <Text style={styles.titleText}>Filter</Text>
+            <TouchableOpacity style={styles.closeBtn} onPress={handleManualClose}>
+              <Ionicons name="close" size={16} color="#fff" />
+            </TouchableOpacity>
+          </View>
 
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -540,255 +582,316 @@ export default function FilterModal({
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.scrollContent}
           >
-              {/* Status */}
-              {showStatus && (
-                <>
-                  <Text style={styles.sectionLabel}>{statusLabel}</Text>
+            {/* Status */}
+            {showStatus && (
+              <>
+                <Text style={styles.sectionLabel}>{statusLabel}</Text>
 
-                  <View style={styles.chipsRow}>
-                    {statuses.map((s) => {
-                      const active = selectedStatus === s;
-                      const color = statusColors[s];
+                <View style={styles.chipsRow}>
+                  {statuses.map((s) => {
+                    const active = selectedStatus === s;
+                    const color = statusColors[s];
 
-                      return (
-                        <TouchableOpacity
-                          key={s}
+                    return (
+                      <TouchableOpacity
+                        key={s}
+                        style={[
+                          styles.chip,
+                          active && {
+                            backgroundColor: color,
+                            borderColor: color,
+                          },
+                        ]}
+                        onPress={() => setSelectedStatus(active ? null : s)}
+                      >
+                        {active ? (
+                          <Ionicons
+                            name="checkmark"
+                            size={13}
+                            color="#fff"
+                            style={{ marginRight: 2 }}
+                          />
+                        ) : (
+                          <View
+                            style={[styles.dot, { backgroundColor: color }]}
+                          />
+                        )}
+
+                        <Text
                           style={[
-                            styles.chip,
-                            active && {
-                              backgroundColor: color,
-                              borderColor: color,
-                            },
+                            styles.chipText,
+                            active && styles.chipTextActive,
                           ]}
-                          onPress={() => setSelectedStatus(active ? null : s)}
                         >
-                          {active ? (
-                            <Ionicons name="checkmark" size={13} color="#fff" style={{ marginRight: 2 }} />
-                          ) : (
-                            <View style={[styles.dot, { backgroundColor: color }]} />
-                          )}
-
-                          <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                            {s}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-
-                  <View style={styles.divider} />
-                </>
-              )}
-
-              {/* Priority */}
-              {showPriority && (
-                <>
-                  <Text style={styles.sectionLabel}>Priority</Text>
-
-                  <View style={styles.chipsRow}>
-                    {priorities.map((p) => {
-                      const active = selectedPriority === p;
-                      const color = priorityColors[p];
-
-                      return (
-                        <TouchableOpacity
-                          key={p}
-                          style={[
-                            styles.chip,
-                            active && {
-                              backgroundColor: color,
-                              borderColor: color,
-                            },
-                          ]}
-                          onPress={() => setSelectedPriority(active ? null : p)}
-                        >
-                          {active ? (
-                            <Ionicons name="checkmark" size={13} color="#fff" style={{ marginRight: 2 }} />
-                          ) : (
-                            <View style={[styles.dot, { backgroundColor: color }]} />
-                          )}
-
-                          <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                            {p}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-
-                  <View style={styles.divider} />
-                </>
-              )}
-
-              {/* Created By / Assigned To */}
-              {(showCreatedBy || showAssignedTo) && (
-                <>
-                  <View style={styles.personRow}>
-                    {showCreatedBy && (
-                      <PersonPickerField
-                        label="Created By"
-                        owners={owners}
-                        query={createdByQuery}
-                        selectedIds={selectedCreatedBy}
-                        onChangeQuery={setCreatedByQuery}
-                        open={createdByOpen}
-                        onFocus={() => {
-                          setCreatedByOpen(true);
-                          setAssignedToOpen(false);
-                        }}
-                        onCloseDropdown={() => setCreatedByOpen(false)}
-                        onToggleOwner={handleToggleCreatedBy}
-                        onClear={() => setSelectedCreatedBy([])}
-                      />
-                    )}
-                    {showAssignedTo && (
-                      <PersonPickerField
-                        label="Assigned To"
-                        owners={owners}
-                        query={assignedToQuery}
-                        selectedIds={selectedAssignedTo}
-                        onChangeQuery={setAssignedToQuery}
-                        open={assignedToOpen}
-                        onFocus={() => {
-                          setAssignedToOpen(true);
-                          setCreatedByOpen(false);
-                        }}
-                        onCloseDropdown={() => setAssignedToOpen(false)}
-                        onToggleOwner={handleToggleAssignedTo}
-                        onClear={() => setSelectedAssignedTo([])}
-                      />
-                    )}
-                  </View>
-
-                  <View style={styles.divider} />
-                </>
-              )}
-
-              {/* Leave Mode */}
-              {showLeaveMode && (
-                <>
-                  <Text style={styles.sectionLabel}>Leave Mode</Text>
-
-                  <View style={styles.chipsRow}>
-                    {leaveModes.map((mode) => {
-                      const active = selectedLeaveMode === mode;
-                      const color = leaveModeColors[mode];
-
-                      return (
-                        <TouchableOpacity
-                          key={mode}
-                          style={[
-                            styles.chip,
-                            active && {
-                              backgroundColor: color,
-                              borderColor: color,
-                            },
-                          ]}
-                          onPress={() => setSelectedLeaveMode(active ? null : mode)}
-                        >
-                          {active ? (
-                            <Ionicons name="checkmark" size={13} color="#fff" style={{ marginRight: 2 }} />
-                          ) : (
-                            <View style={[styles.dot, { backgroundColor: color }]} />
-                          )}
-
-                          <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                            {mode}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-
-                  <View style={styles.divider} />
-                </>
-              )}
-
-              {/* Leave type */}
-              {showLeaveType && (
-                <>
-                  <Text style={styles.sectionLabel}>Leave Type</Text>
-
-                  <View style={styles.chipsRow}>
-                    {leaveTypes.map((type) => {
-                      const active = selectedLeaveType === type;
-                      const color = leaveTypeColors[type];
-
-                      return (
-                        <TouchableOpacity
-                          key={type}
-                          style={[
-                            styles.chipleavetype,
-                            active && {
-                              backgroundColor: color,
-                              borderColor: color,
-                            },
-                          ]}
-                          onPress={() => setSelectedLeaveType(active ? null : type)}
-                        >
-                          {active ? (
-                            <Ionicons name="checkmark" size={13} color="#fff" style={{ marginRight: 0 }} />
-                          ) : (
-                            <View style={[styles.dot, { backgroundColor: color }]} />
-                          )}
-
-                          <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                            {type}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-
-                  <View style={styles.divider} />
-                </>
-              )}
-
-              {/* Reason */}
-              {showReasonInput && (
-                <>
-                  <Text style={styles.sectionLabel}>Reason</Text>
-
-                  <View style={{ paddingBottom: 16 }}>
-                    <FloatingInput
-                      label="Reason* "
-                      value={reasonValue}
-                      onChangeText={onChangeReason}
-                      keyboardType="default"
-                      autoCapitalize="sentences"
-                      multiline
-                      numberOfLines={4}
-                    />
-                  </View>
-                </>
-              )}
-
-              {/* Calendar header */}
-              <TouchableOpacity onPress={() => setCalendarOpen(true)}>
-                <View style={styles.calHeaderRow}>
-                  <Text style={styles.calHeaderText}>
-                    {startDate || endDate
-                      ? `Calendar (${startDate ? startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}${endDate ? " - " + endDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""})`
-                      : "Calendar"}
-                  </Text>
-                  <Ionicons name="calendar" size={22} color="#00DEAB" />
+                          {s}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
-              </TouchableOpacity>
 
-              {/* Calendar Popup Modal */}
-              <Modal visible={calendarOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setCalendarOpen(false)}>
-                <Pressable style={styles.calOverlay} onPress={() => setCalendarOpen(false)}>
-                  <Pressable style={styles.calPopup} onPress={() => {}}>
-                    <CalendarPicker
-                      startDate={startDate}
-                      endDate={endDate}
-                      onSelectStart={setStartDate}
-                      onSelectEnd={setEndDate}
-                      onDone={() => setCalendarOpen(false)}
+                <View style={styles.divider} />
+              </>
+            )}
+
+            {/* Priority */}
+            {showPriority && (
+              <>
+                <Text style={styles.sectionLabel}>Priority</Text>
+
+                <View style={styles.chipsRow}>
+                  {priorities.map((p) => {
+                    const active = selectedPriority === p;
+                    const color = priorityColors[p];
+
+                    return (
+                      <TouchableOpacity
+                        key={p}
+                        style={[
+                          styles.chip,
+                          active && {
+                            backgroundColor: color,
+                            borderColor: color,
+                          },
+                        ]}
+                        onPress={() => setSelectedPriority(active ? null : p)}
+                      >
+                        {active ? (
+                          <Ionicons
+                            name="checkmark"
+                            size={13}
+                            color="#fff"
+                            style={{ marginRight: 2 }}
+                          />
+                        ) : (
+                          <View
+                            style={[styles.dot, { backgroundColor: color }]}
+                          />
+                        )}
+
+                        <Text
+                          style={[
+                            styles.chipText,
+                            active && styles.chipTextActive,
+                          ]}
+                        >
+                          {p}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.divider} />
+              </>
+            )}
+
+            {/* Created By / Assigned To */}
+            {(showCreatedBy || showAssignedTo) && (
+              <>
+                <View style={styles.personRow}>
+                  {showCreatedBy && (
+                    <PersonPickerField
+                      label="Created By"
+                      owners={owners}
+                      query={createdByQuery}
+                      selectedIds={selectedCreatedBy}
+                      onChangeQuery={setCreatedByQuery}
+                      open={createdByOpen}
+                      onFocus={() => {
+                        setCreatedByOpen(true);
+                        setAssignedToOpen(false);
+                      }}
+                      onCloseDropdown={() => setCreatedByOpen(false)}
+                      onToggleOwner={handleToggleCreatedBy}
+                      onClear={() => setSelectedCreatedBy([])}
                     />
-                  </Pressable>
+                  )}
+                  {showAssignedTo && (
+                    <PersonPickerField
+                      label="Assigned To"
+                      owners={owners}
+                      query={assignedToQuery}
+                      selectedIds={selectedAssignedTo}
+                      onChangeQuery={setAssignedToQuery}
+                      open={assignedToOpen}
+                      onFocus={() => {
+                        setAssignedToOpen(true);
+                        setCreatedByOpen(false);
+                      }}
+                      onCloseDropdown={() => setAssignedToOpen(false)}
+                      onToggleOwner={handleToggleAssignedTo}
+                      onClear={() => setSelectedAssignedTo([])}
+                    />
+                  )}
+                </View>
+
+                <View style={styles.divider} />
+              </>
+            )}
+
+            {/* Leave Mode */}
+            {showLeaveMode && (
+              <>
+                <Text style={styles.sectionLabel}>Leave Mode</Text>
+
+                <View style={styles.chipsRow}>
+                  {leaveModes.map((mode) => {
+                    const active = selectedLeaveMode === mode;
+                    const color = leaveModeColors[mode];
+
+                    return (
+                      <TouchableOpacity
+                        key={mode}
+                        style={[
+                          styles.chip,
+                          active && {
+                            backgroundColor: color,
+                            borderColor: color,
+                          },
+                        ]}
+                        onPress={() =>
+                          setSelectedLeaveMode(active ? null : mode)
+                        }
+                      >
+                        {active ? (
+                          <Ionicons
+                            name="checkmark"
+                            size={13}
+                            color="#fff"
+                            style={{ marginRight: 2 }}
+                          />
+                        ) : (
+                          <View
+                            style={[styles.dot, { backgroundColor: color }]}
+                          />
+                        )}
+
+                        <Text
+                          style={[
+                            styles.chipText,
+                            active && styles.chipTextActive,
+                          ]}
+                        >
+                          {mode}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.divider} />
+              </>
+            )}
+
+            {/* Leave type */}
+            {showLeaveType && (
+              <>
+                <Text style={styles.sectionLabel}>Leave Type</Text>
+
+                <View style={styles.chipsRow}>
+                  {leaveTypes.map((type) => {
+                    const active = selectedLeaveType === type;
+                    const color = leaveTypeColors[type];
+
+                    return (
+                      <TouchableOpacity
+                        key={type}
+                        style={[
+                          styles.chipleavetype,
+                          active && {
+                            backgroundColor: color,
+                            borderColor: color,
+                          },
+                        ]}
+                        onPress={() =>
+                          setSelectedLeaveType(active ? null : type)
+                        }
+                      >
+                        {active ? (
+                          <Ionicons
+                            name="checkmark"
+                            size={13}
+                            color="#fff"
+                            style={{ marginRight: 0 }}
+                          />
+                        ) : (
+                          <View
+                            style={[styles.dot, { backgroundColor: color }]}
+                          />
+                        )}
+
+                        <Text
+                          style={[
+                            styles.chipText,
+                            active && styles.chipTextActive,
+                          ]}
+                        >
+                          {type}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.divider} />
+              </>
+            )}
+
+            {/* Reason */}
+            {showReasonInput && (
+              <>
+                <Text style={styles.sectionLabel}>Reason</Text>
+
+                <View style={{ paddingBottom: 16 }}>
+                  <FloatingInput
+                    label="Reason* "
+                    value={reasonValue}
+                    onChangeText={onChangeReason}
+                    keyboardType="default"
+                    autoCapitalize="sentences"
+                    multiline
+                    numberOfLines={4}
+                  />
+                </View>
+              </>
+            )}
+
+            {/* Calendar header */}
+            <TouchableOpacity onPress={() => setCalendarOpen(true)}>
+              <View style={styles.calHeaderRow}>
+                <Text style={styles.calHeaderText}>
+                  {startDate || endDate
+                    ? `Calendar (${startDate ? startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}${endDate ? " - " + endDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""})`
+                    : "Calendar"}
+                </Text>
+                <Ionicons name="calendar" size={22} color="#00DEAB" />
+              </View>
+            </TouchableOpacity>
+
+            {/* Calendar Popup Modal */}
+            <Modal
+              visible={calendarOpen}
+              transparent
+              animationType="fade"
+              statusBarTranslucent
+              onRequestClose={() => setCalendarOpen(false)}
+            >
+              <Pressable
+                style={styles.calOverlay}
+                onPress={() => setCalendarOpen(false)}
+              >
+                <Pressable style={styles.calPopup} onPress={() => {}}>
+                  <CalendarPicker
+                    startDate={startDate}
+                    endDate={endDate}
+                    onSelectStart={setStartDate}
+                    onSelectEnd={setEndDate}
+                    onDone={() => setCalendarOpen(false)}
+                  />
                 </Pressable>
-              </Modal>
+              </Pressable>
+            </Modal>
           </ScrollView>
 
           <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
@@ -806,22 +909,31 @@ export default function FilterModal({
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
-      </View>
-    </BottomSheet>
+      </Pressable>
+    </Pressable>
+  </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "flex-end",
   },
   sheetContainer: {
+    width: "100%",
+    height: "80%",
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    flex: 1,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 20,
     overflow: "hidden",
   },
   sheet: {
@@ -847,7 +959,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingTop: 20,
     paddingBottom: 12,
   },
   resetText: {
