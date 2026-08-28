@@ -58,11 +58,12 @@ export function CriticalTaskPopUpModal({
   onStopAndStart,
   onWaitAndSchedule,
 }: CriticalTaskPopUpProps) {
-  // Rendered as a plain absolutely-positioned overlay instead of a second
-  // native <Modal> — this is shown while CreateTaskModal's own <Modal> is
-  // still open, and nesting a second native Modal on top of an open one is
+  // Rendered as a plain absolutely-positioned overlay instead of a native
+  // <Modal> — this is shown while CreateTaskModal's own sheet is still
+  // open, and nesting a native Modal on top of an open sheet/modal is
   // unreliable on iOS (it silently fails to present; Android tolerates it).
-  // The caller must render this INSIDE that outer Modal's JSX tree.
+  // The caller must render this INSIDE that outer JSX tree (now the
+  // RNHostView hosted by CreateTaskModal's BottomSheet).
   if (!visible) return null;
   return (
       <View style={[popup.overlay, popup.absoluteOverlay]}>

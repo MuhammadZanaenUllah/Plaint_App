@@ -1,3 +1,4 @@
+import { BottomSheet, RNHostView } from "@expo/ui";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -10,6 +11,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -324,6 +326,12 @@ export default function FilterModal({
   // offset that mismatch shows up as an empty gap between the sheet and the
   // keyboard once it's open.
   const insets = useSafeAreaInsets();
+  // Neither a native `{ fraction }` snap point nor RNHostView's
+  // `matchContents` reliably synced the sheet's presented height with the
+  // hosted RN content's own layout, so the 80% look is faked in RN instead:
+  // the sheet stays at the "full" snap point and sheetContainer is given
+  // this explicit height directly.
+  const { height: windowHeight } = useWindowDimensions();
   const [selectedStatus, setSelectedStatus] = useState<string | null>(
     initialStatus,
   );
@@ -389,7 +397,6 @@ export default function FilterModal({
   const waitForResetRef = useRef(false);
   // Timestamp of the last Reset tap, used to keep the loader visible briefly
   // even when the parent reset is instant.
-  const snapPoints = useMemo(() => ["88%"], []);
   const resetStartedAtRef = useRef(0);
 
   useEffect(() => {
@@ -547,393 +554,410 @@ export default function FilterModal({
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      statusBarTranslucent
-      onRequestClose={handleManualClose}
+    <BottomSheet
+      isPresented={visible}
+      onDismiss={handleManualClose}
+      snapPoints={["half", "full"]}
+      showDragIndicator={false}
+      contentPadding={0}
     >
-      <Pressable style={styles.modalOverlay} onPress={handleManualClose}>
-        <Pressable style={styles.sheetContainer} onPress={(e) => e.stopPropagation()}>
-          <View style={styles.dragHandleBar}>
-            <View style={styles.dragHandlePill} />
-          </View>
-          <View style={styles.headerRow}>
-            <TouchableOpacity onPress={handleReset} disabled={resetting}>
-              {resetting ? (
-                <ActivityIndicator size="small" color="#1D1D1D" />
-              ) : (
-                <Text style={styles.resetText}>Reset</Text>
-              )}
-            </TouchableOpacity>
-            <Text style={styles.titleText}>Filter</Text>
-            <TouchableOpacity style={styles.closeBtn} onPress={handleManualClose}>
-              <Ionicons name="close" size={16} color="#fff" />
-            </TouchableOpacity>
-          </View>
-
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={{ flex: 1 }}
-        >
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.scrollContent}
+      <RNHostView>
+        <View>
+          <Pressable
+            style={styles.backdropTapArea}
+            onPress={handleManualClose}
+          />
+          <View
+            style={[styles.sheetContainer, { maxHeight: windowHeight * 0.85 }]}
           >
-            {/* Status */}
-            {showStatus && (
-              <>
-                <Text style={styles.sectionLabel}>{statusLabel}</Text>
-
-                <View style={styles.chipsRow}>
-                  {statuses.map((s) => {
-                    const active = selectedStatus === s;
-                    const color = statusColors[s];
-
-                    return (
-                      <TouchableOpacity
-                        key={s}
-                        style={[
-                          styles.chip,
-                          active && {
-                            backgroundColor: color,
-                            borderColor: color,
-                          },
-                        ]}
-                        onPress={() => setSelectedStatus(active ? null : s)}
-                      >
-                        {active ? (
-                          <Ionicons
-                            name="checkmark"
-                            size={13}
-                            color="#fff"
-                            style={{ marginRight: 2 }}
-                          />
-                        ) : (
-                          <View
-                            style={[styles.dot, { backgroundColor: color }]}
-                          />
-                        )}
-
-                        <Text
-                          style={[
-                            styles.chipText,
-                            active && styles.chipTextActive,
-                          ]}
-                        >
-                          {s}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
-                <View style={styles.divider} />
-              </>
-            )}
-
-            {/* Priority */}
-            {showPriority && (
-              <>
-                <Text style={styles.sectionLabel}>Priority</Text>
-
-                <View style={styles.chipsRow}>
-                  {priorities.map((p) => {
-                    const active = selectedPriority === p;
-                    const color = priorityColors[p];
-
-                    return (
-                      <TouchableOpacity
-                        key={p}
-                        style={[
-                          styles.chip,
-                          active && {
-                            backgroundColor: color,
-                            borderColor: color,
-                          },
-                        ]}
-                        onPress={() => setSelectedPriority(active ? null : p)}
-                      >
-                        {active ? (
-                          <Ionicons
-                            name="checkmark"
-                            size={13}
-                            color="#fff"
-                            style={{ marginRight: 2 }}
-                          />
-                        ) : (
-                          <View
-                            style={[styles.dot, { backgroundColor: color }]}
-                          />
-                        )}
-
-                        <Text
-                          style={[
-                            styles.chipText,
-                            active && styles.chipTextActive,
-                          ]}
-                        >
-                          {p}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
-                <View style={styles.divider} />
-              </>
-            )}
-
-            {/* Created By / Assigned To */}
-            {(showCreatedBy || showAssignedTo) && (
-              <>
-                <View style={styles.personRow}>
-                  {showCreatedBy && (
-                    <PersonPickerField
-                      label="Created By"
-                      owners={owners}
-                      query={createdByQuery}
-                      selectedIds={selectedCreatedBy}
-                      onChangeQuery={setCreatedByQuery}
-                      open={createdByOpen}
-                      onFocus={() => {
-                        setCreatedByOpen(true);
-                        setAssignedToOpen(false);
-                      }}
-                      onCloseDropdown={() => setCreatedByOpen(false)}
-                      onToggleOwner={handleToggleCreatedBy}
-                      onClear={() => setSelectedCreatedBy([])}
-                    />
-                  )}
-                  {showAssignedTo && (
-                    <PersonPickerField
-                      label="Assigned To"
-                      owners={owners}
-                      query={assignedToQuery}
-                      selectedIds={selectedAssignedTo}
-                      onChangeQuery={setAssignedToQuery}
-                      open={assignedToOpen}
-                      onFocus={() => {
-                        setAssignedToOpen(true);
-                        setCreatedByOpen(false);
-                      }}
-                      onCloseDropdown={() => setAssignedToOpen(false)}
-                      onToggleOwner={handleToggleAssignedTo}
-                      onClear={() => setSelectedAssignedTo([])}
-                    />
-                  )}
-                </View>
-
-                <View style={styles.divider} />
-              </>
-            )}
-
-            {/* Leave Mode */}
-            {showLeaveMode && (
-              <>
-                <Text style={styles.sectionLabel}>Leave Mode</Text>
-
-                <View style={styles.chipsRow}>
-                  {leaveModes.map((mode) => {
-                    const active = selectedLeaveMode === mode;
-                    const color = leaveModeColors[mode];
-
-                    return (
-                      <TouchableOpacity
-                        key={mode}
-                        style={[
-                          styles.chip,
-                          active && {
-                            backgroundColor: color,
-                            borderColor: color,
-                          },
-                        ]}
-                        onPress={() =>
-                          setSelectedLeaveMode(active ? null : mode)
-                        }
-                      >
-                        {active ? (
-                          <Ionicons
-                            name="checkmark"
-                            size={13}
-                            color="#fff"
-                            style={{ marginRight: 2 }}
-                          />
-                        ) : (
-                          <View
-                            style={[styles.dot, { backgroundColor: color }]}
-                          />
-                        )}
-
-                        <Text
-                          style={[
-                            styles.chipText,
-                            active && styles.chipTextActive,
-                          ]}
-                        >
-                          {mode}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
-                <View style={styles.divider} />
-              </>
-            )}
-
-            {/* Leave type */}
-            {showLeaveType && (
-              <>
-                <Text style={styles.sectionLabel}>Leave Type</Text>
-
-                <View style={styles.chipsRow}>
-                  {leaveTypes.map((type) => {
-                    const active = selectedLeaveType === type;
-                    const color = leaveTypeColors[type];
-
-                    return (
-                      <TouchableOpacity
-                        key={type}
-                        style={[
-                          styles.chipleavetype,
-                          active && {
-                            backgroundColor: color,
-                            borderColor: color,
-                          },
-                        ]}
-                        onPress={() =>
-                          setSelectedLeaveType(active ? null : type)
-                        }
-                      >
-                        {active ? (
-                          <Ionicons
-                            name="checkmark"
-                            size={13}
-                            color="#fff"
-                            style={{ marginRight: 0 }}
-                          />
-                        ) : (
-                          <View
-                            style={[styles.dot, { backgroundColor: color }]}
-                          />
-                        )}
-
-                        <Text
-                          style={[
-                            styles.chipText,
-                            active && styles.chipTextActive,
-                          ]}
-                        >
-                          {type}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
-                <View style={styles.divider} />
-              </>
-            )}
-
-            {/* Reason */}
-            {showReasonInput && (
-              <>
-                <Text style={styles.sectionLabel}>Reason</Text>
-
-                <View style={{ paddingBottom: 16 }}>
-                  <FloatingInput
-                    label="Reason* "
-                    value={reasonValue}
-                    onChangeText={onChangeReason}
-                    keyboardType="default"
-                    autoCapitalize="sentences"
-                    multiline
-                    numberOfLines={4}
-                  />
-                </View>
-              </>
-            )}
-
-            {/* Calendar header */}
-            <TouchableOpacity onPress={() => setCalendarOpen(true)}>
-              <View style={styles.calHeaderRow}>
-                <Text style={styles.calHeaderText}>
-                  {startDate || endDate
-                    ? `Calendar (${startDate ? startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}${endDate ? " - " + endDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""})`
-                    : "Calendar"}
-                </Text>
-                <Ionicons name="calendar" size={22} color="#00DEAB" />
-              </View>
-            </TouchableOpacity>
-
-            {/* Calendar Popup Modal */}
-            <Modal
-              visible={calendarOpen}
-              transparent
-              animationType="fade"
-              statusBarTranslucent
-              onRequestClose={() => setCalendarOpen(false)}
-            >
-              <Pressable
-                style={styles.calOverlay}
-                onPress={() => setCalendarOpen(false)}
+            <View style={styles.dragHandleBar}>
+              <View style={styles.dragHandlePill} />
+            </View>
+            <View style={styles.headerRow}>
+              <TouchableOpacity onPress={handleReset} disabled={resetting}>
+                {resetting ? (
+                  <ActivityIndicator size="small" color="#1D1D1D" />
+                ) : (
+                  <Text style={styles.resetText}>Reset</Text>
+                )}
+              </TouchableOpacity>
+              <Text style={styles.titleText}>Filter</Text>
+              <TouchableOpacity
+                style={styles.closeBtn}
+                onPress={handleManualClose}
               >
-                <Pressable style={styles.calPopup} onPress={() => {}}>
-                  <CalendarPicker
-                    startDate={startDate}
-                    endDate={endDate}
-                    onSelectStart={setStartDate}
-                    onSelectEnd={setEndDate}
-                    onDone={() => setCalendarOpen(false)}
-                  />
-                </Pressable>
-              </Pressable>
-            </Modal>
-          </ScrollView>
+                <Ionicons name="close" size={16} color="#fff" />
+              </TouchableOpacity>
+            </View>
 
-          <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-            <TouchableOpacity
-              style={[styles.applyBtn, applying && styles.applyBtnDisabled]}
-              activeOpacity={0.85}
-              disabled={applying}
-              onPress={handleApplyPress}
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+              style={{ flexGrow: 0, flexShrink: 1 }}
             >
-              {applying ? (
-                <ActivityIndicator size="small" color="#1D1D1D" />
-              ) : (
-                <Text style={styles.applyText}>Apply</Text>
-              )}
-            </TouchableOpacity>
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                style={{ flexGrow: 0, flexShrink: 1 }}
+                contentContainerStyle={styles.scrollContent}
+              >
+                {/* Status */}
+                {showStatus && (
+                  <>
+                    <Text style={styles.sectionLabel}>{statusLabel}</Text>
+
+                    <View style={styles.chipsRow}>
+                      {statuses.map((s) => {
+                        const active = selectedStatus === s;
+                        const color = statusColors[s];
+
+                        return (
+                          <TouchableOpacity
+                            key={s}
+                            style={[
+                              styles.chip,
+                              active && {
+                                backgroundColor: color,
+                                borderColor: color,
+                              },
+                            ]}
+                            onPress={() => setSelectedStatus(active ? null : s)}
+                          >
+                            {active ? (
+                              <Ionicons
+                                name="checkmark"
+                                size={13}
+                                color="#fff"
+                                style={{ marginRight: 2 }}
+                              />
+                            ) : (
+                              <View
+                                style={[styles.dot, { backgroundColor: color }]}
+                              />
+                            )}
+
+                            <Text
+                              style={[
+                                styles.chipText,
+                                active && styles.chipTextActive,
+                              ]}
+                            >
+                              {s}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
+                    <View style={styles.divider} />
+                  </>
+                )}
+
+                {/* Priority */}
+                {showPriority && (
+                  <>
+                    <Text style={styles.sectionLabel}>Priority</Text>
+
+                    <View style={styles.chipsRow}>
+                      {priorities.map((p) => {
+                        const active = selectedPriority === p;
+                        const color = priorityColors[p];
+
+                        return (
+                          <TouchableOpacity
+                            key={p}
+                            style={[
+                              styles.chip,
+                              active && {
+                                backgroundColor: color,
+                                borderColor: color,
+                              },
+                            ]}
+                            onPress={() =>
+                              setSelectedPriority(active ? null : p)
+                            }
+                          >
+                            {active ? (
+                              <Ionicons
+                                name="checkmark"
+                                size={13}
+                                color="#fff"
+                                style={{ marginRight: 2 }}
+                              />
+                            ) : (
+                              <View
+                                style={[styles.dot, { backgroundColor: color }]}
+                              />
+                            )}
+
+                            <Text
+                              style={[
+                                styles.chipText,
+                                active && styles.chipTextActive,
+                              ]}
+                            >
+                              {p}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
+                    <View style={styles.divider} />
+                  </>
+                )}
+
+                {/* Created By / Assigned To */}
+                {(showCreatedBy || showAssignedTo) && (
+                  <>
+                    <View style={styles.personRow}>
+                      {showCreatedBy && (
+                        <PersonPickerField
+                          label="Created By"
+                          owners={owners}
+                          query={createdByQuery}
+                          selectedIds={selectedCreatedBy}
+                          onChangeQuery={setCreatedByQuery}
+                          open={createdByOpen}
+                          onFocus={() => {
+                            setCreatedByOpen(true);
+                            setAssignedToOpen(false);
+                          }}
+                          onCloseDropdown={() => setCreatedByOpen(false)}
+                          onToggleOwner={handleToggleCreatedBy}
+                          onClear={() => setSelectedCreatedBy([])}
+                        />
+                      )}
+                      {showAssignedTo && (
+                        <PersonPickerField
+                          label="Assigned To"
+                          owners={owners}
+                          query={assignedToQuery}
+                          selectedIds={selectedAssignedTo}
+                          onChangeQuery={setAssignedToQuery}
+                          open={assignedToOpen}
+                          onFocus={() => {
+                            setAssignedToOpen(true);
+                            setCreatedByOpen(false);
+                          }}
+                          onCloseDropdown={() => setAssignedToOpen(false)}
+                          onToggleOwner={handleToggleAssignedTo}
+                          onClear={() => setSelectedAssignedTo([])}
+                        />
+                      )}
+                    </View>
+
+                    <View style={styles.divider} />
+                  </>
+                )}
+
+                {/* Leave Mode */}
+                {showLeaveMode && (
+                  <>
+                    <Text style={styles.sectionLabel}>Leave Mode</Text>
+
+                    <View style={styles.chipsRow}>
+                      {leaveModes.map((mode) => {
+                        const active = selectedLeaveMode === mode;
+                        const color = leaveModeColors[mode];
+
+                        return (
+                          <TouchableOpacity
+                            key={mode}
+                            style={[
+                              styles.chip,
+                              active && {
+                                backgroundColor: color,
+                                borderColor: color,
+                              },
+                            ]}
+                            onPress={() =>
+                              setSelectedLeaveMode(active ? null : mode)
+                            }
+                          >
+                            {active ? (
+                              <Ionicons
+                                name="checkmark"
+                                size={13}
+                                color="#fff"
+                                style={{ marginRight: 2 }}
+                              />
+                            ) : (
+                              <View
+                                style={[styles.dot, { backgroundColor: color }]}
+                              />
+                            )}
+
+                            <Text
+                              style={[
+                                styles.chipText,
+                                active && styles.chipTextActive,
+                              ]}
+                            >
+                              {mode}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
+                    <View style={styles.divider} />
+                  </>
+                )}
+
+                {/* Leave type */}
+                {showLeaveType && (
+                  <>
+                    <Text style={styles.sectionLabel}>Leave Type</Text>
+
+                    <View style={styles.chipsRow}>
+                      {leaveTypes.map((type) => {
+                        const active = selectedLeaveType === type;
+                        const color = leaveTypeColors[type];
+
+                        return (
+                          <TouchableOpacity
+                            key={type}
+                            style={[
+                              styles.chipleavetype,
+                              active && {
+                                backgroundColor: color,
+                                borderColor: color,
+                              },
+                            ]}
+                            onPress={() =>
+                              setSelectedLeaveType(active ? null : type)
+                            }
+                          >
+                            {active ? (
+                              <Ionicons
+                                name="checkmark"
+                                size={13}
+                                color="#fff"
+                                style={{ marginRight: 0 }}
+                              />
+                            ) : (
+                              <View
+                                style={[styles.dot, { backgroundColor: color }]}
+                              />
+                            )}
+
+                            <Text
+                              style={[
+                                styles.chipText,
+                                active && styles.chipTextActive,
+                              ]}
+                            >
+                              {type}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
+                    <View style={styles.divider} />
+                  </>
+                )}
+
+                {/* Reason */}
+                {showReasonInput && (
+                  <>
+                    <Text style={styles.sectionLabel}>Reason</Text>
+
+                    <View style={{ paddingBottom: 16 }}>
+                      <FloatingInput
+                        label="Reason* "
+                        value={reasonValue}
+                        onChangeText={onChangeReason}
+                        keyboardType="default"
+                        autoCapitalize="sentences"
+                        multiline
+                        numberOfLines={4}
+                      />
+                    </View>
+                  </>
+                )}
+
+                {/* Calendar header */}
+                <TouchableOpacity onPress={() => setCalendarOpen(true)}>
+                  <View style={styles.calHeaderRow}>
+                    <Text style={styles.calHeaderText}>
+                      {startDate || endDate
+                        ? `Calendar (${startDate ? startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}${endDate ? " - " + endDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""})`
+                        : "Calendar"}
+                    </Text>
+                    <Ionicons name="calendar" size={22} color="#00DEAB" />
+                  </View>
+                </TouchableOpacity>
+
+                {/* Calendar Popup Modal */}
+                <Modal
+                  visible={calendarOpen}
+                  transparent
+                  animationType="fade"
+                  statusBarTranslucent
+                  onRequestClose={() => setCalendarOpen(false)}
+                >
+                  <Pressable
+                    style={styles.calOverlay}
+                    onPress={() => setCalendarOpen(false)}
+                  >
+                    <Pressable style={styles.calPopup} onPress={() => {}}>
+                      <CalendarPicker
+                        startDate={startDate}
+                        endDate={endDate}
+                        onSelectStart={setStartDate}
+                        onSelectEnd={setEndDate}
+                        onDone={() => setCalendarOpen(false)}
+                      />
+                    </Pressable>
+                  </Pressable>
+                </Modal>
+              </ScrollView>
+
+              <View
+                style={[
+                  styles.footer,
+                  { paddingBottom: insets.bottom > 0 ? insets.bottom + 4 : 16 },
+                ]}
+              >
+                <TouchableOpacity
+                  style={[styles.applyBtn, applying && styles.applyBtnDisabled]}
+                  activeOpacity={0.85}
+                  disabled={applying}
+                  onPress={handleApplyPress}
+                >
+                  {applying ? (
+                    <ActivityIndicator size="small" color="#1D1D1D" />
+                  ) : (
+                    <Text style={styles.applyText}>Apply</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </KeyboardAvoidingView>
           </View>
-        </KeyboardAvoidingView>
-      </Pressable>
-    </Pressable>
-  </Modal>
+        </View>
+      </RNHostView>
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+  // BottomSheet is kept at the "full" native snap point (the one size that
+  // sizes reliably) and the content height look is managed via maxHeight:
+  // a transparent tap-to-dismiss area fills the top, and sheetContainer
+  // fits its content height (up to 85% of screen height) at the bottom.
+  fullHostFill: {
+    flex: 0.75,
     justifyContent: "flex-end",
+  },
+  backdropTapArea: {
+    flex: 1,
   },
   sheetContainer: {
     width: "100%",
-    height: "80%",
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 20,
     overflow: "hidden",
   },
   sheet: {
@@ -945,7 +969,7 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 12,
+    paddingTop: 10,
     paddingBottom: 2,
   },
   dragHandlePill: {
@@ -959,7 +983,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: 20,
+    paddingTop: 12,
     paddingBottom: 12,
   },
   resetText: {
@@ -983,11 +1007,11 @@ const styles = StyleSheet.create({
   footer: {
     backgroundColor: "#fff",
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: "#F3F4F6",
   },
-  scrollContent: { paddingHorizontal: 16, paddingBottom: 40 },
+  scrollContent: { paddingHorizontal: 16, paddingBottom: 16 },
   sectionLabel: {
     fontSize: 16,
     fontFamily: "SF_Pro_Semibold",
