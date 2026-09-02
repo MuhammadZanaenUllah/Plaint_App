@@ -1,7 +1,7 @@
-import { rf } from "@/utils/responsive";
 import Avatar from "@/components/Avatar";
 import Icons from "@/constants/icons";
 import { triggerHaptic } from "@/utils/haptics";
+import { rf } from "@/utils/responsive";
 import { showInfo } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -343,7 +343,14 @@ function SingleTaskTable({
   const handleStatusChange = useCallback(
     (task: TaskRowProps, rowIndex: number, nextStatus: StatusType) => {
       if (task.canEditStatus === false) {
-        showInfo("Not Allowed", "You don't have permission to change this task's status.");
+        showInfo(
+          "Not Allowed",
+          "You don't have permission to change this task's status.",
+        );
+        return;
+      }
+      if (nextStatus === "Rejected") {
+        onStatusChange?.(task, nextStatus);
         return;
       }
       triggerHaptic("success");
@@ -1177,7 +1184,10 @@ const AssigneeDropdown = memo(function AssigneeDropdown({
             return (
               <TouchableOpacity
                 key={owner.id}
-                style={[styles.dropdownItem, isActive && styles.dropdownItemActive]}
+                style={[
+                  styles.dropdownItem,
+                  isActive && styles.dropdownItemActive,
+                ]}
                 onPress={() => onSelect(owner)}
                 activeOpacity={0.8}
               >

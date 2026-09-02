@@ -1,4 +1,3 @@
-import { rf } from "@/utils/responsive";
 import CalendarPicker from "@/components/CalendarPicker";
 import {
   CriticalTaskPopUpModal,
@@ -19,6 +18,7 @@ import {
 } from "@/services/socket/socketService";
 import type { RecurringPeriod, UiTaskStatus } from "@/types/task.types";
 import { extractErrorMessage } from "@/utils/errorHandler";
+import { rf } from "@/utils/responsive";
 import { uiStatusToApi } from "@/utils/statusMapper";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
@@ -151,9 +151,42 @@ export default function CreateTaskModal({
   const [selectedDueDate, setSelectedDueDate] = useState<Date | null>(null);
   const [effortHours, setEffortHours] = useState<string>("");
   const [effortUnit, setEffortUnit] = useState<EffortUnit>("hours");
+  const [baseHours, setBaseHours] = useState<number | null>(null);
   const [effortUnitOpen, setEffortUnitOpen] = useState(false);
   const effortUnitAbbrev =
     EFFORT_UNITS.find((u) => u.value === effortUnit)?.abbrev ?? "Hrs";
+
+  const handleEffortChange = (text: string) => {
+    const sanitized = text.replace(/[^0-9.]/g, "");
+    setEffortHours(sanitized);
+    const num = parseFloat(sanitized);
+    if (isNaN(num) || !sanitized) {
+      setBaseHours(null);
+      return;
+    }
+    if (effortUnit === "hours") {
+      setBaseHours(num);
+    } else if (effortUnit === "minutes") {
+      setBaseHours(num / 60);
+    } else if (effortUnit === "days") {
+      setBaseHours(num * 8);
+    }
+  };
+
+  const handleUnitChange = (newUnit: EffortUnit) => {
+    setEffortUnit(newUnit);
+    setEffortUnitOpen(false);
+    if (baseHours !== null && !isNaN(baseHours) && baseHours > 0) {
+      let converted = baseHours;
+      if (newUnit === "minutes") {
+        converted = baseHours * 60;
+      } else if (newUnit === "days") {
+        converted = baseHours / 8;
+      }
+      const formatted = Number(converted.toFixed(4)).toString();
+      setEffortHours(formatted);
+    }
+  };
 
   const [title, setTitle] = useState("");
   const [titleFocused, setTitleFocused] = useState(false);
@@ -530,6 +563,7 @@ export default function CreateTaskModal({
     setSelectedDueDate(null);
     setEffortHours("");
     setEffortUnit("hours");
+    setBaseHours(null);
     setEffortUnitOpen(false);
     setAssignSearch("");
     setAssignFocused(false);
@@ -944,9 +978,7 @@ export default function CreateTaskModal({
                       "Hours"
                     }
                     value={effortHours}
-                    onChangeText={(text) =>
-                      setEffortHours(text.replace(/[^0-9.]/g, ""))
-                    }
+                    onChangeText={handleEffortChange}
                     keyboardType="numeric"
                     autoFocus
                     containerStyle={styles.effortInputWrap}
@@ -971,10 +1003,7 @@ export default function CreateTaskModal({
                           <TouchableOpacity
                             key={u.value}
                             style={styles.effortUnitDropdownItem}
-                            onPress={() => {
-                              setEffortUnit(u.value);
-                              setEffortUnitOpen(false);
-                            }}
+                            onPress={() => handleUnitChange(u.value)}
                           >
                             <Text
                               allowFontScaling={false}
@@ -2061,7 +2090,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   chipActive: { backgroundColor: "#1D1D1D", borderColor: "#1D1D1D" },
-  chipLabel: { fontSize: rf(13), color: "#AAAAAA", fontFamily: "SF_Pro_Regular" },
+  chipLabel: {
+    fontSize: rf(13),
+    color: "#AAAAAA",
+    fontFamily: "SF_Pro_Regular",
+  },
   chipLabelActive: { color: "#fff" },
 
   // Priority
@@ -2141,7 +2174,11 @@ const styles = StyleSheet.create({
     fontSize: rf(12),
     fontFamily: "SF_Pro_Semibold",
   },
-  userName: { fontSize: rf(14), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+  userName: {
+    fontSize: rf(14),
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Regular",
+  },
 
   // Approval
   approvalRow: { flexDirection: "row", gap: 8, marginBottom: 4 },
@@ -2177,7 +2214,11 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
-  statusLabel: { fontSize: rf(13), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+  statusLabel: {
+    fontSize: rf(13),
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Regular",
+  },
 
   // Dependencies Panel
   depPanel: {

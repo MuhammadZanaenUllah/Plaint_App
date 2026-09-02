@@ -1,8 +1,28 @@
-export type TaskStatus = "Pending" | "In-Progress" | "On Hold" | "Complete" | "Pending-Approval" | "Rejected" | "Recurring";
+export type TaskStatus =
+  | "Pending"
+  | "In-Progress"
+  | "On Hold"
+  | "Complete"
+  | "Pending-Approval"
+  | "Rejected"
+  | "Recurring";
 
-export type UiTaskStatus = "Pending" | "In-Progress" | "On Hold" | "Completed" | "Pending-Approval" | "Rejected" | "Recurring";
+export type UiTaskStatus =
+  | "Pending"
+  | "In-Progress"
+  | "On Hold"
+  | "Completed"
+  | "Pending-Approval"
+  | "Rejected"
+  | "Recurring";
 
-export type RecurringPeriod = "daily" | "weekly" | "monthly" | "annually" | "quarterly" | "semi-annually";
+export type RecurringPeriod =
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "annually"
+  | "quarterly"
+  | "semi-annually";
 
 export type TaskFilter =
   | "delayed"
@@ -124,8 +144,24 @@ export type ViewTaskData = {
   task: {
     id: number;
     title: string;
-    asigned_to: number | { id: number; first_name?: string; last_name?: string; full_name?: string; image?: string | null };
-    created_by: number | { id: number; first_name?: string; last_name?: string; full_name?: string; image?: string | null };
+    asigned_to:
+      | number
+      | {
+          id: number;
+          first_name?: string;
+          last_name?: string;
+          full_name?: string;
+          image?: string | null;
+        };
+    created_by:
+      | number
+      | {
+          id: number;
+          first_name?: string;
+          last_name?: string;
+          full_name?: string;
+          image?: string | null;
+        };
     due_date: string;
     start_date: string;
     priority: string;
@@ -141,7 +177,7 @@ export type ViewTaskData = {
     recurring_month_date: string | null;
     recurring_annual_month: string | null;
     recurring_annual_date: string | null;
-  project_id: number | null;
+    project_id: number | null;
     project_name: string | null;
     sprint_id: number | null;
     sprint_name: string | null;
@@ -157,6 +193,11 @@ export type ViewTaskData = {
     task_notifications: any[];
     task_notes_attachments: any[];
     task_attachments: TaskAttachment[];
+    created_at?: string;
+    completed_at?: string;
+    actual_completion?: string;
+    effort_logs?: any[];
+    effort_logs_count?: number;
   };
 };
 

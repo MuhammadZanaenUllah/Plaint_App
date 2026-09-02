@@ -18,8 +18,8 @@ import {
   TaskOwner,
   TaskPriority,
   UiTaskStatus,
-  UpdateTaskStatusRequest,
   UpdateTaskRequest,
+  UpdateTaskStatusRequest,
   ViewTaskData,
 } from "@/types/task.types";
 import { extractErrorMessage } from "@/utils/errorHandler";

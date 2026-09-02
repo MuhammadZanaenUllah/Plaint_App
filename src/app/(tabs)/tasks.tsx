@@ -1,7 +1,7 @@
-import { rf } from "@/utils/responsive";
 import AnimatedFAB from "@/components/AnimatedFAB";
 import CreateTaskModal from "@/components/CreateTaskModal";
 import FilterModal from "@/components/FilterModal";
+import RejectTaskModal from "@/components/RejectTaskModal";
 import { AssignableOwner } from "@/components/SingleTaskTable";
 import StatCard from "@/components/StatCard";
 import TaskDelay from "@/components/taskdelay";
@@ -23,6 +23,7 @@ import {
   viewTask,
 } from "@/services/api/tasks.service";
 import { canCreateTask } from "@/utils/permissions";
+import { rf } from "@/utils/responsive";
 import { uiStatusToApi } from "@/utils/statusMapper";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { router, useLocalSearchParams } from "expo-router";
@@ -88,6 +89,10 @@ export default function TasksScreen() {
   const [isTabPending, startTabTransition] = useTransition();
   const [filterVisible, setFilterVisible] = useState(false);
   const [createVisible, setCreateVisible] = useState(false);
+  const [rejectModalVisible, setRejectModalVisible] = useState(false);
+  const [rejectTargetTaskId, setRejectTargetTaskId] = useState<number | null>(
+    null,
+  );
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
   const [detailInitialTab, setDetailInitialTab] = useState<
     "details" | "comments"
@@ -320,27 +325,48 @@ export default function TasksScreen() {
   const handleStatusChange = useCallback(
     async (targetTask: TaskRowProps, newStatus: StatusType) => {
       if (!targetTask.id || !companyId) return;
+
+      if (newStatus === "Rejected") {
+        setRejectTargetTaskId(Number(targetTask.id));
+        setRejectModalVisible(true);
+        return;
+      }
+
+      if (
+        newStatus === "In-Progress" ||
+        (newStatus as string) === "In Progress"
+      ) {
+        const hasOtherInProgress = (taskState.assignedToMe || []).some(
+          (t) =>
+            ((t.status as string) === "In Progress" ||
+              (t.status as string) === "In-Progress" ||
+              (t.status as string) === "in_progress") &&
+            String(t.id) !== String(targetTask.id),
+        );
+        if (hasOtherInProgress) {
+          showError(
+            "Action Not Allowed",
+            "Another task is already in progress. You can only have one task in progress at a time.",
+          );
+          return;
+        }
+      }
+
       const apiStatus = uiStatusToApi(newStatus);
       try {
-        // updateTaskStatusApi applies the new status to local state
-        // synchronously (before the network call), so the task moves
-        // between tabs (e.g. Created By Me -> Completed) instantly. Deliberately
-        // NOT re-fetching the full task list afterward — /tasks/all is slow
-        // and, if the backend hasn't fully propagated the write yet, a
-        // refetch this soon after can momentarily overwrite the correct
-        // optimistic state with stale data. The next natural refresh (pull-
-        // to-refresh, tab switch, socket event) will reconcile any other
-        // server-side side effects.
         await updateTaskStatusApi(Number(targetTask.id), {
           status: apiStatus,
           company_id: companyId,
           company_identifier: companyIdentifier,
         });
-      } catch {
-        // status change failed silently
+      } catch (err: any) {
+        showError(
+          "Status Update Failed",
+          err.message || "Failed to update task status.",
+        );
       }
     },
-    [companyId, companyIdentifier, updateTaskStatusApi],
+    [companyId, companyIdentifier, taskState.assignedToMe, updateTaskStatusApi],
   );
 
   const handleAssigneeChange = useCallback(
@@ -607,7 +633,9 @@ export default function TasksScreen() {
           return allMappedRows.filter((t) => {
             if (!t._raw?.due_date) return false;
             const ms = Date.parse(t._raw.due_date);
-            return !isNaN(ms) && ms >= todayMs && ms < tomorrowMs && ms >= nowMs;
+            return (
+              !isNaN(ms) && ms >= todayMs && ms < tomorrowMs && ms >= nowMs
+            );
           });
         case "week":
           return sortByDueDate(
@@ -1034,6 +1062,21 @@ export default function TasksScreen() {
         assignedTo={delayTask?.assignedTo ?? ""}
         onClose={() => setDelayTask(null)}
         onExtend={handleExtendDelay}
+      />
+      <RejectTaskModal
+        visible={rejectModalVisible}
+        onClose={() => {
+          setRejectModalVisible(false);
+          setRejectTargetTaskId(null);
+        }}
+        taskId={rejectTargetTaskId ?? 0}
+        companyId={companyId ?? 0}
+        companyIdentifier={companyIdentifier}
+        onSuccess={() => {
+          if (companyId) {
+            fetchAllTasks(companyId, { silent: true }).catch(() => {});
+          }
+        }}
       />
     </View>
   );

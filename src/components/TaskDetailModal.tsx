@@ -1,4 +1,3 @@
-import { rf } from "@/utils/responsive";
 import Avatar from "@/components/Avatar";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
@@ -22,6 +21,7 @@ import {
   formatFullDateTime as formatFullDateTimeShared,
   formatShortDate,
 } from "@/utils/dateFormat";
+import { rf } from "@/utils/responsive";
 import { apiStatusToUi, truncateName } from "@/utils/statusMapper";
 import { showError } from "@/utils/toast";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -33,6 +33,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -43,6 +44,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import CalendarPicker from "./CalendarPicker";
+import RejectTaskModal from "./RejectTaskModal";
 import { STATUS_COLORS, StatusType } from "./TaskRow";
 
 const SNAP_POINTS = ["94%"];
@@ -441,6 +443,20 @@ function formatApiDateTime(dateStr: string): string {
   return formatFullDateTimeShared(dateStr);
 }
 
+function formatDetailDateTime(dateStr?: string | null): string {
+  if (!dateStr) return "-";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const month = d.toLocaleDateString("en-US", { month: "short" });
+  const day = String(d.getDate()).padStart(2, "0");
+  const year = d.getFullYear();
+  let hours = d.getHours();
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12 || 12;
+  return `${month} ${day}, ${year} ${hours}:${minutes} ${ampm}`;
+}
+
 // Builds a TaskDetail payload for the modal from a `/tasks/view/:id` response.
 // Used when opening a task from a notification (no pre-mapped task row exists).
 export function buildTaskDetailFromViewTask(
@@ -586,6 +602,8 @@ export default function TaskDetailModal({
   const [priorityPickerVisible, setPriorityPickerVisible] = useState(false);
   const [approvalPickerVisible, setApprovalPickerVisible] = useState(false);
   const [effortPickerVisible, setEffortPickerVisible] = useState(false);
+  const [effortLogsModalVisible, setEffortLogsModalVisible] = useState(false);
+  const [rejectModalVisible, setRejectModalVisible] = useState(false);
 
   // Last-saved values for the free-text fields, so blurring an untouched
   // field doesn't fire a redundant save request.
@@ -1096,15 +1114,6 @@ export default function TaskDetailModal({
         .slice(0, 2) || "??"
     : task.assignedToInitials;
 
-  const dueDateDisplay = apiTask
-    ? formatApiDateTime(apiTask.due_date)
-    : task.dueDate;
-  const startDateDisplay = apiTask
-    ? apiTask.start_date
-      ? formatApiDateTime(apiTask.start_date)
-      : "-"
-    : "-";
-
   const depDisplay: DependencyDisplay[] =
     dependencies.length > 0
       ? dependencies.map((d) => ({
@@ -1151,236 +1160,30 @@ export default function TaskDetailModal({
   const priorityDisplayName = apiTask?.priority ?? task.priority;
   const taskPriorityDisplay = apiTask?.task_priority ?? null;
 
-  const INFO_ROWS: {
-    icon: string;
-    label: string;
-    value: React.ReactNode;
-  }[] = [
-    {
-      icon: "person-outline",
-      label: "Created By:",
-      value: (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-          <Avatar
-            name={createdByName}
-            imagePath={(apiTask as any)?.task_assignee?.image}
-            size={22}
-            borderRadius={11}
-          />
-          <Text style={styles.infoValue}>{createdByName}</Text>
-        </View>
-      ),
-    },
-    {
-      icon: "people-outline",
-      label: "Assigned To:",
-      value: (
-        <TouchableOpacity
-          style={[styles.assignedRow, !canEdit && { opacity: 0.7 }]}
-          activeOpacity={0.7}
-          disabled={!canEdit}
-          onPress={() => setAssignPickerVisible(true)}
-        >
-          <Avatar
-            name={selectedOwnerName || assignedToName}
-            imagePath={
-              selectedOwner?.image ??
-              (typeof apiTask?.asigned_to === "object"
-                ? apiTask.asigned_to?.image
-                : undefined)
-            }
-            size={22}
-            borderRadius={11}
-          />
-          <Text style={styles.infoValue}>
-            {selectedOwnerName || assignedToName || "Select User"}
-          </Text>
-        </TouchableOpacity>
-      ),
-    },
-    {
-      icon: "calendar-outline",
-      label: "Est. Completion:",
-      value: (
-        <TouchableOpacity
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            opacity: canEdit ? 1 : 0.7,
-          }}
-          activeOpacity={0.7}
-          disabled={!canEdit}
-          onPress={() => setDatePickerVisible(true)}
-        >
-          <Text style={styles.infoValue}>
-            {editDueDate
-              ? editDueDate.toISOString().split("T")[0]
-              : dueDateDisplay || "Select Date"}
-          </Text>
-          <Ionicons
-            name="calendar-outline"
-            size={14}
-            color="#00DEAB"
-            style={{ marginLeft: 6 }}
-          />
-        </TouchableOpacity>
-      ),
-    },
-    {
-      icon: "calendar-outline",
-      label: "Start Time:",
-      value: <Text style={styles.infoValue}>{startDateDisplay}</Text>,
-    },
-    {
-      icon: "checkmark-done-outline",
-      label: "Status:",
-      value: (
-        <TouchableOpacity
-          activeOpacity={0.7}
-          disabled={!canEdit}
-          style={!canEdit && { opacity: 0.7 }}
-          onPress={() => setStatusPickerVisible(true)}
-        >
-          <View
-            style={[
-              styles.badge,
-              {
-                backgroundColor:
-                  STATUS_COLORS[editStatus as StatusType]?.bg ?? "#00DEAB",
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.badgeText,
-                {
-                  color:
-                    STATUS_COLORS[editStatus as StatusType]?.text ?? "#fff",
-                },
-              ]}
-            >
-              {editStatus}
-            </Text>
-          </View>
-        </TouchableOpacity>
-      ),
-    },
-    {
-      icon: "star-outline",
-      label: "Task Priority:",
-      value: (
-        <TouchableOpacity
-          activeOpacity={0.7}
-          disabled={!canEdit}
-          style={!canEdit && { opacity: 0.7 }}
-          onPress={() => setPriorityPickerVisible(true)}
-        >
-          <View
-            style={[
-              styles.taskPriorityBadge,
-              editTaskPriority === "critical"
-                ? styles.taskPriorityBadgeCritical
-                : styles.taskPriorityBadgeNormal,
-            ]}
-          >
-            <View
-              style={[
-                styles.taskPriorityDot,
-                {
-                  backgroundColor:
-                    editTaskPriority === "critical" ? "#EF4444" : "#00A876",
-                },
-              ]}
-            />
-            <Text
-              style={[
-                styles.taskPriorityBadgeText,
-                {
-                  color:
-                    editTaskPriority === "critical" ? "#EF4444" : "#00A876",
-                },
-              ]}
-            >
-              {editTaskPriority === "critical" ? "Critical" : "Normal"}
-            </Text>
-          </View>
-        </TouchableOpacity>
-      ),
-    },
-    {
-      icon: "time-outline",
-      label: "Effort:",
-      value: (
-        <TouchableOpacity
-          activeOpacity={0.7}
-          disabled={!canEdit}
-          style={!canEdit && { opacity: 0.7 }}
-          onPress={() => setEffortPickerVisible(true)}
-        >
-          <Text style={styles.infoValue}>
-            {editEffortHours || "0"} {editEffortUnit}
-          </Text>
-        </TouchableOpacity>
-      ),
-    },
-    {
-      icon: "checkmark-circle-outline",
-      label: "Approval Required:",
-      value: (
-        <TouchableOpacity
-          activeOpacity={0.7}
-          disabled={!canEdit}
-          style={!canEdit && { opacity: 0.7 }}
-          onPress={() => setApprovalPickerVisible(true)}
-        >
-          <Text style={styles.infoValue}>
-            {editApprovalRequired ? "Yes" : "No"}
-          </Text>
-        </TouchableOpacity>
-      ),
-    },
-    {
-      icon: "sync-circle-outline",
-      label: "Recurring:",
-      value: <Text style={styles.infoValue}>{recurringDetail}</Text>,
-    },
-    {
-      icon: "link-outline",
-      label: "Attachments:",
-      value: apiTask ? (
-        <View style={styles.cntBadgeGray}>
-          <Ionicons name="link-outline" size={14} color="#fff" />
-          <Text style={styles.cntBadgeText}>
-            +{apiTask.task_attachments.length}
-          </Text>
-        </View>
-      ) : (
-        <Text style={styles.infoValue}>-</Text>
-      ),
-    },
-    {
-      icon: "git-compare-outline",
-      label: "Dependencies:",
-      value:
-        depDisplay.length > 0 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            nestedScrollEnabled
-          >
-            {depDisplay.map((dep, idx) => (
-              <View key={idx} style={styles.depPill}>
-                <Text style={styles.depPillText} numberOfLines={1}>
-                  {dep.title}
-                </Text>
-              </View>
-            ))}
-          </ScrollView>
-        ) : (
-          <Text style={styles.infoValue}>-</Text>
-        ),
-    },
-  ];
+  const createdAtDisplay = formatDetailDateTime(
+    apiTask?.created_at ||
+      (apiTask as any)?.createdAt ||
+      (task as any)?.createdAt,
+  );
+  const startDateDisplay = formatDetailDateTime(
+    apiTask?.start_date || (task as any)?.startDate,
+  );
+  const estCompletionDisplay = editDueDate
+    ? formatDetailDateTime(editDueDate.toISOString())
+    : formatDetailDateTime(apiTask?.due_date || task.dueDate);
+  const actualCompletionDisplay = formatDetailDateTime(
+    apiTask?.completed_at ||
+      (apiTask as any)?.actual_completion ||
+      (apiTask as any)?.completion_date,
+  );
+  const effortLogsDisplay =
+    (apiTask as any)?.effort_logs_count !== undefined
+      ? `${(apiTask as any).effort_logs_count} change${(apiTask as any).effort_logs_count === 1 ? "" : "s"}`
+      : (apiTask as any)?.effort_logs?.length !== undefined
+        ? `${(apiTask as any).effort_logs.length} change${(apiTask as any).effort_logs.length === 1 ? "" : "s"}`
+        : apiTask?.effort_hours
+          ? "1 change"
+          : "0 changes";
 
   return (
     <BottomSheetModal
@@ -1480,25 +1283,410 @@ export default function TaskDetailModal({
                     multiline
                   />
 
-                  {/* Info Rows */}
-                  {INFO_ROWS.map((row, i) => (
-                    <View key={i} style={styles.infoRow}>
-                      <View style={styles.infoLabelWrap}>
-                        <Ionicons
-                          name={row.icon as any}
-                          size={16}
-                          color="#AAAAAA"
-                          style={{ marginRight: 6 }}
-                        />
-                        <Text style={styles.infoLabel}>{row.label}</Text>
-                      </View>
-                      <View style={styles.infoValueWrap}>{row.value}</View>
+                  {/* ── Info Rows (vertical, ordered) ── */}
+
+                  {/* 1. Assigned to */}
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoLabelWrap}>
+                      <Ionicons
+                        name="people-outline"
+                        size={16}
+                        color="#AAAAAA"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.infoLabel}>Assigned to:</Text>
                     </View>
-                  ))}
+                    <View style={styles.infoValueWrap}>
+                      <TouchableOpacity
+                        style={[
+                          styles.assignedRow,
+                          !canEdit && { opacity: 0.7 },
+                        ]}
+                        activeOpacity={0.7}
+                        disabled={!canEdit}
+                        onPress={() => setAssignPickerVisible(true)}
+                      >
+                        <Avatar
+                          name={selectedOwnerName || assignedToName}
+                          imagePath={
+                            selectedOwner?.image ??
+                            (typeof apiTask?.asigned_to === "object"
+                              ? apiTask.asigned_to?.image
+                              : undefined)
+                          }
+                          size={20}
+                          borderRadius={4}
+                        />
+                        <Text style={styles.infoValue}>
+                          {selectedOwnerName || assignedToName || "Select User"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* 2. Created By */}
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoLabelWrap}>
+                      <Ionicons
+                        name="person-outline"
+                        size={16}
+                        color="#AAAAAA"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.infoLabel}>Created By:</Text>
+                    </View>
+                    <View style={styles.infoValueWrap}>
+                      <View style={styles.assignedRow}>
+                        <Avatar
+                          name={createdByName}
+                          imagePath={(apiTask as any)?.task_creator?.image}
+                          size={20}
+                          borderRadius={4}
+                        />
+                        <Text style={styles.infoValue}>{createdByName}</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* 3. Created At */}
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoLabelWrap}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={16}
+                        color="#AAAAAA"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.infoLabel}>Created At:</Text>
+                    </View>
+                    <View style={styles.infoValueWrap}>
+                      <Text style={styles.infoValue}>{createdAtDisplay}</Text>
+                    </View>
+                  </View>
+
+                  {/* 4. Start Date */}
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoLabelWrap}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={16}
+                        color="#AAAAAA"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.infoLabel}>Start Date:</Text>
+                    </View>
+                    <View style={styles.infoValueWrap}>
+                      <Text style={styles.infoValue}>{startDateDisplay}</Text>
+                    </View>
+                  </View>
+
+                  {/* 5. Est. Completion */}
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoLabelWrap}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={16}
+                        color="#AAAAAA"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.infoLabel}>Est. Completion:</Text>
+                      <Ionicons
+                        name="information-circle-outline"
+                        size={12}
+                        color="#9CA3AF"
+                        style={{ marginLeft: 2 }}
+                      />
+                    </View>
+                    <View style={styles.infoValueWrap}>
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        disabled={!canEdit}
+                        style={!canEdit && { opacity: 0.7 }}
+                        onPress={() => setDatePickerVisible(true)}
+                      >
+                        <Text style={styles.infoValue}>
+                          {estCompletionDisplay}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* 6. Actual Completion */}
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoLabelWrap}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={16}
+                        color="#AAAAAA"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.infoLabel}>Actual Completion:</Text>
+                    </View>
+                    <View style={styles.infoValueWrap}>
+                      <Text style={styles.infoValue}>
+                        {actualCompletionDisplay}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* 7. Priority */}
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoLabelWrap}>
+                      <Ionicons
+                        name="star-outline"
+                        size={16}
+                        color="#AAAAAA"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.infoLabel}>Priority:</Text>
+                    </View>
+                    <View style={styles.infoValueWrap}>
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        disabled={!canEdit}
+                        style={!canEdit && { opacity: 0.7 }}
+                        onPress={() => setPriorityPickerVisible(true)}
+                      >
+                        <View
+                          style={[
+                            styles.taskPriorityBadge,
+                            editTaskPriority === "critical"
+                              ? styles.taskPriorityBadgeCritical
+                              : styles.taskPriorityBadgeNormal,
+                          ]}
+                        >
+                          <View
+                            style={[
+                              styles.taskPriorityDot,
+                              {
+                                backgroundColor:
+                                  editTaskPriority === "critical"
+                                    ? "#EF4444"
+                                    : "#00A876",
+                              },
+                            ]}
+                          />
+                          <Text
+                            style={[
+                              styles.taskPriorityBadgeText,
+                              {
+                                color:
+                                  editTaskPriority === "critical"
+                                    ? "#EF4444"
+                                    : "#00A876",
+                              },
+                            ]}
+                          >
+                            {editTaskPriority === "critical"
+                              ? "Critical"
+                              : "Normal"}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* 8. Task Status */}
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoLabelWrap}>
+                      <Ionicons
+                        name="sync-outline"
+                        size={16}
+                        color="#AAAAAA"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.infoLabel}>Task Status:</Text>
+                    </View>
+                    <View style={styles.infoValueWrap}>
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        disabled={!canEdit}
+                        style={!canEdit && { opacity: 0.7 }}
+                        onPress={() => setStatusPickerVisible(true)}
+                      >
+                        <View
+                          style={[
+                            styles.badge,
+                            {
+                              backgroundColor:
+                                STATUS_COLORS[editStatus as StatusType]?.bg ??
+                                "#D1FAE5",
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.badgeText,
+                              {
+                                color:
+                                  STATUS_COLORS[editStatus as StatusType]
+                                    ?.text ?? "#059669",
+                              },
+                            ]}
+                          >
+                            {editStatus === "In-Progress"
+                              ? "In Progress"
+                              : editStatus}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* 9. Recurring Task */}
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoLabelWrap}>
+                      <Ionicons
+                        name="repeat-outline"
+                        size={16}
+                        color="#AAAAAA"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.infoLabel}>Recurring Task:</Text>
+                    </View>
+                    <View style={styles.infoValueWrap}>
+                      <Text style={styles.infoValue}>
+                        {apiTask?.is_recurring || task.recurringTask === "Yes"
+                          ? "Yes"
+                          : "No"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* 10. Approval Required */}
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoLabelWrap}>
+                      <Ionicons
+                        name="checkbox-outline"
+                        size={16}
+                        color="#AAAAAA"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.infoLabel}>Approval Required:</Text>
+                    </View>
+                    <View style={styles.infoValueWrap}>
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        disabled={!canEdit}
+                        style={!canEdit && { opacity: 0.7 }}
+                        onPress={() => setApprovalPickerVisible(true)}
+                      >
+                        <Text style={styles.infoValue}>
+                          {editApprovalRequired ? "Yes" : "No"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* 11. Efforts */}
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoLabelWrap}>
+                      <Ionicons
+                        name="time-outline"
+                        size={16}
+                        color="#AAAAAA"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.infoLabel}>Efforts:</Text>
+                    </View>
+                    <View style={styles.infoValueWrap}>
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        disabled={!canEdit}
+                        style={!canEdit && { opacity: 0.7 }}
+                        onPress={() => setEffortPickerVisible(true)}
+                      >
+                        <Text style={styles.infoValue}>
+                          {editEffortHours || "0"}{" "}
+                          {editEffortUnit === "minutes"
+                            ? "mins"
+                            : editEffortUnit}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* 12. Effort Logs */}
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoLabelWrap}>
+                      <Ionicons
+                        name="time-outline"
+                        size={16}
+                        color="#AAAAAA"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.infoLabel}>Effort Logs:</Text>
+                      <Ionicons
+                        name="information-circle-outline"
+                        size={12}
+                        color="#9CA3AF"
+                        style={{ marginLeft: 2 }}
+                      />
+                    </View>
+                    <View style={styles.infoValueWrap}>
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => setEffortLogsModalVisible(true)}
+                      >
+                        <Text style={[styles.infoValue, { color: "#00DEAB" }]}>
+                          {effortLogsDisplay}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* 13. Dependencies */}
+                  <View style={styles.infoRow}>
+                    <View style={styles.infoLabelWrap}>
+                      <Ionicons
+                        name="git-compare-outline"
+                        size={16}
+                        color="#AAAAAA"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.infoLabel}>Dependencies:</Text>
+                    </View>
+                    <View style={styles.infoValueWrap}>
+                      {depDisplay.length > 0 ? (
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                          nestedScrollEnabled
+                        >
+                          {depDisplay.map((dep, idx) => (
+                            <View key={idx} style={styles.depPill}>
+                              <Text
+                                style={styles.depPillText}
+                                numberOfLines={1}
+                              >
+                                {dep.title}
+                              </Text>
+                            </View>
+                          ))}
+                        </ScrollView>
+                      ) : (
+                        <Text style={styles.infoValue}>—</Text>
+                      )}
+                    </View>
+                  </View>
 
                   {/* Direct Editable Description */}
                   <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Description</Text>
+                    <View style={styles.descHeaderRow}>
+                      <Ionicons
+                        name="document-text-outline"
+                        size={16}
+                        color="#8E8E93"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.sectionTitle}>Description</Text>
+                    </View>
+                    <View style={styles.descBadgeChip}>
+                      <Ionicons name="link-outline" size={12} color="#fff" />
+                      <Text style={styles.descBadgeChipText}>
+                        +{attachmentFiles.length}
+                      </Text>
+                    </View>
                     <TextInput
                       style={styles.editableDescInput}
                       value={editDescription}
@@ -1515,53 +1703,29 @@ export default function TaskDetailModal({
                       placeholder="Add task description..."
                       placeholderTextColor="#9CA3AF"
                     />
-                    <View style={styles.descBadgesRow}>
-                      {attachmentFiles.length > 0 && (
-                        <View style={styles.descBadge}>
-                          <Ionicons
-                            name="link-outline"
-                            size={13}
-                            color="#fff"
-                          />
-                          <Text style={styles.descBadgeText}>
-                            +{attachmentFiles.length}
-                          </Text>
-                        </View>
-                      )}
-                      {depDisplay.length > 0 && (
-                        <View style={styles.descBadge}>
-                          <Ionicons
-                            name="git-compare-outline"
-                            size={13}
-                            color="#fff"
-                          />
-                          <Text style={styles.descBadgeText}>
-                            +{depDisplay.length}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
                   </View>
 
                   {depDisplay.length > 0 && (
                     <SectionTable title="Dependencies" rows={depDisplay} />
                   )}
 
+                  {/* Bottom Attachments Button */}
+                  <View style={styles.bottomAttachmentSection}>
+                    <TouchableOpacity style={styles.bottomAttachmentBtn}>
+                      <Ionicons
+                        name="link-outline"
+                        size={14}
+                        color="#8E8E93"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.bottomAttachmentText}>
+                        Attachments
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
                   {attachmentFiles.length > 0 && (
                     <View style={styles.section}>
-                      <View style={styles.attachHeader}>
-                        <Text style={styles.sectionTitle}>Attachments</Text>
-                        <View style={styles.cntBadgeGray}>
-                          <MaterialCommunityIcons
-                            name="file-tree-outline"
-                            size={13}
-                            color="#fff"
-                          />
-                          <Text style={styles.cntBadgeText}>
-                            +{attachmentFiles.length}
-                          </Text>
-                        </View>
-                      </View>
                       <ScrollView
                         horizontal
                         showsHorizontalScrollIndicator={false}
@@ -1575,7 +1739,6 @@ export default function TaskDetailModal({
                               color="#00DEAB"
                             />
                             <Text style={styles.attachTagText}>{a}</Text>
-                            <Ionicons name="close" size={13} color="#00DEAB" />
                           </View>
                         ))}
                       </ScrollView>
@@ -1860,6 +2023,30 @@ export default function TaskDetailModal({
                         isSelected && styles.popoverRowSelected,
                       ]}
                       onPress={() => {
+                        if (st === "Rejected") {
+                          setStatusPickerVisible(false);
+                          setRejectModalVisible(true);
+                          return;
+                        }
+                        if (st === "In-Progress" || st === "In Progress") {
+                          const hasOtherInProgress = (
+                            taskState.assignedToMe || []
+                          ).some(
+                            (t) =>
+                              ((t.status as string) === "In Progress" ||
+                                (t.status as string) === "In-Progress" ||
+                                (t.status as string) === "in_progress") &&
+                              t.id !== task.taskId,
+                          );
+                          if (hasOtherInProgress) {
+                            showError(
+                              "Action Not Allowed",
+                              "Another task is already in progress. You can only have one task in progress at a time.",
+                            );
+                            setStatusPickerVisible(false);
+                            return;
+                          }
+                        }
                         setEditStatus(st);
                         setStatusPickerVisible(false);
                         persistTaskField({ status: st });
@@ -2137,7 +2324,123 @@ export default function TaskDetailModal({
             </Pressable>
           </Pressable>
         )}
+        {/* ── Effort Logs Modal ── */}
+        {effortLogsModalVisible && (
+          <Modal
+            transparent
+            animationType="fade"
+            visible={effortLogsModalVisible}
+            onRequestClose={() => setEffortLogsModalVisible(false)}
+          >
+            <Pressable
+              style={styles.popoverOverlay}
+              onPress={() => setEffortLogsModalVisible(false)}
+            >
+              <Pressable
+                style={[
+                  styles.popoverCard,
+                  { maxHeight: "70%", width: "90%", maxWidth: 420 },
+                ]}
+                onPress={(e) => e.stopPropagation()}
+              >
+                <View style={styles.popoverHeader}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <Ionicons name="time-outline" size={18} color="#1D1D1D" />
+                    <Text style={styles.popoverTitle}>Effort Logs</Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setEffortLogsModalVisible(false)}
+                  >
+                    <Ionicons name="close" size={20} color="#1D1D1D" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={{ paddingVertical: 8, gap: 10 }}
+                >
+                  {Array.isArray((apiTask as any)?.effort_logs) &&
+                  (apiTask as any).effort_logs.length > 0 ? (
+                    (apiTask as any).effort_logs.map(
+                      (log: any, idx: number) => (
+                        <View key={idx} style={styles.logCard}>
+                          <View style={styles.logHeader}>
+                            <Text style={styles.logUser}>
+                              {log.user_name ||
+                                log.userName ||
+                                log.created_by_name ||
+                                "User"}
+                            </Text>
+                            <Text style={styles.logDate}>
+                              {log.created_at
+                                ? formatDetailDateTime(log.created_at)
+                                : "-"}
+                            </Text>
+                          </View>
+                          <Text style={styles.logChange}>
+                            {log.change ||
+                              log.message ||
+                              log.description ||
+                              log.effort_hours ||
+                              JSON.stringify(log)}
+                          </Text>
+                        </View>
+                      ),
+                    )
+                  ) : (
+                    <View style={{ paddingVertical: 24, alignItems: "center" }}>
+                      <Ionicons
+                        name="document-text-outline"
+                        size={32}
+                        color="#D1D5DB"
+                        style={{ marginBottom: 8 }}
+                      />
+                      <Text
+                        style={{
+                          fontSize: rf(13),
+                          color: "#6B7280",
+                          fontFamily: "SF_Pro_Medium",
+                        }}
+                      >
+                        Current Effort:{" "}
+                        {editEffortHours || apiTask?.effort_hours || "0"}{" "}
+                        {editEffortUnit || apiTask?.effort_unit || "hours"}
+                      </Text>
+                      <Text
+                        style={{
+                          fontSize: rf(11.5),
+                          color: "#9CA3AF",
+                          marginTop: 4,
+                          fontFamily: "SF_Pro_Regular",
+                        }}
+                      >
+                        No change logs recorded for this task.
+                      </Text>
+                    </View>
+                  )}
+                </ScrollView>
+              </Pressable>
+            </Pressable>
+          </Modal>
+        )}
       </View>
+      <RejectTaskModal
+        visible={rejectModalVisible}
+        onClose={() => setRejectModalVisible(false)}
+        taskId={task.taskId ?? 0}
+        companyId={companyId}
+        companyIdentifier={companyIdentifier}
+        onSuccess={() => {
+          setEditStatus("Rejected");
+          loadTaskDetail();
+        }}
+      />
     </BottomSheetModal>
   );
 }
@@ -2241,12 +2544,162 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     marginBottom: 10,
   },
-  cntBadgeText: { fontSize: rf(12), color: "#fff", fontFamily: "SF_Pro_Regular" },
+  cntBadgeText: {
+    fontSize: rf(12),
+    color: "#fff",
+    fontFamily: "SF_Pro_Regular",
+  },
   taskTitle: {
     fontSize: rf(16),
     fontFamily: "SF_Pro_Medium",
     color: "#1D1D1D",
     marginBottom: 14,
+  },
+  gridContainer: {
+    flexDirection: "row",
+    gap: 16,
+    marginVertical: 10,
+  },
+  gridColumn: {
+    flex: 1,
+    gap: 8,
+  },
+  gridRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 32,
+  },
+  gridLabelWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
+  },
+  gridIcon: {
+    marginRight: 5,
+  },
+  gridLabel: {
+    fontSize: rf(11.5),
+    color: "#8E8E93",
+    fontFamily: "SF_Pro_Medium",
+  },
+  gridValueText: {
+    fontSize: rf(11.5),
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Medium",
+    textAlign: "right",
+    flexShrink: 1,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignSelf: "flex-end",
+  },
+  statusBadgeText: {
+    fontSize: rf(11),
+    fontFamily: "SF_Pro_Semibold",
+  },
+  priorityBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    alignSelf: "flex-end",
+  },
+  priorityBadgeNormal: {
+    backgroundColor: "#E6FBF6",
+  },
+  priorityBadgeCritical: {
+    backgroundColor: "#FEE2E2",
+  },
+  priorityDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 4,
+  },
+  priorityBadgeText: {
+    fontSize: rf(11),
+    fontFamily: "SF_Pro_Semibold",
+  },
+  effortLogsValueText: {
+    fontSize: rf(11.5),
+    color: "#00DEAB",
+    fontFamily: "SF_Pro_Medium",
+    textAlign: "right",
+    textDecorationLine: "underline",
+  },
+  logCard: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  logHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  logUser: {
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#1D1D1D",
+  },
+  logDate: {
+    fontSize: rf(10),
+    color: "#9CA3AF",
+    fontFamily: "SF_Pro_Regular",
+  },
+  logChange: {
+    fontSize: rf(11.5),
+    color: "#4B5563",
+    fontFamily: "SF_Pro_Regular",
+    marginTop: 2,
+  },
+  descHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  descBadgeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#1D1D1D",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: "flex-start",
+    marginBottom: 8,
+  },
+  descBadgeChipText: {
+    fontSize: rf(10),
+    color: "#FFFFFF",
+    fontFamily: "SF_Pro_Medium",
+  },
+  bottomAttachmentSection: {
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  bottomAttachmentBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: "#FFFFFF",
+  },
+  bottomAttachmentText: {
+    fontSize: rf(12),
+    color: "#8E8E93",
+    fontFamily: "SF_Pro_Medium",
   },
   infoRow: {
     flexDirection: "row",
@@ -2256,10 +2709,31 @@ const styles = StyleSheet.create({
     borderBottomColor: "#F3F4F6",
   },
   infoLabelWrap: { flexDirection: "row", alignItems: "center", flex: 1.2 },
-  infoLabel: { fontSize: rf(11), color: "#6B7280", fontFamily: "SF_Pro_Semibold" },
+  infoLabel: {
+    fontSize: rf(11),
+    color: "#6B7280",
+    fontFamily: "SF_Pro_Semibold",
+  },
   infoValueWrap: { flex: 1.5 },
-  infoValue: { fontSize: rf(12), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
-  assignedRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  infoValue: {
+    fontSize: rf(12),
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Regular",
+  },
+  assignedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 1,
+    justifyContent: "flex-start",
+  },
+  assignedValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 1,
+    justifyContent: "flex-start",
+  },
   initials: {
     width: 24,
     height: 24,

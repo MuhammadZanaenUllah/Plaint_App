@@ -7,7 +7,6 @@ import {
 } from "@/context/PushNotificationContext";
 import { TaskProvider } from "@/context/TaskContext";
 import { useUpdates } from "@/hooks/useUpdates";
-import { initNetworkPrewarm } from "@/services/api/client";
 import {
   connectSocket,
   disconnectSocket,
@@ -17,7 +16,7 @@ import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useContext, useEffect, useRef } from "react";
-import { AppState, LogBox, Text, TextInput } from "react-native";
+import { AppState, LogBox } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Toast from "react-native-toast-message";
 
@@ -216,22 +215,22 @@ function RootNavigator() {
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#fff" }}>
-      <BottomSheetModalProvider>
-        <AuthProvider>
-          <TaskProvider>
-            <NotificationProvider>
-              <ChatProvider>
-                <PushNotificationProvider>
+      <AuthProvider>
+        <TaskProvider>
+          <NotificationProvider>
+            <ChatProvider>
+              <PushNotificationProvider>
+                <BottomSheetModalProvider>
                   <PushNotificationLifecycle />
                   <UpdateLifecycle />
                   <RootNavigator />
                   <Toast />
-                </PushNotificationProvider>
-              </ChatProvider>
-            </NotificationProvider>
-          </TaskProvider>
-        </AuthProvider>
-      </BottomSheetModalProvider>
+                </BottomSheetModalProvider>
+              </PushNotificationProvider>
+            </ChatProvider>
+          </NotificationProvider>
+        </TaskProvider>
+      </AuthProvider>
     </GestureHandlerRootView>
   );
 }
