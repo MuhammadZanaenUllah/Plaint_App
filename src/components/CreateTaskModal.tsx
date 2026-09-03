@@ -257,6 +257,8 @@ export default function CreateTaskModal({
 
   const descriptionEditorRef = useRef<RichTextEditorRef>(null);
   const sheetRef = useRef<BottomSheetModal>(null);
+  const scrollViewRef = useRef<any>(null);
+  const effortRowRef = useRef<any>(null);
 
   const titleFloated = titleFocused || title.length > 0;
 
@@ -607,6 +609,68 @@ export default function CreateTaskModal({
     }
   }, [visible]);
 
+  // ── Advanced effort (Hrs) panel: keep Hours/Unit fields above the keyboard ──
+  // The effort input auto-focuses when the panel opens, so the keyboard
+  // covers the lower part of the sheet. Track the keyboard and scroll the
+  // effort row so its bottom sits just above the keyboard's top edge, once
+  // everything has settled (layout + keyboard animation). measureInWindow +
+  // a tracked scroll offset are used instead of measure()'s y, because on
+  // Fabric (RN 0.86) measure() reports window-relative coordinates, which
+  // made the old one-shot scroll target wrong.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const keyboardTopRef = useRef(0); // keyboard top edge, in screen coords
+  const scrollOffsetRef = useRef(0); // current scroll offset of the sheet's ScrollView
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener("keyboardDidShow", (e) => {
+      keyboardTopRef.current = e.endCoordinates?.screenY ?? 0;
+      setKeyboardHeight(e.endCoordinates?.height ?? 0);
+    });
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      keyboardTopRef.current = 0;
+      setKeyboardHeight(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const effortPanelOpen = activePanel === "dueDate" && isAdvanced;
+
+  const bringEffortRowIntoView = useCallback(() => {
+    if (!effortRowRef.current || !scrollViewRef.current) return;
+    if (keyboardHeight === 0 || keyboardTopRef.current === 0) return;
+    effortRowRef.current.measureInWindow(
+      (x: number, y: number, width: number, height: number) => {
+        const rowBottom = y + height;
+        // Leave a small gap between the fields and the keyboard
+        const visibleBottom = keyboardTopRef.current - 16;
+        const overshoot = rowBottom - visibleBottom;
+        if (overshoot > 0) {
+          const target = Math.max(0, scrollOffsetRef.current + overshoot);
+          scrollViewRef.current?.scrollTo?.({ y: target, animated: true });
+        }
+      },
+    );
+  }, [keyboardHeight]);
+
+  // Fallback: scroll shortly after the panel renders (covers the case where
+  // the keyboard was already open and keyboardDidShow does not re-fire).
+  useEffect(() => {
+    if (!effortPanelOpen) return;
+    const t = setTimeout(bringEffortRowIntoView, 200);
+    return () => clearTimeout(t);
+  }, [effortPanelOpen, bringEffortRowIntoView]);
+
+  // Main path: once the keyboard is fully up and the sheet has settled,
+  // re-measure and scroll the effort row above the keyboard.
+  useEffect(() => {
+    if (!effortPanelOpen || keyboardHeight === 0) return;
+    const t = setTimeout(bringEffortRowIntoView, 100);
+    return () => clearTimeout(t);
+  }, [effortPanelOpen, keyboardHeight, bringEffortRowIntoView]);
+
   // Bridges the controlled `visible` prop to @gorhom/bottom-sheet's
   // imperative present()/dismiss() API. Keeps hasPresentedRef in sync so native
   // dismiss (swipe down / backdrop tap) resets presented status and prevents duplicate
@@ -685,7 +749,7 @@ export default function CreateTaskModal({
       handleIndicatorStyle={styles.dragHandlePill}
       backgroundStyle={styles.sheetBackground}
       enablePanDownToClose
-      keyboardBehavior="extend"
+      keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
       android_keyboardInputMode="adjustResize"
     >
@@ -709,9 +773,23 @@ export default function CreateTaskModal({
           </View>
 
           <BottomSheetScrollView
+            ref={scrollViewRef}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[
+              styles.scrollContent,
+              // While the Hrs panel is open with the keyboard up, extend the
+              // content so the Hours/Unit row can always be scrolled above
+              // the keyboard (scrollTo is otherwise clamped by the content
+              // height).
+              effortPanelOpen &&
+                keyboardHeight > 0 && {
+                  paddingBottom: keyboardHeight + insets.bottom + 12,
+                },
+            ]}
             keyboardShouldPersistTaps="handled"
+            onScroll={(e) => {
+              scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+            }}
           >
             <View
               style={[
@@ -740,19 +818,11 @@ export default function CreateTaskModal({
             </View>
 
             <View style={styles.borderlessDescWrap}>
-              {!descFocused && !description.replace(/<[^>]*>/g, "").trim() && (
-                <Ionicons
-                  name="document-text-outline"
-                  size={18}
-                  color="#9CA3AF"
-                  style={styles.descIcon}
-                />
-              )}
-              <View style={{ flex: 1 }}>
+              <View style={{ flex: 1, position: "relative" }}>
                 <RichTextEditor
                   ref={descriptionEditorRef}
                   label="Description"
-                  placeholder={descFocused ? "" : "Description"}
+                  placeholder=""
                   initialHTML={description}
                   onChangeHTML={setDescription}
                   onFocus={() => setDescFocused(true)}
@@ -762,6 +832,28 @@ export default function CreateTaskModal({
                   autoFocus={false}
                   borderless={false}
                 />
+                {!descFocused &&
+                  !description.replace(/<[^>]*>/g, "").trim() && (
+                    <Pressable
+                      style={styles.descIdleOverlay}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        descriptionEditorRef.current?.focus();
+                        if (Platform.OS === "android") {
+                          descriptionEditorRef.current?.showAndroidKeyboard();
+                        }
+                      }}
+                    >
+                      <Ionicons
+                        name="document-text-outline"
+                        size={18}
+                        color="#9CA3AF"
+                      />
+                      <Text style={styles.descIdlePlaceholder}>
+                        Description
+                      </Text>
+                    </Pressable>
+                  )}
               </View>
             </View>
 
@@ -970,7 +1062,7 @@ export default function CreateTaskModal({
             )}
 
             {activePanel === "dueDate" && isAdvanced && (
-              <View style={styles.inlinePanelBox}>
+              <View style={styles.inlinePanelBox} ref={effortRowRef}>
                 <View style={styles.effortRow}>
                   <FloatingInput
                     label={
@@ -2062,9 +2154,6 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 18,
   },
-  descIcon: {
-    marginTop: 4,
-  },
   descEditor: { marginBottom: 20 },
   descIdle: {
     flexDirection: "row",
@@ -2073,10 +2162,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     marginBottom: 20,
   },
+  descIdleOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 0,
+  },
   descIdlePlaceholder: {
-    fontSize: rf(15),
-    color: "#E6E6E6",
-    fontFamily: "SF_Pro_Regular",
+    fontSize: rf(18),
+    color: "#9CA3AF",
+    fontFamily: "SF_Pro_Semibold",
   },
   chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 5, marginBottom: 5 },
   chip: {

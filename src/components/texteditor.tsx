@@ -58,6 +58,7 @@ export interface RichTextEditorRef {
   clear: () => void;
   getContentHtml: () => Promise<string> | undefined;
   setContentHtml: (html: string) => void;
+  showAndroidKeyboard: () => void;
 }
 
 export interface RichTextEditorProps {
@@ -100,6 +101,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     ref
   ) => {
     const richText = useRef<RichEditor>(null);
+    const injectingRef = useRef(false);
     const [emojiVisible, setEmojiVisible] = useState(false);
     const [linkVisible, setLinkVisible] = useState(false);
     const [linkUrl, setLinkUrl] = useState('');
@@ -111,17 +113,32 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     useImperativeHandle(ref, () => ({
       focus: () => richText.current?.focusContentEditor(),
       blur: () => richText.current?.blurContentEditor(),
-      clear: () => richText.current?.setContentHTML(''),
+      showAndroidKeyboard: () =>
+        Platform.OS === 'android' && richText.current?.showAndroidKeyboard(),
+      clear: () => {
+        if (Platform.OS === 'android') {
+          injectingRef.current = true;
+          richText.current?.setContentHTML('<p><br></p>');
+          setTimeout(() => { injectingRef.current = false; }, 150);
+        } else {
+          richText.current?.setContentHTML('');
+        }
+      },
       getContentHtml: () => richText.current?.getContentHtml(),
       setContentHtml: (html: string) => richText.current?.setContentHTML(html),
     }));
 
     const handleChange = useCallback(
       (html: string) => {
-        // Strip HTML tags to detect real content
+        if (injectingRef.current) return;
         const plain = html.replace(/<[^>]*>/g, '').trim();
         setHasContent(plain.length > 0);
-        onChangeHTML?.(html);
+        onChangeHTML?.(plain.length === 0 ? '' : html);
+        if (Platform.OS === 'android' && plain.length === 0) {
+          injectingRef.current = true;
+          richText.current?.setContentHTML('<p><br></p>');
+          setTimeout(() => { injectingRef.current = false; }, 150);
+        }
       },
       [onChangeHTML]
     );
@@ -223,54 +240,88 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       );
     };
 
-    // ── Border + floating label appear only while focused ──────
+    // ── Border + floating label appear when focused or when content exists ──
+    const visibleLabel = !!label && !borderless;
+    const showBorder = !borderless && (focused || hasContent);
+
     return (
       <View
         style={[
           styles.container,
-          focused && !borderless && styles.containerActive,
+          showBorder && (focused ? styles.containerActive : styles.containerIdle),
           containerStyle,
         ]}
       >
-        {/* Floating label cut into the top border — only while focused */}
-        {!!label && !borderless && focused && (
+        {/* Floating label cut into the top border */}
+        {visibleLabel && showBorder && (
           <View style={styles.labelWrapper}>
             <Text style={styles.labelText}>{label}</Text>
           </View>
         )}
 
-        <RichEditor
-          ref={richText}
-          initialContentHTML={initialHTML}
-          placeholder={placeholder}
-          disabled={disabled}
-          onChange={handleChange}
-          onFocus={() => { setFocused(true); onFocusProp?.(); }}
-          onBlur={() => { setFocused(false); onBlurProp?.(); }}
-          editorStyle={{
-            contentCSSText: `
-              font-size: 15px;
-              color: #1A1A1A;
-              padding: 0;
-            `,
-            placeholderColor: '#B3B3B3',
+        {/* Reliable Android tap handling: WebView can lose touch focus after
+            blur, so force-focus on press regardless of WebView propagation. */}
+        <Pressable
+          onPress={(e) => {
+            e.stopPropagation();
+            if (disabled) return;
+            try {
+              richText.current?.focusContentEditor();
+              if (Platform.OS === 'android') {
+                richText.current?.showAndroidKeyboard();
+              }
+            } catch {}
           }}
-          style={[styles.editor, { minHeight: editorHeight }]}
-          initialHeight={editorHeight}
-          androidLayerType="software"
-          focusable
-          onLoadEnd={() => {
-            richText.current?.registerToolbar((items) =>
-              setActiveStyles(items.map(String))
-            );
-            if (autoFocus) {
-              setTimeout(() => {
-                if (Platform.OS === 'android') richText.current?.showAndroidKeyboard();
-                richText.current?.focusContentEditor();
-              }, 300);
-            }
-          }}
-        />
+        >
+          <RichEditor
+            ref={richText}
+            initialContentHTML={initialHTML}
+            placeholder={placeholder}
+            disabled={disabled}
+            onChange={handleChange}
+            onFocus={() => {
+              setFocused(true);
+              onFocusProp?.();
+              if (Platform.OS === 'android' && !hasContent) {
+                injectingRef.current = true;
+                richText.current?.setContentHTML('<p><br></p>');
+                setTimeout(() => {
+                  injectingRef.current = false;
+                  richText.current?.focusContentEditor();
+                }, 150);
+              }
+            }}
+            onBlur={() => { setFocused(false); onBlurProp?.(); }}
+            editorStyle={{
+              contentCSSText: `
+                font-size: 15px;
+                color: #1A1A1A;
+                padding: 0;
+              `,
+              placeholderColor: '#B3B3B3',
+            }}
+            style={[styles.editor, { minHeight: editorHeight }]}
+            initialHeight={editorHeight}
+            androidLayerType="software"
+            focusable
+            onLoadEnd={() => {
+              richText.current?.registerToolbar((items) =>
+                setActiveStyles(items.map(String))
+              );
+              if (Platform.OS === 'android' && !initialHTML.replace(/<[^>]*>/g, '').trim()) {
+                injectingRef.current = true;
+                richText.current?.setContentHTML('<p><br></p>');
+                setTimeout(() => { injectingRef.current = false; }, 150);
+              }
+              if (autoFocus) {
+                setTimeout(() => {
+                  if (Platform.OS === 'android') richText.current?.showAndroidKeyboard();
+                  richText.current?.focusContentEditor();
+                }, 300);
+              }
+            }}
+          />
+        </Pressable>
 
         {showToolbar && focused && (
           // Custom toolbar — avoids RichToolbar's internal ScrollView
@@ -412,13 +463,22 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     position: 'relative',
   },
+  containerIdle: {
+    borderWidth: 1,
+    borderColor: '#E2E2E2',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 8,
+    backgroundColor: '#FFFFFF',
+  },
   containerActive: {
     borderWidth: 1,
     borderColor: '#1D1D1D',
     borderRadius: 16,
     paddingHorizontal: 16,
-    paddingBottom: 12,
     paddingTop: 20,
+    paddingBottom: 12,
     backgroundColor: '#FFFFFF',
   },
   labelWrapper: {
@@ -430,7 +490,6 @@ const styles = StyleSheet.create({
   },
   labelText: {
     fontSize: rf(12),
-    // fontWeight: '500',
     color: '#1D1D1D',
     fontFamily: 'SF_Pro_Regular',
   },
