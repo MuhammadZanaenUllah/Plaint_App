@@ -4,6 +4,7 @@ import {
   OrderCriticalTasksModal,
   type CriticalTask,
 } from "@/components/CriticalTaskModal";
+import DependencyModal from "@/components/DependencyModal";
 import FloatingInput from "@/components/FloatingInput";
 import { ALL_STATUSES, STATUS_COLORS } from "@/components/TaskRow";
 import RichTextEditor, { RichTextEditorRef } from "@/components/texteditor";
@@ -224,8 +225,6 @@ export default function CreateTaskModal({
   const [recurringModalVisible, setRecurringModalVisible] = useState(false);
   const [dependenciesModalVisible, setDependenciesModalVisible] =
     useState(false);
-  const [depSearch, setDepSearch] = useState("");
-  const [depFocused, setDepFocused] = useState(false);
   const [selectedDependencies, setSelectedDependencies] = useState<number[]>(
     [],
   );
@@ -267,19 +266,15 @@ export default function CreateTaskModal({
     return fullName.includes(assignSearch.toLowerCase());
   });
 
-  const [depVisibleCount, setDepVisibleCount] = useState(20);
-
-  // All global tasks available for dependencies (excluding completed tasks)
+  // All global tasks available for dependencies — only tasks whose status is
+  // "Pending" or "In-Progress" can be selected as dependencies. Search + paging
+  // are handled entirely inside the standalone DependencyModal.
   const availableTasksForDeps = useMemo(() => {
-    const query = depSearch.trim().toLowerCase();
-    const nonCompleted = allMappedTasks.filter((t) => t.status !== "Completed");
-    if (!query) return nonCompleted;
-    return nonCompleted.filter((t) => t.title.toLowerCase().includes(query));
-  }, [allMappedTasks, depSearch]);
-
-  const displayedDepsTasks = useMemo(() => {
-    return availableTasksForDeps.slice(0, depVisibleCount);
-  }, [availableTasksForDeps, depVisibleCount]);
+    const selectable = allMappedTasks.filter(
+      (t) => t.status === "Pending" || t.status === "In-Progress",
+    );
+    return selectable;
+  }, [allMappedTasks]);
 
   const handlePickFiles = (files: SelectedFile[]) => {
     setAttachments((prev) => [...prev, ...files]);
@@ -590,9 +585,7 @@ export default function CreateTaskModal({
     setRecurringAnnualDate("");
     setAttachments([]);
     setSelectedDependencies([]);
-    setDepSearch("");
-    setDepFocused(false);
-    setDepVisibleCount(20);
+    setDependenciesModalVisible(false);
     setCriticalPopupVisible(false);
     setOrderModalVisible(false);
     pendingPayloadRef.current = null;
@@ -1390,6 +1383,39 @@ export default function CreateTaskModal({
                     : "Recurring Task"}
                 </Text>
               </TouchableOpacity>
+
+              {/* 4. Dependencies Chip */}
+              <TouchableOpacity
+                style={[
+                  styles.designChip,
+                  selectedDependencies.length > 0 && styles.designChipDark,
+                ]}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setActivePanel(null);
+                  setDependenciesModalVisible(true);
+                }}
+              >
+                <Ionicons
+                  name="git-compare-outline"
+                  size={16}
+                  color={
+                    selectedDependencies.length > 0 ? "#FFF" : "#6B7280"
+                  }
+                />
+                <Text
+                  allowFontScaling={false}
+                  style={[
+                    styles.designChipText,
+                    selectedDependencies.length > 0 &&
+                      styles.designChipTextWhite,
+                  ]}
+                >
+                  {selectedDependencies.length > 0
+                    ? `${selectedDependencies.length} Dep${selectedDependencies.length > 1 ? "s" : ""}`
+                    : "Dependencies"}
+                </Text>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.attachInlineRow}>
@@ -1902,128 +1928,15 @@ export default function CreateTaskModal({
           </Pressable>
         )}
 
-        {/* ── Center Popup: Dependencies Modal ── */}
-        {dependenciesModalVisible && (
-          <Pressable
-            style={[styles.centerModalOverlay, styles.absoluteCenterOverlay]}
-            onPress={() => setDependenciesModalVisible(false)}
-          >
-            <Pressable style={styles.centerModalCard} onPress={() => {}}>
-              <View style={styles.centerModalHeader}>
-                <Text style={styles.centerModalTitle}>Select Dependencies</Text>
-                <TouchableOpacity
-                  onPress={() => setDependenciesModalVisible(false)}
-                  hitSlop={8}
-                >
-                  <Ionicons name="close" size={20} color="#1D1D1D" />
-                </TouchableOpacity>
-              </View>
-
-              <View
-                style={[
-                  styles.depSearchWrap,
-                  depFocused && styles.searchWrapActive,
-                  { marginBottom: 12 },
-                ]}
-              >
-                <Ionicons
-                  name="search-outline"
-                  size={18}
-                  color={
-                    depFocused || depSearch.length > 0 ? "#1D1D1D" : "#AAAAAA"
-                  }
-                  style={styles.depSearchIcon}
-                />
-                <TextInput
-                  style={styles.depSearchInput}
-                  value={depSearch}
-                  onChangeText={setDepSearch}
-                  onFocus={() => setDepFocused(true)}
-                  onBlur={() => setDepFocused(false)}
-                  placeholder="Search tasks..."
-                  placeholderTextColor="#AAAAAA"
-                />
-              </View>
-
-              {displayedDepsTasks.length === 0 ? (
-                <View style={styles.depEmpty}>
-                  <Text style={styles.depEmptyText}>No tasks found</Text>
-                </View>
-              ) : (
-                <ScrollView
-                  style={{ maxHeight: 280 }}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {displayedDepsTasks.map((task, index) => {
-                    const taskId = Number(task.id);
-                    const isSelected = selectedDependencies.includes(taskId);
-                    const titleWords = task.title.trim().split(/\s+/);
-                    const initials =
-                      (
-                        (titleWords[0]?.[0] ?? "") + (titleWords[1]?.[0] ?? "")
-                      ).toUpperCase() ||
-                      task.assignedToInitials ||
-                      "SB";
-                    const isLast = index === displayedDepsTasks.length - 1;
-
-                    return (
-                      <TouchableOpacity
-                        key={task.id}
-                        style={[
-                          styles.depTaskRow,
-                          isLast && { borderBottomWidth: 0 },
-                          isSelected && styles.depTaskRowSelected,
-                        ]}
-                        onPress={() => handleToggleDependency(taskId)}
-                      >
-                        <View style={styles.depTaskAvatar}>
-                          <Text style={styles.depTaskAvatarText}>
-                            {initials}
-                          </Text>
-                        </View>
-                        <Text style={styles.depTaskTitle} numberOfLines={1}>
-                          {task.title}
-                        </Text>
-                        {isSelected && (
-                          <Ionicons
-                            name="checkmark-circle"
-                            size={18}
-                            color="#0DDFAB"
-                          />
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                  {depVisibleCount < availableTasksForDeps.length && (
-                    <TouchableOpacity
-                      style={{ paddingVertical: 12, alignItems: "center" }}
-                      onPress={() => setDepVisibleCount((prev) => prev + 20)}
-                    >
-                      <Text
-                        style={{
-                          fontSize: rf(13),
-                          color: "#0DDFAB",
-                          fontFamily: "SF_Pro_Semibold",
-                        }}
-                      >
-                        Load More Tasks (
-                        {availableTasksForDeps.length - depVisibleCount}{" "}
-                        remaining)
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </ScrollView>
-              )}
-
-              <TouchableOpacity
-                style={styles.doneBtn}
-                onPress={() => setDependenciesModalVisible(false)}
-              >
-                <Text style={styles.doneBtnText}>Done</Text>
-              </TouchableOpacity>
-            </Pressable>
-          </Pressable>
-        )}
+        {/* ── Dependencies Modal (standalone native Modal, blurs everything
+              behind it and owns its own scroll + keyboard handling) ── */}
+        <DependencyModal
+          visible={dependenciesModalVisible}
+          onClose={() => setDependenciesModalVisible(false)}
+          availableTasks={availableTasksForDeps}
+          selectedIds={selectedDependencies}
+          onToggle={handleToggleDependency}
+        />
 
         {/* ── Critical Task: Conflict Popup ──
               Rendered as a sibling overlay for the same reason as the

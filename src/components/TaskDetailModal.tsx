@@ -22,12 +22,13 @@ import {
   formatShortDate,
 } from "@/utils/dateFormat";
 import { rf } from "@/utils/responsive";
-import { apiStatusToUi, truncateName } from "@/utils/statusMapper";
+import { apiStatusToUi } from "@/utils/statusMapper";
 import { showError } from "@/utils/toast";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
+  BottomSheetScrollView,
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -45,7 +46,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import CalendarPicker from "./CalendarPicker";
 import RejectTaskModal from "./RejectTaskModal";
-import { STATUS_COLORS, StatusType } from "./TaskRow";
+import { STATUS_COLORS, StatusType, TaskRowProps } from "./TaskRow";
+import SingleTaskTable from "./SingleTaskTable";
 
 const SNAP_POINTS = ["94%"];
 
@@ -55,6 +57,10 @@ export type DependencyDisplay = {
   createdBy: string;
   status: string;
   dueDate: string;
+  priority: string;
+  priorityColor: string;
+  createdByImage?: string | null;
+  assignedToImage?: string | null;
 };
 
 export type TaskDetail = {
@@ -104,101 +110,12 @@ const AVAILABLE_STATUSES = [
   "Rejected",
 ];
 
-const COL = {
-  title: 150,
-  assignedTo: 120,
-  createdBy: 120,
-  status: 100,
-  dueDate: 110,
-};
-
-function getInitials(name: string): string {
+function getDependencyInitials(name: string): string {
   if (!name || name === "-") return "?";
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0][0].toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function SectionTable({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: DependencyDisplay[];
-}) {
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        keyboardShouldPersistTaps="always"
-        nestedScrollEnabled
-      >
-        <View>
-          <View style={styles.tblHeader}>
-            {/* Matches tblAccent's width+margin and tblCheckbox's
-                width+margin below, so the column headings line up with the
-                row data. */}
-            <View style={{ width: 11 + 16 + 8 }} />
-            <Text style={[styles.tblHeadCell, { width: COL.title }]}>
-              Task Title
-            </Text>
-            <Text style={[styles.tblHeadCell, { width: COL.createdBy }]}>
-              Created By
-            </Text>
-            <Text style={[styles.tblHeadCell, { width: COL.dueDate }]}>
-              Due Date
-            </Text>
-          </View>
-          {rows.map((row, i) => (
-            <View key={i} style={styles.tblRow}>
-              <View style={styles.tblAccent} />
-              <View
-                style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: 3,
-                  borderWidth: 1,
-                  borderColor: "#D1D5DB",
-                  marginRight: 6,
-                }}
-              />
-              <Text
-                style={[styles.tblCell, { width: COL.title }]}
-                numberOfLines={1}
-              >
-                {row.title}
-              </Text>
-              <View style={[styles.tblCreatedBy, { width: COL.createdBy }]}>
-                <View style={styles.tblAvatar}>
-                  <Text style={styles.tblAvatarText}>
-                    {getInitials(row.createdBy)}
-                  </Text>
-                </View>
-                <Text
-                  style={[styles.tblCell, { flexShrink: 1 }]}
-                  numberOfLines={1}
-                >
-                  {row.createdBy}
-                </Text>
-              </View>
-              <View style={[styles.tblDueDate, { width: COL.dueDate }]}>
-                <Ionicons
-                  name="calendar-outline"
-                  size={14}
-                  color="#00DEAB"
-                  style={{ marginRight: 4 }}
-                />
-                <Text style={styles.tblCell}>{row.dueDate}</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      </ScrollView>
-    </View>
-  );
 }
 
 function formatNoteDate(dateInput?: any): string {
@@ -1118,12 +1035,33 @@ export default function TaskDetailModal({
     dependencies.length > 0
       ? dependencies.map((d) => ({
           title: d.title,
-          assignedTo: truncateName(d.assigned_to?.full_name ?? "-"),
-          createdBy: truncateName(d.created_by?.full_name ?? "-"),
-          status: d.status,
+          assignedTo: d.assigned_to?.full_name ?? "-",
+          createdBy: d.created_by?.full_name ?? "-",
+          status: apiStatusToUi(d.status as any) ?? d.status,
           dueDate: formatApiDate(d.due_date),
+          priority: d.priority_name ?? "Normal",
+          priorityColor: d.priority_color || "#0DDFAB",
+          createdByImage: d.created_by?.image ?? null,
+          assignedToImage: d.assigned_to?.image ?? null,
         }))
       : task.dependencies;
+
+  const depRows: TaskRowProps[] = depDisplay.map((d, idx) => ({
+    id: `dep-${idx}`,
+    title: d.title,
+    createdBy: d.createdBy,
+    createdByInitials: getDependencyInitials(d.createdBy),
+    createdByAvatar: d.createdByImage ?? undefined,
+    assignedTo: d.assignedTo,
+    assignedToInitials: getDependencyInitials(d.assignedTo),
+    assignedToAvatar: d.assignedToImage ?? undefined,
+    dueDate: d.dueDate,
+    status: (d.status as StatusType) || "Pending",
+    priorityName: d.priority,
+    taskPriority:
+      d.priority?.toLowerCase() === "critical" ? "critical" : "normal",
+    canEditStatus: false,
+  }));
 
   const attachmentFiles: string[] =
     apiTask?.task_attachments?.map((a) => a.attachment) ?? task.attachments;
@@ -1250,13 +1188,12 @@ export default function TaskDetailModal({
                 style={{ marginTop: 40 }}
               />
             ) : (
-              <View style={{ flex: 1 }}>
-                <ScrollView
+              <View style={{ flex: 1, minHeight: 0 }}>
+                <BottomSheetScrollView
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={styles.detailsScroll}
                   keyboardShouldPersistTaps="handled"
                   nestedScrollEnabled
-                  scrollEventThrottle={16}
                   bounces={true}
                   overScrollMode="always"
                 >
@@ -1673,12 +1610,12 @@ export default function TaskDetailModal({
                   {/* Direct Editable Description */}
                   <View style={styles.section}>
                     <View style={styles.descHeaderRow}>
-                      <Ionicons
+                      {/* <Ionicons
                         name="document-text-outline"
                         size={16}
                         color="#8E8E93"
                         style={{ marginRight: 6 }}
-                      />
+                      /> */}
                       <Text style={styles.sectionTitle}>Description</Text>
                     </View>
                     <View style={styles.descBadgeChip}>
@@ -1705,8 +1642,15 @@ export default function TaskDetailModal({
                     />
                   </View>
 
-                  {depDisplay.length > 0 && (
-                    <SectionTable title="Dependencies" rows={depDisplay} />
+                  {depRows.length > 0 && (
+                    <View style={styles.dependencyTableWrap}>
+                      <SingleTaskTable
+                        sectionTitle="Dependencies"
+                        tasks={depRows}
+                        contained
+                        canReassign={false}
+                      />
+                    </View>
                   )}
 
                   {/* Bottom Attachments Button */}
@@ -1744,7 +1688,7 @@ export default function TaskDetailModal({
                       </ScrollView>
                     </View>
                   )}
-                </ScrollView>
+                </BottomSheetScrollView>
               </View>
             )}
           </View>
@@ -2752,6 +2696,9 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   badgeText: { fontSize: rf(11), fontFamily: "SF_Pro_Medium" },
+  dependencyTableWrap: {
+    marginTop: 18,
+  },
   depPill: {
     backgroundColor: "#F0FFF8",
     borderRadius: 6,
@@ -2791,61 +2738,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   descBadgeText: { fontSize: rf(11), color: "#fff" },
-  tblHeader: {
-    flexDirection: "row",
-    backgroundColor: "#E6E6E6",
-    borderRadius: 8,
-    paddingVertical: 7,
-    marginBottom: 2,
-    alignItems: "center",
-  },
-  tblHeadCell: {
-    fontSize: rf(11),
-    fontFamily: "SF_Pro_Medium",
-    color: "#1D1D1D",
-    paddingRight: 8,
-  },
-  tblRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    minHeight: 42,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-    backgroundColor: "#fff",
-  },
-  tblAccent: {
-    width: 3,
-    alignSelf: "stretch",
-    borderRadius: 5,
-    backgroundColor: "#EF4444",
-    marginRight: 8,
-  },
-  tblCheckbox: {
-    width: 16,
-    height: 16,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    backgroundColor: "#fff",
-    marginRight: 8,
-  },
-  tblCell: {
-    fontSize: rf(11),
-    color: "#1D1D1D",
-    fontFamily: "SF_Pro_Regular",
-    paddingRight: 8,
-  },
-  tblCreatedBy: { flexDirection: "row", alignItems: "center", gap: 6 },
-  tblAvatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 5,
-    backgroundColor: "#00DEAB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tblAvatarText: { fontSize: rf(10), fontWeight: "700", color: "#fff" },
-  tblDueDate: { flexDirection: "row", alignItems: "center" },
   attachHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -2869,6 +2761,7 @@ const styles = StyleSheet.create({
   },
   tabContent: {
     flex: 1,
+    minHeight: 0,
     backgroundColor: "#F9F9F9",
     borderTopRightRadius: 12,
     paddingHorizontal: 16,

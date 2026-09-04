@@ -49,6 +49,10 @@ example
 
 # project-specific
 errors_paste.md
+
+# debug/scratch files
+_scratch_screen.*
+src/app/table-debug.tsx
 PLANIT_Backend_API_Documentation_VERBATIM_MASTER.md
 api_integrationprompt.md
 answers/

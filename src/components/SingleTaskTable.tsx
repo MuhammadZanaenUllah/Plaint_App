@@ -79,6 +79,13 @@ function getOwnerInitials(owner: AssignableOwner): string {
   return parts[0]?.[0]?.toUpperCase() ?? "?";
 }
 
+export type SingleTaskTableColumn =
+  | "title"
+  | "createdBy"
+  | "assignedTo"
+  | "dueDate"
+  | "status";
+
 type Props = {
   sectionTitle: string;
   tasks: TaskRowProps[];
@@ -100,6 +107,19 @@ type Props = {
   canReassign?: boolean;
   assignableOwners?: AssignableOwner[];
   onAssigneeChange?: (task: TaskRowProps, owner: AssignableOwner) => void;
+  // Optional column configuration. When omitted, the classic task layout is
+  // used (Title / Created By / Due Date, fitted to the window without
+  // horizontal scrolling). When provided, only the listed columns render —
+  // in the given order — and the table becomes horizontally scrollable if
+  // the combined widths exceed the available width.
+  columns?: SingleTaskTableColumn[];
+  columnHeadings?: Partial<Record<SingleTaskTableColumn, string>>;
+  // When true, the leading completion checkbox and the swipe-to-change
+  // affordances are suppressed so the table is purely read-only.
+  readOnly?: boolean;
+  // When true, the table fills its parent width cleanly (no edge-flush
+  // compensation) — for embedding inside a padded container like a modal.
+  contained?: boolean;
 };
 
 type SwipeStage = "actions" | "details";
@@ -118,6 +138,20 @@ const MAX_TABLE_WIDTH = 640;
 const MIN_TABLE_WIDTH = 320;
 const SWIPE_GREEN = "#00DFAB";
 
+export const DEFAULT_COLUMNS: SingleTaskTableColumn[] = [
+  "title",
+  "createdBy",
+  "dueDate",
+];
+
+const DEFAULT_COLUMN_HEADINGS: Record<SingleTaskTableColumn, string> = {
+  title: "Task Title",
+  createdBy: "Created By",
+  assignedTo: "Assigned To",
+  dueDate: "Due Date",
+  status: "Status",
+};
+
 function getTaskKey(task: TaskRowProps, index: number) {
   return task.id ?? `${index}:${task.title}:${task.dueDate}`;
 }
@@ -127,7 +161,16 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function getTableMetrics(windowWidth: number) {
+function getTableMetrics(
+  windowWidth: number,
+  columns: SingleTaskTableColumn[],
+  contained: boolean,
+) {
+  const isDefaultLayout =
+    columns.length === 3 &&
+    columns[0] === "title" &&
+    columns[1] === "createdBy" &&
+    columns[2] === "dueDate";
   // Governs the header bar, section header, and data columns (title/created
   // by/due date) — unchanged from the original symmetric 16px-each-side inset,
   // so none of that sizing shifts.
@@ -143,24 +186,73 @@ function getTableMetrics(windowWidth: number) {
   // `leftCompensation` below). On wide/web screens where this clamps to
   // MAX_TABLE_WIDTH, keep the original centered-card treatment instead.
   const naturalTableWidth = windowWidth;
-  const tableWidth = Math.max(
-    MIN_TABLE_WIDTH,
-    Math.min(naturalTableWidth, MAX_TABLE_WIDTH),
-  );
-  const tableWidthClamped = tableWidth !== naturalTableWidth;
+  const tableWidth = contained
+    ? insetTableWidth
+    : Math.max(MIN_TABLE_WIDTH, Math.min(naturalTableWidth, MAX_TABLE_WIDTH));
+  const tableWidthClamped = contained
+    ? tableWidth !== insetTableWidth
+    : tableWidth !== naturalTableWidth;
   // Only needed in the unclamped case — compensates the parent tableShell's
   // left padding so visible content (headers, row data) lands exactly where
-  // it did before, while the container box itself now starts at the true
-  // screen edge.
-  const leftCompensation = tableWidthClamped ? 0 : 16;
+  // it did before. In `contained` mode the parent supplies its own padding,
+  // so there's nothing to compensate.
+  const leftCompensation = contained ? 0 : tableWidthClamped ? 0 : 16;
   const innerPadding = 6;
-  const contentWidth = insetTableWidth - innerPadding * 2;
   const leadingWidth = 32;
   const actionWidth = 26;
-  const dataWidth = contentWidth - leadingWidth - actionWidth;
-  const dueDateWidth = Math.max(105, Math.round(dataWidth * 0.32));
-  const createdByWidth = Math.max(100, Math.round(dataWidth * 0.31));
-  const titleWidth = Math.max(85, dataWidth - dueDateWidth - createdByWidth);
+
+  // Per-column minimums/weights are used for the classic fitted (fits-the-
+  // window, no-scroll) layouts. Custom layouts use fixed generous widths and
+  // scroll horizontally because 5 columns can't comfortably fit one screen.
+  const COL_WEIGHT: Record<SingleTaskTableColumn, number> = {
+    title: 1.6,
+    createdBy: 1.1,
+    assignedTo: 1.1,
+    dueDate: 0.8,
+    status: 0.8,
+  };
+  const COL_MIN: Record<SingleTaskTableColumn, number> = {
+    title: 85,
+    createdBy: 90,
+    assignedTo: 90,
+    dueDate: 95,
+    status: 80,
+  };
+  const FIXED_COL_WIDTHS: Record<SingleTaskTableColumn, number> = {
+    title: 220,
+    createdBy: 160,
+    assignedTo: 160,
+    dueDate: 150,
+    status: 130,
+  };
+
+  const dataWidth = insetTableWidth - innerPadding * 2 - leadingWidth - actionWidth;
+  const columnKeys = isDefaultLayout ? DEFAULT_COLUMNS : columns;
+  const columnWidths: Partial<Record<SingleTaskTableColumn, number>> = {};
+  let needsHScroll = false;
+  let fullTableWidth = tableWidth;
+
+  if (isDefaultLayout) {
+    const totalWeight = columnKeys.reduce((sum, k) => sum + COL_WEIGHT[k], 0);
+    const totalMin = columnKeys.reduce((sum, k) => sum + COL_MIN[k], 0);
+    const excess = Math.max(0, dataWidth - totalMin);
+    for (const k of columnKeys) {
+      columnWidths[k] = Math.round(
+        COL_MIN[k] + (COL_WEIGHT[k] / totalWeight) * excess,
+      );
+    }
+  } else {
+    let sum = 0;
+    for (const k of columnKeys) {
+      columnWidths[k] = FIXED_COL_WIDTHS[k];
+      sum += FIXED_COL_WIDTHS[k];
+    }
+    const required = innerPadding * 2 + leadingWidth + sum + actionWidth;
+    needsHScroll = required > insetTableWidth;
+    if (needsHScroll) {
+      fullTableWidth = required;
+    }
+  }
 
   return {
     tableWidth,
@@ -168,13 +260,13 @@ function getTableMetrics(windowWidth: number) {
     leftCompensation,
     innerPadding,
     leadingWidth,
-    titleWidth,
-    createdByWidth,
-    dueDateWidth,
     actionWidth,
-    // No separate cap — the "details" panel always spans the full row width
-    // so its back-arrow always reaches the true left edge on every device
-    // size, matching the closed row's chevron on the right.
+    columnWidths,
+    needsHScroll,
+    fullTableWidth,
+    // The "details" panel spans the visible table width so its back-arrow
+    // always reaches the true left edge on every device size, matching the
+    // closed row's chevron on the right.
     swipeContentWidth: tableWidth,
   };
 }
@@ -265,9 +357,25 @@ function SingleTaskTable({
   canReassign = false,
   assignableOwners = [],
   onAssigneeChange,
+  columns,
+  columnHeadings,
+  readOnly = false,
+  contained = false,
 }: Props) {
   const { width: windowWidth } = useWindowDimensions();
-  const metrics = useMemo(() => getTableMetrics(windowWidth), [windowWidth]);
+  const effectiveColumns = useMemo(
+    () => columns ?? DEFAULT_COLUMNS,
+    [columns],
+  );
+  const headingFor = useCallback(
+    (key: SingleTaskTableColumn) =>
+      columnHeadings?.[key] ?? DEFAULT_COLUMN_HEADINGS[key],
+    [columnHeadings],
+  );
+  const metrics = useMemo(
+    () => getTableMetrics(windowWidth, effectiveColumns, contained),
+    [windowWidth, effectiveColumns, contained],
+  );
   const [statusOverrides, setStatusOverrides] = useState<StatusOverrides>({});
   const [assigneeOverrides, setAssigneeOverrides] = useState<AssigneeOverrides>(
     {},
@@ -471,8 +579,14 @@ function SingleTaskTable({
       style={[
         styles.container,
         {
-          width: metrics.tableWidth,
-          alignSelf: metrics.tableWidthClamped ? "center" : "flex-end",
+          width: metrics.needsHScroll
+            ? metrics.fullTableWidth
+            : metrics.tableWidth,
+          alignSelf: contained
+            ? "stretch"
+            : metrics.tableWidthClamped
+              ? "center"
+              : "flex-end",
         },
       ]}
     >
@@ -481,23 +595,6 @@ function SingleTaskTable({
       >
         <View style={{ flex: 1 }}>
           <Text style={styles.sectionTitle}>{sectionTitle}</Text>
-          {/* <View style={styles.syncSubRow}>
-            <Animated.View style={refreshing ? syncIconAnimStyle : undefined}>
-              <Ionicons
-                name="sync-outline"
-                size={12}
-                color={refreshing ? "#00DEAB" : "#9CA3AF"}
-              />
-            </Animated.View>
-            <Text
-              style={[
-                styles.syncSubText,
-                refreshing && styles.syncSubTextActive,
-              ]}
-            >
-              {refreshing ? "Syncing tasks..." : `Updated ${timeAgoText}`}
-            </Text>
-          </View> */}
         </View>
 
         {onFilterPress ? (
@@ -525,117 +622,182 @@ function SingleTaskTable({
         ) : null}
       </View>
 
-      <View
-        style={[
-          styles.tableHeader,
-          {
-            paddingHorizontal: metrics.innerPadding,
-            marginLeft: metrics.leftCompensation,
-          },
-        ]}
-      >
-        <View style={{ width: 24 }} />
-        <Text style={[styles.colHead, { width: metrics.titleWidth }]}>
-          Task Title
-        </Text>
-        <Text style={[styles.colHead, { width: metrics.createdByWidth }]}>
-          Created By
-        </Text>
-        <Text style={[styles.colHead, { width: metrics.dueDateWidth }]}>
-          Due Date
-        </Text>
-        <View style={{ width: metrics.actionWidth }} />
-      </View>
+      {readOnly ? (
+        /* Read-only table (e.g. dependencies) — horizontally scrollable so
+           every configured column gets its own space and never overlaps. The
+           enclosing parent scroll view handles vertical scrolling. */
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          nestedScrollEnabled
+          contentContainerStyle={{
+            paddingBottom: 8,
+          }}
+        >
+          <View style={{ width: metrics.fullTableWidth }}>
+            <View
+              style={[
+                styles.tableHeader,
+                { paddingHorizontal: metrics.innerPadding },
+              ]}
+            >
+              <View style={{ width: 24 }} />
+              {effectiveColumns.map((key) => (
+                <Text
+                  key={key}
+                  style={[styles.colHead, { width: metrics.columnWidths[key] }]}
+                >
+                  {headingFor(key)}
+                </Text>
+              ))}
+              <View style={{ width: metrics.actionWidth }} />
+            </View>
 
-      {/* Custom Pull-To-Refresh Badge */}
-      <CustomPullToRefreshBadge
-        pullDistance={pullDistance}
-        refreshing={refreshing}
-      />
-
-      <ScrollView
-        ref={rowsScrollRef}
-        showsVerticalScrollIndicator={false}
-        style={styles.rowsScroll}
-        contentContainerStyle={styles.rowsScrollContent}
-        keyboardShouldPersistTaps="always"
-        scrollEnabled={shouldEnableRowScroll}
-        bounces={shouldEnableRowScroll || !!onRefresh}
-        alwaysBounceVertical={!!onRefresh}
-        onLayout={(event) =>
-          setRowViewportHeight(event.nativeEvent.layout.height)
-        }
-        onContentSizeChange={(_width, height) => setRowContentHeight(height)}
-        onScroll={handleScroll}
-        onScrollBeginDrag={() => setScrollCloseSignal((n) => n + 1)}
-        scrollEventThrottle={16}
-        nestedScrollEnabled
-        refreshControl={
-          onRefresh ? (
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={["transparent"]}
-              tintColor="transparent"
-              progressBackgroundColor="transparent"
-              progressViewOffset={Platform.OS === "android" ? -1000 : undefined}
-            />
-          ) : undefined
-        }
-      >
-        {loading ? (
-          <View style={styles.centeredState}>
-            <ActivityIndicator size="small" color="#00DEAB" />
+            {loading ? (
+              <View style={styles.centeredState}>
+                <ActivityIndicator size="small" color="#00DEAB" />
+              </View>
+            ) : augmentedTasks.length === 0 ? (
+              <View style={styles.centeredState}>
+                <Text style={styles.emptyText}>{emptyText}</Text>
+              </View>
+            ) : (
+              augmentedTasks.map((task, rowIndex) => (
+                <ReadOnlyRow
+                  key={getTaskKey(task, rowIndex)}
+                  item={task}
+                  columns={effectiveColumns}
+                  columnWidths={metrics.columnWidths}
+                  leadingWidth={metrics.leadingWidth}
+                  innerPadding={metrics.innerPadding}
+                  onTaskPress={onTaskPress}
+                />
+              ))
+            )}
           </View>
-        ) : null}
+        </ScrollView>
+      ) : (
+        <>
+          {/* Custom Pull-To-Refresh Badge */}
+          <CustomPullToRefreshBadge
+            pullDistance={pullDistance}
+            refreshing={refreshing}
+          />
 
-        {!loading && augmentedTasks.length === 0 ? (
-          <View style={styles.centeredState}>
-            <Text style={styles.emptyText}>{emptyText}</Text>
+          <View
+            style={[
+              styles.tableHeader,
+              {
+                paddingHorizontal: metrics.innerPadding,
+                marginLeft: metrics.leftCompensation,
+              },
+            ]}
+          >
+            <View style={{ width: 24 }} />
+            {effectiveColumns.map((key) => (
+              <Text
+                key={key}
+                style={[styles.colHead, { width: metrics.columnWidths[key] }]}
+              >
+                {headingFor(key)}
+              </Text>
+            ))}
+            <View style={{ width: metrics.actionWidth }} />
           </View>
-        ) : null}
 
-        {!loading
-          ? augmentedTasks.map((task, rowIndex) => (
-              <SwipeTaskRow
-                key={getTaskKey(task, rowIndex)}
-                item={task}
-                rowIndex={rowIndex}
-                metrics={metrics}
-                isOpen={openSwipeRow?.index === rowIndex}
-                stage={
-                  openSwipeRow?.index === rowIndex ? openSwipeRow.stage : null
-                }
-                onOpenSwipe={openSwipe}
-                onCloseSwipe={closeSwipe}
-                onSwipeDragStateChange={setIsSwipeDragging}
-                onTaskPress={onTaskPress}
-                onCommentPress={onCommentPress}
-                onToggleComplete={handleToggleComplete}
-                onStatusChange={handleStatusChange}
-                isPreviewOpen={previewRowIndex === rowIndex}
-                onPreviewStart={() => setPreviewRowIndex(rowIndex)}
-                onPreviewEnd={() => setPreviewRowIndex(null)}
-                canReassign={canReassign}
-                assignableOwners={assignableOwners}
-                onAssigneeSelect={(owner) =>
-                  handleAssigneeChange(task, rowIndex, owner)
-                }
-                scrollCloseSignal={scrollCloseSignal}
-              />
-            ))
-          : null}
-
-        {!loading && augmentedTasks.length > 0 ? (
-          <View style={styles.footerState}>
-            {loadingMore ? (
-              <ActivityIndicator size="small" color="#00DEAB" />
-            ) : !hasMore ? (
-              <>{/* <Text style={styles.footerText}>End of list</Text> */}</>
+          <ScrollView
+            ref={rowsScrollRef}
+            showsVerticalScrollIndicator={false}
+            style={styles.rowsScroll}
+            contentContainerStyle={styles.rowsScrollContent}
+            keyboardShouldPersistTaps="always"
+            scrollEnabled={shouldEnableRowScroll}
+            bounces={shouldEnableRowScroll || !!onRefresh}
+            alwaysBounceVertical={!!onRefresh}
+            onLayout={(event) =>
+              setRowViewportHeight(event.nativeEvent.layout.height)
+            }
+            onContentSizeChange={(_width, height) =>
+              setRowContentHeight(height)
+            }
+            onScroll={handleScroll}
+            onScrollBeginDrag={() => setScrollCloseSignal((n) => n + 1)}
+            scrollEventThrottle={16}
+            nestedScrollEnabled
+            refreshControl={
+              onRefresh ? (
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  colors={["transparent"]}
+                  tintColor="transparent"
+                  progressBackgroundColor="transparent"
+                  progressViewOffset={
+                    Platform.OS === "android" ? -1000 : undefined
+                  }
+                />
+              ) : undefined
+            }
+          >
+            {loading ? (
+              <View style={styles.centeredState}>
+                <ActivityIndicator size="small" color="#00DEAB" />
+              </View>
             ) : null}
-          </View>
-        ) : null}
-      </ScrollView>
+
+            {!loading && augmentedTasks.length === 0 ? (
+              <View style={styles.centeredState}>
+                <Text style={styles.emptyText}>{emptyText}</Text>
+              </View>
+            ) : null}
+
+            {!loading
+              ? augmentedTasks.map((task, rowIndex) => (
+                  <SwipeTaskRow
+                    key={getTaskKey(task, rowIndex)}
+                    item={task}
+                    rowIndex={rowIndex}
+                    metrics={metrics}
+                    isOpen={openSwipeRow?.index === rowIndex}
+                    stage={
+                      openSwipeRow?.index === rowIndex
+                        ? openSwipeRow.stage
+                        : null
+                    }
+                    onOpenSwipe={openSwipe}
+                    onCloseSwipe={closeSwipe}
+                    onSwipeDragStateChange={setIsSwipeDragging}
+                    onTaskPress={onTaskPress}
+                    onCommentPress={onCommentPress}
+                    onToggleComplete={handleToggleComplete}
+                    onStatusChange={handleStatusChange}
+                    isPreviewOpen={previewRowIndex === rowIndex}
+                    onPreviewStart={() => setPreviewRowIndex(rowIndex)}
+                    onPreviewEnd={() => setPreviewRowIndex(null)}
+                    canReassign={canReassign}
+                    assignableOwners={assignableOwners}
+                    onAssigneeSelect={(owner) =>
+                      handleAssigneeChange(task, rowIndex, owner)
+                    }
+                    scrollCloseSignal={scrollCloseSignal}
+                    columns={effectiveColumns}
+                    readOnly={readOnly}
+                  />
+                ))
+              : null}
+
+            {!loading && augmentedTasks.length > 0 ? (
+              <View style={styles.footerState}>
+                {loadingMore ? (
+                  <ActivityIndicator size="small" color="#00DEAB" />
+                ) : !hasMore ? (
+                  <>{/* <Text style={styles.footerText}>End of list</Text> */}</>
+                ) : null}
+              </View>
+            ) : null}
+          </ScrollView>
+        </>
+      )}
     </View>
   );
 }
@@ -675,6 +837,8 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
   assignableOwners,
   onAssigneeSelect,
   scrollCloseSignal,
+  columns,
+  readOnly,
 }: {
   item: TaskRowProps;
   rowIndex: number;
@@ -699,6 +863,8 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
   canReassign?: boolean;
   assignableOwners?: AssignableOwner[];
   onAssigneeSelect: (owner: AssignableOwner) => void;
+  columns: SingleTaskTableColumn[];
+  readOnly?: boolean;
 }) {
   const translateX = useSharedValue(0);
   const gestureStartX = useSharedValue(0);
@@ -885,27 +1051,23 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
               item={item}
               width={metrics.leadingWidth}
               isExpanded={isPreviewOpen}
+              readOnly={readOnly}
               onToggle={() => onToggleComplete(item, rowIndex)}
             />
-            <TaskCellContent
-              item={item}
-              columnKey="title"
-              width={metrics.titleWidth}
-              onPress={() => onTaskPress?.(item)}
-              onLongPressStart={onPreviewStart}
-              onLongPressEnd={onPreviewEnd}
-            />
-            <TaskCellContent
-              item={item}
-              columnKey="createdBy"
-              width={metrics.createdByWidth}
-            />
-            <TaskCellContent
-              item={item}
-              columnKey="dueDate"
-              width={metrics.dueDateWidth}
-            />
-            {currentStage === null && (
+            {columns.map((key) => (
+              <TaskCellContent
+                key={key}
+                item={item}
+                columnKey={key}
+                width={metrics.columnWidths[key]!}
+                onPress={key === "title" ? () => onTaskPress?.(item) : undefined}
+                onLongPressStart={
+                  key === "title" ? onPreviewStart : undefined
+                }
+                onLongPressEnd={key === "title" ? onPreviewEnd : undefined}
+              />
+            ))}
+            {!readOnly && currentStage === null && (
               <TouchableOpacity
                 style={styles.actionPress}
                 onPress={() => onOpenSwipe(rowIndex, "actions")}
@@ -921,15 +1083,58 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
   );
 });
 
+// Plain, non-interactive row used for read-only tables (e.g. dependency
+// lists). No swipe gesture, no chevron — so an enclosing horizontal scroll
+// view is never contested by row pan gestures.
+const ReadOnlyRow = memo(function ReadOnlyRow({
+  item,
+  columns,
+  columnWidths,
+  leadingWidth,
+  innerPadding,
+  onTaskPress,
+}: {
+  item: TaskRowProps;
+  columns: SingleTaskTableColumn[];
+  columnWidths: Partial<Record<SingleTaskTableColumn, number>>;
+  leadingWidth: number;
+  innerPadding: number;
+  onTaskPress?: (task: TaskRowProps) => void;
+}) {
+  return (
+    <View
+      style={[styles.row, { minHeight: ROW_HEIGHT, paddingLeft: innerPadding }]}
+    >
+      <LeadingCell
+        item={item}
+        width={leadingWidth}
+        readOnly
+        onToggle={() => {}}
+      />
+      {columns.map((key) => (
+        <TaskCellContent
+          key={key}
+          item={item}
+          columnKey={key}
+          width={columnWidths[key]!}
+          onPress={key === "title" ? () => onTaskPress?.(item) : undefined}
+        />
+      ))}
+    </View>
+  );
+});
+
 const LeadingCell = memo(function LeadingCell({
   item,
   width,
   isExpanded,
+  readOnly,
   onToggle,
 }: {
   item: TaskRowProps;
   width: number;
   isExpanded?: boolean;
+  readOnly?: boolean;
   onToggle: () => void;
 }) {
   const isCompleted = item.status === "Completed";
@@ -973,22 +1178,34 @@ const LeadingCell = memo(function LeadingCell({
         <View style={[styles.accent, { backgroundColor: accentColor }]} />
       )}
 
-      <TouchableOpacity
-        style={[styles.checkboxWrap, !canToggle && { opacity: 0.5 }]}
-        onPress={() => {
-          triggerHaptic("success");
-          onToggle();
-        }}
-        activeOpacity={0.7}
-      >
-        {isCompleted ? (
-          <View style={styles.checkCircle}>
-            <Ionicons name="checkmark" size={15} color="#fff" />
-          </View>
-        ) : (
-          <View style={styles.checkbox} />
-        )}
-      </TouchableOpacity>
+      {readOnly ? (
+        <View style={styles.checkboxWrap}>
+          {isCompleted ? (
+            <View style={styles.checkCircle}>
+              <Ionicons name="checkmark" size={15} color="#fff" />
+            </View>
+          ) : (
+            <View style={styles.checkbox} />
+          )}
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={[styles.checkboxWrap, !canToggle && { opacity: 0.5 }]}
+          onPress={() => {
+            triggerHaptic("success");
+            onToggle();
+          }}
+          activeOpacity={0.7}
+        >
+          {isCompleted ? (
+            <View style={styles.checkCircle}>
+              <Ionicons name="checkmark" size={15} color="#fff" />
+            </View>
+          ) : (
+            <View style={styles.checkbox} />
+          )}
+        </TouchableOpacity>
+      )}
     </View>
   );
 });
@@ -1002,7 +1219,7 @@ const TaskCellContent = memo(function TaskCellContent({
   onLongPressEnd,
 }: {
   item: TaskRowProps;
-  columnKey: "title" | "createdBy" | "dueDate";
+  columnKey: SingleTaskTableColumn;
   width: number;
   onPress?: () => void;
   onLongPressStart?: () => void;
@@ -1061,25 +1278,70 @@ const TaskCellContent = memo(function TaskCellContent({
     );
   }
 
+  if (columnKey === "assignedTo") {
+    return (
+      <TouchableOpacity
+        style={[styles.userCell, { width }]}
+        onPress={() => {
+          triggerHaptic("light");
+          onPress?.();
+        }}
+        activeOpacity={0.7}
+      >
+        <Avatar
+          name={item.assignedTo}
+          imagePath={item.assignedToAvatar}
+          size={24}
+          borderRadius={6}
+          fontSize={10}
+          style={styles.avatarImage}
+        />
+        <Text style={styles.cellText} numberOfLines={1}>
+          {item.assignedTo}
+        </Text>
+      </TouchableOpacity>
+    );
+  }
+
+  if (columnKey === "dueDate") {
+    return (
+      <TouchableOpacity
+        style={[styles.dateCell, { width }]}
+        onPress={() => {
+          triggerHaptic("light");
+          onPress?.();
+        }}
+        activeOpacity={0.7}
+      >
+        <Ionicons
+          name="calendar-outline"
+          size={16}
+          color="#00DEAB"
+          style={styles.dateIcon}
+        />
+        <Text style={styles.cellText} numberOfLines={1}>
+          {item.dueDate}
+        </Text>
+      </TouchableOpacity>
+    );
+  }
+
+  const statusColor = STATUS_COLORS[item.status] ?? {
+    bg: "#F3F4F6",
+    text: "#4B5563",
+  };
   return (
-    <TouchableOpacity
-      style={[styles.dateCell, { width }]}
-      onPress={() => {
-        triggerHaptic("light");
-        onPress?.();
-      }}
-      activeOpacity={0.7}
-    >
-      <Ionicons
-        name="calendar-outline"
-        size={16}
-        color="#00DEAB"
-        style={styles.dateIcon}
-      />
-      <Text style={styles.cellText} numberOfLines={1}>
-        {item.dueDate}
-      </Text>
-    </TouchableOpacity>
+    <View style={[styles.statusCell, { width }]}>
+      <View style={[styles.statusBadge, { backgroundColor: statusColor.bg }]}>
+        <Text
+          style={[styles.statusText, { color: statusColor.text }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
+          {item.status}
+        </Text>
+      </View>
+    </View>
   );
 });
 
@@ -1711,6 +1973,22 @@ const styles = StyleSheet.create({
   },
   dateIcon: {
     marginRight: 5,
+  },
+  statusCell: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  statusBadge: {
+    minHeight: 26,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  statusText: {
+    fontSize: rf(10.5),
+    fontFamily: "SF_Pro_Medium",
   },
   actionPress: {
     width: WAVE_BADGE_WIDTH,
