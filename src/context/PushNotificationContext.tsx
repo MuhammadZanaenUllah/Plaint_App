@@ -1,6 +1,8 @@
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
+import * as chatService from "@/services/api/chat.service";
 import * as pushService from "@/services/api/push.service";
+import type { Room } from "@/types/chat.types";
 import type {
   Platform,
   PushNotificationData,
@@ -398,27 +400,53 @@ export function PushNotificationProvider({
           break;
         case "chat":
           if (data.room_id) {
-            // Resolve the room from local chat state so the conversation opens
-            // with the correct name/initials and channel-vs-direct flags. The
-            // backend payload only carries `type: "chat"` + `room_id`, so the
-            // room lookup is required for DMs vs channels to render correctly.
-            const targetRoom = chatState.rooms.find(
-              (r) => r._id === data.room_id || r.id.toString() === data.room_id,
+            const roomIdStr = String(data.room_id);
+            const openChatRoom = (room: Room | undefined) => {
+              if (room) {
+                router.push({
+                  pathname: "/conversation",
+                  params: {
+                    roomId: roomIdStr,
+                    name: getRoomDisplayName(room, currentUserId),
+                    initials: getRoomInitials(room, currentUserId),
+                    isChannel: String(room.type === "channel"),
+                    roomType: room.type,
+                  },
+                });
+              } else {
+                router.push("/(tabs)/chat");
+              }
+            };
+
+            // Warm path — resolve from locally-loaded rooms so the conversation
+            // opens with the correct name/initials and channel-vs-direct flags.
+            // The backend payload only carries `type: "chat"` + `room_id`.
+            const localRoom = chatState.rooms.find(
+              (r) => r._id === roomIdStr || r.id.toString() === roomIdStr,
             );
-            if (targetRoom) {
-              router.push({
-                pathname: "/conversation",
-                params: {
-                  roomId: data.room_id,
-                  name: getRoomDisplayName(targetRoom, currentUserId),
-                  initials: getRoomInitials(targetRoom, currentUserId),
-                  isChannel: String(targetRoom.type === "channel"),
-                  roomType: targetRoom.type,
-                },
-              });
-            } else {
-              router.push("/(tabs)/chat");
+            if (localRoom) {
+              openChatRoom(localRoom);
+              break;
             }
+
+            // Cold-start path — app launched from a terminated state so rooms
+            // are not in memory yet; fetch them to deep-link straight into the
+            // tapped channel/project conversation.
+            chatService
+              .getRooms()
+              .then((res) => {
+                const freshRoom = (res?.rooms ?? []).find(
+                  (r) => r._id === roomIdStr || r.id.toString() === roomIdStr,
+                );
+                openChatRoom(freshRoom);
+              })
+              .catch((error) => {
+                console.error(
+                  "📲 [PushNotification] Failed to resolve room for chat push:",
+                  error,
+                );
+                openChatRoom(undefined);
+              });
           } else {
             router.push("/(tabs)/chat");
           }

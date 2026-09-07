@@ -2226,6 +2226,7 @@ export default function ConversationScreen() {
   const name = params.name ?? "Chat";
   const initials = params.initials ?? "C";
   const isChannel = params.isChannel === "true";
+  const showNotificationToggle = isChannel || params.roomType === "project";
   const roomId = params.roomId;
 
   const {
@@ -2245,6 +2246,7 @@ export default function ConversationScreen() {
     setSearchQuery,
     fetchPinnedMessages,
     setCurrentRoom,
+    muteRoom,
   } = useChat();
   const { typingUsers } = useChatPresence();
   const authState = useAuth();
@@ -3118,6 +3120,22 @@ export default function ConversationScreen() {
     };
   }, [setCurrentRoom]);
 
+  // Toggle push notifications for this channel/project room via the server
+  // `is_muted` flag (POST /chat/mute-room). Muted rooms skip push + in-app toasts.
+  const handleToggleMute = async () => {
+    if (!roomId) return;
+    try {
+      const muted = await muteRoom(roomId);
+      if (muted) {
+        showInfo("Notifications muted", "You won't get notified for this conversation");
+      } else {
+        showInfo("Notifications on", "You'll get notified for this conversation");
+      }
+    } catch {
+      showError("Error", "Could not update notification settings");
+    }
+  };
+
   // ── @-mention candidates (derived from the room's member list) ─────────
   const roomMembers = useMemo(
     () => (currentRoom?.members ?? []).filter((m) => m.id !== currentUserId),
@@ -3307,6 +3325,24 @@ export default function ConversationScreen() {
                   </Text>
                 </View>
               </View>
+
+              {showNotificationToggle && (
+                <TouchableOpacity
+                  hitSlop={8}
+                  onPress={handleToggleMute}
+                  style={styles.headerIconBtn}
+                >
+                  <Ionicons
+                    name={
+                      currentRoom?.is_muted
+                        ? "notifications-off"
+                        : "notifications-outline"
+                    }
+                    size={20}
+                    color={currentRoom?.is_muted ? "#9CA3AF" : "#1D1D1D"}
+                  />
+                </TouchableOpacity>
+              )}
 
               <TouchableOpacity
                 hitSlop={8}
@@ -4348,6 +4384,7 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Semibold",
   },
   headerInfo: { flex: 1 },
+  headerIconBtn: { marginLeft: 14 },
   headerName: {
     fontSize: rf(15),
     fontFamily: "SF_Pro_Medium",

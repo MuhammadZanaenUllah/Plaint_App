@@ -201,8 +201,8 @@ const perm = StyleSheet.create({
     paddingVertical: 8,
   },
   badgeCompact: {
-    paddingHorizontal: 9,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
   badgeText: {
     color: "#fff",
@@ -210,13 +210,13 @@ const perm = StyleSheet.create({
     fontFamily: "SF_Pro_Semibold",
   },
   badgeTextCompact: {
-    fontSize: rf(13),
+    fontSize: rf(12),
   },
   menu: {
     position: "absolute",
     top: 38,
     right: 0,
-    width: 260,
+    width: 210,
     backgroundColor: "#fff",
     borderRadius: 12,
     borderWidth: 1,
@@ -232,22 +232,22 @@ const perm = StyleSheet.create({
   menuItem: {
     flexDirection: "row",
     alignItems: "flex-start",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
   menuItemTitle: {
-    fontSize: rf(14),
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
   menuItemDesc: {
-    fontSize: rf(12),
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
-    marginTop: 2,
-    lineHeight: 17,
+    marginTop: 1,
+    lineHeight: 15,
   },
 });
 
@@ -296,7 +296,7 @@ function LinkTypeToggle({ forAll, onChange }: LinkTypeToggleProps) {
 
 const lt = StyleSheet.create({
   container: {
-    flexDirection: "row",
+    flexDirection: "column",
     gap: 10,
     marginBottom: 14,
   },
@@ -528,20 +528,6 @@ export default function InviteToChannelModal({
                       onChange={setPermission}
                       compact
                     />
-                    <TouchableOpacity
-                      style={[modal.inviteBtn, inviting && { opacity: 0.7 }]}
-                      activeOpacity={0.85}
-                      onPress={handleInvite}
-                      disabled={inviting}
-                    >
-                      {inviting ? (
-                        <ActivityIndicator color="#fff" size="small" />
-                      ) : (
-                        <Text style={modal.inviteBtnText}>
-                          Invite &amp; Generate Link
-                        </Text>
-                      )}
-                    </TouchableOpacity>
                   </View>
 
                   {/* ── Generate Link For ── */}
@@ -612,6 +598,24 @@ export default function InviteToChannelModal({
                   })}
 
                 </ScrollView>
+
+                {/* ── Footer: Invite & Generate Link ── */}
+                <View style={modal.footer}>
+                  <TouchableOpacity
+                    style={[modal.inviteBtn, inviting && { opacity: 0.7 }]}
+                    activeOpacity={0.85}
+                    onPress={handleInvite}
+                    disabled={inviting}
+                  >
+                    {inviting ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={modal.inviteBtnText}>
+                        Invite &amp; Generate Link
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -664,11 +668,12 @@ const modal = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  // Email row
+  // Email + permission row
   emailRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    marginTop: 10,
     marginBottom: 20,
   },
   emailInputWrap: {
@@ -701,15 +706,13 @@ const modal = StyleSheet.create({
   inviteBtn: {
     backgroundColor: "#00DEAB",
     borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 11,
-    minWidth: 150,
     alignItems: "center",
     justifyContent: "center",
+    paddingVertical: 13,
   },
   inviteBtnText: {
     color: "#fff",
-    fontSize: rf(12),
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Semibold",
   },
   // Sections
@@ -719,6 +722,13 @@ const modal = StyleSheet.create({
     color: "#9CA3AF",
     letterSpacing: 0.8,
     marginBottom: 12,
+  },
+  // Footer
+  footer: {
+    paddingTop: 12,
+    paddingBottom: 20,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
   },
   // Link row
   linkRow: {
