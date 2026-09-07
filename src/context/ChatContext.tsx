@@ -1,4 +1,5 @@
 import { useNotifications } from "@/context/NotificationContext";
+import { useAuth } from "@/hooks/useAuth";
 import * as chatService from "@/services/api/chat.service";
 import * as socketService from "@/services/socket/socketService";
 import {
@@ -52,6 +53,7 @@ type ChatAction =
   | { type: "ADD_ROOM"; room: Room }
   | { type: "UPDATE_ROOM"; room: Room }
   | { type: "REMOVE_ROOM"; roomId: string }
+  | { type: "MERGE_ROOMS"; rooms: Room[] }
   | { type: "SET_MESSAGE_PAGE"; page: number }
   | { type: "SET_SEARCH_QUERY"; query: string }
   | { type: "SET_SEARCH_RESULTS"; results: SearchUser[] }
@@ -209,6 +211,30 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         currentRoom:
           state.currentRoom?._id === action.roomId ? null : state.currentRoom,
       };
+    case "MERGE_ROOMS": {
+      // Server list is the source of truth for room membership, but local
+      // unread state (badges, force_unread, mute) must never be clobbered by
+      // a background merge — used to pick up newly-created project rooms
+      // after a `project_update` socket event.
+      const merged = [...state.rooms];
+      for (const room of action.rooms) {
+        const idx = merged.findIndex(
+          (r) => r._id === room._id || (room.id && r.id === room.id),
+        );
+        if (idx >= 0) {
+          const prev = merged[idx];
+          merged[idx] = {
+            ...room,
+            unreadCount: prev.unreadCount ?? 0,
+            force_unread: prev.force_unread ?? false,
+            is_muted: prev.is_muted ?? room.is_muted,
+          };
+        } else {
+          merged.push(room);
+        }
+      }
+      return { ...state, rooms: merged, loading: false, error: null };
+    }
     case "SET_MESSAGE_PAGE":
       return { ...state, messagePage: action.page };
     case "SET_SEARCH_QUERY":
@@ -372,9 +398,6 @@ export type ChatContextValue = {
     images: string[];
   } | null>;
 
-  // Project-channel actions
-  createProjectWithChannels: (projectId: number) => Promise<Room>;
-
   // Socket actions
   initSocket: (userId: number) => Promise<void>;
   cleanupChatListeners: () => void;
@@ -404,6 +427,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const userIdRef = useRef(0);
+
+  const { state: authState } = useAuth();
+  const companyIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    companyIdRef.current = authState.company?.company_id ?? null;
+  }, [authState.company?.company_id]);
+  const projectUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // ── Room Actions ──────────────────────────────────────────────────────────
 
@@ -899,60 +931,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  // ── Project-Channel Actions ─────────────────────────────────────────────
-
-  const createProjectWithChannelsAction = useCallback(
-    async (projectId: number): Promise<Room> => {
-      console.log("[Chat] createProjectWithChannels:", projectId);
-      // 1. Create or get the project room
-      const projectRoom = await getOrCreateRoom({
-        type: "project",
-        targetId: projectId,
-      });
-      console.log(
-        "[Chat] Project room created/found:",
-        projectRoom.id,
-        projectRoom.name,
-      );
-
-      // 2. Auto-create "General" channel under this project
-      try {
-        const generalRoom = await getOrCreateRoom({
-          type: "channel",
-          name: "General",
-          parent_id: projectRoom.id,
-        });
-        console.log("[Chat] General channel created:", generalRoom.id);
-      } catch (err) {
-        console.log(
-          "[Chat] General channel creation failed (may already exist):",
-          err,
-        );
-      }
-
-      // 3. Auto-create "Description" channel under this project
-      try {
-        const descriptionRoom = await getOrCreateRoom({
-          type: "channel",
-          name: "Description",
-          parent_id: projectRoom.id,
-        });
-        console.log("[Chat] Description channel created:", descriptionRoom.id);
-      } catch (err) {
-        console.log(
-          "[Chat] Description channel creation failed (may already exist):",
-          err,
-        );
-      }
-
-      // 4. Refresh rooms to pick up the new channels
-      await fetchRooms();
-
-      return projectRoom;
-    },
-    [getOrCreateRoom, fetchRooms],
-  );
-
   // ── Search Actions ──────────────────────────────────────────────────────
 
   const searchUsersAction = useCallback(async (query: string) => {
@@ -1386,6 +1364,54 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         },
       );
 
+      // ── project_update — project chat room pickup ───────────────────────
+      // A project's associated group-chat room is auto-created server-side.
+      // Matches Web ChatContext: only reacts to action === "create", waits
+      // 2s, then refetches chat rooms and MERGES newly-visible rooms into
+      // local state WITHOUT clobbering unread counts.
+      const cleanupProjectUpdate = socketService.onSocketEvent(
+        "project_update",
+        (data) => {
+          const typed = data as {
+            company_id?: number;
+            action?: string;
+            data?: { id?: number; due_date?: string };
+          };
+          if (typed.action !== "create") return;
+          if (
+            typed.company_id !== undefined &&
+            companyIdRef.current !== null &&
+            String(typed.company_id) !== String(companyIdRef.current)
+          ) {
+            return;
+          }
+          if (projectUpdateTimerRef.current) {
+            clearTimeout(projectUpdateTimerRef.current);
+          }
+          projectUpdateTimerRef.current = setTimeout(async () => {
+            projectUpdateTimerRef.current = null;
+            try {
+              const res = await chatService.getRooms();
+              if (!res.Good || !res.rooms) return;
+              const known = new Set(
+                stateRef.current.rooms.map((r) => r._id),
+              );
+              res.rooms.forEach((room) => {
+                if (!known.has(room._id)) {
+                  socketService.joinChatRoom(room._id);
+                }
+              });
+              dispatch({ type: "MERGE_ROOMS", rooms: res.rooms });
+            } catch (err) {
+              console.log(
+                "[Chat] project_update room merge failed:",
+                err,
+              );
+            }
+          }, 2000);
+        },
+      );
+
       socketCleanupRef.current = [
         cleanupConnect,
         cleanupDisconnect,
@@ -1410,6 +1436,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         cleanupRemovedFromRoom,
         cleanupRoomPermissionUpdated,
         cleanupChatRoomSettingUpdated,
+        cleanupProjectUpdate,
       ];
 
       // If already connected, register immediately
@@ -1425,6 +1452,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   );
 
   const cleanupChatListeners = useCallback(() => {
+    if (projectUpdateTimerRef.current) {
+      clearTimeout(projectUpdateTimerRef.current);
+      projectUpdateTimerRef.current = null;
+    }
     socketCleanupRef.current.forEach((cleanup) => cleanup());
     socketCleanupRef.current = [];
   }, []);
@@ -1496,7 +1527,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       searchUsers: searchUsersAction,
       setSearchQuery,
       getUrlPreview: getUrlPreviewAction,
-      createProjectWithChannels: createProjectWithChannelsAction,
       initSocket,
       cleanupChatListeners,
       cleanupSocket,
@@ -1536,7 +1566,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       searchUsersAction,
       setSearchQuery,
       getUrlPreviewAction,
-      createProjectWithChannelsAction,
       initSocket,
       cleanupChatListeners,
       cleanupSocket,

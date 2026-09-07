@@ -1,5 +1,9 @@
 import { rf } from "@/utils/responsive";
 import AddPeopleModal from "@/components/AddPeopleModal";
+import InviteToChannelModal, {
+  type ChannelMember,
+  type ChannelPermission,
+} from "@/components/InviteToChannelModal";
 import Avatar from "@/components/Avatar";
 import CalendarPicker from "@/components/CalendarPicker";
 import SecureImage from "@/components/SecureImage";
@@ -7,6 +11,7 @@ import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat, useChatPresence } from "@/hooks/useChat";
 import * as socketService from "@/services/socket/socketService";
+import * as chatService from "@/services/api/chat.service";
 import {
   ChatMessage,
   ChatPermission,
@@ -2291,6 +2296,12 @@ export default function ConversationScreen() {
   const scrollRef = useRef<any>(null);
   const [postTypeOpen, setPostTypeOpen] = useState(false);
   const [addPeopleOpen, setAddPeopleOpen] = useState(false);
+  const [inviteModalVisible, setInviteModalVisible] = useState(false);
+  // Users selected in AddPeopleModal (pre-fills the invite modal's email field
+  // and backs the "add as member directly" logic once permissions are chosen).
+  const [pendingInviteUsers, setPendingInviteUsers] = useState<
+    Array<{ id: string; name: string; email?: string }>
+  >([]);
   const [attachmentModalOpen, setAttachmentModalOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
@@ -2872,17 +2883,127 @@ export default function ConversationScreen() {
   );
 
   const handleAddPeopleInvite = useCallback(
-    async (users: { id: string; name: string }[]) => {
+    (users: { id: string; name: string; email?: string }[]) => {
+      if (!roomId || users.length === 0) return;
+      // Step 1 complete: users selected in AddPeopleModal. Defer the invite
+      // until the user picks a permission in InviteToChannelModal (matches
+      // the channel-create flow in chat.tsx).
+      setAddPeopleOpen(false);
+      setPendingInviteUsers(users);
+      setTimeout(() => setInviteModalVisible(true), 300);
+    },
+    [roomId],
+  );
+
+  // Step 2: confirm invitations + the chosen permission for the current room.
+  const handleInviteUsersConfirm = useCallback(
+    async (emails: string[], permission: ChannelPermission) => {
       if (!roomId) return;
-      for (const u of users) {
-        try {
-          if (u.id) await addMember(roomId, parseInt(u.id, 10));
-        } catch {
-          // Continue with next user
+
+      // Final email list comes from the modal's Email Address field, which was
+      // pre-filled with the selected members' emails (and is editable).
+      const finalEmails = Array.from(
+        new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean)),
+      );
+      const emailSet = new Set(finalEmails);
+
+      // Map known member emails → user ids so email invitations include the
+      // selected member's userId (matches the POST /chat/invite contract).
+      const userIdByEmail = new Map<string, number>();
+      for (const user of pendingInviteUsers) {
+        const memberEmail = (user.email ?? "").trim().toLowerCase();
+        if (memberEmail) {
+          userIdByEmail.set(memberEmail, parseInt(user.id, 10));
         }
       }
+
+      let emailSent = 0;
+      let directAdded = 0;
+      let failed = 0;
+
+      // Selected members NOT covered by the final email list are added directly
+      // as members with the chosen permission instead — avoids double invites.
+      for (const user of pendingInviteUsers) {
+        const userId = parseInt(user.id, 10);
+        if (isNaN(userId)) continue;
+        const userEmail = (user.email ?? "").trim().toLowerCase();
+        if (userEmail && emailSet.has(userEmail)) continue;
+        try {
+          await addMember(roomId, userId);
+          await chatService
+            .updatePermission({ roomId, userId, permission })
+            .catch(() => {});
+          directAdded++;
+        } catch {
+          failed++;
+        }
+      }
+
+      // Send exactly one invitation per final email address.
+      for (const email of finalEmails) {
+        try {
+          await chatService.inviteUser({
+            roomId,
+            email,
+            userId: userIdByEmail.get(email),
+            permission,
+          });
+          emailSent++;
+        } catch {
+          failed++;
+        }
+      }
+
+      fetchRoomPermissions(roomId).catch(() => {});
+      setInviteModalVisible(false);
+      setPendingInviteUsers([]);
+
+      const parts: string[] = [];
+      if (emailSent > 0) parts.push(`${emailSent} invite(s) sent`);
+      if (directAdded > 0) parts.push(`${directAdded} member(s) added`);
+      if (failed > 0) parts.push(`${failed} failed`);
+      if (parts.length > 0) showSuccess("Members Added", parts.join(", "));
     },
-    [roomId, addMember],
+    [
+      roomId,
+      pendingInviteUsers,
+      addMember,
+      fetchRoomPermissions,
+    ],
+  );
+
+  const handleGenerateInviteLink = useCallback(
+    async (
+      permission: ChannelPermission,
+      forAllUsers: boolean,
+    ): Promise<string | null> => {
+      if (!roomId) return null;
+      try {
+        const allowedUserIds = forAllUsers
+          ? []
+          : pendingInviteUsers
+              .map((u) => parseInt(u.id, 10))
+              .filter((id) => !isNaN(id));
+        const res = await chatService.generateLink({
+          roomId,
+          permission,
+          allowedUserIds,
+        });
+        return (res as any)?.data?.inviteLink ?? (res as any)?.inviteLink ?? null;
+      } catch (err) {
+        console.error("[Conversation] generateLink error:", err);
+        return null;
+      }
+    },
+    [roomId, pendingInviteUsers],
+  );
+
+  const handleUpdateChannelMemberPermission = useCallback(
+    async (memberId: number, permission: ChannelPermission) => {
+      if (!roomId) return;
+      await chatService.updatePermission({ roomId, userId: memberId, permission });
+    },
+    [roomId],
   );
 
   const handleEmojiReact = useCallback(
@@ -3000,6 +3121,17 @@ export default function ConversationScreen() {
   // ── @-mention candidates (derived from the room's member list) ─────────
   const roomMembers = useMemo(
     () => (currentRoom?.members ?? []).filter((m) => m.id !== currentUserId),
+    [currentRoom, currentUserId],
+  );
+
+  // Existing room members shown in InviteToChannelModal's "Who has access" list
+  const inviteModalMembers = useMemo<ChannelMember[]>(
+    () =>
+      (currentRoom?.members ?? []).map((m) => ({
+        id: m.id,
+        name: `${m.first_name || ""} ${m.last_name || ""}`.trim() || `User #${m.id}`,
+        isOwner: m.id === currentUserId,
+      })),
     [currentRoom, currentUserId],
   );
 
@@ -3934,6 +4066,28 @@ export default function ConversationScreen() {
         onClose={() => setAddPeopleOpen(false)}
         onSearch={(query) => setSearchQuery(query)}
         onInviteUsers={handleAddPeopleInvite}
+      />
+
+      {/* "Add people" in a channel/project conversation follows the same
+          flow as the channel-create flow: select users in AddPeopleModal,
+          then set permissions + send invites here. */}
+      <InviteToChannelModal
+        visible={inviteModalVisible}
+        roomId={roomId ?? ""}
+        members={inviteModalMembers}
+        currentUserId={currentUserId}
+        roomCreator={roomCreator}
+        callerPermission={callerPermission}
+        initialEmails={pendingInviteUsers
+          .map((u) => u.email)
+          .filter((e): e is string => !!e)}
+        onClose={() => {
+          setInviteModalVisible(false);
+          setPendingInviteUsers([]);
+        }}
+        onInvite={handleInviteUsersConfirm}
+        onGenerateLink={handleGenerateInviteLink}
+        onUpdatePermission={handleUpdateChannelMemberPermission}
       />
 
       {/* ── WhatsApp Style Long-Press Message Modal ── */}

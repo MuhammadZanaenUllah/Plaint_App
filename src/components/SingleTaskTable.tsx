@@ -31,8 +31,6 @@ import {
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Easing,
-  FadeIn,
-  FadeOut,
   runOnJS,
   SharedValue,
   useAnimatedStyle,
@@ -387,11 +385,9 @@ function SingleTaskTable({
   // a swipe started immediately after switching tabs briefly targets a row
   // index carried over from the old list, fighting the close animation.
   const [lastSectionTitle, setLastSectionTitle] = useState(sectionTitle);
-  const [previewRowIndex, setPreviewRowIndex] = useState<number | null>(null);
   if (sectionTitle !== lastSectionTitle) {
     setLastSectionTitle(sectionTitle);
     if (openSwipeRow !== null) setOpenSwipeRow(null);
-    if (previewRowIndex !== null) setPreviewRowIndex(null);
   }
   const [isSwipeDragging, setIsSwipeDragging] = useState(false);
   const [rowViewportHeight, setRowViewportHeight] = useState(0);
@@ -771,9 +767,6 @@ function SingleTaskTable({
                     onCommentPress={onCommentPress}
                     onToggleComplete={handleToggleComplete}
                     onStatusChange={handleStatusChange}
-                    isPreviewOpen={previewRowIndex === rowIndex}
-                    onPreviewStart={() => setPreviewRowIndex(rowIndex)}
-                    onPreviewEnd={() => setPreviewRowIndex(null)}
                     canReassign={canReassign}
                     assignableOwners={assignableOwners}
                     onAssigneeSelect={(owner) =>
@@ -830,9 +823,6 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
   onCommentPress,
   onToggleComplete,
   onStatusChange,
-  isPreviewOpen,
-  onPreviewStart,
-  onPreviewEnd,
   canReassign,
   assignableOwners,
   onAssigneeSelect,
@@ -855,11 +845,8 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
     task: TaskRowProps,
     rowIndex: number,
     status: StatusType,
-  ) => void;
-  isPreviewOpen: boolean;
+) => void;
   scrollCloseSignal?: number;
-  onPreviewStart: () => void;
-  onPreviewEnd: () => void;
   canReassign?: boolean;
   assignableOwners?: AssignableOwner[];
   onAssigneeSelect: (owner: AssignableOwner) => void;
@@ -1050,7 +1037,6 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
             <LeadingCell
               item={item}
               width={metrics.leadingWidth}
-              isExpanded={isPreviewOpen}
               readOnly={readOnly}
               onToggle={() => onToggleComplete(item, rowIndex)}
             />
@@ -1061,10 +1047,6 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
                 columnKey={key}
                 width={metrics.columnWidths[key]!}
                 onPress={key === "title" ? () => onTaskPress?.(item) : undefined}
-                onLongPressStart={
-                  key === "title" ? onPreviewStart : undefined
-                }
-                onLongPressEnd={key === "title" ? onPreviewEnd : undefined}
               />
             ))}
             {!readOnly && currentStage === null && (
@@ -1127,31 +1109,17 @@ const ReadOnlyRow = memo(function ReadOnlyRow({
 const LeadingCell = memo(function LeadingCell({
   item,
   width,
-  isExpanded,
   readOnly,
   onToggle,
 }: {
   item: TaskRowProps;
   width: number;
-  isExpanded?: boolean;
   readOnly?: boolean;
   onToggle: () => void;
 }) {
   const isCompleted = item.status === "Completed";
   const canToggle = item.canEditStatus !== false;
   const priority = item.taskPriority?.toLowerCase() ?? "normal";
-
-  const priorityLabel =
-    item.priorityName ||
-    (priority === "critical"
-      ? "Critical"
-      : priority === "high"
-        ? "High"
-        : priority === "medium"
-          ? "Medium"
-          : priority === "low"
-            ? "Low"
-            : "Normal");
 
   const accentColor =
     priority === "critical"
@@ -1166,17 +1134,7 @@ const LeadingCell = memo(function LeadingCell({
 
   return (
     <View style={[styles.leadingCell, { width }]}>
-      {isExpanded ? (
-        <Animated.View
-          entering={FadeIn.duration(120)}
-          exiting={FadeOut.duration(120)}
-          style={[styles.accentExpandedBadge, { backgroundColor: accentColor }]}
-        >
-          <Text style={styles.accentExpandedText}>{priorityLabel}</Text>
-        </Animated.View>
-      ) : (
-        <View style={[styles.accent, { backgroundColor: accentColor }]} />
-      )}
+      <View style={[styles.accent, { backgroundColor: accentColor }]} />
 
       {readOnly ? (
         <View style={styles.checkboxWrap}>
@@ -1215,15 +1173,11 @@ const TaskCellContent = memo(function TaskCellContent({
   columnKey,
   width,
   onPress,
-  onLongPressStart,
-  onLongPressEnd,
 }: {
   item: TaskRowProps;
   columnKey: SingleTaskTableColumn;
   width: number;
   onPress?: () => void;
-  onLongPressStart?: () => void;
-  onLongPressEnd?: () => void;
 }) {
   const isCompleted = item.status === "Completed";
 
@@ -1231,14 +1185,8 @@ const TaskCellContent = memo(function TaskCellContent({
     return (
       <TouchableOpacity
         style={[styles.titleCell, { width }]}
-        onPressIn={() => {
-          triggerHaptic("light");
-          onLongPressStart?.();
-        }}
-        onPressOut={() => {
-          onLongPressEnd?.();
-        }}
         onPress={() => {
+          triggerHaptic("light");
           onPress?.();
         }}
         activeOpacity={0.7}
@@ -1884,21 +1832,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     position: "relative",
-  },
-  accentExpandedBadge: {
-    position: "absolute",
-    left: 0,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-    borderRadius: 6,
-    zIndex: 10,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  accentExpandedText: {
-    color: "#FFFFFF",
-    fontSize: rf(11),
-    fontFamily: "SF_Pro_Bold",
   },
   accent: {
     position: "absolute",

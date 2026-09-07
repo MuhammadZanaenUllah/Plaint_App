@@ -613,11 +613,24 @@ export default function CreateTaskModal({
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const keyboardTopRef = useRef(0); // keyboard top edge, in screen coords
   const scrollOffsetRef = useRef(0); // current scroll offset of the sheet's ScrollView
+  const currentSnapIndexRef = useRef(0); // last settled snap index (via onChange)
+  const topSnapIndex = SNAP_POINTS.length - 1;
 
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", (e) => {
       keyboardTopRef.current = e.endCoordinates?.screenY ?? 0;
       setKeyboardHeight(e.endCoordinates?.height ?? 0);
+      // Auto-extend the sheet to its max snap point whenever the keyboard
+      // opens, so every field is reachable above the keyboard without the
+      // user having to drag the sheet up first. gorhom's built-in keyboard
+      // handling is a no-op on Android (interactive + adjustResize), so at the
+      // default 50% snap the lower fields otherwise stay hidden behind the
+      // keyboard.
+      if (currentSnapIndexRef.current < topSnapIndex) {
+        setTimeout(() => {
+          sheetRef.current?.snapToIndex(topSnapIndex);
+        }, 40);
+      }
     });
     const hideSub = Keyboard.addListener("keyboardDidHide", () => {
       keyboardTopRef.current = 0;
@@ -737,6 +750,15 @@ export default function CreateTaskModal({
       ref={sheetRef}
       snapPoints={SNAP_POINTS}
       enableDynamicSizing={false}
+      onChange={(index) => {
+        currentSnapIndexRef.current = index;
+        if (index === topSnapIndex) {
+          // The sheet has finished extending to max height — re-measure the
+          // auto-focused effort row now that the layout is stable (the earlier
+          // effort-row scroll ran mid-animation and can land slightly low).
+          setTimeout(bringEffortRowIntoView, 120);
+        }
+      }}
       onDismiss={handleModalClose}
       backdropComponent={renderBackdrop}
       handleIndicatorStyle={styles.dragHandlePill}

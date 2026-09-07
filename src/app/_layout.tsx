@@ -1,6 +1,7 @@
 import { AuthContext, AuthProvider } from "@/context/AuthContext";
 import { ChatProvider } from "@/context/ChatContext";
 import { NotificationProvider } from "@/context/NotificationContext";
+import { ProjectProvider } from "@/context/ProjectContext";
 import {
   PushNotificationProvider,
   usePushNotifications,
@@ -219,14 +220,16 @@ export default function RootLayout() {
         <TaskProvider>
           <NotificationProvider>
             <ChatProvider>
-              <PushNotificationProvider>
-                <BottomSheetModalProvider>
-                  <PushNotificationLifecycle />
-                  <UpdateLifecycle />
-                  <RootNavigator />
-                  <Toast />
-                </BottomSheetModalProvider>
-              </PushNotificationProvider>
+              <ProjectProvider>
+                <PushNotificationProvider>
+                  <BottomSheetModalProvider>
+                    <PushNotificationLifecycle />
+                    <UpdateLifecycle />
+                    <RootNavigator />
+                    <Toast />
+                  </BottomSheetModalProvider>
+                </PushNotificationProvider>
+              </ProjectProvider>
             </ChatProvider>
           </NotificationProvider>
         </TaskProvider>

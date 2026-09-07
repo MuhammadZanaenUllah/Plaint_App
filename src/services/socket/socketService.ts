@@ -59,7 +59,11 @@ type SocketEventMap = {
   // Server → Client — Chat
   newRoom: (room: unknown) => void;
   receiveChatMessage: (message: unknown) => void;
-  project_update: (data: { action: string }) => void;
+  project_update: (data: {
+    company_id?: number;
+    action: string;
+    data?: { id?: number; due_date?: string };
+  }) => void;
   roomDeleted: (data: { roomId: string }) => void;
   userLeftRoom: (data: { roomId: string; userId: string }) => void;
   chatRoomSettingUpdated: (data: {

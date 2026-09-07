@@ -29,12 +29,15 @@ import {
   BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetScrollView,
+  BottomSheetTextInput,
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -488,6 +491,13 @@ export default function TaskDetailModal({
   );
   const [commentText, setCommentText] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [keyboardPad, setKeyboardPad] = useState(0);
+  const commentBoxRef = useRef<View>(null);
+  const keyboardTopRef = useRef(0);
+  const keyboardVisibleRef = useRef(false);
+  const keyboardMeasureTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const [notes, setNotes] = useState<TaskNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [sendingNote, setSendingNote] = useState(false);
@@ -754,11 +764,70 @@ export default function TaskDetailModal({
     }
   }, [visible, initialTab, task?.taskId, loadTaskDetail, loadDependencies]);
 
+  // With keyboardBehavior="extend" the sheet lifts its content on iOS, but on
+  // Android @gorhom/bottom-sheet's built-in keyboard handling is a no-op when
+  // android_keyboardInputMode="adjustResize", so a fixed input at the bottom
+  // gets covered. Measure the actual on-screen gap and pad the comments
+  // container by exactly that amount so the whole comment box stays visible.
+  const keepCommentBoxAboveKeyboard = useCallback(
+    (keyboardTopY: number) => {
+      if (activeTab !== "comments") return;
+      const node = commentBoxRef.current;
+      if (!node || keyboardTopY <= 0) return;
+      node.measureInWindow((_x, y, _w, h) => {
+        const overshoot = y + h - keyboardTopY + 8;
+        setKeyboardPad(overshoot > 0 ? overshoot : 0);
+      });
+    },
+    [activeTab],
+  );
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => {
+        keyboardVisibleRef.current = true;
+        keyboardTopRef.current = e.endCoordinates?.screenY ?? 0;
+        if (keyboardMeasureTimerRef.current) {
+          clearTimeout(keyboardMeasureTimerRef.current);
+        }
+        // Let the sheet/layout settle before measuring the final gap.
+        keyboardMeasureTimerRef.current = setTimeout(() => {
+          keepCommentBoxAboveKeyboard(keyboardTopRef.current);
+        }, 300);
+      },
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => {
+        keyboardVisibleRef.current = false;
+        keyboardTopRef.current = 0;
+        if (keyboardMeasureTimerRef.current) {
+          clearTimeout(keyboardMeasureTimerRef.current);
+        }
+        setKeyboardPad(0);
+      },
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+      if (keyboardMeasureTimerRef.current) {
+        clearTimeout(keyboardMeasureTimerRef.current);
+      }
+    };
+  }, [keepCommentBoxAboveKeyboard]);
+
   useEffect(() => {
     if (visible && activeTab === "comments" && task?.taskId) {
       loadNotes();
+      if (keyboardVisibleRef.current) {
+        const t = setTimeout(() => {
+          keepCommentBoxAboveKeyboard(keyboardTopRef.current);
+        }, 180);
+        return () => clearTimeout(t);
+      }
     }
-  }, [visible, activeTab, task?.taskId, loadNotes]);
+  }, [visible, activeTab, task?.taskId, loadNotes, keepCommentBoxAboveKeyboard]);
 
   const taskIdRef = useRef(task?.taskId);
   taskIdRef.current = task?.taskId;
@@ -1695,7 +1764,13 @@ export default function TaskDetailModal({
         )}
 
         {activeTab === "comments" && (
-          <View style={[styles.commentsContainer, styles.tabComment]}>
+          <View
+            style={[
+              styles.commentsContainer,
+              styles.tabComment,
+              keyboardPad > 0 && { paddingBottom: keyboardPad },
+            ]}
+          >
             {/* Sticky pinned message */}
             {pinnedNotes.length > 0 && (
               <PinnedCommentCard
@@ -1705,13 +1780,12 @@ export default function TaskDetailModal({
             )}
 
             {/* Only comments scroll */}
-            <ScrollView
+            <BottomSheetScrollView
               style={styles.commentsList}
               contentContainerStyle={styles.commentsListContent}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               nestedScrollEnabled
-              scrollEventThrottle={16}
               bounces={true}
               overScrollMode="always"
             >
@@ -1737,7 +1811,7 @@ export default function TaskDetailModal({
                   />
                 ))
               )}
-            </ScrollView>
+            </BottomSheetScrollView>
 
             {/* ── Mention Suggestions ── */}
             {mentionActive && mentionCandidates.length > 0 && (
@@ -1765,6 +1839,7 @@ export default function TaskDetailModal({
             )}
 
             <View
+              ref={commentBoxRef}
               style={[
                 styles.inputBox,
                 {
@@ -1777,7 +1852,7 @@ export default function TaskDetailModal({
                   <Text style={styles.inputLabelText}>Comment</Text>
                 </View>
               )}
-              <TextInput
+              <BottomSheetTextInput
                 style={styles.inputField}
                 value={commentText}
                 onChangeText={handleCommentChange}
@@ -2658,15 +2733,16 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     fontFamily: "SF_Pro_Semibold",
   },
-  infoValueWrap: { flex: 1.5 },
+  infoValueWrap: { flex: 1.5, flexShrink: 1 },
   infoValue: {
     fontSize: rf(12),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
+    flexShrink: 1,
   },
   assignedRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 6,
     flexShrink: 1,
     justifyContent: "flex-start",

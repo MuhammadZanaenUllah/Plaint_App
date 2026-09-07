@@ -2,12 +2,15 @@ import { rf } from "@/utils/responsive";
 import AddPeopleModal from "@/components/AddPeopleModal";
 import Avatar from "@/components/Avatar";
 import CreateChannelModal from "@/components/CreateChannelModal";
+import CreateProjectModal from "@/components/CreateProjectModal";
 import InviteToChannelModal, { type ChannelPermission, type ChannelMember } from "@/components/InviteToChannelModal";
 import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
+import { useProjects } from "@/hooks/useProjects";
 import { useSearch } from "@/context/SearchContext";
 import { useTasks } from "@/hooks/useTasks";
+import { Project } from "@/types/project.types";
 import { Room } from "@/types/chat.types";
 import {
     filterReadRooms,
@@ -53,6 +56,7 @@ export default function ChatScreen() {
         roomCreator, roomPermissions,
     } = useChat();
     const authState = useAuth();
+    const { state: projectState, fetchProjects } = useProjects();
     const { searchText } = useSearch();
     const { state: taskState } = useTasks();
     const currentUserId = authState?.state?.user?.id ?? 0;
@@ -60,6 +64,7 @@ export default function ChatScreen() {
     const [addPeopleOpen, setAddPeopleOpen] = useState(false);
     const [addPeopleQuery, setAddPeopleQuery] = useState("");
     const [createChannelOpen, setCreateChannelOpen] = useState(false);
+    const [createProjectOpen, setCreateProjectOpen] = useState(false);
     const [isChannelMode, setIsChannelMode] = useState(false);
     const [activeChip, setActiveChip] = useState("all");
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
@@ -216,6 +221,31 @@ export default function ChatScreen() {
         }
         return map;
     }, [state.rooms]);
+
+    // Enrich project rows with status / due date from GET /projects (matched by
+    // room display name — the project's group-chat room shares its name).
+    const projectMetaByName = useMemo(() => {
+        const map = new Map<string, Project>();
+        for (const p of projectState.projects ?? []) {
+            map.set(p.name, p);
+        }
+        return map;
+    }, [projectState.projects]);
+
+    // Keep the Projects chip's status/due-date enrichment fresh whenever it is
+    // being viewed (silent — no full-screen loading state).
+    useEffect(() => {
+        if (activeChip === "projects") {
+            fetchProjects({ silent: true }).catch(() => { });
+        }
+    }, [activeChip, fetchProjects]);
+
+    const formatProjectDue = (due?: string | null) => {
+        if (!due) return "";
+        const d = new Date(due);
+        if (isNaN(d.getTime())) return "";
+        return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    };
 
     const toggleProjectExpand = useCallback((projectId: number) => {
         setExpandedProjects((prev) => {
@@ -479,6 +509,19 @@ export default function ChatScreen() {
         []
     );
 
+    // Handler invoked after a project is successfully created. The project's
+    // group-chat room is auto-created server-side — refresh rooms immediately
+    // and let the `project_update` socket merge (ChatContext) back it up.
+    const handleProjectCreated = useCallback(
+        async (project: Project) => {
+            setCreateProjectOpen(false);
+            fetchRooms().catch(() => { });
+            fetchProjects({ silent: true }).catch(() => { });
+            showSuccess("Project Created", `"${project.name}" is ready.`);
+        },
+        [fetchRooms, fetchProjects]
+    );
+
     if (state.loading && state.rooms.length === 0) {
         return (
             <View style={styles.root}>
@@ -545,7 +588,14 @@ export default function ChatScreen() {
                                     const unread = isRoomUnread(project);
                                     const isExpanded = expandedProjects.has(project.id);
                                     const childChannels = projectChannelMap.get(project.id) ?? [];
-                                    const lastPreview = `${childChannels.length} ${childChannels.length === 1 ? "channel" : "channels"}`;
+                                    const meta = projectMetaByName.get(displayName);
+                                    const metaSnippet = meta
+                                        ? [
+                                            `${childChannels.length} ${childChannels.length === 1 ? "channel" : "channels"}`,
+                                            meta.status,
+                                            formatProjectDue(meta.due_date),
+                                        ].filter(Boolean).join(" · ")
+                                        : `${childChannels.length} ${childChannels.length === 1 ? "channel" : "channels"}`;
                                     const projectTime = project.last_message?.createdAt
                                         ? formatChatListTime(project.last_message.createdAt)
                                         : (project as any).time ?? "";
@@ -580,7 +630,7 @@ export default function ChatScreen() {
                                                         {displayName}
                                                     </Text>
                                                     <Text style={styles.chatSnippet} numberOfLines={1}>
-                                                        {lastPreview}
+                                                        {metaSnippet}
                                                     </Text>
                                                 </View>
                                                 <View style={styles.chatMeta}>
@@ -803,6 +853,23 @@ export default function ChatScreen() {
                                 <Text style={styles.addPeopleText}>+ Create Channel</Text>
                             </TouchableOpacity>
                         </View>
+                    ) : activeChip === "projects" ? (
+                        <View style={styles.workspaceContainer}>
+                            <View style={styles.iconStack}>
+                                <Ionicons name="folder-outline" size={48} color="#00DEAB" />
+                            </View>
+                            <Text style={styles.workspaceTitle}>Create a project</Text>
+                            <Text style={styles.workspaceDescription}>
+                                Organize channels, conversations,{"\n"}and deliverables around a shared goal.
+                            </Text>
+                            <TouchableOpacity
+                                style={styles.addPeopleButton}
+                                activeOpacity={0.85}
+                                onPress={() => setCreateProjectOpen(true)}
+                            >
+                                <Text style={styles.addPeopleText}>+ Create Project</Text>
+                            </TouchableOpacity>
+                        </View>
                     ) : (
                         <View style={styles.workspaceContainer}>
                             <View style={styles.iconStack}>
@@ -834,12 +901,14 @@ export default function ChatScreen() {
                 </ScrollView>
 
                 {/* FAB */}
-                {displayRooms.length > 0 && activeChip !== "projects" && (
+                {displayRooms.length > 0 && (
                     <TouchableOpacity
                         style={styles.fab}
                         activeOpacity={0.8}
                         onPress={() => {
-                            if (activeChip === "channels" || activeChip === "projects") {
+                            if (activeChip === "projects") {
+                                setCreateProjectOpen(true);
+                            } else if (activeChip === "channels") {
                                 setProjectContext(null);
                                 setCreateChannelOpen(true);
                             } else {
@@ -886,6 +955,13 @@ export default function ChatScreen() {
                 }}
                 onNext={handleChannelCreate}
                 title={projectContext ? `Add Channel to "${projectContext.name}"` : "Create Channel"}
+            />
+
+            {/* ── CreateProjectModal ── */}
+            <CreateProjectModal
+                visible={createProjectOpen}
+                onClose={() => setCreateProjectOpen(false)}
+                onCreated={handleProjectCreated}
             />
 
             {/* ── InviteToChannelModal ── */}
