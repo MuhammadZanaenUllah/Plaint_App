@@ -36,6 +36,7 @@ import {
 } from "react-native";
 import { showSuccess, showError } from "@/utils/toast";
 import * as chatService from "@/services/api/chat.service";
+import { canCreateChannel, canCreateProject, canViewChat, canViewProjects } from "@/utils/permissions";
 const { ChatIcon: MainChatIcon, ChannelTabIcon } = Icons;
 
 // ─── Chip Config ──────────────────────────────────────────────────────────────
@@ -61,6 +62,43 @@ export default function ChatScreen() {
     const { searchText } = useSearch();
     const { state: taskState } = useTasks();
     const currentUserId = authState?.state?.user?.id ?? 0;
+    const currentUser = authState?.state?.user ?? null;
+
+    // Module-level permissions (from login `user_permissions`). These drive
+    // which tabs/rooms are visible and which create actions are offered.
+    const perms = useMemo(
+        () => ({
+            hasChatRead: canViewChat(currentUser),
+            hasProjectRead: canViewProjects(currentUser),
+            canCreateChannels: canCreateChannel(currentUser),
+            canCreateProjects: canCreateProject(currentUser),
+        }),
+        [currentUser]
+    );
+
+    // Only rooms the user is permitted to see:
+    // - 1:1 DMs + channels require `chat-list`
+    // - project group chats require `project-list`
+    // (Project child channels are `type:"channel"` and still require chat-list.)
+    const visibleRooms = useMemo(() => {
+        const rooms = state.rooms ?? [];
+        return rooms.filter((r) => {
+            if (r.type === "project") return perms.hasProjectRead;
+            return perms.hasChatRead;
+        });
+    }, [state.rooms, perms]);
+
+    // Hide the Channels/Projects chips entirely when the user lacks the
+    // corresponding read permission (they'd render empty otherwise).
+    const visibleChips = useMemo(
+        () =>
+            CHIP_DATA.filter((chip) => {
+                if (chip.id === "channels") return perms.hasChatRead;
+                if (chip.id === "projects") return perms.hasProjectRead;
+                return true;
+            }),
+        [perms]
+    );
 
     const [addPeopleOpen, setAddPeopleOpen] = useState(false);
     const [addPeopleQuery, setAddPeopleQuery] = useState("");
@@ -112,7 +150,7 @@ export default function ChatScreen() {
     const defaultMemberList = useMemo(() => {
         const memberMap = new Map<string, { id: string; name: string; email?: string }>();
         // From all rooms' members
-        for (const room of state.rooms ?? []) {
+        for (const room of visibleRooms) {
             for (const m of room.members ?? []) {
                 if (m.id === currentUserId) continue;
                 const key = String(m.id);
@@ -133,7 +171,7 @@ export default function ChatScreen() {
             }
         }
         return Array.from(memberMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-    }, [state.rooms, taskState?.taskOwners, currentUserId]);
+    }, [visibleRooms, taskState?.taskOwners, currentUserId]);
 
     // Build the user list shown in AddPeopleModal:
     // - When query has ≥2 chars: use API search results (populated by setSearchQuery)
@@ -151,7 +189,7 @@ export default function ChatScreen() {
 
     // Compute unread counts per chip
     const chipUnread = useMemo(() => {
-        const rooms = state.rooms;
+        const rooms = visibleRooms;
         const directRooms = rooms.filter((r) => r.type === "direct");
         const hasUnread = (rms: Room[]) => rms.some((r) => r.unreadCount > 0 || r.force_unread);
         return {
@@ -161,11 +199,11 @@ export default function ChatScreen() {
             channels: hasUnread(rooms.filter((r) => r.type === "channel")),
             // projects: hasUnread(rooms.filter((r) => r.type === "project")),
         };
-    }, [state.rooms]);
+    }, [visibleRooms]);
 
     // Categorize rooms based on active chip
     const displayRooms = useMemo(() => {
-        const rooms = state.rooms;
+        const rooms = visibleRooms;
         // All, Unread, Read → show only direct (inbox) messages, not channels/projects
         const directRooms = rooms.filter((r) => r.type === "direct");
 
@@ -210,12 +248,12 @@ export default function ChatScreen() {
                 preview.includes(query)
             );
         });
-    }, [state.rooms, activeChip, searchText, currentUserId]);
+    }, [visibleRooms, activeChip, searchText, currentUserId]);
 
     // Group channels by their parent project for the Projects view
     const projectChannelMap = useMemo(() => {
         const map = new Map<number, Room[]>();
-        for (const room of state.rooms) {
+        for (const room of visibleRooms) {
             if (room.type === "channel" && room.parent_id) {
                 const existing = map.get(room.parent_id) ?? [];
                 existing.push(room);
@@ -223,7 +261,7 @@ export default function ChatScreen() {
             }
         }
         return map;
-    }, [state.rooms]);
+    }, [visibleRooms]);
 
     // Enrich project rows with status / due date from GET /projects (matched by
     // room display name — the project's group-chat room shares its name).
@@ -238,10 +276,10 @@ export default function ChatScreen() {
     // Keep the Projects chip's status/due-date enrichment fresh whenever it is
     // being viewed (silent — no full-screen loading state).
     useEffect(() => {
-        if (activeChip === "projects") {
+        if (activeChip === "projects" && perms.hasProjectRead) {
             fetchProjects({ silent: true }).catch(() => { });
         }
-    }, [activeChip, fetchProjects]);
+    }, [activeChip, perms.hasProjectRead, fetchProjects]);
 
     const toggleProjectExpand = useCallback((projectId: number) => {
         setExpandedProjects((prev) => {
@@ -499,10 +537,17 @@ export default function ChatScreen() {
     // Handler for creating a channel under a specific project
     const handleProjectAddChannel = useCallback(
         (project: Room) => {
+            if (!perms.canCreateChannels) {
+                showError(
+                    "Permission Denied",
+                    "You don't have permission to create channels."
+                );
+                return;
+            }
             setProjectContext(project);
             setCreateChannelOpen(true);
         },
-        []
+        [perms.canCreateChannels]
     );
 
     // Handler invoked after a project is successfully created. The project's
@@ -544,7 +589,7 @@ export default function ChatScreen() {
                         showsHorizontalScrollIndicator={false}
                         contentContainerStyle={styles.chipsContainer}
                     >
-                        {CHIP_DATA.map((chip, index) => {
+                        {visibleChips.map((chip, index) => {
                             const isActive = activeChip === chip.id;
                             const showDot = chipUnread[chip.id as keyof typeof chipUnread] ?? false;
                             return (
@@ -650,16 +695,18 @@ export default function ChatScreen() {
                                                         >
                                                             <Ionicons name="folder-outline" size={18} color="#00DEAB" />
                                                         </TouchableOpacity>
-                                                        <TouchableOpacity
-                                                            activeOpacity={0.7}
-                                                            style={{ padding: 4 }}
-                                                            onPress={(e) => {
-                                                                e.stopPropagation();
-                                                                handleProjectAddChannel(project);
-                                                            }}
-                                                        >
-                                                            <Ionicons name="add-circle-sharp" size={18} color="#1D1D1D" />
-                                                        </TouchableOpacity>
+                                                        {perms.canCreateChannels && (
+                                                            <TouchableOpacity
+                                                                activeOpacity={0.7}
+                                                                style={{ padding: 4 }}
+                                                                onPress={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleProjectAddChannel(project);
+                                                                }}
+                                                            >
+                                                                <Ionicons name="add-circle-sharp" size={18} color="#1D1D1D" />
+                                                            </TouchableOpacity>
+                                                        )}
                                                         <TouchableOpacity
                                                             activeOpacity={0.7}
                                                             style={{ padding: 4 }}
@@ -847,16 +894,22 @@ export default function ChatScreen() {
                             <Text style={styles.workspaceDescription}>
                                 Group keep your team's conversations{"\n"}organized by topic.
                             </Text>
-                            <TouchableOpacity
-                                style={styles.addPeopleButton}
-                                activeOpacity={0.85}
-                                onPress={() => {
-                                    setProjectContext(null);
-                                    setCreateChannelOpen(true);
-                                }}
-                            >
-                                <Text style={styles.addPeopleText}>+ Create Channel</Text>
-                            </TouchableOpacity>
+                            {perms.canCreateChannels ? (
+                                <TouchableOpacity
+                                    style={styles.addPeopleButton}
+                                    activeOpacity={0.85}
+                                    onPress={() => {
+                                        setProjectContext(null);
+                                        setCreateChannelOpen(true);
+                                    }}
+                                >
+                                    <Text style={styles.addPeopleText}>+ Create Channel</Text>
+                                </TouchableOpacity>
+                            ) : (
+                                <Text style={styles.workspaceDescription}>
+                                    You don't have permission to create channels.
+                                </Text>
+                            )}
                         </View>
                     ) : activeChip === "projects" ? (
                         <View style={styles.workspaceContainer}>
@@ -867,13 +920,19 @@ export default function ChatScreen() {
                             <Text style={styles.workspaceDescription}>
                                 Organize channels, conversations,{"\n"}and deliverables around a shared goal.
                             </Text>
-                            <TouchableOpacity
-                                style={styles.addPeopleButton}
-                                activeOpacity={0.85}
-                                onPress={() => setCreateProjectOpen(true)}
-                            >
-                                <Text style={styles.addPeopleText}>+ Create Project</Text>
-                            </TouchableOpacity>
+                            {perms.canCreateProjects ? (
+                                <TouchableOpacity
+                                    style={styles.addPeopleButton}
+                                    activeOpacity={0.85}
+                                    onPress={() => setCreateProjectOpen(true)}
+                                >
+                                    <Text style={styles.addPeopleText}>+ Create Project</Text>
+                                </TouchableOpacity>
+                            ) : (
+                                <Text style={styles.workspaceDescription}>
+                                    You don't have permission to create projects.
+                                </Text>
+                            )}
                         </View>
                     ) : (
                         <View style={styles.workspaceContainer}>
@@ -885,52 +944,58 @@ export default function ChatScreen() {
                                 A place just for you to capture ideas, draft messages,
                                 and keep everything organized for later.
                             </Text>
-                            <TouchableOpacity
-                                style={styles.addPeopleButton}
-                                activeOpacity={0.85}
-                                onPress={() => {
-                                    setIsChannelMode(false);
-                                    setAddPeopleOpen(true);
-                                }}
-                            >
-                                <Ionicons
-                                    name="person-add"
-                                    size={16}
-                                    color="#fff"
-                                    style={styles.buttonIcon}
-                                />
-                                <Text style={styles.addPeopleText}>Add People</Text>
-                            </TouchableOpacity>
+                            {perms.hasChatRead ? (
+                                <TouchableOpacity
+                                    style={styles.addPeopleButton}
+                                    activeOpacity={0.85}
+                                    onPress={() => {
+                                        setIsChannelMode(false);
+                                        setAddPeopleOpen(true);
+                                    }}
+                                >
+                                    <Ionicons
+                                        name="person-add"
+                                        size={16}
+                                        color="#fff"
+                                        style={styles.buttonIcon}
+                                    />
+                                    <Text style={styles.addPeopleText}>Add People</Text>
+                                </TouchableOpacity>
+                            ) : (
+                                <Text style={styles.workspaceDescription}>
+                                    You don't have permission to view chats.
+                                </Text>
+                            )}
                         </View>
                     )}
                 </ScrollView>
 
-                {/* FAB */}
-                {displayRooms.length > 0 && (
-                    <TouchableOpacity
-                        style={styles.fab}
-                        activeOpacity={0.8}
-                        onPress={() => {
-                            if (activeChip === "projects") {
-                                setCreateProjectOpen(true);
-                            } else if (activeChip === "channels") {
-                                setProjectContext(null);
-                                setCreateChannelOpen(true);
-                            } else {
-                                setIsChannelMode(false);
-                                setAddPeopleOpen(true);
-                            }
-                        }}
-                    >
-                        {/* <MaterialCommunityIcons 
-                            name={activeChip === "channels" ? "account-multiple-plus" : "message-plus"} 
-                            size={24} 
-                            color="#000" 
-                        /> */}
-                        {activeChip === "channels" || activeChip === "projects" ? <Icons.ChannelBtn /> : <Icons.IndoxBtn />}
+                {/* FAB — hidden when the active view offers no permitted action */}
+                {displayRooms.length > 0 &&
+                    (activeChip === "projects"
+                        ? perms.canCreateProjects
+                        : activeChip === "channels"
+                            ? perms.canCreateChannels
+                            : perms.hasChatRead) && (
+                        <TouchableOpacity
+                            style={styles.fab}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                                if (activeChip === "projects") {
+                                    setCreateProjectOpen(true);
+                                } else if (activeChip === "channels") {
+                                    setProjectContext(null);
+                                    setCreateChannelOpen(true);
+                                } else {
+                                    setIsChannelMode(false);
+                                    setAddPeopleOpen(true);
+                                }
+                            }}
+                        >
+                            {activeChip === "channels" || activeChip === "projects" ? <Icons.ChannelBtn /> : <Icons.IndoxBtn />}
 
-                    </TouchableOpacity>
-                )}
+                        </TouchableOpacity>
+                    )}
             </View>
 
             <AddPeopleModal

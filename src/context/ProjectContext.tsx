@@ -6,6 +6,7 @@ import {
   ProjectUser,
 } from "@/types/project.types";
 import { extractErrorMessage } from "@/utils/errorHandler";
+import { canViewProjects } from "@/utils/permissions";
 import React, {
   createContext,
   useCallback,
@@ -180,11 +181,15 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   );
 
   // Auto-load projects + project users once per company session (silent warm-up).
+  // Skipped when the user lacks the `project-list` permission — without it the
+  // backend answers 403 "Access Denied", so the call is meaningless (the UI is
+  // gated by the same permission elsewhere).
+  const canLoad = canViewProjects(authState.user);
   useEffect(() => {
-    if (!companyId) return;
+    if (!companyId || !canLoad) return;
     fetchProjects({ silent: true }).catch(() => {});
     fetchProjectUsers().catch(() => {});
-  }, [companyId, fetchProjects, fetchProjectUsers]);
+  }, [companyId, canLoad, fetchProjects, fetchProjectUsers]);
 
   const value: ProjectContextValue = useMemo(
     () => ({

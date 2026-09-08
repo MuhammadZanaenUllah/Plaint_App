@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -317,14 +319,19 @@ export default function AddPeopleModal({
   // area, otherwise that inset shows up as an empty gap above the keyboard.
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
-  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
-    new Set(),
-  );
+  // Selected users are stored as objects (keyed by id), NOT just a set of ids:
+  // at Invite time the parent's `users` prop may have been replaced by a newer
+  // search response, so refiltering the current array would silently drop any
+  // user selected from an earlier batch. Keeping the objects guarantees every
+  // selected user (with their email) is passed to onInviteUsers.
+  const [selectedUsersMap, setSelectedUsersMap] = useState<
+    Map<string, AddPeopleUser>
+  >(new Map());
 
   useEffect(() => {
     if (visible) {
       setQuery("");
-      setSelectedUserIds(new Set());
+      setSelectedUsersMap(new Map());
     }
   }, [visible]);
 
@@ -342,36 +349,38 @@ export default function AddPeopleModal({
   const handleClose = () => {
     Keyboard.dismiss();
     setQuery("");
-    setSelectedUserIds(new Set());
+    setSelectedUsersMap(new Map());
     onClose();
   };
 
   const handleSelect = (user: AddPeopleUser) => {
     if (isChannelMode) {
-      toggleSelect(user.id);
+      toggleSelect(user);
     } else {
       onSelectUser?.(user);
     }
   };
 
-  const toggleSelect = (id: string) => {
-    const newSet = new Set(selectedUserIds);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
-    setSelectedUserIds(newSet);
+  const toggleSelect = (item: AddPeopleUser) => {
+    setSelectedUsersMap((prev) => {
+      const next = new Map(prev);
+      if (next.has(item.id)) next.delete(item.id);
+      else next.set(item.id, item);
+      return next;
+    });
   };
 
   const handleSelectAll = () => {
-    if (selectedUserIds.size === filtered.length) {
-      setSelectedUserIds(new Set());
+    if (selectedUsersMap.size === filtered.length) {
+      setSelectedUsersMap(new Map());
     } else {
-      setSelectedUserIds(new Set(filtered.map((u) => u.id)));
+      setSelectedUsersMap(new Map(filtered.map((u) => [u.id, u])));
     }
   };
 
   const handleInvite = () => {
-    if (selectedUserIds.size === 0) return;
-    const selectedUsers = users.filter((u) => selectedUserIds.has(u.id));
+    if (selectedUsersMap.size === 0) return;
+    const selectedUsers = Array.from(selectedUsersMap.values());
     onInviteUsers?.(selectedUsers);
     handleClose();
   };
@@ -384,97 +393,102 @@ export default function AddPeopleModal({
       statusBarTranslucent
       onRequestClose={handleClose}
     >
-      <Pressable style={modalStyles.modalOverlay} onPress={handleClose}>
-        <Pressable style={modalStyles.sheetContainer} onPress={(e) => e.stopPropagation()}>
-          <View style={modalStyles.dragHandleBar}>
-            <View style={modalStyles.dragHandlePill} />
-          </View>
-          <View style={modalStyles.handleWrap}>
-            <TouchableOpacity
-              style={modalStyles.closeBtn}
-              onPress={handleClose}
-              activeOpacity={0.8}
-              hitSlop={8}
-            >
-              <Ionicons name="close" size={17} color="#fff" />
-            </TouchableOpacity>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1 }}
+      >
+        <Pressable style={modalStyles.modalOverlay} onPress={handleClose}>
+          <Pressable style={modalStyles.sheetContainer} onPress={(e) => e.stopPropagation()}>
+            <View style={modalStyles.dragHandleBar}>
+              <View style={modalStyles.dragHandlePill} />
+            </View>
+            <View style={modalStyles.handleWrap}>
+              <TouchableOpacity
+                style={modalStyles.closeBtn}
+                onPress={handleClose}
+                activeOpacity={0.8}
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={17} color="#fff" />
+              </TouchableOpacity>
 
-            <Text style={modalStyles.title}>Add People</Text>
-          </View>
+              <Text style={modalStyles.title}>Add People</Text>
+            </View>
 
-          <View style={modalStyles.body}>
-            {/* ── Floating label search ── */}
-            <FloatingSearchInput value={query} onChangeText={handleChangeText} />
+            <View style={modalStyles.body}>
+              {/* ── Floating label search ── */}
+              <FloatingSearchInput value={query} onChangeText={handleChangeText} />
 
-            {/* ── Channel Mode: Select All ── */}
-            {isChannelMode && (
-              <View style={modalStyles.channelControls}>
-                <TouchableOpacity
-                  style={modalStyles.selectAllRow}
-                  onPress={handleSelectAll}
-                  activeOpacity={0.7}
-                >
-                  <View
-                    style={[
-                      modalStyles.checkbox,
-                      selectedUserIds.size === filtered.length &&
-                        filtered.length > 0 &&
-                        modalStyles.checkboxActive,
-                    ]}
+              {/* ── Channel Mode: Select All ── */}
+              {isChannelMode && (
+                <View style={modalStyles.channelControls}>
+                  <TouchableOpacity
+                    style={modalStyles.selectAllRow}
+                    onPress={handleSelectAll}
+                    activeOpacity={0.7}
                   >
-                    {selectedUserIds.size === filtered.length &&
-                      filtered.length > 0 && (
-                        <Ionicons name="checkmark" size={14} color="#fff" />
-                      )}
-                  </View>
-                  <Text style={modalStyles.selectAllText}>Select All</Text>
-                </TouchableOpacity>
+                    <View
+                      style={[
+                        modalStyles.checkbox,
+                        selectedUsersMap.size === filtered.length &&
+                          filtered.length > 0 &&
+                          modalStyles.checkboxActive,
+                      ]}
+                    >
+                      {selectedUsersMap.size === filtered.length &&
+                        filtered.length > 0 && (
+                          <Ionicons name="checkmark" size={14} color="#fff" />
+                        )}
+                    </View>
+                    <Text style={modalStyles.selectAllText}>Select All</Text>
+                  </TouchableOpacity>
 
-                <View style={modalStyles.divider} />
+                  <View style={modalStyles.divider} />
+                </View>
+              )}
+
+              {/* ── Results / empty states ── */}
+
+              {filtered.length === 0 ? (
+                <EmptySearch />
+              ) : (
+                <FlatList
+                  data={filtered}
+                  keyExtractor={(item) => item.id}
+                  renderItem={({ item }) => (
+                    <UserRow
+                      user={item}
+                      onPress={() => handleSelect(item)}
+                      isChannelMode={isChannelMode}
+                      isSelected={selectedUsersMap.has(item.id)}
+                      onToggleSelect={() => toggleSelect(item)}
+                    />
+                  )}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={{ paddingBottom: 32 }}
+                />
+              )}
+            </View>
+
+            {isChannelMode && (
+              <View style={[modalStyles.footer, { paddingBottom: insets.bottom + 16 }]}>
+                <TouchableOpacity
+                  style={[
+                    modalStyles.inviteBtn,
+                    selectedUsersMap.size === 0 && modalStyles.inviteBtnDisabled,
+                  ]}
+                  activeOpacity={0.8}
+                  disabled={selectedUsersMap.size === 0}
+                  onPress={handleInvite}
+                >
+                  <Text style={modalStyles.inviteBtnText}>Invite</Text>
+                </TouchableOpacity>
               </View>
             )}
-
-            {/* ── Results / empty states ── */}
-
-            {filtered.length === 0 ? (
-              <EmptySearch />
-            ) : (
-              <FlatList
-                data={filtered}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <UserRow
-                    user={item}
-                    onPress={() => handleSelect(item)}
-                    isChannelMode={isChannelMode}
-                    isSelected={selectedUserIds.has(item.id)}
-                    onToggleSelect={() => toggleSelect(item.id)}
-                  />
-                )}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={{ paddingBottom: 32 }}
-              />
-            )}
-          </View>
-
-          {isChannelMode && (
-            <View style={[modalStyles.footer, { paddingBottom: insets.bottom + 16 }]}>
-              <TouchableOpacity
-                style={[
-                  modalStyles.inviteBtn,
-                  selectedUserIds.size === 0 && modalStyles.inviteBtnDisabled,
-                ]}
-                activeOpacity={0.8}
-                disabled={selectedUserIds.size === 0}
-                onPress={handleInvite}
-              >
-                <Text style={modalStyles.inviteBtnText}>Invite</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -498,26 +512,6 @@ const modalStyles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 24,
-  },
-  backdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.38)",
-  },
-  kavWrapper: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-  },
-  sheet: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: -4 },
-    elevation: 12,
   },
   dragHandleBar: {
     width: "100%",

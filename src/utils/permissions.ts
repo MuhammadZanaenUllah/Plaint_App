@@ -22,11 +22,62 @@ export function canCreateTask(user?: UserData | null): boolean {
   return isUserHead(user);
 }
 
+/** True when the user holds a given module+action permission key (e.g. "chat-list"). */
+export function hasPermission(
+  user: UserData | null | undefined,
+  permission: string
+): boolean {
+  if (!user) return false;
+  return (user.user_permissions ?? []).includes(permission);
+}
+
 /** True when the current user has permission to create a project (shows "Add to project"). */
 export function canCreateProject(user?: UserData | null): boolean {
-  if (!user) return false;
-  const permissions = user.user_permissions ?? [];
-  return permissions.includes("project-create");
+  return hasPermission(user, "project-create");
+}
+
+// ── Chat (1:1 DMs + channels) ────────────────────────────────────────────────
+
+/** Any chat read access — gates the DM inbox and the Channels view. */
+export function canViewChat(user?: UserData | null): boolean {
+  return hasPermission(user, "chat-list");
+}
+
+/** Create channels (incl. adding a channel under a project). */
+export function canCreateChannel(user?: UserData | null): boolean {
+  return hasPermission(user, "chat-create");
+}
+
+/** Edit a channel (rename, manage members). */
+export function canEditChannel(user?: UserData | null): boolean {
+  return hasPermission(user, "chat-edit");
+}
+
+/** Delete a channel. */
+export function canDeleteChannel(user?: UserData | null): boolean {
+  return hasPermission(user, "chat-delete");
+}
+
+// ── Projects ─────────────────────────────────────────────────────────────────
+
+/** Any project read access — gates the Projects view / project group chats. */
+export function canViewProjects(user?: UserData | null): boolean {
+  return hasPermission(user, "project-list");
+}
+
+export function canEditProject(user?: UserData | null): boolean {
+  return hasPermission(user, "project-edit");
+}
+
+export function canDeleteProject(user?: UserData | null): boolean {
+  return hasPermission(user, "project-delete");
+}
+
+// ── Tasks ────────────────────────────────────────────────────────────────────
+
+/** Any task read access. */
+export function canViewTasks(user?: UserData | null): boolean {
+  return hasPermission(user, "tasks-list");
 }
 
 export function canEditTask(task: TaskListItem, userId: number): boolean {

@@ -433,6 +433,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     companyIdRef.current = authState.company?.company_id ?? null;
   }, [authState.company?.company_id]);
+  // Current user's module-level permissions ("chat-list", "project-list", …),
+  // read by socket listeners without stale-closure issues.
+  const userPermissionsRef = useRef<string[]>([]);
+  useEffect(() => {
+    userPermissionsRef.current = authState.user?.user_permissions ?? [];
+  }, [authState.user?.user_permissions]);
   const projectUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -1011,8 +1017,52 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         "newRoom",
         (roomData) => {
           const room = roomData as Room;
+          const isNewRoom = !stateRef.current.rooms.some(
+            (r) => r._id === room._id || String(r.id) === String(room.id),
+          );
+
           dispatch({ type: "ADD_ROOM", room });
           socketService.joinChatRoom(room._id);
+
+          // In-app toast when the current user is added to a channel/project
+          // channel by someone else. Skips rooms the user created themselves
+          // (no toast on their own channel creation), 1:1 DMs, and rooms the
+          // user has no read permission for — if they can't see the
+          // channel/project in their list, a toast would be misleading.
+          if (isNewRoom && (room.type === "channel" || room.type === "project")) {
+            const perms = userPermissionsRef.current;
+            const canView =
+              room.type === "channel"
+                ? perms.includes("chat-list")
+                : perms.includes("project-list");
+            if (
+              canView &&
+              room.created_by !== undefined &&
+              room.created_by !== userIdRef.current
+            ) {
+            const creator = room.members?.find(
+              (m) => m.id === room.created_by,
+            );
+            const creatorName = creator
+              ? `${creator.first_name || ""} ${creator.last_name || ""}`.trim()
+              : null;
+            if (creatorName) {
+              showInfo(
+                room.type === "project"
+                  ? `${creatorName} added you to a project`
+                  : `${creatorName} added you to a channel`,
+                room.name,
+              );
+            } else {
+              showInfo(
+                room.type === "project"
+                  ? "You were added to a project"
+                  : "You were added to a channel",
+                room.name,
+              );
+            }
+            }
+          }
         },
       );
 

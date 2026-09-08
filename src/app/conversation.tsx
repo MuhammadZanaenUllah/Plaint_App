@@ -29,6 +29,7 @@ import {
   resolveFileUrl,
   resolveSecureFileUrl,
 } from "@/utils/chatHelpers";
+import { canEditChannel } from "@/utils/permissions";
 import { triggerHaptic } from "@/utils/haptics";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { getStoredToken } from "@/utils/token";
@@ -2251,6 +2252,7 @@ export default function ConversationScreen() {
   const { typingUsers } = useChatPresence();
   const authState = useAuth();
   const currentUserId = authState?.state?.user?.id ?? 0;
+  const currentUser = authState?.state?.user ?? null;
   const currentUserName = authState?.state?.user
     ? `${authState.state.user.first_name} ${authState.state.user.last_name}`.trim() ||
       `User #${currentUserId}`
@@ -2289,10 +2291,13 @@ export default function ConversationScreen() {
   }, [callerPermission]);
 
   // Only the room creator / Full edit may add people to a channel.
+  // Module-level: for channels this also requires the `chat-edit` permission.
   const canManageMembers = useMemo(() => {
     if (!callerPermission) return false;
-    return canPerformAction(callerPermission, "manage");
-  }, [callerPermission]);
+    if (!canPerformAction(callerPermission, "manage")) return false;
+    if (isChannel && !canEditChannel(currentUser)) return false;
+    return true;
+  }, [callerPermission, isChannel, currentUser]);
 
   const [message, setMessage] = useState("");
   const scrollRef = useRef<any>(null);
@@ -3346,6 +3351,7 @@ export default function ConversationScreen() {
 
               <TouchableOpacity
                 hitSlop={8}
+                style={styles.headerSearchBtn}
                 onPress={() => {
                   setSearchOpen(true);
                   setTimeout(() => searchInputRef.current?.focus(), 100);
@@ -3625,7 +3631,7 @@ export default function ConversationScreen() {
         {/* ── Scrollable content ── */}
         <KeyboardAvoidingView
           style={styles.flex}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={0}
         >
           <FlatList
@@ -4385,6 +4391,7 @@ const styles = StyleSheet.create({
   },
   headerInfo: { flex: 1 },
   headerIconBtn: { marginLeft: 14 },
+  headerSearchBtn: { marginLeft: 14 },
   headerName: {
     fontSize: rf(15),
     fontFamily: "SF_Pro_Medium",
