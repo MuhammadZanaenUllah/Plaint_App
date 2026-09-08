@@ -73,6 +73,17 @@ export function canDeleteProject(user?: UserData | null): boolean {
   return hasPermission(user, "project-delete");
 }
 
+/** True when the user has project permissions to view, edit, create, or delete projects */
+export function canAccessProjectsQuickMenu(user?: UserData | null): boolean {
+  if (!user) return false;
+  return (
+    hasPermission(user, "project-list") ||
+    hasPermission(user, "project-edit") ||
+    hasPermission(user, "project-create") ||
+    hasPermission(user, "project-delete")
+  );
+}
+
 // ── Tasks ────────────────────────────────────────────────────────────────────
 
 /** Any task read access. */
