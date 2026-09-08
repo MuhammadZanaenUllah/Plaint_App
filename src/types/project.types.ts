@@ -67,6 +67,15 @@ export type ProjectAttachment = {
   attachment: string;
 };
 
+export type ProjectSprint = {
+  id: number;
+  title: string;
+  date?: string;
+  start_date?: string;
+  end_date?: string;
+  status?: string;
+};
+
 export type ProjectDetail = {
   name: string;
   status: ProjectStatus;
@@ -75,8 +84,9 @@ export type ProjectDetail = {
   attachments: ProjectAttachment[];
   owner: number;
   created_by: number;
-  created_by_user: { id: number; first_name: string };
-  tasks: unknown[];
+  created_by_user: { id: number; first_name: string; last_name?: string };
+  tasks: import("./task.types").TaskListItem[];
+  sprints?: ProjectSprint[];
 };
 
 export type GetProjectDetailResponse = {

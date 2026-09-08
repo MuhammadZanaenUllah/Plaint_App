@@ -3,6 +3,7 @@ import AddPeopleModal from "@/components/AddPeopleModal";
 import Avatar from "@/components/Avatar";
 import CreateChannelModal from "@/components/CreateChannelModal";
 import CreateProjectModal from "@/components/CreateProjectModal";
+import ProjectDetailModal from "@/components/ProjectDetailModal";
 import InviteToChannelModal, { type ChannelPermission, type ChannelMember } from "@/components/InviteToChannelModal";
 import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
@@ -74,6 +75,8 @@ export default function ChatScreen() {
     const [projectContext, setProjectContext] = useState<Room | null>(null);
     // Track expanded projects in the Projects chip view
     const [expandedProjects, setExpandedProjects] = useState<Set<number>>(new Set());
+    // Track selected project for ProjectDetailModal
+    const [selectedProjectForDetail, setSelectedProjectForDetail] = useState<Project | null>(null);
 
     // ── InviteToChannelModal state ─────────────────────────────────────────────
     const [inviteModalVisible, setInviteModalVisible] = useState(false);
@@ -239,13 +242,6 @@ export default function ChatScreen() {
             fetchProjects({ silent: true }).catch(() => { });
         }
     }, [activeChip, fetchProjects]);
-
-    const formatProjectDue = (due?: string | null) => {
-        if (!due) return "";
-        const d = new Date(due);
-        if (isNaN(d.getTime())) return "";
-        return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    };
 
     const toggleProjectExpand = useCallback((projectId: number) => {
         setExpandedProjects((prev) => {
@@ -589,13 +585,7 @@ export default function ChatScreen() {
                                     const isExpanded = expandedProjects.has(project.id);
                                     const childChannels = projectChannelMap.get(project.id) ?? [];
                                     const meta = projectMetaByName.get(displayName);
-                                    const metaSnippet = meta
-                                        ? [
-                                            `${childChannels.length} ${childChannels.length === 1 ? "channel" : "channels"}`,
-                                            meta.status,
-                                            formatProjectDue(meta.due_date),
-                                        ].filter(Boolean).join(" · ")
-                                        : `${childChannels.length} ${childChannels.length === 1 ? "channel" : "channels"}`;
+                                    const metaSnippet = `${childChannels.length} ${childChannels.length === 1 ? "channel" : "channels"}`;
                                     const projectTime = project.last_message?.createdAt
                                         ? formatChatListTime(project.last_message.createdAt)
                                         : (project as any).time ?? "";
@@ -650,10 +640,25 @@ export default function ChatScreen() {
                                                             style={{ padding: 4 }}
                                                             onPress={(e) => {
                                                                 e.stopPropagation();
+                                                                const proj = meta ?? {
+                                                                    id: project.id,
+                                                                    name: displayName,
+                                                                    status: "Planning",
+                                                                };
+                                                                setSelectedProjectForDetail(proj);
+                                                            }}
+                                                        >
+                                                            <Ionicons name="folder-outline" size={18} color="#00DEAB" />
+                                                        </TouchableOpacity>
+                                                        <TouchableOpacity
+                                                            activeOpacity={0.7}
+                                                            style={{ padding: 4 }}
+                                                            onPress={(e) => {
+                                                                e.stopPropagation();
                                                                 handleProjectAddChannel(project);
                                                             }}
                                                         >
-                                                            <Ionicons name="add-circle-sharp" size={22} color="#1D1D1D" />
+                                                            <Ionicons name="add-circle-sharp" size={18} color="#1D1D1D" />
                                                         </TouchableOpacity>
                                                         <TouchableOpacity
                                                             activeOpacity={0.7}
@@ -665,7 +670,7 @@ export default function ChatScreen() {
                                                         >
                                                             <Ionicons
                                                                 name={isExpanded ? "chevron-up" : "chevron-down"}
-                                                                size={20}
+                                                                size={18}
                                                                 color="#1D1D1D"
                                                             />
                                                         </TouchableOpacity>
@@ -983,6 +988,17 @@ export default function ChatScreen() {
                 onInvite={handleChannelInvite}
                 onGenerateLink={handleGenerateChannelLink}
                 onUpdatePermission={handleUpdateChannelPermission}
+            />
+
+            {/* ── ProjectDetailModal ── */}
+            <ProjectDetailModal
+                visible={!!selectedProjectForDetail}
+                project={selectedProjectForDetail}
+                onClose={() => setSelectedProjectForDetail(null)}
+                onProjectUpdated={() => {
+                    fetchProjects({ silent: true }).catch(() => {});
+                    fetchRooms().catch(() => {});
+                }}
             />
         </View>
     );

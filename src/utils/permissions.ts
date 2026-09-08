@@ -22,6 +22,13 @@ export function canCreateTask(user?: UserData | null): boolean {
   return isUserHead(user);
 }
 
+/** True when the current user has permission to create a project (shows "Add to project"). */
+export function canCreateProject(user?: UserData | null): boolean {
+  if (!user) return false;
+  const permissions = user.user_permissions ?? [];
+  return permissions.includes("project-create");
+}
+
 export function canEditTask(task: TaskListItem, userId: number): boolean {
   return task.can_edit === true || task.created_by === userId;
 }

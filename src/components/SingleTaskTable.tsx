@@ -105,6 +105,8 @@ type Props = {
   canReassign?: boolean;
   assignableOwners?: AssignableOwner[];
   onAssigneeChange?: (task: TaskRowProps, owner: AssignableOwner) => void;
+  canAssignProject?: boolean;
+  onAddToProjectPress?: (task: TaskRowProps) => void;
   // Optional column configuration. When omitted, the classic task layout is
   // used (Title / Created By / Due Date, fitted to the window without
   // horizontal scrolling). When provided, only the listed columns render —
@@ -355,6 +357,8 @@ function SingleTaskTable({
   canReassign = false,
   assignableOwners = [],
   onAssigneeChange,
+  canAssignProject = false,
+  onAddToProjectPress,
   columns,
   columnHeadings,
   readOnly = false,
@@ -772,6 +776,8 @@ function SingleTaskTable({
                     onAssigneeSelect={(owner) =>
                       handleAssigneeChange(task, rowIndex, owner)
                     }
+                    canAssignProject={canAssignProject}
+                    onAddToProjectPress={onAddToProjectPress}
                     scrollCloseSignal={scrollCloseSignal}
                     columns={effectiveColumns}
                     readOnly={readOnly}
@@ -826,6 +832,8 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
   canReassign,
   assignableOwners,
   onAssigneeSelect,
+  canAssignProject,
+  onAddToProjectPress,
   scrollCloseSignal,
   columns,
   readOnly,
@@ -850,6 +858,8 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
   canReassign?: boolean;
   assignableOwners?: AssignableOwner[];
   onAssigneeSelect: (owner: AssignableOwner) => void;
+  canAssignProject?: boolean;
+  onAddToProjectPress?: (task: TaskRowProps) => void;
   columns: SingleTaskTableColumn[];
   readOnly?: boolean;
 }) {
@@ -1020,6 +1030,8 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
             canReassign={canReassign}
             assignableOwners={assignableOwners}
             onAssigneeSelect={onAssigneeSelect}
+            canAssignProject={canAssignProject}
+            onAddToProjectPress={onAddToProjectPress}
             scrollCloseSignal={scrollCloseSignal}
           />
         </Animated.View>
@@ -1434,6 +1446,8 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
   canReassign,
   assignableOwners,
   onAssigneeSelect,
+  canAssignProject,
+  onAddToProjectPress,
   scrollCloseSignal,
 }: {
   item: TaskRowProps;
@@ -1446,6 +1460,8 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
   canReassign?: boolean;
   assignableOwners?: AssignableOwner[];
   onAssigneeSelect: (owner: AssignableOwner) => void;
+  canAssignProject?: boolean;
+  onAddToProjectPress?: (task: TaskRowProps) => void;
   scrollCloseSignal?: number;
 }) {
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
@@ -1535,6 +1551,11 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
           <Text style={[styles.swipeHeaderText, styles.swipeCommentColumn]}>
             Comment
           </Text>
+          {canAssignProject ? (
+            <Text style={[styles.swipeHeaderText, styles.swipeProjectColumn]}>
+              Project
+            </Text>
+          ) : null}
         </View>
       </View>
 
@@ -1623,6 +1644,18 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
         >
           <Ionicons name="chatbox-outline" size={18} color="#00DEAB" />
         </TouchableOpacity>
+
+        {canAssignProject ? (
+          <TouchableOpacity
+            style={[styles.swipeProjectCell, styles.swipeProjectColumn]}
+            onPress={() => onAddToProjectPress?.(item)}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Add to project"
+          >
+            <Ionicons name="folder-outline" size={18} color="#00DEAB" />
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {statusPickerOpen ? (
@@ -2053,6 +2086,10 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 66,
   },
+  swipeProjectColumn: {
+    flex: 1,
+    minWidth: 60,
+  },
   swipeValues: {
     height: 54,
     flexDirection: "row",
@@ -2089,6 +2126,11 @@ const styles = StyleSheet.create({
     marginRight: 2,
   },
   swipeCommentCell: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 8,
+  },
+  swipeProjectCell: {
     flexDirection: "row",
     alignItems: "center",
     paddingLeft: 8,

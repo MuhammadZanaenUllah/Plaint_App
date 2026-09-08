@@ -207,6 +207,12 @@ export type TaskContextValue = {
   setActiveFilter: (filter: TaskFilter | null) => void;
   createTask: (data: CreateTaskRequest) => Promise<number>;
   updateTask: (taskId: number, data: UpdateTaskRequest) => Promise<any>;
+  assignTaskToProject: (
+    taskId: number,
+    projectId: number,
+    companyId: number,
+    companyIdentifier: string,
+  ) => Promise<void>;
   updateTaskStatusLocal: (taskId: string, status: string) => void;
   updateTaskStatusApi: (
     taskId: number,
@@ -933,6 +939,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
             task_priority: data.task_priority,
             asigned_to: data.assign_to,
             assignee: data.assign_to,
+            project_id: data.project_id != null ? data.project_id : t.project_id,
           };
           if (newOwner && data.assign_to !== t.asigned_to) {
             patched.task_assigned_to = {
@@ -957,6 +964,44 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
           status: state.statusList,
         },
       });
+    },
+    [state],
+  );
+
+  const assignTaskToProject = useCallback(
+    async (
+      taskId: number,
+      projectId: number,
+      companyId: number,
+      companyIdentifier: string,
+    ) => {
+      // Local optimistic update
+      const update = (items: TaskListItem[]): TaskListItem[] =>
+        items.map((t) => (t.id === taskId ? { ...t, project_id: projectId } : t));
+
+      dispatch({
+        type: "LOAD_SUCCESS",
+        data: {
+          tasks_assigned_to_me: update(state.assignedToMe),
+          tasksByme: update(state.createdByMe),
+          all_other_tasks: update(state.allOtherTasks),
+          task_owner: state.taskOwners,
+          priority: state.priorities,
+          status: state.statusList,
+        },
+      });
+
+      const res = await tasksService.updateTaskProject(taskId, {
+        project_id: projectId,
+        company_id: companyId,
+        company_identifier: companyIdentifier,
+      });
+
+      if (!res.Good) {
+        throw new Error(
+          typeof res.data === "string" ? res.data : "Failed to assign project",
+        );
+      }
     },
     [state],
   );
@@ -1012,6 +1057,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       setActiveFilter,
       createTask,
       updateTask,
+      assignTaskToProject,
       updateTaskStatusLocal,
       updateTaskStatusApi,
       refreshTasks,
@@ -1051,6 +1097,8 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       fetchFiltered,
       setActiveFilter,
       createTask,
+      updateTask,
+      assignTaskToProject,
       updateTaskStatusLocal,
       updateTaskStatusApi,
       refreshTasks,

@@ -2,6 +2,7 @@ import AnimatedFAB from "@/components/AnimatedFAB";
 import CreateTaskModal from "@/components/CreateTaskModal";
 import FilterModal from "@/components/FilterModal";
 import RejectTaskModal from "@/components/RejectTaskModal";
+import AssignTaskProjectModal from "@/components/AssignTaskProjectModal";
 import { AssignableOwner } from "@/components/SingleTaskTable";
 import StatCard from "@/components/StatCard";
 import TaskDelay from "@/components/taskdelay";
@@ -22,7 +23,7 @@ import {
   reassignTask,
   viewTask,
 } from "@/services/api/tasks.service";
-import { canCreateTask } from "@/utils/permissions";
+import { canCreateProject, canCreateTask } from "@/utils/permissions";
 import { rf } from "@/utils/responsive";
 import { uiStatusToApi } from "@/utils/statusMapper";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
@@ -73,6 +74,7 @@ export default function TasksScreen() {
     mappedAssignedToMe,
     mappedCreatedByMe,
     updateTaskStatusApi,
+    assignTaskToProject,
   } = useTasks();
 
   useTaskSocket();
@@ -91,6 +93,9 @@ export default function TasksScreen() {
   const [createVisible, setCreateVisible] = useState(false);
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
   const [rejectTargetTaskId, setRejectTargetTaskId] = useState<number | null>(
+    null,
+  );
+  const [projectModalTask, setProjectModalTask] = useState<TaskRowProps | null>(
     null,
   );
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
@@ -168,6 +173,12 @@ export default function TasksScreen() {
   // heads ever see the create-task FAB.
   const canCreate = useMemo(
     () => canCreateTask(authState.user),
+    [authState.user],
+  );
+
+  // Add-to-project visibility is driven by user permission "project-create"
+  const canAssignProject = useMemo(
+    () => canCreateProject(authState.user),
     [authState.user],
   );
 
@@ -511,6 +522,22 @@ export default function TasksScreen() {
       handleTaskPress(task, "comments");
     },
     [handleTaskPress],
+  );
+
+  const handleAddToProjectPress = useCallback((task: TaskRowProps) => {
+    setProjectModalTask(task);
+  }, []);
+
+  const handleAssignProjectToTask = useCallback(
+    async (projectId: number, project: import("@/types/project.types").Project) => {
+      if (!projectModalTask?.id || !companyId) return;
+      const tId = Number(projectModalTask.id);
+      await assignTaskToProject(tId, projectId, companyId, companyIdentifier);
+      if (companyId) {
+        fetchAllTasks(companyId, { silent: true }).catch(() => {});
+      }
+    },
+    [projectModalTask, companyId, companyIdentifier, assignTaskToProject, fetchAllTasks],
   );
 
   // ── Deep-link handling (e.g. task_mention push notification) ───────────
@@ -1034,6 +1061,8 @@ export default function TasksScreen() {
               canReassign={canCreate}
               assignableOwners={taskState.taskOwners}
               onAssigneeChange={handleAssigneeChange}
+              canAssignProject={canAssignProject}
+              onAddToProjectPress={handleAddToProjectPress}
             />
           </View>
         )}
@@ -1077,6 +1106,12 @@ export default function TasksScreen() {
             fetchAllTasks(companyId, { silent: true }).catch(() => {});
           }
         }}
+      />
+      <AssignTaskProjectModal
+        visible={!!projectModalTask}
+        task={projectModalTask}
+        onClose={() => setProjectModalTask(null)}
+        onAssign={handleAssignProjectToTask}
       />
     </View>
   );
