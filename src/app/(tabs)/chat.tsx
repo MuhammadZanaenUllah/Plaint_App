@@ -651,9 +651,9 @@ export default function ChatScreen() {
                                                     <Avatar
                                                         name={displayName}
                                                         imagePath={getRoomAvatar(project, currentUserId)}
-                                                        size={36}
+                                                        size={34}
                                                         borderRadius={5}
-                                                        fontSize={15}
+                                                        fontSize={13.5}
                                                         fontFamily="SF_Pro_Medium"
                                                     />
                                                     {unread && (
@@ -746,7 +746,7 @@ export default function ChatScreen() {
                                                                 key={channel.id}
                                                                 style={[
                                                                     styles.chatRow,
-                                                                    { paddingLeft: 40, backgroundColor: "#fff" },
+                                                                    { paddingLeft: 38, backgroundColor: "#fff" },
                                                                     isChannelActive && styles.chatRowSelected,
                                                                 ]}
                                                                 activeOpacity={0.7}
@@ -756,20 +756,20 @@ export default function ChatScreen() {
                                                                     <Avatar
                                                                         name={channelName}
                                                                         imagePath={getRoomAvatar(channel, currentUserId)}
-                                                                        size={32}
+                                                                        size={28}
                                                                         borderRadius={5}
-                                                                        fontSize={13}
+                                                                        fontSize={11.5}
                                                                         fontFamily="SF_Pro_Medium"
                                                                     />
                                                                     {channelUnread && (
                                                                         <View style={styles.onlineIndicator} />
                                                                     )}
                                                                 </View>
-                                                                <View style={styles.chatInfo}>
-                                                                    <Text style={styles.chatName} numberOfLines={1}>
+                                                                <View style={styles.channelInfo}>
+                                                                    <Text style={styles.channelName} numberOfLines={1}>
                                                                         {channelName}
                                                                     </Text>
-                                                                    <Text style={styles.chatSnippet} numberOfLines={1}>
+                                                                    <Text style={styles.channelSnippet} numberOfLines={1}>
                                                                         {channelPreview}
                                                                     </Text>
                                                                 </View>
@@ -829,9 +829,9 @@ export default function ChatScreen() {
                                                 <Avatar
                                                     name={displayName}
                                                     imagePath={getRoomAvatar(room, currentUserId)}
-                                                    size={36}
+                                                    size={34}
                                                     borderRadius={5}
-                                                    fontSize={15}
+                                                    fontSize={13.5}
                                                     fontFamily="SF_Pro_Medium"
                                                 />
                                                 {unread && (
@@ -1090,42 +1090,43 @@ const styles = StyleSheet.create({
     chipsContainer: {
         paddingHorizontal: 16,
         gap: 5,
-        marginBottom: 16,
+        marginBottom: 14,
     },
     chipButton: {
         flexDirection: "row",
         alignItems: "center",
         backgroundColor: "#F4F4F4",
         borderRadius: 6,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
+        paddingHorizontal: 11,
+        paddingVertical: 7,
         position: "relative",
     },
     chipButtonActive: {
         backgroundColor: "#1D1D1D",
     },
     chipText: {
-        fontSize: rf(12),
-        fontFamily: "SF_Pro_Semibold",
+        fontSize: rf(11.5),
+        fontFamily: "SF_Pro_Medium",
         color: "#1D1D1D",
     },
     chipTextActive: {
         color: "#fff",
+        fontFamily: "SF_Pro_Semibold",
     },
     verticalDivider: {
         width: 1.5,
-        height: 33,
+        height: 28,
         backgroundColor: "#F4F4F4",
-        marginLeft: 7,
-        marginRight: 3,
+        marginLeft: 6,
+        marginRight: 2,
     },
     unreadDot: {
         position: "absolute",
         top: -1,
         right: -3,
-        width: 8,
-        height: 8,
-        borderRadius: 4,
+        width: 7,
+        height: 7,
+        borderRadius: 3.5,
         backgroundColor: "#00DEAB",
         borderWidth: 1.5,
         borderColor: "#fff",
@@ -1142,7 +1143,7 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         paddingHorizontal: 16,
-        paddingVertical: 12,
+        paddingVertical: 10,
     },
     chatRowSelected: {
         backgroundColor: "#F4F4F4",
@@ -1150,11 +1151,11 @@ const styles = StyleSheet.create({
     },
     avatarContainer: {
         position: "relative",
-        marginRight: 12,
+        marginRight: 11,
     },
     avatarBox: {
-        width: 36,
-        height: 36,
+        width: 34,
+        height: 34,
         borderRadius: 5,
         backgroundColor: "#00DEAB",
         alignItems: "center",
@@ -1162,16 +1163,16 @@ const styles = StyleSheet.create({
     },
     avatarText: {
         color: "#fff",
-        fontSize: rf(15),
+        fontSize: rf(13.5),
         fontFamily: "SF_Pro_Medium",
     },
     onlineIndicator: {
         position: "absolute",
         top: -2,
         right: -2,
-        width: 10,
-        height: 10,
-        borderRadius: 5,
+        width: 9,
+        height: 9,
+        borderRadius: 4.5,
         backgroundColor: "#00DEAB",
         borderWidth: 1.5,
         borderColor: "#fff",
@@ -1182,12 +1183,12 @@ const styles = StyleSheet.create({
         gap: 2,
     },
     chatName: {
-        fontSize: rf(15),
+        fontSize: rf(13.5),
         fontFamily: "SF_Pro_Semibold",
         color: "#1D1D1D",
     },
     chatSnippet: {
-        fontSize: rf(13),
+        fontSize: rf(12),
         fontFamily: "SF_Pro_Regular",
         color: "#4B5563",
     },
@@ -1195,25 +1196,26 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "flex-end",
-        gap: 10,
-        minWidth: 80,
+        gap: 8,
+        minWidth: 72,
     },
     chatTime: {
-        fontSize: rf(11),
-        fontFamily: "SF_Pro_Medium",
+        fontSize: rf(10.5),
+        fontFamily: "SF_Pro_Regular",
         color: "#9CA3AF",
     },
     unreadBubble: {
         backgroundColor: "#1D1D1D",
-        borderRadius: 15,
-        paddingHorizontal: 6,
-        paddingVertical: 6,
+        borderRadius: 12,
+        paddingHorizontal: 5,
+        paddingVertical: 3,
         alignItems: "center",
         justifyContent: "center",
+        minWidth: 18,
     },
     unreadBubbleText: {
         color: "#0DDFAB",
-        fontSize: rf(10),
+        fontSize: rf(9.5),
         fontFamily: "SF_Pro_Semibold",
     },
 
@@ -1222,18 +1224,18 @@ const styles = StyleSheet.create({
         flex: 1,
         alignItems: "center",
         justifyContent: "center",
-        marginTop: 100,
+        marginTop: 80,
         paddingHorizontal: 24,
     },
     iconStack: {
         position: "relative",
-        marginBottom: 16,
+        marginBottom: 14,
     },
     workspaceTitle: {
-        fontSize: rf(22),
-        fontFamily: "SF_Pro_Regular",
+        fontSize: rf(18),
+        fontFamily: "SF_Pro_Semibold",
         color: "#1D1D1D",
-        marginBottom: 8,
+        marginBottom: 6,
         textAlign: "center",
     },
     workspaceDescription: {
@@ -1241,17 +1243,17 @@ const styles = StyleSheet.create({
         fontFamily: "SF_Pro_Regular",
         color: "#4B5563",
         textAlign: "center",
-        lineHeight: 20,
-        marginBottom: 24,
+        lineHeight: 18,
+        marginBottom: 20,
     },
     addPeopleButton: {
         flexDirection: "row",
         justifyContent: "center",
-        minWidth: 200,
+        minWidth: 180,
         alignItems: "center",
         backgroundColor: "#00DEAB",
         borderRadius: 8,
-        paddingVertical: 12,
+        paddingVertical: 10,
         shadowColor: "#00DEAB",
         shadowOpacity: 0.15,
         shadowRadius: 6,
@@ -1263,7 +1265,7 @@ const styles = StyleSheet.create({
     },
     addPeopleText: {
         color: "#fff",
-        fontSize: rf(14),
+        fontSize: rf(13),
         fontFamily: "SF_Pro_Semibold",
     },
 
@@ -1295,7 +1297,7 @@ const styles = StyleSheet.create({
         alignItems: "center",
         paddingLeft: 16,
         paddingRight: 16,
-        paddingVertical: 10,
+        paddingVertical: 8,
         backgroundColor: "#fff",
     },
     channelRowActive: {
@@ -1304,17 +1306,17 @@ const styles = StyleSheet.create({
         borderRadius: 6,
     },
     channelName: {
-        fontSize: rf(15),
-        fontFamily: "SF_Pro_Semibold",
+        fontSize: rf(12.5),
+        fontFamily: "SF_Pro_Medium",
         color: "#1D1D1D",
     },
     subAvatarContainer: {
         position: "relative",
-        marginRight: 12,
+        marginRight: 10,
     },
     subAvatarBox: {
-        width: 36,
-        height: 36,
+        width: 28,
+        height: 28,
         borderRadius: 5,
         backgroundColor: "#00DEAB",
         alignItems: "center",
@@ -1322,16 +1324,16 @@ const styles = StyleSheet.create({
     },
     subAvatarText: {
         color: "#fff",
-        fontSize: rf(15),
+        fontSize: rf(11.5),
         fontFamily: "SF_Pro_Medium",
     },
     channelInfo: {
         flex: 1,
         justifyContent: "center",
-        gap: 2,
+        gap: 1.5,
     },
     channelSnippet: {
-        fontSize: rf(13),
+        fontSize: rf(11.5),
         fontFamily: "SF_Pro_Regular",
         color: "#4B5563",
     },
