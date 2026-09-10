@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Planit",
-    "slug": "planit",
+    "slug": "plaint",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/ios-icon-default.png",
@@ -66,9 +66,7 @@
         {
           "icon": "./assets/images/android-icon-foreground.png",
           "color": "#00DEAB",
-          "sounds": [
-            "./assets/sounds/notification.mp3"
-          ]
+          "sounds": ["./assets/sounds/notification.mp3"]
         }
       ],
       "expo-image",
