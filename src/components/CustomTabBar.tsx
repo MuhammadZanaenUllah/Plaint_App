@@ -3,21 +3,22 @@ import { triggerHaptic } from "@/utils/haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { BottomTabBarProps } from "expo-router/js-tabs";
 import { router } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Keyboard, Pressable, StyleSheet, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
-import { useAuth } from "@/hooks/useAuth";
-import { useChat } from "@/hooks/useChat";
-import { useProjects } from "@/hooks/useProjects";
-import { canAccessProjectsQuickMenu } from "@/utils/permissions";
-import { getRoomDisplayName } from "@/utils/chatHelpers";
-import { Project, ProjectStatus } from "@/types/project.types";
-import ProjectQuickMenuModal from "@/components/ProjectQuickMenuModal";
-import ProjectDetailModal from "@/components/ProjectDetailModal";
+// PROJECT MODULE DISABLED — the Projects Quick Menu depended on these hooks
+// import { useAuth } from "@/hooks/useAuth";
+// import { useChat } from "@/hooks/useChat";
+// import { useProjects } from "@/hooks/useProjects";
+// import { canAccessProjectsQuickMenu } from "@/utils/permissions";
+// import { getRoomDisplayName } from "@/utils/chatHelpers";
+// import { Project, ProjectStatus } from "@/types/project.types";
+// import ProjectQuickMenuModal from "@/components/ProjectQuickMenuModal";
+// import ProjectDetailModal from "@/components/ProjectDetailModal";
 
 const {
   ChatBlackIcon: ChatIconBlack,
@@ -108,69 +109,71 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
     return <View style={{ height: 0 }} />;
   }
 
-  const { state: authState } = useAuth();
-  const { state: chatState, fetchRooms } = useChat();
-  const { state: projectState, fetchProjects } = useProjects();
+  // PROJECT MODULE DISABLED — the Projects Quick Menu (long-press on the Tasks
+  // tab) and everything it depends on is commented out below.
+  // const { state: authState } = useAuth();
+  // const { state: chatState, fetchRooms } = useChat();
+  // const { state: projectState, fetchProjects } = useProjects();
 
-  const [quickMenuVisible, setQuickMenuVisible] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  // const [quickMenuVisible, setQuickMenuVisible] = useState(false);
+  // const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 
-  const currentUser = authState.user;
-  const currentUserId = currentUser?.id ?? 0;
-  const hasQuickMenuPermission = canAccessProjectsQuickMenu(currentUser);
+  // const currentUser = authState.user;
+  // const currentUserId = currentUser?.id ?? 0;
+  // const hasQuickMenuPermission = canAccessProjectsQuickMenu(currentUser);
 
   // Projects list matching what is shown in the Projects tab of chat module
-  const projectList = useMemo<Project[]>(() => {
-    if (!hasQuickMenuPermission) return [];
+  // const projectList = useMemo<Project[]>(() => {
+  //   if (!hasQuickMenuPermission) return [];
 
-    const projectMetaByName = new Map<string, Project>();
-    for (const p of projectState.projects ?? []) {
-      projectMetaByName.set(p.name, p);
-    }
+  //   const projectMetaByName = new Map<string, Project>();
+  //   for (const p of projectState.projects ?? []) {
+  //     projectMetaByName.set(p.name, p);
+  //   }
 
-    const rooms = chatState.rooms ?? [];
-    const projectRooms = rooms.filter((r) => r.type === "project");
+  //   const rooms = chatState.rooms ?? [];
+  //   const projectRooms = rooms.filter((r) => r.type === "project");
 
-    if (projectRooms.length > 0) {
-      return projectRooms.map((room) => {
-        const displayName = getRoomDisplayName(room, currentUserId);
-        const meta = projectMetaByName.get(displayName);
-        return (
-          meta ?? {
-            id: room.id,
-            name: displayName,
-            status: "Planning" as ProjectStatus,
-          }
-        );
-      });
-    }
+  //   if (projectRooms.length > 0) {
+  //     return projectRooms.map((room) => {
+  //       const displayName = getRoomDisplayName(room, currentUserId);
+  //       const meta = projectMetaByName.get(displayName);
+  //       return (
+  //         meta ?? {
+  //           id: room.id,
+  //           name: displayName,
+  //           status: "Planning" as ProjectStatus,
+  //         }
+  //       );
+  //     });
+  //   }
 
-    // Fallback directly to projects list if rooms haven't loaded yet
-    return projectState.projects ?? [];
-  }, [
-    hasQuickMenuPermission,
-    chatState.rooms,
-    projectState.projects,
-    currentUserId,
-  ]);
+  //   // Fallback directly to projects list if rooms haven't loaded yet
+  //   return projectState.projects ?? [];
+  // }, [
+  //   hasQuickMenuPermission,
+  //   chatState.rooms,
+  //   projectState.projects,
+  //   currentUserId,
+  // ]);
 
-  const handleTaskLongPress = () => {
-    if (!hasQuickMenuPermission) return;
-    triggerHaptic("medium");
-    // Ensure fresh project list
-    fetchProjects({ silent: true }).catch(() => {});
-    fetchRooms().catch(() => {});
-    setQuickMenuVisible(true);
-  };
+  // const handleTaskLongPress = () => {
+  //   if (!hasQuickMenuPermission) return;
+  //   triggerHaptic("medium");
+  //   // Ensure fresh project list
+  //   fetchProjects({ silent: true }).catch(() => {});
+  //   fetchRooms().catch(() => {});
+  //   setQuickMenuVisible(true);
+  // };
 
-  const handleSelectProject = (project: Project) => {
-    setQuickMenuVisible(false);
-    setSelectedProject(project);
-  };
+  // const handleSelectProject = (project: Project) => {
+  //   setQuickMenuVisible(false);
+  //   setSelectedProject(project);
+  // };
 
-  const handleCloseProjectDetail = () => {
-    setSelectedProject(null);
-  };
+  // const handleCloseProjectDetail = () => {
+  //   setSelectedProject(null);
+  // };
 
   return (
     <>
@@ -183,7 +186,8 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 
           {TABS.map((tab, i) => {
             const focused = currentRoute === tab.name.toLowerCase();
-            const isTaskTab = tab.name.toLowerCase() === "tasks";
+            // PROJECT MODULE DISABLED (was used to open the Projects Quick Menu)
+            // const isTaskTab = tab.name.toLowerCase() === "tasks";
             return (
               <Pressable
                 key={tab.name}
@@ -200,7 +204,8 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                     navigation.navigate(tab.name);
                   }
                 }}
-                onLongPress={isTaskTab ? handleTaskLongPress : undefined}
+                // PROJECT MODULE DISABLED (Projects Quick Menu on Tasks long-press)
+                // onLongPress={isTaskTab ? handleTaskLongPress : undefined}
                 delayLongPress={280}
                 hitSlop={{ top: 10, bottom: 10, left: 15, right: 15 }}
               >
@@ -225,7 +230,8 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
         </View>
       </View>
 
-      {/* Animated Projects Quick Menu */}
+      {/* PROJECT MODULE DISABLED
+      // Animated Projects Quick Menu
       <ProjectQuickMenuModal
         visible={quickMenuVisible}
         projects={projectList}
@@ -233,7 +239,7 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
         onSelectProject={handleSelectProject}
       />
 
-      {/* Project Detail Modal */}
+      // Project Detail Modal
       <ProjectDetailModal
         visible={!!selectedProject}
         project={selectedProject}
@@ -243,6 +249,7 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
           fetchRooms().catch(() => {});
         }}
       />
+      */}
     </>
   );
 }

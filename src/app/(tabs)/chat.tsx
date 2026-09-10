@@ -2,16 +2,19 @@ import { rf } from "@/utils/responsive";
 import AddPeopleModal from "@/components/AddPeopleModal";
 import Avatar from "@/components/Avatar";
 import CreateChannelModal from "@/components/CreateChannelModal";
-import CreateProjectModal from "@/components/CreateProjectModal";
-import ProjectDetailModal from "@/components/ProjectDetailModal";
+// PROJECT MODULE DISABLED
+// import CreateProjectModal from "@/components/CreateProjectModal";
+// import ProjectDetailModal from "@/components/ProjectDetailModal";
 import InviteToChannelModal, { type ChannelPermission, type ChannelMember } from "@/components/InviteToChannelModal";
 import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
-import { useProjects } from "@/hooks/useProjects";
+// PROJECT MODULE DISABLED
+// import { useProjects } from "@/hooks/useProjects";
 import { useSearch } from "@/context/SearchContext";
 import { useTasks } from "@/hooks/useTasks";
-import { Project } from "@/types/project.types";
+// PROJECT MODULE DISABLED
+// import { Project } from "@/types/project.types";
 import { Room } from "@/types/chat.types";
 import {
     filterReadRooms,
@@ -36,7 +39,9 @@ import {
 } from "react-native";
 import { showSuccess, showError } from "@/utils/toast";
 import * as chatService from "@/services/api/chat.service";
-import { canCreateChannel, canCreateProject, canViewChat, canViewProjects } from "@/utils/permissions";
+// PROJECT MODULE DISABLED
+// import { canCreateChannel, canCreateProject, canViewChat, canViewProjects } from "@/utils/permissions";
+import { canCreateChannel, canViewChat } from "@/utils/permissions";
 const { ChatIcon: MainChatIcon, ChannelTabIcon } = Icons;
 
 // ─── Chip Config ──────────────────────────────────────────────────────────────
@@ -46,7 +51,8 @@ const CHIP_DATA = [
     { id: "unread", label: "Unread" },
     { id: "read", label: "Read" },
     { id: "channels", label: "Channels" },
-    { id: "projects", label: "Projects" },
+    // PROJECT MODULE DISABLED
+    // { id: "projects", label: "Projects" },
 ];
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -58,7 +64,8 @@ export default function ChatScreen() {
         roomCreator, roomPermissions,
     } = useChat();
     const authState = useAuth();
-    const { state: projectState, fetchProjects } = useProjects();
+    // PROJECT MODULE DISABLED
+    // const { state: projectState, fetchProjects } = useProjects();
     const { searchText } = useSearch();
     const { state: taskState } = useTasks();
     const currentUserId = authState?.state?.user?.id ?? 0;
@@ -69,21 +76,26 @@ export default function ChatScreen() {
     const perms = useMemo(
         () => ({
             hasChatRead: canViewChat(currentUser),
-            hasProjectRead: canViewProjects(currentUser),
+            // PROJECT MODULE DISABLED
+            // hasProjectRead: canViewProjects(currentUser),
             canCreateChannels: canCreateChannel(currentUser),
-            canCreateProjects: canCreateProject(currentUser),
+            // PROJECT MODULE DISABLED
+            // canCreateProjects: canCreateProject(currentUser),
         }),
         [currentUser]
     );
 
     // Only rooms the user is permitted to see:
     // - 1:1 DMs + channels require `chat-list`
-    // - project group chats require `project-list`
+    // - project group chats require `project-list` (DISABLED — see below)
     // (Project child channels are `type:"channel"` and still require chat-list.)
     const visibleRooms = useMemo(() => {
         const rooms = state.rooms ?? [];
         return rooms.filter((r) => {
-            if (r.type === "project") return perms.hasProjectRead;
+            // PROJECT MODULE DISABLED — project group-chat rooms are excluded
+            // entirely so they never surface in the chat list.
+            // if (r.type === "project") return perms.hasProjectRead;
+            if (r.type === "project") return false;
             return perms.hasChatRead;
         });
     }, [state.rooms, perms]);
@@ -94,7 +106,8 @@ export default function ChatScreen() {
         () =>
             CHIP_DATA.filter((chip) => {
                 if (chip.id === "channels") return perms.hasChatRead;
-                if (chip.id === "projects") return perms.hasProjectRead;
+                // PROJECT MODULE DISABLED
+                // if (chip.id === "projects") return perms.hasProjectRead;
                 return true;
             }),
         [perms]
@@ -103,18 +116,20 @@ export default function ChatScreen() {
     const [addPeopleOpen, setAddPeopleOpen] = useState(false);
     const [addPeopleQuery, setAddPeopleQuery] = useState("");
     const [createChannelOpen, setCreateChannelOpen] = useState(false);
-    const [createProjectOpen, setCreateProjectOpen] = useState(false);
+    // PROJECT MODULE DISABLED
+    // const [createProjectOpen, setCreateProjectOpen] = useState(false);
     const [isChannelMode, setIsChannelMode] = useState(false);
     const [activeChip, setActiveChip] = useState("all");
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
     const [selectedChannelKey, setSelectedChannelKey] = useState<string | null>(null);
     const [newChannelName, setNewChannelName] = useState("");
+    // PROJECT MODULE DISABLED
     // Track which project we're adding a channel to (null = standalone channel)
-    const [projectContext, setProjectContext] = useState<Room | null>(null);
+    // const [projectContext, setProjectContext] = useState<Room | null>(null);
     // Track expanded projects in the Projects chip view
-    const [expandedProjects, setExpandedProjects] = useState<Set<number>>(new Set());
+    // const [expandedProjects, setExpandedProjects] = useState<Set<number>>(new Set());
     // Track selected project for ProjectDetailModal
-    const [selectedProjectForDetail, setSelectedProjectForDetail] = useState<Project | null>(null);
+    // const [selectedProjectForDetail, setSelectedProjectForDetail] = useState<Project | null>(null);
 
     // ── InviteToChannelModal state ─────────────────────────────────────────────
     const [inviteModalVisible, setInviteModalVisible] = useState(false);
@@ -212,9 +227,10 @@ export default function ChatScreen() {
             case "channels":
                 base = filterRoomsByType(rooms, "channel");
                 break;
-            case "projects":
-                base = filterRoomsByType(rooms, "project");
-                break;
+            // PROJECT MODULE DISABLED
+            // case "projects":
+            //     base = filterRoomsByType(rooms, "project");
+            //     break;
             case "unread":
                 base = filterUnreadRooms(directRooms);
                 break;
@@ -250,45 +266,49 @@ export default function ChatScreen() {
         });
     }, [visibleRooms, activeChip, searchText, currentUserId]);
 
+    // PROJECT MODULE DISABLED
     // Group channels by their parent project for the Projects view
-    const projectChannelMap = useMemo(() => {
-        const map = new Map<number, Room[]>();
-        for (const room of visibleRooms) {
-            if (room.type === "channel" && room.parent_id) {
-                const existing = map.get(room.parent_id) ?? [];
-                existing.push(room);
-                map.set(room.parent_id, existing);
-            }
-        }
-        return map;
-    }, [visibleRooms]);
+    // const projectChannelMap = useMemo(() => {
+    //     const map = new Map<number, Room[]>();
+    //     for (const room of visibleRooms) {
+    //         if (room.type === "channel" && room.parent_id) {
+    //             const existing = map.get(room.parent_id) ?? [];
+    //             existing.push(room);
+    //             map.set(room.parent_id, existing);
+    //         }
+    //     }
+    //     return map;
+    // }, [visibleRooms]);
 
+    // PROJECT MODULE DISABLED
     // Enrich project rows with status / due date from GET /projects (matched by
     // room display name — the project's group-chat room shares its name).
-    const projectMetaByName = useMemo(() => {
-        const map = new Map<string, Project>();
-        for (const p of projectState.projects ?? []) {
-            map.set(p.name, p);
-        }
-        return map;
-    }, [projectState.projects]);
+    // const projectMetaByName = useMemo(() => {
+    //     const map = new Map<string, Project>();
+    //     for (const p of projectState.projects ?? []) {
+    //         map.set(p.name, p);
+    //     }
+    //     return map;
+    // }, [projectState.projects]);
 
+    // PROJECT MODULE DISABLED
     // Keep the Projects chip's status/due-date enrichment fresh whenever it is
     // being viewed (silent — no full-screen loading state).
-    useEffect(() => {
-        if (activeChip === "projects" && perms.hasProjectRead) {
-            fetchProjects({ silent: true }).catch(() => { });
-        }
-    }, [activeChip, perms.hasProjectRead, fetchProjects]);
+    // useEffect(() => {
+    //     if (activeChip === "projects" && perms.hasProjectRead) {
+    //         fetchProjects({ silent: true }).catch(() => { });
+    //     }
+    // }, [activeChip, perms.hasProjectRead, fetchProjects]);
 
-    const toggleProjectExpand = useCallback((projectId: number) => {
-        setExpandedProjects((prev) => {
-            const next = new Set(prev);
-            if (next.has(projectId)) next.delete(projectId);
-            else next.add(projectId);
-            return next;
-        });
-    }, []);
+    // PROJECT MODULE DISABLED
+    // const toggleProjectExpand = useCallback((projectId: number) => {
+    //     setExpandedProjects((prev) => {
+    //         const next = new Set(prev);
+    //         if (next.has(projectId)) next.delete(projectId);
+    //         else next.add(projectId);
+    //         return next;
+    //     });
+    // }, []);
 
     const handleRoomPress = useCallback(
         async (room: Room) => {
@@ -356,19 +376,23 @@ export default function ChatScreen() {
 
     const handleInviteUsers = useCallback(
         async (users: Array<{ id: string; name: string; email?: string }>) => {
-            console.log("[Chat] handleInviteUsers called:", { channelName: newChannelName, userCount: users.length, projectContext: projectContext?.name });
+            // PROJECT MODULE DISABLED (projectContext removed)
+            // console.log("[Chat] handleInviteUsers called:", { channelName: newChannelName, userCount: users.length, projectContext: projectContext?.name });
+            console.log("[Chat] handleInviteUsers called:", { channelName: newChannelName, userCount: users.length });
             setAddPeopleOpen(false);
             setIsChannelMode(false);
             if (newChannelName) {
                 try {
                     // Build create room request — if projectContext is set, link as child channel
+                    // (PROJECT MODULE DISABLED — channels are always standalone now.)
                     const createRoomReq: { type: "channel"; name: string; parent_id?: number } = {
                         type: "channel",
                         name: newChannelName,
                     };
-                    if (projectContext) {
-                        createRoomReq.parent_id = projectContext.id;
-                    }
+                    // PROJECT MODULE DISABLED
+                    // if (projectContext) {
+                    //     createRoomReq.parent_id = projectContext.id;
+                    // }
 
                     const room = await getOrCreateRoom(createRoomReq);
                     console.log("[Chat] Channel created:", room.id, room.name);
@@ -382,16 +406,19 @@ export default function ChatScreen() {
                     setTimeout(() => setInviteModalVisible(true), 300);
 
                     setNewChannelName("");
-                    setProjectContext(null);
+                    // PROJECT MODULE DISABLED
+                    // setProjectContext(null);
                 } catch (err) {
                     console.log("[Chat] Channel creation error:", err);
                     showError("Error", "Failed to create channel. Please try again.");
                     setNewChannelName("");
-                    setProjectContext(null);
+                    // PROJECT MODULE DISABLED
+                    // setProjectContext(null);
                 }
             }
         },
-        [newChannelName, projectContext, getOrCreateRoom, fetchRooms]
+        // PROJECT MODULE DISABLED (projectContext removed from deps)
+        [newChannelName, getOrCreateRoom, fetchRooms]
     );
 
     // ── InviteToChannelModal handlers ──────────────────────────────────────────
@@ -534,34 +561,36 @@ export default function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [inviteModalVisible, currentUserId]);
 
+    // PROJECT MODULE DISABLED
     // Handler for creating a channel under a specific project
-    const handleProjectAddChannel = useCallback(
-        (project: Room) => {
-            if (!perms.canCreateChannels) {
-                showError(
-                    "Permission Denied",
-                    "You don't have permission to create channels."
-                );
-                return;
-            }
-            setProjectContext(project);
-            setCreateChannelOpen(true);
-        },
-        [perms.canCreateChannels]
-    );
+    // const handleProjectAddChannel = useCallback(
+    //     (project: Room) => {
+    //         if (!perms.canCreateChannels) {
+    //             showError(
+    //                 "Permission Denied",
+    //                 "You don't have permission to create channels."
+    //             );
+    //             return;
+    //         }
+    //         setProjectContext(project);
+    //         setCreateChannelOpen(true);
+    //     },
+    //     [perms.canCreateChannels]
+    // );
 
+    // PROJECT MODULE DISABLED
     // Handler invoked after a project is successfully created. The project's
     // group-chat room is auto-created server-side — refresh rooms immediately
     // and let the `project_update` socket merge (ChatContext) back it up.
-    const handleProjectCreated = useCallback(
-        async (project: Project) => {
-            setCreateProjectOpen(false);
-            fetchRooms().catch(() => { });
-            fetchProjects({ silent: true }).catch(() => { });
-            showSuccess("Project Created", `"${project.name}" is ready.`);
-        },
-        [fetchRooms, fetchProjects]
-    );
+    // const handleProjectCreated = useCallback(
+    //     async (project: Project) => {
+    //         setCreateProjectOpen(false);
+    //         fetchRooms().catch(() => { });
+    //         fetchProjects({ silent: true }).catch(() => { });
+    //         showSuccess("Project Created", `"${project.name}" is ready.`);
+    //     },
+    //     [fetchRooms, fetchProjects]
+    // );
 
     if (state.loading && state.rooms.length === 0) {
         return (
@@ -621,8 +650,11 @@ export default function ChatScreen() {
 
                     {displayRooms.length > 0 ? (
                         <View style={styles.chatListContainer}>
+                            {/* PROJECT MODULE DISABLED — the Projects chip was removed from CHIP_DATA,
+                            so this branch is unreachable. It is preserved verbatim below
+                            for future re-enablement (uncomment through the `) : (` marker).
+                            // ── Projects view with expandable child channels ──
                             {activeChip === "projects" ? (
-                                /* ── Projects view with expandable child channels ── */
                                 displayRooms.map((project: Room) => {
                                     const displayName = getRoomDisplayName(project, currentUserId);
                                     const initials = getRoomInitials(project, currentUserId);
@@ -637,7 +669,7 @@ export default function ChatScreen() {
 
                                     return (
                                         <View key={project.id}>
-                                            {/* Project row */}
+                                            // Project row
                                             <TouchableOpacity
                                                 style={[
                                                     styles.chatRow,
@@ -788,7 +820,7 @@ export default function ChatScreen() {
                                                             </TouchableOpacity>
                                                         );
                                                     })}
-                                                    {/* <TouchableOpacity
+                                                    // <TouchableOpacity
                                                         style={[styles.channelRow, { paddingLeft: 40 }]}
                                                         activeOpacity={0.7}
                                                         onPress={() => handleProjectAddChannel(project)}
@@ -799,14 +831,15 @@ export default function ChatScreen() {
                                                         <Text style={[styles.chatSnippet, { marginLeft: 14, color: "#00DEAB", fontFamily: "SF_Pro_Semibold" }]}>
                                                             Add Channel
                                                         </Text>
-                                                    </TouchableOpacity> */}
+                                                    // </TouchableOpacity>
                                                 </View>
                                             )}
                                         </View>
                                     );
                                 })
-                            ) : (
-                                displayRooms.map((room: Room) => {
+                            )}
+                            */}
+                            {displayRooms.map((room: Room) => {
                                     const displayName = getRoomDisplayName(room, currentUserId);
                                     const unread = isRoomUnread(room);
                                     const lastPreview = room.last_message
@@ -865,7 +898,7 @@ export default function ChatScreen() {
                                         </TouchableOpacity>
                                     );
                                 })
-                            )}
+                            }
                         </View>
                     ) : searchText.trim() !== "" ? (
                         <View style={styles.workspaceContainer}>
@@ -899,7 +932,8 @@ export default function ChatScreen() {
                                     style={styles.addPeopleButton}
                                     activeOpacity={0.85}
                                     onPress={() => {
-                                        setProjectContext(null);
+                                        // PROJECT MODULE DISABLED
+                                        // setProjectContext(null);
                                         setCreateChannelOpen(true);
                                     }}
                                 >
@@ -911,7 +945,12 @@ export default function ChatScreen() {
                                 </Text>
                             )}
                         </View>
-                    ) : activeChip === "projects" ? (
+                    ) : (
+                        <>
+                        {/* PROJECT MODULE DISABLED — "Create a project" empty-state branch
+                        removed (the Projects chip is gone, so this branch is unreachable).
+                        Preserved verbatim for future re-enablement:
+                        ) : activeChip === "projects" ? (
                         <View style={styles.workspaceContainer}>
                             <View style={styles.iconStack}>
                                 <Ionicons name="folder-outline" size={48} color="#00DEAB" />
@@ -934,7 +973,8 @@ export default function ChatScreen() {
                                 </Text>
                             )}
                         </View>
-                    ) : (
+                        ) : (
+                        */}
                         <View style={styles.workspaceContainer}>
                             <View style={styles.iconStack}>
                                 <MainChatIcon />
@@ -967,10 +1007,12 @@ export default function ChatScreen() {
                                 </Text>
                             )}
                         </View>
+                        </>
                     )}
                 </ScrollView>
 
                 {/* FAB — hidden when the active view offers no permitted action */}
+                {/* PROJECT MODULE DISABLED — FAB project taps removed
                 {displayRooms.length > 0 &&
                     (activeChip === "projects"
                         ? perms.canCreateProjects
@@ -993,6 +1035,27 @@ export default function ChatScreen() {
                             }}
                         >
                             {activeChip === "channels" || activeChip === "projects" ? <Icons.ChannelBtn /> : <Icons.IndoxBtn />}
+
+                        </TouchableOpacity>
+                    )
+                */}
+                {displayRooms.length > 0 &&
+                    (activeChip === "channels"
+                        ? perms.canCreateChannels
+                        : perms.hasChatRead) && (
+                        <TouchableOpacity
+                            style={styles.fab}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                                if (activeChip === "channels") {
+                                    setCreateChannelOpen(true);
+                                } else {
+                                    setIsChannelMode(false);
+                                    setAddPeopleOpen(true);
+                                }
+                            }}
+                        >
+                            {activeChip === "channels" ? <Icons.ChannelBtn /> : <Icons.IndoxBtn />}
 
                         </TouchableOpacity>
                     )}
@@ -1021,18 +1084,24 @@ export default function ChatScreen() {
                 visible={createChannelOpen}
                 onClose={() => {
                     setCreateChannelOpen(false);
-                    setProjectContext(null);
+                    // PROJECT MODULE DISABLED
+                    // setProjectContext(null);
                 }}
                 onNext={handleChannelCreate}
-                title={projectContext ? `Add Channel to "${projectContext.name}"` : "Create Channel"}
+                title={"Create Channel"}
             />
+            {/* PROJECT MODULE DISABLED — original dynamic title was:
+                title={projectContext ? `Add Channel to "${projectContext.name}"` : "Create Channel"}
+            */}
 
-            {/* ── CreateProjectModal ── */}
+            {/* PROJECT MODULE DISABLED
+            // ── CreateProjectModal ──
             <CreateProjectModal
                 visible={createProjectOpen}
                 onClose={() => setCreateProjectOpen(false)}
                 onCreated={handleProjectCreated}
             />
+            */}
 
             {/* ── InviteToChannelModal ── */}
             <InviteToChannelModal
@@ -1055,7 +1124,8 @@ export default function ChatScreen() {
                 onUpdatePermission={handleUpdateChannelPermission}
             />
 
-            {/* ── ProjectDetailModal ── */}
+            {/* PROJECT MODULE DISABLED
+            // ── ProjectDetailModal ──
             <ProjectDetailModal
                 visible={!!selectedProjectForDetail}
                 project={selectedProjectForDetail}
@@ -1065,6 +1135,7 @@ export default function ChatScreen() {
                     fetchRooms().catch(() => {});
                 }}
             />
+            */}
         </View>
     );
 }

@@ -1,7 +1,8 @@
 import { AuthContext, AuthProvider } from "@/context/AuthContext";
 import { ChatProvider } from "@/context/ChatContext";
 import { NotificationProvider } from "@/context/NotificationContext";
-import { ProjectProvider } from "@/context/ProjectContext";
+// PROJECT MODULE DISABLED
+// import { ProjectProvider } from "@/context/ProjectContext";
 import {
   PushNotificationProvider,
   usePushNotifications,
@@ -220,7 +221,9 @@ export default function RootLayout() {
         <TaskProvider>
           <NotificationProvider>
             <ChatProvider>
+              {/* PROJECT MODULE DISABLED
               <ProjectProvider>
+              */}
                 <PushNotificationProvider>
                   <BottomSheetModalProvider>
                     <PushNotificationLifecycle />
@@ -229,7 +232,9 @@ export default function RootLayout() {
                     <Toast />
                   </BottomSheetModalProvider>
                 </PushNotificationProvider>
+              {/* PROJECT MODULE DISABLED
               </ProjectProvider>
+              */}
             </ChatProvider>
           </NotificationProvider>
         </TaskProvider>

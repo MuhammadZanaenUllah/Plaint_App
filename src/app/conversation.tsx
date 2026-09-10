@@ -2227,7 +2227,9 @@ export default function ConversationScreen() {
   const name = params.name ?? "Chat";
   const initials = params.initials ?? "C";
   const isChannel = params.isChannel === "true";
-  const showNotificationToggle = isChannel || params.roomType === "project";
+  // PROJECT MODULE DISABLED — project-room mute toggle removed
+  // const showNotificationToggle = isChannel || params.roomType === "project";
+  const showNotificationToggle = isChannel;
   const roomId = params.roomId;
 
   const {

@@ -2,7 +2,8 @@ import AnimatedFAB from "@/components/AnimatedFAB";
 import CreateTaskModal from "@/components/CreateTaskModal";
 import FilterModal from "@/components/FilterModal";
 import RejectTaskModal from "@/components/RejectTaskModal";
-import AssignTaskProjectModal from "@/components/AssignTaskProjectModal";
+// PROJECT MODULE DISABLED
+// import AssignTaskProjectModal from "@/components/AssignTaskProjectModal";
 import { AssignableOwner } from "@/components/SingleTaskTable";
 import StatCard from "@/components/StatCard";
 import TaskDelay from "@/components/taskdelay";
@@ -23,7 +24,9 @@ import {
   reassignTask,
   viewTask,
 } from "@/services/api/tasks.service";
-import { canCreateProject, canCreateTask } from "@/utils/permissions";
+// PROJECT MODULE DISABLED
+// import { canCreateProject, canCreateTask } from "@/utils/permissions";
+import { canCreateTask } from "@/utils/permissions";
 import { rf } from "@/utils/responsive";
 import { uiStatusToApi } from "@/utils/statusMapper";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
@@ -74,7 +77,8 @@ export default function TasksScreen() {
     mappedAssignedToMe,
     mappedCreatedByMe,
     updateTaskStatusApi,
-    assignTaskToProject,
+    // PROJECT MODULE DISABLED
+    // assignTaskToProject,
   } = useTasks();
 
   useTaskSocket();
@@ -95,9 +99,10 @@ export default function TasksScreen() {
   const [rejectTargetTaskId, setRejectTargetTaskId] = useState<number | null>(
     null,
   );
-  const [projectModalTask, setProjectModalTask] = useState<TaskRowProps | null>(
-    null,
-  );
+  // PROJECT MODULE DISABLED — add-to-project modal state
+//   const [projectModalTask, setProjectModalTask] = useState<TaskRowProps | null>(
+//     null,
+//   );
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
   const [detailInitialTab, setDetailInitialTab] = useState<
     "details" | "comments"
@@ -176,11 +181,12 @@ export default function TasksScreen() {
     [authState.user],
   );
 
+  // PROJECT MODULE DISABLED
   // Add-to-project visibility is driven by user permission "project-create"
-  const canAssignProject = useMemo(
-    () => canCreateProject(authState.user),
-    [authState.user],
-  );
+  // const canAssignProject = useMemo(
+  //   () => canCreateProject(authState.user),
+  //   [authState.user],
+  // );
 
   useEffect(() => {
     if (companyId) {
@@ -524,21 +530,22 @@ export default function TasksScreen() {
     [handleTaskPress],
   );
 
-  const handleAddToProjectPress = useCallback((task: TaskRowProps) => {
-    setProjectModalTask(task);
-  }, []);
+  // PROJECT MODULE DISABLED — add-to-project entry points
+  // const handleAddToProjectPress = useCallback((task: TaskRowProps) => {
+  //   setProjectModalTask(task);
+  // }, []);
 
-  const handleAssignProjectToTask = useCallback(
-    async (projectId: number, project: import("@/types/project.types").Project) => {
-      if (!projectModalTask?.id || !companyId) return;
-      const tId = Number(projectModalTask.id);
-      await assignTaskToProject(tId, projectId, companyId, companyIdentifier);
-      if (companyId) {
-        fetchAllTasks(companyId, { silent: true }).catch(() => {});
-      }
-    },
-    [projectModalTask, companyId, companyIdentifier, assignTaskToProject, fetchAllTasks],
-  );
+  // const handleAssignProjectToTask = useCallback(
+  //   async (projectId: number, project: import("@/types/project.types").Project) => {
+  //     if (!projectModalTask?.id || !companyId) return;
+  //     const tId = Number(projectModalTask.id);
+  //     await assignTaskToProject(tId, projectId, companyId, companyIdentifier);
+  //     if (companyId) {
+  //       fetchAllTasks(companyId, { silent: true }).catch(() => {});
+  //     }
+  //   },
+  //   [projectModalTask, companyId, companyIdentifier, assignTaskToProject, fetchAllTasks],
+  // );
 
   // ── Deep-link handling (e.g. task_mention push notification) ───────────
   // Opening a push notification for a task navigates here with a `taskId`
@@ -1061,9 +1068,10 @@ export default function TasksScreen() {
               canReassign={canCreate}
               assignableOwners={taskState.taskOwners}
               onAssigneeChange={handleAssigneeChange}
-              canAssignProject={canAssignProject}
-              onAddToProjectPress={handleAddToProjectPress}
-            />
+                // PROJECT MODULE DISABLED
+                // canAssignProject={canAssignProject}
+                // onAddToProjectPress={handleAddToProjectPress}
+              />
           </View>
         )}
       </Pressable>
@@ -1107,12 +1115,14 @@ export default function TasksScreen() {
           }
         }}
       />
+      {/* PROJECT MODULE DISABLED
       <AssignTaskProjectModal
         visible={!!projectModalTask}
         task={projectModalTask}
         onClose={() => setProjectModalTask(null)}
         onAssign={handleAssignProjectToTask}
       />
+      */}
     </View>
   );
 }
