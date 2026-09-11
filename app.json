@@ -18,7 +18,10 @@
       "googleServicesFile": "./assets/files/GoogleService-Info.plist",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSMicrophoneUsageDescription": "This app uses the microphone to record and send voice notes in chat."
+        "NSMicrophoneUsageDescription": "This app uses the microphone to record and send voice notes in chat.",
+        "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",
+        "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photos",
+        "NSFaceIDUsageDescription": "Allow $(PRODUCT_NAME) to use Face ID"
       }
     },
     "android": {

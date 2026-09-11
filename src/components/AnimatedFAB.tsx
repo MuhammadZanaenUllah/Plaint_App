@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Keyboard, Pressable, StyleSheet, View, ViewStyle } from "react-native";
 import Animated, {
+  cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -10,6 +11,7 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { MaterialIcons } from "@expo/vector-icons";
+import { useIsFocused } from "expo-router";
 
 interface AnimatedFABProps {
   onPress: () => void;
@@ -29,6 +31,7 @@ export default function AnimatedFAB({
   color = "#1D1D1D",
 }: AnimatedFABProps) {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const isFocused = useIsFocused();
   const scale = useSharedValue(1);
   const pulseScale = useSharedValue(1);
   const pulseOpacity = useSharedValue(0.6);
@@ -50,7 +53,18 @@ export default function AnimatedFAB({
   }, []);
 
   useEffect(() => {
-    // Continuous subtle breathing pulse ring
+    // Breathing pulse ring — only while this tab is actually focused. Tab
+    // screens stay mounted when you switch tabs, so without this guard the
+    // withRepeat(-1) loop below never stops, forcing a native render frame
+    // every ~16ms for the life of the app even while the user is on a
+    // different tab entirely.
+    if (!isFocused) {
+      cancelAnimation(pulseScale);
+      cancelAnimation(pulseOpacity);
+      pulseScale.value = 1;
+      pulseOpacity.value = 0.6;
+      return;
+    }
     pulseScale.value = withRepeat(
       withTiming(1.35, { duration: 1800, easing: Easing.out(Easing.ease) }),
       -1,
@@ -61,7 +75,7 @@ export default function AnimatedFAB({
       -1,
       false,
     );
-  }, []);
+  }, [isFocused, pulseScale, pulseOpacity]);
 
   const handlePressIn = () => {
     scale.value = withSpring(0.88, { damping: 10, stiffness: 200 });

@@ -15,6 +15,7 @@ import {
 } from "react";
 import {
   ActivityIndicator,
+  FlatList,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -120,6 +121,13 @@ type Props = {
   // When true, the table fills its parent width cleanly (no edge-flush
   // compensation) — for embedding inside a padded container like a modal.
   contained?: boolean;
+  // When true, the row list virtualizes off-screen rows via FlatList instead
+  // of keeping every row mounted in a ScrollView — cuts memory/JS-thread cost
+  // for long lists (e.g. many delayed tasks) on low-end Android. Opt-in and
+  // only safe when this table is NOT nested inside another vertical
+  // ScrollView — the Dependencies/Project-tasks embeddings render inside a
+  // BottomSheetScrollView/ScrollView and must keep the default rendering.
+  virtualized?: boolean;
 };
 
 type SwipeStage = "actions" | "details";
@@ -363,6 +371,7 @@ function SingleTaskTable({
   columnHeadings,
   readOnly = false,
   contained = false,
+  virtualized = false,
 }: Props) {
   const { width: windowWidth } = useWindowDimensions();
   const effectiveColumns = useMemo(
@@ -408,9 +417,14 @@ function SingleTaskTable({
   // happened to be scrolled to. useLayoutEffect (not useEffect) so this
   // commits before paint — no visible flash of the old scroll position.
   const rowsScrollRef = useRef<ScrollView>(null);
+  const rowsListRef = useRef<FlatList<TaskRowProps>>(null);
   useLayoutEffect(() => {
-    rowsScrollRef.current?.scrollTo({ y: 0, animated: false });
-  }, [sectionTitle]);
+    if (virtualized) {
+      rowsListRef.current?.scrollToOffset({ offset: 0, animated: false });
+    } else {
+      rowsScrollRef.current?.scrollTo({ y: 0, animated: false });
+    }
+  }, [sectionTitle, virtualized]);
 
   const augmentedTasks = useMemo(
     () =>
@@ -705,96 +719,204 @@ function SingleTaskTable({
             <View style={{ width: metrics.actionWidth }} />
           </View>
 
-          <ScrollView
-            ref={rowsScrollRef}
-            showsVerticalScrollIndicator={false}
-            style={styles.rowsScroll}
-            contentContainerStyle={styles.rowsScrollContent}
-            keyboardShouldPersistTaps="always"
-            scrollEnabled={shouldEnableRowScroll}
-            bounces={shouldEnableRowScroll || !!onRefresh}
-            alwaysBounceVertical={!!onRefresh}
-            onLayout={(event) =>
-              setRowViewportHeight(event.nativeEvent.layout.height)
-            }
-            onContentSizeChange={(_width, height) =>
-              setRowContentHeight(height)
-            }
-            onScroll={handleScroll}
-            onScrollBeginDrag={() => setScrollCloseSignal((n) => n + 1)}
-            scrollEventThrottle={16}
-            nestedScrollEnabled
-            refreshControl={
-              onRefresh ? (
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  colors={["transparent"]}
-                  tintColor="transparent"
-                  progressBackgroundColor="transparent"
-                  progressViewOffset={
-                    Platform.OS === "android" ? -1000 : undefined
+          {virtualized ? (
+            <FlatList<TaskRowProps>
+              ref={rowsListRef}
+              data={loading ? [] : augmentedTasks}
+              keyExtractor={(item, index) => String(getTaskKey(item, index))}
+              renderItem={({ item, index }) => (
+                <SwipeTaskRow
+                  item={item}
+                  rowIndex={index}
+                  metrics={metrics}
+                  isOpen={openSwipeRow?.index === index}
+                  stage={
+                    openSwipeRow?.index === index ? openSwipeRow.stage : null
                   }
+                  onOpenSwipe={openSwipe}
+                  onCloseSwipe={closeSwipe}
+                  onSwipeDragStateChange={setIsSwipeDragging}
+                  onTaskPress={onTaskPress}
+                  onCommentPress={onCommentPress}
+                  onToggleComplete={handleToggleComplete}
+                  onStatusChange={handleStatusChange}
+                  canReassign={canReassign}
+                  assignableOwners={assignableOwners}
+                  onAssigneeSelect={(owner) =>
+                    handleAssigneeChange(item, index, owner)
+                  }
+                  canAssignProject={canAssignProject}
+                  onAddToProjectPress={onAddToProjectPress}
+                  scrollCloseSignal={scrollCloseSignal}
+                  columns={effectiveColumns}
+                  readOnly={readOnly}
                 />
-              ) : undefined
-            }
-          >
-            {loading ? (
-              <View style={styles.centeredState}>
-                <ActivityIndicator size="small" color="#00DEAB" />
-              </View>
-            ) : null}
-
-            {!loading && augmentedTasks.length === 0 ? (
-              <View style={styles.centeredState}>
-                <Text style={styles.emptyText}>{emptyText}</Text>
-              </View>
-            ) : null}
-
-            {!loading
-              ? augmentedTasks.map((task, rowIndex) => (
-                  <SwipeTaskRow
-                    key={getTaskKey(task, rowIndex)}
-                    item={task}
-                    rowIndex={rowIndex}
-                    metrics={metrics}
-                    isOpen={openSwipeRow?.index === rowIndex}
-                    stage={
-                      openSwipeRow?.index === rowIndex
-                        ? openSwipeRow.stage
-                        : null
+              )}
+              ListHeaderComponent={
+                loading ? (
+                  <View style={styles.centeredState}>
+                    <ActivityIndicator size="small" color="#00DEAB" />
+                  </View>
+                ) : null
+              }
+              ListEmptyComponent={
+                !loading ? (
+                  <View style={styles.centeredState}>
+                    <Text style={styles.emptyText}>{emptyText}</Text>
+                  </View>
+                ) : null
+              }
+              ListFooterComponent={
+                !loading && augmentedTasks.length > 0 ? (
+                  <View style={styles.footerState}>
+                    {loadingMore ? (
+                      <ActivityIndicator size="small" color="#00DEAB" />
+                    ) : null}
+                  </View>
+                ) : null
+              }
+              showsVerticalScrollIndicator={false}
+              style={styles.rowsScroll}
+              contentContainerStyle={styles.rowsScrollContent}
+              keyboardShouldPersistTaps="always"
+              scrollEnabled={shouldEnableRowScroll}
+              bounces={shouldEnableRowScroll || !!onRefresh}
+              alwaysBounceVertical={!!onRefresh}
+              onLayout={(event) =>
+                setRowViewportHeight(event.nativeEvent.layout.height)
+              }
+              onContentSizeChange={(_width, height) =>
+                setRowContentHeight(height)
+              }
+              onScroll={handleScroll}
+              onScrollBeginDrag={() => setScrollCloseSignal((n) => n + 1)}
+              scrollEventThrottle={16}
+              nestedScrollEnabled
+              // FlatList's own end-reached detection (rather than the manual
+              // contentOffset/contentSize math in handleScroll, which relies
+              // on a plain ScrollView's bounce/contentInset behavior and
+              // doesn't reliably fire near the bottom on iOS once rows are
+              // virtualized) drives pagination here.
+              onEndReachedThreshold={0.4}
+              onEndReached={() => {
+                if (hasMore && !loadingMore && !loading) onLoadMore?.();
+              }}
+              // Off-screen rows carry absolutely-positioned overlays (status/
+              // assignee dropdowns, the wide "details" swipe panel) that must
+              // not be clipped by the recycler — only unmount them, don't
+              // also strip their native views while still mounted.
+              removeClippedSubviews={false}
+              windowSize={7}
+              maxToRenderPerBatch={8}
+              initialNumToRender={12}
+              updateCellsBatchingPeriod={50}
+              refreshControl={
+                onRefresh ? (
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={onRefresh}
+                    colors={["transparent"]}
+                    tintColor="transparent"
+                    progressBackgroundColor="transparent"
+                    progressViewOffset={
+                      Platform.OS === "android" ? -1000 : undefined
                     }
-                    onOpenSwipe={openSwipe}
-                    onCloseSwipe={closeSwipe}
-                    onSwipeDragStateChange={setIsSwipeDragging}
-                    onTaskPress={onTaskPress}
-                    onCommentPress={onCommentPress}
-                    onToggleComplete={handleToggleComplete}
-                    onStatusChange={handleStatusChange}
-                    canReassign={canReassign}
-                    assignableOwners={assignableOwners}
-                    onAssigneeSelect={(owner) =>
-                      handleAssigneeChange(task, rowIndex, owner)
-                    }
-                    canAssignProject={canAssignProject}
-                    onAddToProjectPress={onAddToProjectPress}
-                    scrollCloseSignal={scrollCloseSignal}
-                    columns={effectiveColumns}
-                    readOnly={readOnly}
                   />
-                ))
-              : null}
-
-            {!loading && augmentedTasks.length > 0 ? (
-              <View style={styles.footerState}>
-                {loadingMore ? (
+                ) : undefined
+              }
+            />
+          ) : (
+            <ScrollView
+              ref={rowsScrollRef}
+              showsVerticalScrollIndicator={false}
+              style={styles.rowsScroll}
+              contentContainerStyle={styles.rowsScrollContent}
+              keyboardShouldPersistTaps="always"
+              scrollEnabled={shouldEnableRowScroll}
+              bounces={shouldEnableRowScroll || !!onRefresh}
+              alwaysBounceVertical={!!onRefresh}
+              onLayout={(event) =>
+                setRowViewportHeight(event.nativeEvent.layout.height)
+              }
+              onContentSizeChange={(_width, height) =>
+                setRowContentHeight(height)
+              }
+              onScroll={handleScroll}
+              onScrollBeginDrag={() => setScrollCloseSignal((n) => n + 1)}
+              scrollEventThrottle={16}
+              nestedScrollEnabled
+              refreshControl={
+                onRefresh ? (
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={onRefresh}
+                    colors={["transparent"]}
+                    tintColor="transparent"
+                    progressBackgroundColor="transparent"
+                    progressViewOffset={
+                      Platform.OS === "android" ? -1000 : undefined
+                    }
+                  />
+                ) : undefined
+              }
+            >
+              {loading ? (
+                <View style={styles.centeredState}>
                   <ActivityIndicator size="small" color="#00DEAB" />
-                ) : !hasMore ? (
-                  <>{/* <Text style={styles.footerText}>End of list</Text> */}</>
-                ) : null}
-              </View>
-            ) : null}
-          </ScrollView>
+                </View>
+              ) : null}
+
+              {!loading && augmentedTasks.length === 0 ? (
+                <View style={styles.centeredState}>
+                  <Text style={styles.emptyText}>{emptyText}</Text>
+                </View>
+              ) : null}
+
+              {!loading
+                ? augmentedTasks.map((task, rowIndex) => (
+                    <SwipeTaskRow
+                      key={getTaskKey(task, rowIndex)}
+                      item={task}
+                      rowIndex={rowIndex}
+                      metrics={metrics}
+                      isOpen={openSwipeRow?.index === rowIndex}
+                      stage={
+                        openSwipeRow?.index === rowIndex
+                          ? openSwipeRow.stage
+                          : null
+                      }
+                      onOpenSwipe={openSwipe}
+                      onCloseSwipe={closeSwipe}
+                      onSwipeDragStateChange={setIsSwipeDragging}
+                      onTaskPress={onTaskPress}
+                      onCommentPress={onCommentPress}
+                      onToggleComplete={handleToggleComplete}
+                      onStatusChange={handleStatusChange}
+                      canReassign={canReassign}
+                      assignableOwners={assignableOwners}
+                      onAssigneeSelect={(owner) =>
+                        handleAssigneeChange(task, rowIndex, owner)
+                      }
+                      canAssignProject={canAssignProject}
+                      onAddToProjectPress={onAddToProjectPress}
+                      scrollCloseSignal={scrollCloseSignal}
+                      columns={effectiveColumns}
+                      readOnly={readOnly}
+                    />
+                  ))
+                : null}
+
+              {!loading && augmentedTasks.length > 0 ? (
+                <View style={styles.footerState}>
+                  {loadingMore ? (
+                    <ActivityIndicator size="small" color="#00DEAB" />
+                  ) : !hasMore ? (
+                    <>{/* <Text style={styles.footerText}>End of list</Text> */}</>
+                  ) : null}
+                </View>
+              ) : null}
+            </ScrollView>
+          )}
         </>
       )}
     </View>

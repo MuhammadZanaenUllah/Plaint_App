@@ -4,8 +4,9 @@ import {
   resolveImageUri,
   useAuthToken,
 } from "@/utils/secureImageFetch";
+import { Image } from "expo-image";
 import { useEffect, useMemo, useState } from "react";
-import { Image, StyleProp, Text, View, ViewStyle } from "react-native";
+import { StyleProp, Text, View, ViewStyle } from "react-native";
 
 type Props = {
   /** Full name (or best-effort name) used for the initials fallback. */
@@ -189,6 +190,9 @@ export default function Avatar({
       <Image
         source={{ uri: resolvedUri }}
         style={{ width: size, height: size }}
+        cachePolicy="memory-disk"
+        recyclingKey={cacheKey}
+        transition={0}
       />
     </View>
   );

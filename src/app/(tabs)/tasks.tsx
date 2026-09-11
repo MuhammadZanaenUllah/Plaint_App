@@ -1068,6 +1068,7 @@ export default function TasksScreen() {
               canReassign={canCreate}
               assignableOwners={taskState.taskOwners}
               onAssigneeChange={handleAssigneeChange}
+              virtualized
                 // PROJECT MODULE DISABLED
                 // canAssignProject={canAssignProject}
                 // onAddToProjectPress={handleAddToProjectPress}
