@@ -7,7 +7,10 @@ import {
   PushNotificationProvider,
   usePushNotifications,
 } from "@/context/PushNotificationContext";
-import { TaskProvider } from "@/context/TaskContext";
+// TASK MODULE DISABLED — TaskProvider kept in the codebase but not mounted for
+// the Chat-only delivery. Restore by uncommenting this import and the provider
+// wrapper in RootLayout() below.
+// import { TaskProvider } from "@/context/TaskContext";
 import { useUpdates } from "@/hooks/useUpdates";
 import {
   connectSocket,
@@ -185,7 +188,8 @@ function RootNavigator() {
       !inTabGroup &&
       !inAuthenticatedScreen
     ) {
-      router.replace("/(tabs)/tasks");
+      // TASK MODULE DISABLED — was "/(tabs)/tasks"; Chat is the default tab now.
+      router.replace("/(tabs)/chat");
     }
   }, [
     state.isAuthenticated,
@@ -218,7 +222,10 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#fff" }}>
       <AuthProvider>
-        <TaskProvider>
+        {/* TASK MODULE DISABLED — TaskProvider unmounted for Chat-only delivery.
+            Restore by uncommenting this opening/closing wrapper (and the import
+            above). Its consumers (Tasks screen, task modals) are also disabled.
+        <TaskProvider> */}
           <NotificationProvider>
             <ChatProvider>
               {/* PROJECT MODULE DISABLED
@@ -237,7 +244,8 @@ export default function RootLayout() {
               */}
             </ChatProvider>
           </NotificationProvider>
-        </TaskProvider>
+        {/* TASK MODULE DISABLED
+        </TaskProvider> */}
       </AuthProvider>
     </GestureHandlerRootView>
   );

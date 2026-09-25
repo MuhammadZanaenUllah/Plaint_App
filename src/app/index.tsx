@@ -41,7 +41,8 @@ export default function SplashScreen() {
     if (!hasOnboarded) {
       router.replace("/splashscreem");
     } else if (authStateRef.current.isAuthenticated) {
-      router.replace("/(tabs)/tasks");
+      // TASK MODULE DISABLED — was "/(tabs)/tasks"; Chat is the default tab now.
+      router.replace("/(tabs)/chat");
     } else {
       router.replace("/(auth)/login");
     }

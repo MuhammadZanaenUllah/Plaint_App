@@ -29,8 +29,9 @@ const {
   LeaveWhiteIcon: LeaveIconWhite,
   PEBlackIcon: PEIconBlack,
   PEWhiteIcon: PEIconWhite,
-  TaskBlackIcon: TaskIconBlack,
-  TaskWhiteIcon: TaskIconsWhite,
+  // TASK MODULE DISABLED — Task tab icons not rendered in Chat-only delivery.
+  // TaskBlackIcon: TaskIconBlack,
+  // TaskWhiteIcon: TaskIconsWhite,
 } = Icons;
 
 type TabItem = {
@@ -49,11 +50,13 @@ type TabItem = {
 );
 
 const TABS: TabItem[] = [
-  {
-    name: "tasks",
-    activeIcon: TaskIconBlack,
-    inactiveIcon: TaskIconsWhite,
-  },
+  // TASK MODULE DISABLED — Tasks tab hidden for Chat-only delivery. Restore by
+  // uncommenting this entry (and the Task icon destructure above).
+  // {
+  //   name: "tasks",
+  //   activeIcon: TaskIconBlack,
+  //   inactiveIcon: TaskIconsWhite,
+  // },
   {
     name: "chat",
     activeIcon: ChatIconBlack,

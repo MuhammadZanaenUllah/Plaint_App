@@ -6,8 +6,11 @@ import {
   getPushNotificationSettings,
   updatePushNotificationSettings,
 } from "@/services/api/push.service";
-import { viewTask } from "@/services/api/tasks.service";
-import { NotificationItem } from "@/types/chat.types";
+// TASK MODULE DISABLED — task notification taps no longer open a task detail.
+// import { viewTask } from "@/services/api/tasks.service";
+// TASK MODULE DISABLED — NotificationItem was only used by the task
+// notification handler below.
+// import { NotificationItem } from "@/types/chat.types";
 import { showInfo } from "@/utils/toast";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -26,10 +29,11 @@ import Animated, { FadeInDown, FadeOutUp } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Avatar from "./Avatar";
 import InboxModal from "./InboxModal";
-import TaskDetailModal, {
-  TaskDetail,
-  buildTaskDetailFromViewTask,
-} from "./TaskDetailModal";
+// TASK MODULE DISABLED — TaskDetailModal was only opened from task notifications.
+// import TaskDetailModal, {
+//   TaskDetail,
+//   buildTaskDetailFromViewTask,
+// } from "./TaskDetailModal";
 
 const { BellIcon, FilterIcon, FilterIconBlack } = Icons;
 
@@ -61,7 +65,8 @@ export default function AppHeader({
   const [search, setSearch] = useState("");
   const [inboxOpen, setInboxOpen] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
+  // TASK MODULE DISABLED — selected task for the task-notification detail modal.
+  // const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushSettingsLoading, setPushSettingsLoading] = useState(false);
 
@@ -109,22 +114,26 @@ export default function AppHeader({
     [pushEnabled],
   );
 
-  const handleNotificationPress = useCallback(
-    async (item: NotificationItem) => {
-      if (!item.task_id || item.task_id === 0) return;
-      const companyId = authState.company?.company_id ?? 0;
-      try {
-        const res = await viewTask(item.task_id, companyId);
-        const detail = buildTaskDetailFromViewTask(res?.data, companyId);
-        if (detail) {
-          setSelectedTask(detail);
-        }
-      } catch {
-        // silently fail — just mark read + close the popup
-      }
-    },
-    [authState.company?.company_id],
-  );
+  // TASK MODULE DISABLED — tapping a task notification used to fetch the task
+  // and open TaskDetailModal here. Chat notifications in this popup were/are
+  // handled inside InboxModal itself, so this handler is task-only. Preserved
+  // for restoration.
+  // const handleNotificationPress = useCallback(
+  //   async (item: NotificationItem) => {
+  //     if (!item.task_id || item.task_id === 0) return;
+  //     const companyId = authState.company?.company_id ?? 0;
+  //     try {
+  //       const res = await viewTask(item.task_id, companyId);
+  //       const detail = buildTaskDetailFromViewTask(res?.data, companyId);
+  //       if (detail) {
+  //         setSelectedTask(detail);
+  //       }
+  //     } catch {
+  //       // silently fail — just mark read + close the popup
+  //     }
+  //   },
+  //   [authState.company?.company_id],
+  // );
 
   const handleViewAll = useCallback(() => {
     setInboxOpen(false);
@@ -246,14 +255,17 @@ export default function AppHeader({
       <InboxModal
         visible={inboxOpen}
         onClose={() => setInboxOpen(false)}
-        onNotificationPress={handleNotificationPress}
+        // TASK MODULE DISABLED — task-only notification press handler.
+        // onNotificationPress={handleNotificationPress}
         onViewAll={handleViewAll}
       />
+      {/* TASK MODULE DISABLED — task detail modal opened from task notifications.
       <TaskDetailModal
         visible={!!selectedTask}
         onClose={() => setSelectedTask(null)}
         task={selectedTask}
       />
+      */}
     </Pressable>
   );
 }

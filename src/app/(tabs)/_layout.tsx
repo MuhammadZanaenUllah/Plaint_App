@@ -1,6 +1,9 @@
-import CustomTabBar from "@/components/CustomTabBar";
+// CHAT-ONLY — CustomTabBar is not rendered while only the Chat module ships
+// (a single-module app has no tab bar). Restore this import and the `tabBar`
+// prop below when additional modules come back.
+// import CustomTabBar from "@/components/CustomTabBar";
 import AppHeader from "@/components/headerapp";
-import { SearchProvider, useSearch } from "@/context/SearchContext";
+import { SearchProvider } from "@/context/SearchContext";
 import { useAuth } from "@/hooks/useAuth";
 import { Tabs, useSegments } from "expo-router";
 import { View } from "react-native";
@@ -23,13 +26,14 @@ function getTimeGreeting(name: string) {
 }
 
 const HEADER_CONFIGS: Record<string, HeaderConfig> = {
-  tasks: {
-    greeting: "Tasks",
-    subGreeting: "Assign tasks, track progress, and boost productivity.",
-    showSearch: true,
-    forceSearchOpen: true,
-    placeholder: "Search Tasks...",
-  },
+  // TASK MODULE DISABLED — Tasks header config preserved for restoration.
+  // tasks: {
+  //   greeting: "Tasks",
+  //   subGreeting: "Assign tasks, track progress, and boost productivity.",
+  //   showSearch: true,
+  //   forceSearchOpen: true,
+  //   placeholder: "Search Tasks...",
+  // },
   leaves: {
     greeting: "My Leaves",
     subGreeting: "View and apply for your leaves",
@@ -47,8 +51,8 @@ function TabLayoutContent() {
   const { state: authState } = useAuth();
   const insets = useSafeAreaInsets();
   const segments = useSegments();
-  const currentRoute = segments[segments.length - 1] ?? "tasks";
-  const { isHeaderCompact } = useSearch();
+  // TASK MODULE DISABLED — fallback was "tasks"; Chat is the default tab now.
+  const currentRoute = segments[segments.length - 1] ?? "chat";
 
   const firstName = authState.user?.first_name ?? "";
   const lastName = authState.user?.last_name ?? "";
@@ -64,12 +68,13 @@ function TabLayoutContent() {
         }
       : (HEADER_CONFIGS[currentRoute] ?? DEFAULT_CONFIG);
 
-  // Collapses the Tasks search bar to just its toggle icon once the task
-  // list has scrolled — the greeting text and stat cards are unaffected.
-  const forceSearchOpen =
-    currentRoute === "tasks"
-      ? config.forceSearchOpen && !isHeaderCompact
-      : config.forceSearchOpen;
+  // TASK MODULE DISABLED — the compact-search-on-scroll behavior was driven by
+  // the Tasks screen (via SearchContext.isHeaderCompact). Preserved for restore.
+  // const forceSearchOpen =
+  //   currentRoute === "tasks"
+  //     ? config.forceSearchOpen && !isHeaderCompact
+  //     : config.forceSearchOpen;
+  const forceSearchOpen = config.forceSearchOpen;
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
@@ -91,10 +96,22 @@ function TabLayoutContent() {
         />
       </View>
       <Tabs
-        screenOptions={{ headerShown: false, tabBarHideOnKeyboard: true }}
-        tabBar={(props) => <CustomTabBar {...props} />}
+        initialRouteName="chat"
+        screenOptions={{
+          headerShown: false,
+          tabBarHideOnKeyboard: true,
+          // CHAT-ONLY — hides the bottom tab bar entirely for the
+          // single-module build. Remove this when restoring modules/tabs.
+          tabBarStyle: { display: "none" },
+        }}
+        // CHAT-ONLY — CustomTabBar disabled (see import note above).
+        // tabBar={(props) => <CustomTabBar {...props} />}
       >
+        {/* TASK MODULE DISABLED — Tasks tab removed for Chat-only delivery.
+            The tasks route file is kept as a disabled placeholder; restore by
+            uncommenting the line below (and re-enabling the Tasks screen).
         <Tabs.Screen name="tasks" />
+        */}
         {/* <Tabs.Screen name="leaves" /> */}
         <Tabs.Screen name="chat" />
       </Tabs>

@@ -12,7 +12,9 @@ import { useChat } from "@/hooks/useChat";
 // PROJECT MODULE DISABLED
 // import { useProjects } from "@/hooks/useProjects";
 import { useSearch } from "@/context/SearchContext";
-import { useTasks } from "@/hooks/useTasks";
+// TASK MODULE DISABLED — Chat no longer merges task owners into its contact
+// list. Restore this import together with the loop below.
+// import { useTasks } from "@/hooks/useTasks";
 // PROJECT MODULE DISABLED
 // import { Project } from "@/types/project.types";
 import { Room } from "@/types/chat.types";
@@ -67,7 +69,8 @@ export default function ChatScreen() {
     // PROJECT MODULE DISABLED
     // const { state: projectState, fetchProjects } = useProjects();
     const { searchText } = useSearch();
-    const { state: taskState } = useTasks();
+    // TASK MODULE DISABLED — task owners used to supplement the contact list.
+    // const { state: taskState } = useTasks();
     const currentUserId = authState?.state?.user?.id ?? 0;
     const currentUser = authState?.state?.user ?? null;
 
@@ -160,7 +163,7 @@ export default function ChatScreen() {
         }
     }, [addPeopleOpen]);
 
-    // Build a default list of all company members from existing room members + task owners.
+    // Build a default list of all company members from existing room members.
     // The backend requires ≥2 chars to search, so we use local data as the default list.
     const defaultMemberList = useMemo(() => {
         const memberMap = new Map<string, { id: string; name: string; email?: string }>();
@@ -175,18 +178,20 @@ export default function ChatScreen() {
                 }
             }
         }
-        // From task owners
-        for (const owner of (taskState?.taskOwners ?? []) as any[]) {
-            if (!owner?.id) continue;
-            if (owner.id === currentUserId) continue;
-            const key = String(owner.id);
-            if (!memberMap.has(key)) {
-                const name = `${owner.first_name || ""} ${owner.last_name || ""}`.trim() || `User #${owner.id}`;
-                memberMap.set(key, { id: key, name, email: owner.email });
-            }
-        }
+        // TASK MODULE DISABLED — task owners are no longer merged into the
+        // default contact list. Restore the useTasks import/state and this loop.
+        // // From task owners
+        // for (const owner of (taskState?.taskOwners ?? []) as any[]) {
+        //     if (!owner?.id) continue;
+        //     if (owner.id === currentUserId) continue;
+        //     const key = String(owner.id);
+        //     if (!memberMap.has(key)) {
+        //         const name = `${owner.first_name || ""} ${owner.last_name || ""}`.trim() || `User #${owner.id}`;
+        //         memberMap.set(key, { id: key, name, email: owner.email });
+        //     }
+        // }
         return Array.from(memberMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-    }, [visibleRooms, taskState?.taskOwners, currentUserId]);
+    }, [visibleRooms, currentUserId]);
 
     // Build the user list shown in AddPeopleModal:
     // - When query has ≥2 chars: use API search results (populated by setSearchQuery)
