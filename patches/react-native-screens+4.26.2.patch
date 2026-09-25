@@ -1,0 +1,15 @@
+diff --git a/node_modules/react-native-screens/ios/safe-area/RNSSafeAreaViewComponentView.mm b/node_modules/react-native-screens/ios/safe-area/RNSSafeAreaViewComponentView.mm
+--- a/node_modules/react-native-screens/ios/safe-area/RNSSafeAreaViewComponentView.mm
++++ b/node_modules/react-native-screens/ios/safe-area/RNSSafeAreaViewComponentView.mm
+@@ -104,5 +104,10 @@ - (void)updateState
+   }
+ 
+   auto newData = facebook::react::RNSSafeAreaViewState{RCTEdgeInsetsFromUIEdgeInsets(_currentSafeAreaInsets)};
+-  _state->updateState(std::move(newData), facebook::react::EventQueue::UpdateMode::unstable_Immediate);
++  // Patched: drop `UpdateMode::unstable_Immediate`. Synchronous ShadowTree
++  // commits from `safeAreaInsetsDidChange` (e.g. when the iOS keyboard /
++  // QuickType / Password AutoFill bar appears) race with Fabric's mounting
++  // transaction and can throw `folly::TypeError` in RawPropsParser::preparse
++  // -> std::terminate -> SIGABRT. Async updates avoid the reentrancy hazard.
++  _state->updateState(std::move(newData));
+ }
