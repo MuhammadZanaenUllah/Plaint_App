@@ -25,7 +25,6 @@ import {
   formatMessageTime,
   getRoomAvatar,
   isOwnMessage,
-  isSameDay,
   resolveFileUrl,
   resolveSecureFileUrl,
 } from "@/utils/chatHelpers";
@@ -1055,107 +1054,59 @@ const ap = StyleSheet.create({
   },
 });
 
-// ─── Date Divider Component ───────────────────────────────────────────────────
+// ─── Date Divider ─────────────────────────────────────────────────────────────
 
-function formatDateDivider(
-  dateInput?: Date | string | null,
-  isChannel?: boolean,
-): string {
-  if (!dateInput) {
-    return isChannel ? "Today's Discussion" : "Today's Chat";
-  }
-  const d = new Date(dateInput);
-  if (isNaN(d.getTime())) {
-    return isChannel ? "Today's Discussion" : "Today's Chat";
-  }
-  const now = new Date();
-  if (isSameDay(d, now)) {
-    return isChannel ? "Today's Discussion" : "Today's Chat";
-  }
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_SHORT = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (isSameDay(d, yesterday)) {
-    return "Yesterday";
-  }
-
-  const days = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-  ];
-  const months = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  const dayName = days[d.getDay()];
-  const dayNum = d.getDate();
-  const monthName = months[d.getMonth()];
-
-  return `${dayName} ${dayNum} ${monthName}`;
+/** WhatsApp-style static date label, e.g. "Mon, 11 Sep". */
+function formatDateDivider(dateInput?: Date | string | null): string {
+  const d = dateInput ? new Date(dateInput) : null;
+  if (!d || isNaN(d.getTime())) return "";
+  return `${WEEKDAY_SHORT[d.getDay()]}, ${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`;
 }
 
+// Simple, static date label shown above each date group.
 function DateDivider({ label }: { label: string }) {
   return (
     <View style={ddStyles.container}>
-      <View style={ddStyles.line} />
-      <TouchableOpacity style={ddStyles.pill} activeOpacity={0.8}>
+      <View style={ddStyles.pill}>
         <Text style={ddStyles.text}>{label}</Text>
-        <Ionicons
-          name="chevron-down"
-          size={13}
-          color="#6B7280"
-          style={{ marginLeft: 3 }}
-        />
-      </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
 const ddStyles = StyleSheet.create({
   container: {
-    position: "relative",
     alignItems: "center",
     justifyContent: "center",
-    marginVertical: 10,
+    marginVertical: 8,
     width: "100%",
   },
-  line: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: "#E5E7EB",
-  },
   pill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FAFAFA",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 4.5,
-    zIndex: 1,
+    backgroundColor: "#F0F2F5",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   text: {
     fontSize: rf(12),
     fontFamily: "SF_Pro_Medium",
-    color: "#4B5563",
+    color: "#54656F",
   },
 });
 
@@ -2139,6 +2090,183 @@ const delModalStyles = StyleSheet.create({
   },
 });
 
+// ─── Conversation Menu Modal (header three-dot) ───────────────────────────────
+
+function RoomMenuModal({
+  visible,
+  roomName,
+  isMuted,
+  canDelete,
+  isChannel,
+  onClose,
+  onToggleMute,
+  onMarkUnread,
+  onDelete,
+}: {
+  visible: boolean;
+  roomName: string;
+  isMuted: boolean;
+  canDelete: boolean;
+  isChannel: boolean;
+  onClose: () => void;
+  onToggleMute: () => void;
+  onMarkUnread: () => void;
+  onDelete: () => void;
+}) {
+  if (!visible) return null;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable style={roomMenuStyles.overlay} onPress={onClose}>
+        <Pressable
+          style={roomMenuStyles.sheet}
+          onStartShouldSetResponder={() => true}
+        >
+          <View style={roomMenuStyles.handle} />
+          <Text style={roomMenuStyles.title} numberOfLines={1}>
+            {roomName}
+          </Text>
+
+          <TouchableOpacity
+            style={roomMenuStyles.item}
+            activeOpacity={0.7}
+            onPress={onToggleMute}
+          >
+            <View style={roomMenuStyles.itemIcon}>
+              <Ionicons
+                name={isMuted ? "notifications" : "notifications-off-outline"}
+                size={19}
+                color="#1D1D1D"
+              />
+            </View>
+            <Text style={roomMenuStyles.itemText}>
+              {isMuted ? "Unmute notifications" : "Mute notifications"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={roomMenuStyles.item}
+            activeOpacity={0.7}
+            onPress={onMarkUnread}
+          >
+            <View style={roomMenuStyles.itemIcon}>
+              <Ionicons name="mail-unread-outline" size={19} color="#1D1D1D" />
+            </View>
+            <Text style={roomMenuStyles.itemText}>Mark as unread</Text>
+          </TouchableOpacity>
+
+          {canDelete && (
+            <TouchableOpacity
+              style={roomMenuStyles.item}
+              activeOpacity={0.7}
+              onPress={onDelete}
+            >
+              <View
+                style={[roomMenuStyles.itemIcon, roomMenuStyles.itemIconDanger]}
+              >
+                <Ionicons name="trash-outline" size={19} color="#EF4444" />
+              </View>
+              <Text
+                style={[roomMenuStyles.itemText, roomMenuStyles.itemTextDanger]}
+              >
+                {isChannel ? "Delete channel" : "Delete chat"}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={roomMenuStyles.cancel}
+            activeOpacity={0.7}
+            onPress={onClose}
+          >
+            <Text style={roomMenuStyles.cancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const roomMenuStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 28,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  handle: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#E5E7EB",
+    marginBottom: 12,
+  },
+  title: {
+    fontSize: rf(13),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#6B7280",
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  item: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 13,
+    paddingHorizontal: 4,
+  },
+  itemIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 14,
+  },
+  itemIconDanger: {
+    backgroundColor: "#FEF2F2",
+  },
+  itemText: {
+    fontSize: rf(15),
+    fontFamily: "SF_Pro_Medium",
+    color: "#1D1D1D",
+  },
+  itemTextDanger: {
+    color: "#EF4444",
+  },
+  cancel: {
+    marginTop: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F3F4F6",
+    borderRadius: 12,
+    paddingVertical: 13,
+  },
+  cancelText: {
+    fontSize: rf(14),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#4B5563",
+  },
+});
+
 const waModalStyles = StyleSheet.create({
   overlay: {
     position: "absolute",
@@ -2276,6 +2404,15 @@ const waModalStyles = StyleSheet.create({
 
 type FilterTab = "date" | "attachments" | "chat_member" | "post_type" | null;
 
+// Inline list items: a message, or a static date divider that stays attached to
+// the messages of its day while scrolling (WhatsApp-style).
+type MessageListItem =
+  | { type: "message"; message: ChatMessage }
+  | { type: "divider"; label: string; key: string };
+
+// Stable viewability config for the message list (must not change identity).
+const CHAT_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 1 };
+
 export default function ConversationScreen() {
   const params = useLocalSearchParams<{
     roomId?: string;
@@ -2287,9 +2424,6 @@ export default function ConversationScreen() {
   const name = params.name ?? "Chat";
   const initials = params.initials ?? "C";
   const isChannel = params.isChannel === "true";
-  // PROJECT MODULE DISABLED — project-room mute toggle removed
-  // const showNotificationToggle = isChannel || params.roomType === "project";
-  const showNotificationToggle = isChannel;
   const roomId = params.roomId;
 
   const {
@@ -2310,6 +2444,9 @@ export default function ConversationScreen() {
     fetchPinnedMessages,
     setCurrentRoom,
     muteRoom,
+    markUnread,
+    deleteRoom,
+    hideRoom,
   } = useChat();
   const { typingUsers } = useChatPresence();
   const authState = useAuth();
@@ -2523,6 +2660,9 @@ export default function ConversationScreen() {
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<TextInput>(null);
 
+  // Three-dot conversation menu (mute / mark unread / delete chat)
+  const [roomMenuOpen, setRoomMenuOpen] = useState(false);
+
   // Filter tabs
   const [activeFilter, setActiveFilter] = useState<FilterTab>(null);
 
@@ -2553,7 +2693,6 @@ export default function ConversationScreen() {
 
   const recordingSeconds = Math.floor(recorderState.durationMillis / 1000);
 
-  const [firstVisibleDate, setFirstVisibleDate] = useState<Date | null>(null);
   const [dateFilterStart, setDateFilterStart] = useState<Date | null>(null);
   const [dateFilterEnd, setDateFilterEnd] = useState<Date | null>(null);
 
@@ -2575,9 +2714,40 @@ export default function ConversationScreen() {
   const trackedRoomRef = useRef(roomId);
   const lastShowButtonRef = useRef(false);
 
+  // ── Temporary top date label (scrolling only) ──────────────────────────
+  // A floating label showing the date of the messages currently in view. It is
+  // shown while the user scrolls up (toward older messages) and hidden shortly
+  // after scrolling stops — the static inline dividers are never touched.
+  const [scrollDateLabel, setScrollDateLabel] = useState<string | null>(null);
+  const topVisibleDateRef = useRef<string | null>(null);
+  const scrollDateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastScrollYRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      if (scrollDateTimerRef.current) clearTimeout(scrollDateTimerRef.current);
+    },
+    [],
+  );
+
   const handleMessagesScroll = useCallback(
     (e: { nativeEvent: { contentOffset: { y: number } } }) => {
       const y = e.nativeEvent.contentOffset.y;
+
+      // Floating date label: display while scrolling up (older messages), then
+      // hide ~0.9s after the last scroll event.
+      const scrollingUp = y > lastScrollYRef.current + 1;
+      lastScrollYRef.current = y;
+      if (scrollingUp && topVisibleDateRef.current) {
+        const label = topVisibleDateRef.current;
+        setScrollDateLabel((prev) => (prev === label ? prev : label));
+      }
+      if (scrollDateTimerRef.current) clearTimeout(scrollDateTimerRef.current);
+      scrollDateTimerRef.current = setTimeout(() => {
+        scrollDateTimerRef.current = null;
+        setScrollDateLabel(null);
+      }, 900);
+
       const atBottom = y <= AT_BOTTOM_THRESHOLD;
       atBottomRef.current = atBottom;
       const nextShow = !atBottom;
@@ -2924,16 +3094,6 @@ export default function ConversationScreen() {
     const roomMap = typingUsers.get(roomId ?? "") ?? new Map<number, string>();
     return Array.from(roomMap.values());
   }, [typingUsers, roomId]);
-
-  // Track date of latest message for top header divider
-  useEffect(() => {
-    if (state.messages.length > 0) {
-      const lastMsg = state.messages[state.messages.length - 1];
-      if (lastMsg?.createdAt) {
-        setFirstVisibleDate(new Date(lastMsg.createdAt));
-      }
-    }
-  }, [state.messages.length, roomId]);
 
   const handleSend = useCallback(async () => {
     if (!message.trim() || !roomId || sending) return;
@@ -3292,15 +3452,22 @@ export default function ConversationScreen() {
     }
   }, [currentRoom?._id, currentRoom?.id, setCurrentRoom]);
 
+  // Channel creator (from room permissions) or fallback to the room payload.
+  const roomOwnerId = roomCreator ?? currentRoom?.created_by ?? null;
+  // Channels may only be deleted by their creator; 1:1 chats by either user.
+  const canDeleteChat =
+    !isChannel || (roomOwnerId !== null && currentUserId === roomOwnerId);
+
   useEffect(() => {
     return () => {
       setCurrentRoom(null);
     };
   }, [setCurrentRoom]);
 
-  // Toggle push notifications for this channel/project room via the server
-  // `is_muted` flag (POST /chat/mute-room). Muted rooms skip push + in-app toasts.
+  // Toggle push notifications for this room via the server `is_muted` flag
+  // (POST /chat/mute-room). Muted rooms skip push + in-app toasts.
   const handleToggleMute = async () => {
+    setRoomMenuOpen(false);
     if (!roomId) return;
     try {
       const muted = await muteRoom(roomId);
@@ -3312,6 +3479,51 @@ export default function ConversationScreen() {
     } catch {
       showError("Error", "Could not update notification settings");
     }
+  };
+
+  // Mark the conversation unread and return to the list so the badge is
+  // immediately visible (WhatsApp behaviour). No message is touched.
+  const handleMarkUnread = async () => {
+    if (!roomId) return;
+    setRoomMenuOpen(false);
+    try {
+      await markUnread(roomId);
+      router.back();
+    } catch {
+      showError("Error", "Could not mark chat as unread");
+    }
+  };
+
+  // Delete the conversation. Channels: creator only, removes it for everyone.
+  // 1:1 chats: removes it for this user only (reappears on a new reply).
+  const handleDeleteChat = () => {
+    if (!roomId || !canDeleteChat) return;
+    setRoomMenuOpen(false);
+    Alert.alert(
+      "Delete chat?",
+      isChannel
+        ? "This channel will be deleted for all its members. This can't be undone."
+        : "This chat will be deleted from your list. The other person will still have it.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (isChannel) {
+                await deleteRoom(roomId);
+              } else {
+                await hideRoom(roomId);
+              }
+              router.back();
+            } catch {
+              showError("Error", "Could not delete chat");
+            }
+          },
+        },
+      ],
+    );
   };
 
   // ── @-mention candidates (derived from the room's member list) ─────────
@@ -3368,12 +3580,18 @@ export default function ConversationScreen() {
   }, [state.messages]);
 
   const renderItem = useCallback(
-    ({ item, index }: { item: ChatMessage; index: number }) => {
+    ({ item, index }: { item: MessageListItem; index: number }) => {
+      if (item.type === "divider") {
+        return <DateDivider label={item.label} />;
+      }
+
+      const message = item.message;
+
       // Resolve the quoted reply preview. The backend may embed the parent as
       // an object (`{ sender_name, text }`) or reference it by ObjectId, and
       // may expose it as `parent_id` or `reply_to`.
-      const parentRef = (item.parent_id ??
-        (item as { reply_to?: unknown }).reply_to) as
+      const parentRef = (message.parent_id ??
+        (message as { reply_to?: unknown }).reply_to) as
         | string
         | { sender_name?: string; text?: string; attachments?: unknown[] }
         | null;
@@ -3413,8 +3631,8 @@ export default function ConversationScreen() {
       // Fall back to an optimistic preview captured when the reply was sent.
       if (!repliedPreview) {
         repliedPreview =
-          localReplyPreviewRef.current.get(String(item._id)) ??
-          localReplyPreviewRef.current.get(String(item.id)) ??
+          localReplyPreviewRef.current.get(String(message._id)) ??
+          localReplyPreviewRef.current.get(String(message.id)) ??
           null;
       }
 
@@ -3422,17 +3640,17 @@ export default function ConversationScreen() {
         <View
           style={{
             paddingHorizontal: 16,
-            paddingTop: index === 0 ? 8 : 20,
+            paddingTop: index === 0 ? 8 : 16,
           }}
         >
           <SwipeToReply
             onReply={() => {
-              setReplyTo(item);
+              setReplyTo(message);
               setTimeout(() => composerRef.current?.focus(), 60);
             }}
           >
             <MessageBubble
-              message={item}
+              message={message}
               currentUserId={currentUserId}
               members={currentRoom?.members}
               showSenderName={isChannel}
@@ -3455,8 +3673,8 @@ export default function ConversationScreen() {
     ],
   );
 
-  // Inverted messages list for native bottom-anchored chat layout
-  const invertedMessages = useMemo(() => {
+  // Filtered messages (chronological) after search + date filters.
+  const filteredMessages = useMemo(() => {
     let filtered = search.trim()
       ? filterMessagesByText(state.messages, search)
       : state.messages;
@@ -3473,8 +3691,59 @@ export default function ConversationScreen() {
         return msgDate >= startMs && msgDate <= endMs;
       });
     }
-    return [...filtered].reverse();
+    return filtered;
   }, [state.messages, search, dateFilterStart, dateFilterEnd]);
+
+  // Build the list items with a static date divider before the first message of
+  // each day (chronological), then reverse for the inverted list. Deliberately
+  // NOT based on scroll position — dividers stay attached to their messages.
+  const listItems = useMemo<MessageListItem[]>(() => {
+    const items: MessageListItem[] = [];
+    let lastDateKey: string | null = null;
+    for (const m of filteredMessages) {
+      const d = m.createdAt ? new Date(m.createdAt) : null;
+      const valid = !!d && !isNaN(d.getTime());
+      const dateKey = valid
+        ? `${d!.getFullYear()}-${d!.getMonth()}-${d!.getDate()}`
+        : "date-unknown";
+      if (dateKey !== lastDateKey) {
+        items.push({
+          type: "divider",
+          label: formatDateDivider(valid ? d : null),
+          key: `divider-${dateKey}-${m._id ?? m.id ?? items.length}`,
+        });
+        lastDateKey = dateKey;
+      }
+      items.push({ type: "message", message: m });
+    }
+    return items.reverse();
+  }, [filteredMessages]);
+
+  // Track the date of the topmost visible list item so the temporary scrolling
+  // label can show the date of the messages currently being viewed. This never
+  // affects the static inline dividers.
+  const onViewableItemsChanged = useCallback(
+    ({
+      viewableItems,
+    }: {
+      viewableItems: { index: number | null; item: MessageListItem }[];
+    }) => {
+      let topIndex = -1;
+      let topLabel: string | null = null;
+      for (const v of viewableItems) {
+        if (v.index == null || !v.item) continue;
+        if (v.index > topIndex) {
+          topIndex = v.index;
+          topLabel =
+            v.item.type === "divider"
+              ? v.item.label
+              : formatDateDivider(v.item.message.createdAt ?? null);
+        }
+      }
+      if (topLabel) topVisibleDateRef.current = topLabel;
+    },
+    [],
+  );
 
   const handleLoadMore = useCallback(() => {
     if (roomId && state.hasMore && !state.messagesLoading) {
@@ -3488,33 +3757,6 @@ export default function ConversationScreen() {
     state.messagePage,
     fetchMessages,
   ]);
-
-  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 10 }).current;
-
-  const onViewableItemsChangedRef = useRef(
-    ({ viewableItems }: { viewableItems: any[] }) => {
-      for (const v of viewableItems) {
-        const rawDate = v.item?.createdAt || v.item?.created_at;
-        if (rawDate) {
-          const parsed = new Date(rawDate);
-          if (!isNaN(parsed.getTime())) {
-            setFirstVisibleDate((prev) => {
-              if (prev && isSameDay(prev, parsed)) return prev;
-              return parsed;
-            });
-            return;
-          }
-        }
-      }
-    },
-  ).current;
-
-  const dynamicDateLabel = useMemo(() => {
-    if (!firstVisibleDate || isNaN(firstVisibleDate.getTime())) {
-      return isChannel ? "Today's Discussion" : "Today's Chat";
-    }
-    return formatDateDivider(firstVisibleDate, isChannel);
-  }, [firstVisibleDate, isChannel]);
 
   return (
     <View style={styles.root}>
@@ -3560,24 +3802,6 @@ export default function ConversationScreen() {
                 </View>
               </View>
 
-              {showNotificationToggle && (
-                <TouchableOpacity
-                  hitSlop={8}
-                  onPress={handleToggleMute}
-                  style={styles.headerIconBtn}
-                >
-                  <Ionicons
-                    name={
-                      currentRoom?.is_muted
-                        ? "notifications-off"
-                        : "notifications-outline"
-                    }
-                    size={20}
-                    color={currentRoom?.is_muted ? "#9CA3AF" : "#1D1D1D"}
-                  />
-                </TouchableOpacity>
-              )}
-
               <TouchableOpacity
                 hitSlop={8}
                 style={styles.headerSearchBtn}
@@ -3587,6 +3811,18 @@ export default function ConversationScreen() {
                 }}
               >
                 <Ionicons name="search-outline" size={20} color="#1D1D1D" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                hitSlop={8}
+                style={styles.headerIconBtn}
+                onPress={() => setRoomMenuOpen(true)}
+              >
+                <Ionicons
+                  name="ellipsis-vertical"
+                  size={20}
+                  color="#1D1D1D"
+                />
               </TouchableOpacity>
             </>
           ) : (
@@ -3840,9 +4076,6 @@ export default function ConversationScreen() {
           </View>
         )}
 
-        {/* ── Fixed Date Divider (dynamic, updates on scroll) ── */}
-        {!searchOpen && <DateDivider label={dynamicDateLabel} />}
-
         {/* ── Pinned messages banner (WhatsApp-style) ── */}
         {activePinned && !searchOpen && (
           <Pressable
@@ -3877,9 +4110,11 @@ export default function ConversationScreen() {
             ref={scrollRef}
             style={styles.scroll}
             inverted={true}
-            data={invertedMessages}
-            keyExtractor={(item: ChatMessage, idx: number) =>
-              String(item._id ?? item.id ?? `msg-${idx}`)
+            data={listItems}
+            keyExtractor={(item: MessageListItem, idx: number) =>
+              item.type === "divider"
+                ? item.key
+                : String(item.message._id ?? item.message.id ?? `msg-${idx}`)
             }
             renderItem={renderItem}
             onEndReached={handleLoadMore}
@@ -3893,8 +4128,8 @@ export default function ConversationScreen() {
               search.trim() ? (
                 <View style={styles.searchResultBadge}>
                   <Text style={styles.searchResultText}>
-                    {invertedMessages.length} result
-                    {invertedMessages.length !== 1 ? "s" : ""} found
+                    {filteredMessages.length} result
+                    {filteredMessages.length !== 1 ? "s" : ""} found
                   </Text>
                 </View>
               ) : null
@@ -3945,7 +4180,7 @@ export default function ConversationScreen() {
                 <View style={{ padding: 40, alignItems: "center" }}>
                   <ActivityIndicator size="large" color="#00DEAB" />
                 </View>
-              ) : search.trim() && invertedMessages.length === 0 ? (
+              ) : search.trim() && filteredMessages.length === 0 ? (
                 <View style={{ padding: 40, alignItems: "center" }}>
                   <Ionicons name="search-outline" size={32} color="#D1D5DB" />
                   <Text
@@ -3963,7 +4198,7 @@ export default function ConversationScreen() {
               ) : dateFilterStart &&
                 dateFilterEnd &&
                 state.messages.length > 0 &&
-                invertedMessages.length === 0 ? (
+                filteredMessages.length === 0 ? (
                 <View style={{ padding: 40, alignItems: "center" }}>
                   <Ionicons name="calendar-outline" size={32} color="#D1D5DB" />
                   <Text
@@ -3978,7 +4213,7 @@ export default function ConversationScreen() {
                     No messages found for this date range.
                   </Text>
                 </View>
-              ) : invertedMessages.length === 0 ? (
+              ) : filteredMessages.length === 0 ? (
                 <View style={{ padding: 40, alignItems: "center" }}>
                   <Text
                     style={{
@@ -3993,14 +4228,23 @@ export default function ConversationScreen() {
                 </View>
               ) : null
             }
-            onViewableItemsChanged={onViewableItemsChangedRef}
-            viewabilityConfig={viewabilityConfig}
             onScroll={handleMessagesScroll}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={CHAT_VIEWABILITY_CONFIG}
             scrollEventThrottle={16}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.scrollContent}
           />
+
+          {/* Temporary top date label — visible only while scrolling up. */}
+          {scrollDateLabel && (
+            <View pointerEvents="none" style={styles.scrollDateWrap}>
+              <View style={ddStyles.pill}>
+                <Text style={ddStyles.text}>{scrollDateLabel}</Text>
+              </View>
+            </View>
+          )}
 
           {showScrollToBottom && (
             <TouchableOpacity
@@ -4459,6 +4703,19 @@ export default function ConversationScreen() {
         }}
       />
 
+      {/* ── Conversation Menu (header three-dot) ── */}
+      <RoomMenuModal
+        visible={roomMenuOpen}
+        roomName={name}
+        isMuted={!!currentRoom?.is_muted}
+        canDelete={canDeleteChat}
+        isChannel={isChannel}
+        onClose={() => setRoomMenuOpen(false)}
+        onToggleMute={handleToggleMute}
+        onMarkUnread={handleMarkUnread}
+        onDelete={handleDeleteChat}
+      />
+
       {/* ── Emoji Picker (rn-emoji-keyboard) ── */}
       <EmojiPicker
         open={emojiPickerOpen}
@@ -4880,6 +5137,15 @@ const styles = StyleSheet.create({
     fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_SECONDARY,
+  },
+  // Temporary floating date label shown while scrolling up (hidden on stop).
+  scrollDateWrap: {
+    position: "absolute",
+    top: 8,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 30,
   },
 
   // ── Pinned messages ──

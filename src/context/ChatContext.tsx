@@ -1,6 +1,7 @@
 import { useNotifications } from "@/context/NotificationContext";
 import { useAuth } from "@/hooks/useAuth";
 import * as chatService from "@/services/api/chat.service";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as socketService from "@/services/socket/socketService";
 import {
   ChatMessage,
@@ -80,6 +81,26 @@ const initialState: ChatState = {
   searchResults: [],
   searching: false,
 };
+
+/**
+ * Effective per-user history cutoff for a room: the later of the backend's
+ * `my_visible_from` (1:1 rooms only — that is where `hide-room` applies) and
+ * the locally persisted delete timestamp. Returns null when there is none.
+ */
+function getRoomHistoryCutoff(
+  room: Room | undefined,
+  localCutoff?: string | null,
+): string | null {
+  const serverCutoff =
+    room && room.type === "direct" ? (room.my_visible_from ?? null) : null;
+  const local = localCutoff ?? null;
+  if (serverCutoff && local) {
+    return new Date(serverCutoff).getTime() >= new Date(local).getTime()
+      ? serverCutoff
+      : local;
+  }
+  return serverCutoff ?? local;
+}
 
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
@@ -314,6 +335,11 @@ export type ChatContextValue = {
   muteRoom: (roomId: string) => Promise<boolean>;
   clearMessages: (roomId: string) => Promise<void>;
 
+  // Chats the user deleted for themselves (1:1 hide-room) that have had no new
+  // activity since. Derived from persisted cutoffs + the room list, so a new
+  // incoming message makes the chat reappear automatically.
+  hiddenRoomIds: Set<string>;
+
   // Message actions
   fetchMessages: (roomId: string, page?: number) => Promise<void>;
   sendMessage: (params: {
@@ -445,10 +471,88 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     null,
   );
 
+  // ── "Deleted for me" chats (1:1 hide-room) ───────────────────────────────
+  // Map roomId → ISO timestamp of when the user deleted the chat for
+  // themselves (WhatsApp semantics). Persisted per user and used for two
+  // things:
+  //   1. Keeping the chat hidden from the list until new activity arrives.
+  //   2. Enforcing the per-user history cutoff (messages before the cutoff
+  //      stay hidden) — layered on top of the backend's `my_visible_from`.
+  // It is intentionally NOT cleared when the chat reappears, so old history
+  // never leaks back in.
+  const [chatCutoffs, setChatCutoffs] = useState<Record<string, string>>({});
+  const chatCutoffsRef = useRef(chatCutoffs);
+  useEffect(() => {
+    chatCutoffsRef.current = chatCutoffs;
+  }, [chatCutoffs]);
+
+  const persistChatCutoffs = useCallback(
+    (cutoffs: Record<string, string>, uid: number) => {
+      if (!uid) return;
+      AsyncStorage.setItem(
+        `planit_chat_cutoffs_${uid}`,
+        JSON.stringify(cutoffs),
+      ).catch(() => {});
+    },
+    [],
+  );
+
+  // Keep the socket-user id ref current even before initSocket runs (e.g. a
+  // deep link straight into a conversation).
+  useEffect(() => {
+    if (authState.user?.id) userIdRef.current = authState.user.id;
+  }, [authState.user?.id]);
+
+  // Load persisted cutoffs for the signed-in user.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const uid = authState.user?.id ?? 0;
+      if (!uid) {
+        if (!cancelled) setChatCutoffs({});
+        return;
+      }
+      try {
+        const raw = await AsyncStorage.getItem(`planit_chat_cutoffs_${uid}`);
+        if (cancelled || !raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const clean: Record<string, string> = {};
+          for (const [key, value] of Object.entries(parsed)) {
+            if (typeof value === "string") clean[key] = value;
+          }
+          setChatCutoffs(clean);
+        }
+      } catch {
+        // ignore malformed cache
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authState.user?.id]);
+
+  // A chat is hidden from the list while its effective cutoff is at/after the
+  // latest activity — i.e. nothing new has happened since the user deleted it.
+  const hiddenRoomIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (state.rooms.length === 0) return ids;
+    for (const roomId of Object.keys(chatCutoffs)) {
+      const room = state.rooms.find((r) => r._id === roomId);
+      const cutoff = getRoomHistoryCutoff(room, chatCutoffs[roomId]);
+      if (!cutoff) continue;
+      const lastAt = room?.last_message?.createdAt;
+      if (!lastAt || new Date(lastAt).getTime() <= new Date(cutoff).getTime()) {
+        ids.add(roomId);
+      }
+    }
+    return ids;
+  }, [chatCutoffs, state.rooms]);
+
   // ── Room Actions ──────────────────────────────────────────────────────────
 
-  const fetchRooms = useCallback(async () => {
-    dispatch({ type: "SET_LOADING", loading: true });
+  const fetchRooms = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) dispatch({ type: "SET_LOADING", loading: true });
     try {
       const res = await chatService.getRooms();
       console.log("[Chat] fetchRooms response:", {
@@ -469,6 +573,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: "SET_ERROR", error: extractErrorMessage(error) });
     }
   }, []);
+  // Ref so socket listeners (registered once) can trigger a silent refresh
+  // when a message arrives for a chat that is not currently in the list.
+  const fetchRoomsRef = useRef(fetchRooms);
+  useEffect(() => {
+    fetchRoomsRef.current = fetchRooms;
+  }, [fetchRooms]);
 
   const getOrCreateRoom = useCallback(
     async (data: GetOrCreateRoomRequest): Promise<Room> => {
@@ -510,12 +620,27 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "REMOVE_ROOM", roomId });
   }, []);
 
-  const hideRoom = useCallback(async (roomId: string) => {
-    const res = await chatService.hideRoom(roomId);
-    if (!res.Good) {
-      console.log("Failed to hide room");
-    }
-  }, []);
+  const hideRoom = useCallback(
+    async (roomId: string) => {
+      const res = await chatService.hideRoom(roomId);
+      if (!res.Good) {
+        console.log("Failed to hide room");
+      }
+      // Prefer the last message's (server) timestamp as the cutoff: it is on
+      // the same clock as incoming messages, so device/server clock skew can
+      // never leak a pre-deletion message or wrongly hide a new one. Fall back
+      // to now only when there is no message to anchor to.
+      const existing = stateRef.current.rooms.find((r) => r._id === roomId);
+      const lastAt = existing?.last_message?.createdAt;
+      const cutoff = lastAt ?? new Date().toISOString();
+      setChatCutoffs((prev) => {
+        const next = { ...prev, [roomId]: cutoff };
+        persistChatCutoffs(next, userIdRef.current);
+        return next;
+      });
+    },
+    [persistChatCutoffs],
+  );
 
   const muteRoom = useCallback(
     async (roomId: string): Promise<boolean> => {
@@ -556,11 +681,26 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const fetchMessages = useCallback(async (roomId: string, page = 1) => {
     dispatch({ type: "SET_MESSAGES_LOADING", loading: true });
     try {
-      const res = await chatService.getMessages(roomId, page);
+      // Only load messages at/after the user's history cutoff so a chat they
+      // deleted for themselves never shows pre-deletion history again.
+      const room = stateRef.current.rooms.find((r) => r._id === roomId);
+      const after =
+        getRoomHistoryCutoff(room, chatCutoffsRef.current[roomId]) ?? undefined;
+      const res = await chatService.getMessages(roomId, page, 50, after);
       if (res.Good) {
+        // Belt-and-braces: if the backend ever ignores `after`, still drop any
+        // pre-deletion history so a deleted-for-me chat never shows it again.
+        const cutoffMs = after ? new Date(after).getTime() : null;
+        const messages =
+          cutoffMs === null
+            ? res.messages
+            : res.messages.filter((m) => {
+                if (!m.createdAt) return true;
+                return new Date(m.createdAt).getTime() > cutoffMs;
+              });
         dispatch({
           type: "LOAD_MESSAGES",
-          messages: res.messages,
+          messages,
           hasMore: res.hasMore,
           append: page > 1,
         });
@@ -610,7 +750,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               last_message: {
                 text: sent.text,
                 sender_name: sent.sender_name,
-                createdAt: sent.createdAt,
+                // Fallback keeps a "deleted for me" chat visible after the
+                // user messages it again, even if the payload omits a time.
+                createdAt: sent.createdAt ?? new Date().toISOString(),
                 attachments: sent.attachments,
               },
             },
@@ -1125,11 +1267,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 last_message: {
                   text: message.text,
                   sender_name: message.sender_name,
-                  createdAt: message.createdAt,
+                  // Fall back to now if the payload lacks a timestamp so a
+                  // deleted-for-me chat reliably reappears on this message.
+                  createdAt: message.createdAt ?? new Date().toISOString(),
                   attachments: message.attachments,
                 },
               },
             });
+          }
+
+          // A message from the other user on a chat that is not in the list
+          // (e.g. one deleted for me) must bring it back. A silent refresh
+          // re-adds it with the new last_message, which clears its derived
+          // hidden state. Chats already in state update above.
+          if (!room && message.sender_id !== userIdRef.current) {
+            fetchRoomsRef.current?.({ silent: true })?.catch(() => {});
           }
 
           if (message.sender_id !== userIdRef.current) {
@@ -1430,16 +1582,27 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             type: string;
             is_muted?: boolean;
           };
+          const room = stateRef.current.rooms.find(
+            (r) => r._id === typed.roomId,
+          );
+          if (!room) return;
           if (typed.type === "mute" && typed.is_muted !== undefined) {
-            const room = stateRef.current.rooms.find(
-              (r) => r._id === typed.roomId,
-            );
-            if (room) {
-              dispatch({
-                type: "UPDATE_ROOM",
-                room: { ...room, is_muted: typed.is_muted },
-              });
-            }
+            dispatch({
+              type: "UPDATE_ROOM",
+              room: { ...room, is_muted: typed.is_muted },
+            });
+          } else if (typed.type === "force_unread") {
+            // Another session marked this room unread — keep badges in sync.
+            dispatch({
+              type: "UPDATE_ROOM",
+              room: { ...room, force_unread: true },
+            });
+          } else if (typed.type === "clear_unread") {
+            // Another session read the room — clear the badge.
+            dispatch({
+              type: "UPDATE_ROOM",
+              room: { ...room, force_unread: false, unreadCount: 0 },
+            });
           }
         },
       );
@@ -1584,6 +1747,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       deleteRoom,
       leaveRoom,
       hideRoom,
+      hiddenRoomIds,
       muteRoom,
       clearMessages,
       fetchMessages,
@@ -1623,6 +1787,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       deleteRoom,
       leaveRoom,
       hideRoom,
+      hiddenRoomIds,
       muteRoom,
       clearMessages,
       fetchMessages,

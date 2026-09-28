@@ -30,15 +30,31 @@ import {
 } from "@/utils/chatHelpers";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ReactNode,
+} from "react";
 import {
     ActivityIndicator,
+    Modal,
+    Pressable,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
     View,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Reanimated, {
+    runOnJS,
+    useAnimatedStyle,
+    useSharedValue,
+    withSpring,
+} from "react-native-reanimated";
 import { showSuccess, showError } from "@/utils/toast";
 import * as chatService from "@/services/api/chat.service";
 import {
@@ -61,13 +77,264 @@ const CHIP_DATA = [
     // { id: "projects", label: "Projects" },
 ];
 
+// ─── Swipeable chat row ───────────────────────────────────────────────────────
+// Swipe left → mute, swipe right → unmute. Long-press is handled by the row's
+// own TouchableOpacity (opens the "Mark as unread" sheet).
+
+const SWIPE_ACTION_TRIGGER = 72;
+const SWIPE_ACTION_MAX = 104;
+
+function SwipeableChatRow({
+    onMute,
+    onUnmute,
+    children,
+}: {
+    onMute: () => void;
+    onUnmute: () => void;
+    children: ReactNode;
+}) {
+    const translateX = useSharedValue(0);
+
+    const pan = Gesture.Pan()
+        // Only activate on a deliberate horizontal drag so vertical list
+        // scrolling is never captured by the row.
+        .activeOffsetX([-18, 18])
+        .failOffsetY([-14, 14])
+        .onUpdate((e) => {
+            translateX.value = Math.max(
+                -SWIPE_ACTION_MAX,
+                Math.min(e.translationX, SWIPE_ACTION_MAX),
+            );
+        })
+        .onEnd((e) => {
+            if (e.translationX <= -SWIPE_ACTION_TRIGGER || e.velocityX <= -700) {
+                runOnJS(onMute)();
+            } else if (
+                e.translationX >= SWIPE_ACTION_TRIGGER ||
+                e.velocityX >= 700
+            ) {
+                runOnJS(onUnmute)();
+            }
+        })
+        // Always snap back — also runs when the list steals a cancelled swipe,
+        // so a row can never get stuck half-open.
+        .onFinalize(() => {
+            translateX.value = withSpring(0, { damping: 18, stiffness: 220 });
+        });
+
+    const rowStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: translateX.value }],
+    }));
+    const unmuteHintStyle = useAnimatedStyle(() => ({
+        opacity:
+            translateX.value > 0
+                ? Math.min(1, translateX.value / SWIPE_ACTION_TRIGGER)
+                : 0,
+    }));
+    const muteHintStyle = useAnimatedStyle(() => ({
+        opacity:
+            translateX.value < 0
+                ? Math.min(1, -translateX.value / SWIPE_ACTION_TRIGGER)
+                : 0,
+    }));
+
+    return (
+        <View style={swipeStyles.rowWrap}>
+            <Reanimated.View
+                pointerEvents="none"
+                style={[swipeStyles.hint, swipeStyles.hintLeft, unmuteHintStyle]}
+            >
+                <Ionicons name="notifications" size={16} color="#00DEAB" />
+                <Text style={swipeStyles.hintText}>Unmute</Text>
+            </Reanimated.View>
+            <Reanimated.View
+                pointerEvents="none"
+                style={[swipeStyles.hint, swipeStyles.hintRight, muteHintStyle]}
+            >
+                <Text style={swipeStyles.hintTextMuted}>Mute</Text>
+                <Ionicons name="notifications-off" size={16} color="#EF4444" />
+            </Reanimated.View>
+            <GestureDetector gesture={pan}>
+                <Reanimated.View style={[swipeStyles.row, rowStyle]}>
+                    {children}
+                </Reanimated.View>
+            </GestureDetector>
+        </View>
+    );
+}
+
+const swipeStyles = StyleSheet.create({
+    rowWrap: {
+        position: "relative",
+        justifyContent: "center",
+    },
+    row: {
+        backgroundColor: "#fff",
+    },
+    hint: {
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingHorizontal: 18,
+    },
+    hintLeft: {
+        left: 0,
+    },
+    hintRight: {
+        right: 0,
+    },
+    hintText: {
+        fontSize: 12,
+        fontFamily: "SF_Pro_Semibold",
+        color: "#00DEAB",
+    },
+    hintTextMuted: {
+        fontSize: 12,
+        fontFamily: "SF_Pro_Semibold",
+        color: "#EF4444",
+    },
+});
+
+// ─── Row long-press menu ──────────────────────────────────────────────────────
+
+function RoomOptionsModal({
+    visible,
+    roomName,
+    onClose,
+    onMarkUnread,
+}: {
+    visible: boolean;
+    roomName: string;
+    onClose: () => void;
+    onMarkUnread: () => void;
+}) {
+    if (!visible) return null;
+
+    return (
+        <Modal
+            visible={visible}
+            transparent
+            animationType="fade"
+            onRequestClose={onClose}
+        >
+            <Pressable style={roomOptionsStyles.overlay} onPress={onClose}>
+                <Pressable
+                    style={roomOptionsStyles.sheet}
+                    onStartShouldSetResponder={() => true}
+                >
+                    <View style={roomOptionsStyles.handle} />
+                    <Text style={roomOptionsStyles.title} numberOfLines={1}>
+                        {roomName}
+                    </Text>
+                    <TouchableOpacity
+                        style={roomOptionsStyles.item}
+                        activeOpacity={0.7}
+                        onPress={onMarkUnread}
+                    >
+                        <View style={roomOptionsStyles.itemIcon}>
+                            <Ionicons
+                                name="mail-unread-outline"
+                                size={19}
+                                color="#1D1D1D"
+                            />
+                        </View>
+                        <Text style={roomOptionsStyles.itemText}>
+                            Mark as unread
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={roomOptionsStyles.cancel}
+                        activeOpacity={0.7}
+                        onPress={onClose}
+                    >
+                        <Text style={roomOptionsStyles.cancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                </Pressable>
+            </Pressable>
+        </Modal>
+    );
+}
+
+const roomOptionsStyles = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        backgroundColor: "rgba(0, 0, 0, 0.45)",
+        justifyContent: "flex-end",
+    },
+    sheet: {
+        backgroundColor: "#FFFFFF",
+        borderTopLeftRadius: 22,
+        borderTopRightRadius: 22,
+        paddingHorizontal: 18,
+        paddingTop: 10,
+        paddingBottom: 28,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.12,
+        shadowRadius: 16,
+        elevation: 12,
+    },
+    handle: {
+        alignSelf: "center",
+        width: 40,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: "#E5E7EB",
+        marginBottom: 12,
+    },
+    title: {
+        fontSize: 13,
+        fontFamily: "SF_Pro_Semibold",
+        color: "#6B7280",
+        marginBottom: 8,
+        paddingHorizontal: 4,
+    },
+    item: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: 13,
+        paddingHorizontal: 4,
+    },
+    itemIcon: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: "#F3F4F6",
+        alignItems: "center",
+        justifyContent: "center",
+        marginRight: 14,
+    },
+    itemText: {
+        fontSize: 15,
+        fontFamily: "SF_Pro_Medium",
+        color: "#1D1D1D",
+    },
+    cancel: {
+        marginTop: 6,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#F3F4F6",
+        borderRadius: 12,
+        paddingVertical: 13,
+    },
+    cancelText: {
+        fontSize: 14,
+        fontFamily: "SF_Pro_Semibold",
+        color: "#4B5563",
+    },
+});
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function ChatScreen() {
     const {
         state, fetchRooms, getOrCreateRoom, markRead,
         setSearchQuery, initSocket, cleanupChatListeners,
-        roomCreator, roomPermissions, deleteRoom,
+        roomCreator, roomPermissions, deleteRoom, hiddenRoomIds,
+        muteRoom, markUnread,
     } = useChat();
     const authState = useAuth();
     // PROJECT MODULE DISABLED
@@ -117,13 +384,16 @@ export default function ChatScreen() {
     const visibleRooms = useMemo(() => {
         const rooms = state.rooms ?? [];
         return rooms.filter((r) => {
+            // Conversations "deleted for me" stay hidden until a new message
+            // arrives (see ChatContext.hiddenRoomIds).
+            if (hiddenRoomIds.has(r._id)) return false;
             // PROJECT MODULE DISABLED — project group-chat rooms are excluded
             // entirely so they never surface in the chat list.
             // if (r.type === "project") return perms.hasProjectRead;
             if (r.type === "project") return false;
             return perms.hasChatRead;
         });
-    }, [state.rooms, perms]);
+    }, [state.rooms, perms, hiddenRoomIds]);
 
     // Hide the Channels/Projects chips entirely when the user lacks the
     // corresponding read permission (they'd render empty otherwise).
@@ -146,6 +416,7 @@ export default function ChatScreen() {
     const [isChannelMode, setIsChannelMode] = useState(false);
     const [activeChip, setActiveChip] = useState("all");
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+    const [menuRoom, setMenuRoom] = useState<Room | null>(null);
     const [selectedChannelKey, setSelectedChannelKey] = useState<string | null>(null);
     const [newChannelName, setNewChannelName] = useState("");
     // PROJECT MODULE DISABLED
@@ -389,6 +660,43 @@ export default function ChatScreen() {
             });
         },
         [currentUserId, markRead]
+    );
+
+    // Swipe left on a row → mute. Only calls the API when currently unmuted,
+    // since POST /chat/mute-room toggles the flag.
+    const handleSwipeMute = useCallback(
+        (room: Room) => {
+            if (room.is_muted) return;
+            muteRoom(room._id)
+                .then(() =>
+                    showSuccess("Muted", `${getRoomDisplayName(room, currentUserId)} muted`),
+                )
+                .catch(() => showError("Error", "Could not mute chat"));
+        },
+        [muteRoom, currentUserId],
+    );
+
+    // Swipe right on a row → unmute. Only calls the API when currently muted.
+    const handleSwipeUnmute = useCallback(
+        (room: Room) => {
+            if (!room.is_muted) return;
+            muteRoom(room._id)
+                .then(() =>
+                    showSuccess("Unmuted", `${getRoomDisplayName(room, currentUserId)} unmuted`),
+                )
+                .catch(() => showError("Error", "Could not unmute chat"));
+        },
+        [muteRoom, currentUserId],
+    );
+
+    const handleMarkRowUnread = useCallback(
+        (room: Room) => {
+            setMenuRoom(null);
+            markUnread(room._id)
+                .then(() => showSuccess("Marked as unread"))
+                .catch(() => showError("Error", "Could not mark chat as unread"));
+        },
+        [markUnread],
     );
 
     const handleAddPeopleSelect = useCallback(
@@ -920,53 +1228,60 @@ export default function ChatScreen() {
                                         : "No messages yet";
 
                                     return (
-                                        <TouchableOpacity
+                                        <SwipeableChatRow
                                             key={room.id}
-                                            style={[
-                                                styles.chatRow,
-                                                selectedChatId === room.id.toString() && styles.chatRowSelected,
-                                            ]}
-                                            activeOpacity={0.7}
-                                            onPress={() => handleRoomPress(room)}
+                                            onMute={() => handleSwipeMute(room)}
+                                            onUnmute={() => handleSwipeUnmute(room)}
                                         >
-                                            <View style={styles.avatarContainer}>
-                                                <Avatar
-                                                    name={displayName}
-                                                    imagePath={getRoomAvatar(room, currentUserId)}
-                                                    size={34}
-                                                    borderRadius={5}
-                                                    fontSize={13.5}
-                                                    fontFamily="SF_Pro_Medium"
-                                                />
-                                                {unread && (
-                                                    <View style={styles.onlineIndicator} />
-                                                )}
-                                            </View>
-                                            <View style={styles.chatInfo}>
-                                                <Text style={styles.chatName} numberOfLines={1}>
-                                                    {displayName}
-                                                </Text>
-                                                <Text style={styles.chatSnippet} numberOfLines={1}>
-                                                    {lastPreview}
-                                                </Text>
-                                            </View>
-                                            <View style={styles.chatMeta}>
-                                                {unread && room.unreadCount > 0 && (
-                                                    <View style={styles.unreadBubble}>
-                                                        <Text style={styles.unreadBubbleText}>
-                                                            +{room.unreadCount}
-                                                        </Text>
-                                                    </View>
-                                                )}
-                                                <Text style={styles.chatTime}>
-                                                    {room.last_message?.createdAt
-                                                        ? formatChatListTime(room.last_message.createdAt)
-                                                        : room.my_visible_from
-                                                            ? formatChatListTime(room.my_visible_from)
-                                                            : ""}
-                                                </Text>
-                                            </View>
-                                        </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={[
+                                                    styles.chatRow,
+                                                    selectedChatId === room.id.toString() && styles.chatRowSelected,
+                                                ]}
+                                                activeOpacity={0.7}
+                                                onPress={() => handleRoomPress(room)}
+                                                onLongPress={() => setMenuRoom(room)}
+                                                delayLongPress={280}
+                                            >
+                                                <View style={styles.avatarContainer}>
+                                                    <Avatar
+                                                        name={displayName}
+                                                        imagePath={getRoomAvatar(room, currentUserId)}
+                                                        size={34}
+                                                        borderRadius={5}
+                                                        fontSize={13.5}
+                                                        fontFamily="SF_Pro_Medium"
+                                                    />
+                                                    {unread && (
+                                                        <View style={styles.onlineIndicator} />
+                                                    )}
+                                                </View>
+                                                <View style={styles.chatInfo}>
+                                                    <Text style={styles.chatName} numberOfLines={1}>
+                                                        {displayName}
+                                                    </Text>
+                                                    <Text style={styles.chatSnippet} numberOfLines={1}>
+                                                        {lastPreview}
+                                                    </Text>
+                                                </View>
+                                                <View style={styles.chatMeta}>
+                                                    {unread && room.unreadCount > 0 && (
+                                                        <View style={styles.unreadBubble}>
+                                                            <Text style={styles.unreadBubbleText}>
+                                                                +{room.unreadCount}
+                                                            </Text>
+                                                        </View>
+                                                    )}
+                                                    <Text style={styles.chatTime}>
+                                                        {room.last_message?.createdAt
+                                                            ? formatChatListTime(room.last_message.createdAt)
+                                                            : room.my_visible_from
+                                                                ? formatChatListTime(room.my_visible_from)
+                                                                : ""}
+                                                    </Text>
+                                                </View>
+                                            </TouchableOpacity>
+                                        </SwipeableChatRow>
                                     );
                                 })
                             }
@@ -1204,6 +1519,14 @@ export default function ChatScreen() {
                 onInvite={handleChannelInvite}
                 onGenerateLink={handleGenerateChannelLink}
                 onUpdatePermission={handleUpdateChannelPermission}
+            />
+
+            {/* ── Row long-press menu (Mark as unread) ── */}
+            <RoomOptionsModal
+                visible={!!menuRoom}
+                roomName={menuRoom ? getRoomDisplayName(menuRoom, currentUserId) : ""}
+                onClose={() => setMenuRoom(null)}
+                onMarkUnread={() => menuRoom && handleMarkRowUnread(menuRoom)}
             />
 
             {/* PROJECT MODULE DISABLED
