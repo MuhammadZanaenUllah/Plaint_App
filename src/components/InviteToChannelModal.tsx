@@ -544,7 +544,10 @@ export default function InviteToChannelModal({
                       numberOfLines={1}
                       ellipsizeMode="tail"
                     >
-                      {inviteLink ?? "Generating…"}
+                      {inviteLink ??
+                        (generatingLink
+                          ? "Generating…"
+                          : "Copy the link to share with the members")}
                     </Text>
                     <TouchableOpacity
                       style={modal.copyBtn}

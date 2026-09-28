@@ -43,9 +43,13 @@ export function canViewChat(user?: UserData | null): boolean {
   return hasPermission(user, "chat-list");
 }
 
-/** Create channels (incl. adding a channel under a project). */
+/** Create channels.
+ *
+ *  The backend has no dedicated "create channel" permission key, so every user
+ *  with chat access may create a channel. Deletion is separate and reserved for
+ *  the channel creator (see `canDeleteChannel` usage / `Room.created_by`). */
 export function canCreateChannel(user?: UserData | null): boolean {
-  return hasPermission(user, "chat-create");
+  return canViewChat(user);
 }
 
 /** Edit a channel (rename, manage members). */

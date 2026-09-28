@@ -89,7 +89,7 @@ export async function editMessage(
 
 export async function deleteMessage(
   messageId: string,
-  deleteFor: "self" | "everyone"
+  deleteFor: "me" | "everyone"
 ): Promise<DeleteMessageResponse> {
   return apiPost<DeleteMessageResponse>("/chat/delete-message", {
     messageId,

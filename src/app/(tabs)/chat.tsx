@@ -41,6 +41,10 @@ import {
 } from "react-native";
 import { showSuccess, showError } from "@/utils/toast";
 import * as chatService from "@/services/api/chat.service";
+import {
+    getCompanyActiveUsers,
+    type CompanyActiveUser,
+} from "@/services/api/users.service";
 // PROJECT MODULE DISABLED
 // import { canCreateChannel, canCreateProject, canViewChat, canViewProjects } from "@/utils/permissions";
 import { canCreateChannel, canViewChat } from "@/utils/permissions";
@@ -63,7 +67,7 @@ export default function ChatScreen() {
     const {
         state, fetchRooms, getOrCreateRoom, markRead,
         setSearchQuery, initSocket, cleanupChatListeners,
-        roomCreator, roomPermissions,
+        roomCreator, roomPermissions, deleteRoom,
     } = useChat();
     const authState = useAuth();
     // PROJECT MODULE DISABLED
@@ -73,6 +77,24 @@ export default function ChatScreen() {
     // const { state: taskState } = useTasks();
     const currentUserId = authState?.state?.user?.id ?? 0;
     const currentUser = authState?.state?.user ?? null;
+    const companyId = authState?.state?.company?.company_id ?? 0;
+
+    // Company directory (includes email addresses). Room members from
+    // GET /chat/rooms do NOT include emails, so the "Add People" list needs this
+    // to pass emails through to the Invite-to-Channel modal.
+    const [companyUsers, setCompanyUsers] = useState<CompanyActiveUser[]>([]);
+    useEffect(() => {
+        if (!companyId) return;
+        let cancelled = false;
+        getCompanyActiveUsers(companyId)
+            .then((users) => {
+                if (!cancelled) setCompanyUsers(users);
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [companyId]);
 
     // Module-level permissions (from login `user_permissions`). These drive
     // which tabs/rooms are visible and which create actions are offered.
@@ -138,6 +160,9 @@ export default function ChatScreen() {
     const [inviteModalVisible, setInviteModalVisible] = useState(false);
     // Room that was just created (for the invite modal to use)
     const createdRoomRef = useRef<Room | null>(null);
+    // Whether invitations were actually sent — used to decide if the
+    // just-created channel should be removed when the modal is dismissed.
+    const channelInvitedRef = useRef(false);
     // Pending users selected from AddPeopleModal (to pre-fill invite modal)
     const [pendingInviteUsers, setPendingInviteUsers] = useState<Array<{ id: string; name: string; email?: string }>>([]); 
 
@@ -163,18 +188,36 @@ export default function ChatScreen() {
         }
     }, [addPeopleOpen]);
 
-    // Build a default list of all company members from existing room members.
-    // The backend requires ≥2 chars to search, so we use local data as the default list.
+    // Build a default list of all company members. The backend requires ≥2
+    // chars to search, so we use the company directory (which includes emails)
+    // plus any room members as the default, unsearched list.
     const defaultMemberList = useMemo(() => {
         const memberMap = new Map<string, { id: string; name: string; email?: string }>();
-        // From all rooms' members
+
+        // 1. Company directory — the only source that reliably carries emails.
+        for (const u of companyUsers) {
+            if (!u?.id || u.id === currentUserId) continue;
+            const key = String(u.id);
+            const name =
+                u.full_name?.trim() ||
+                `${u.first_name || ""} ${u.last_name || ""}`.trim() ||
+                u.email?.split("@")[0] ||
+                `User #${u.id}`;
+            memberMap.set(key, { id: key, name, email: u.email });
+        }
+
+        // 2. Existing room members — fill in anyone not in the directory and
+        // backfill an email if the directory lacked one.
         for (const room of visibleRooms) {
             for (const m of room.members ?? []) {
                 if (m.id === currentUserId) continue;
                 const key = String(m.id);
-                if (!memberMap.has(key)) {
+                const existing = memberMap.get(key);
+                if (!existing) {
                     const name = `${m.first_name || ""} ${m.last_name || ""}`.trim() || `User #${m.id}`;
-                    memberMap.set(key, { id: key, name });
+                    memberMap.set(key, { id: key, name, email: m.email });
+                } else if (!existing.email && m.email) {
+                    existing.email = m.email;
                 }
             }
         }
@@ -191,7 +234,7 @@ export default function ChatScreen() {
         //     }
         // }
         return Array.from(memberMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-    }, [visibleRooms, currentUserId]);
+    }, [companyUsers, visibleRooms, currentUserId]);
 
     // Build the user list shown in AddPeopleModal:
     // - When query has ≥2 chars: use API search results (populated by setSearchQuery)
@@ -224,8 +267,20 @@ export default function ChatScreen() {
     // Categorize rooms based on active chip
     const displayRooms = useMemo(() => {
         const rooms = visibleRooms;
-        // All, Unread, Read → show only direct (inbox) messages, not channels/projects
-        const directRooms = rooms.filter((r) => r.type === "direct");
+        // All, Unread, Read → show only direct (inbox) messages, not channels/projects.
+        // A DM is only listed once it actually has a conversation — a room
+        // created by "New chat" stays hidden until at least one message exists.
+        const directRooms = rooms.filter((r) => {
+            if (r.type !== "direct") return false;
+            if (r.unreadCount > 0) return true;
+            const lm = r.last_message;
+            return (
+                !!lm &&
+                (!!lm.text ||
+                    (lm.attachments?.length ?? 0) > 0 ||
+                    !!lm.createdAt)
+            );
+        });
 
         let base: Room[];
         switch (activeChip) {
@@ -372,6 +427,7 @@ export default function ChatScreen() {
         async (name: string) => {
             console.log("[Chat] Creating channel:", name);
             setCreateChannelOpen(false);
+            createdRoomRef.current = null;
             setNewChannelName(name);
             setIsChannelMode(true);
             setTimeout(() => setAddPeopleOpen(true), 300);
@@ -381,55 +437,47 @@ export default function ChatScreen() {
 
     const handleInviteUsers = useCallback(
         async (users: Array<{ id: string; name: string; email?: string }>) => {
-            // PROJECT MODULE DISABLED (projectContext removed)
-            // console.log("[Chat] handleInviteUsers called:", { channelName: newChannelName, userCount: users.length, projectContext: projectContext?.name });
             console.log("[Chat] handleInviteUsers called:", { channelName: newChannelName, userCount: users.length });
             setAddPeopleOpen(false);
             setIsChannelMode(false);
-            if (newChannelName) {
-                try {
-                    // Build create room request — if projectContext is set, link as child channel
-                    // (PROJECT MODULE DISABLED — channels are always standalone now.)
-                    const createRoomReq: { type: "channel"; name: string; parent_id?: number } = {
-                        type: "channel",
-                        name: newChannelName,
-                    };
-                    // PROJECT MODULE DISABLED
-                    // if (projectContext) {
-                    //     createRoomReq.parent_id = projectContext.id;
-                    // }
-
-                    const room = await getOrCreateRoom(createRoomReq);
-                    console.log("[Chat] Channel created:", room.id, room.name);
-
-                    // ── Store the created room and selected users, show InviteToChannelModal ──
-                    // NOTE: No invitations are sent here — they are deferred until the
-                    // user confirms permissions via "Invite & Generate Link".
-                    createdRoomRef.current = room as unknown as Room;
-                    setPendingInviteUsers(users);
-                    fetchRooms();
-                    setTimeout(() => setInviteModalVisible(true), 300);
-
-                    setNewChannelName("");
-                    // PROJECT MODULE DISABLED
-                    // setProjectContext(null);
-                } catch (err) {
-                    console.log("[Chat] Channel creation error:", err);
-                    showError("Error", "Failed to create channel. Please try again.");
-                    setNewChannelName("");
-                    // PROJECT MODULE DISABLED
-                    // setProjectContext(null);
+            if (!newChannelName || users.length === 0) {
+                setNewChannelName("");
+                setPendingInviteUsers([]);
+                return;
+            }
+            try {
+                // Create the channel now (people have been selected) so the
+                // invite link can be generated the moment the Invite modal
+                // opens. Created via the service directly so it is NOT added to
+                // the room list yet — it only appears after a successful invite,
+                // and is deleted if the user backs out.
+                const res = await chatService.getOrCreateRoom({
+                    type: "channel",
+                    name: newChannelName,
+                });
+                if (!res.Good || !res.room) {
+                    throw new Error("Failed to create channel");
                 }
+                createdRoomRef.current = res.room;
+                channelInvitedRef.current = false;
+                setPendingInviteUsers(users);
+                setTimeout(() => setInviteModalVisible(true), 300);
+            } catch (err) {
+                console.log("[Chat] Channel creation error:", err);
+                showError("Error", "Failed to create channel. Please try again.");
+                setNewChannelName("");
+                setPendingInviteUsers([]);
             }
         },
-        // PROJECT MODULE DISABLED (projectContext removed from deps)
-        [newChannelName, getOrCreateRoom, fetchRooms]
+        [newChannelName]
     );
 
     // ── InviteToChannelModal handlers ──────────────────────────────────────────
 
     const handleChannelInvite = useCallback(
         async (emails: string[], permission: ChannelPermission) => {
+            // The channel was created when the Add People selection was
+            // confirmed (so the invite link could generate on modal open).
             const room = createdRoomRef.current;
             if (!room) return;
 
@@ -469,7 +517,8 @@ export default function ChatScreen() {
                 const userEmail = (user.email ?? "").trim().toLowerCase();
                 if (userEmail && emailSet.has(userEmail)) continue;
                 try {
-                    await chatService.addMember(room._id, userId);
+                    const res = await chatService.addMember(room._id, userId);
+                    if ((res as { Good?: boolean })?.Good === false) throw new Error("addMember failed");
                     await chatService.updatePermission({ roomId: room._id, userId, permission }).catch(() => {});
                     directAdded++;
                 } catch {
@@ -480,16 +529,27 @@ export default function ChatScreen() {
             // Send exactly one invitation per final email address.
             for (const email of finalEmails) {
                 try {
-                    await chatService.inviteUser({
+                    const res = await chatService.inviteUser({
                         roomId: room._id,
                         email,
                         userId: userIdByEmail.get(email),
                         permission,
                     });
+                    if ((res as { Good?: boolean })?.Good === false) throw new Error("invite failed");
                     emailSent++;
                 } catch {
                     failed++;
                 }
+            }
+
+            // Nobody could actually be added/invited — remove the just-created
+            // room so an empty channel is never created or listed, and surface
+            // the failure to the modal (so it doesn't show a success toast).
+            if (emailSent === 0 && directAdded === 0) {
+                await chatService.deleteRoom(room._id).catch(() => {});
+                createdRoomRef.current = null;
+                setNewChannelName("");
+                throw new Error("No one could be added to the channel");
             }
 
             fetchRooms();
@@ -511,6 +571,8 @@ export default function ChatScreen() {
                     roomType: "channel",
                 },
             });
+            channelInvitedRef.current = true;
+            setNewChannelName("");
         },
         [pendingInviteUsers, fetchRooms]
     );
@@ -614,13 +676,17 @@ export default function ChatScreen() {
             <View style={styles.safe}>
                 <ScrollView
                     style={styles.scroll}
-                    contentContainerStyle={styles.scrollContent}
+                    contentContainerStyle={[
+                        styles.scrollContent,
+                        displayRooms.length === 0 && styles.scrollContentEmpty,
+                    ]}
                     showsVerticalScrollIndicator={false}
                 >
                     {/* ── Category Chips ── */}
                     <ScrollView
                         horizontal
                         showsHorizontalScrollIndicator={false}
+                        style={styles.chipsScroll}
                         contentContainerStyle={styles.chipsContainer}
                     >
                         {visibleChips.map((chip, index) => {
@@ -1073,6 +1139,9 @@ export default function ChatScreen() {
                 onClose={() => {
                     setAddPeopleOpen(false);
                     setIsChannelMode(false);
+                    // Cancel of the channel member-selection step — discard the
+                    // pending channel name so nothing is created.
+                    setNewChannelName("");
                 }}
                 onSearch={(query) => {
                     setAddPeopleQuery(query);
@@ -1121,8 +1190,16 @@ export default function ChatScreen() {
                     .filter((e): e is string => !!e)}
                 onClose={() => {
                     setInviteModalVisible(false);
+                    const room = createdRoomRef.current;
+                    // User backed out before inviting — remove the channel that
+                    // was created for link generation so it never shows as empty.
+                    if (room && !channelInvitedRef.current) {
+                        deleteRoom(room._id).catch(() => {});
+                    }
                     createdRoomRef.current = null;
+                    channelInvitedRef.current = false;
                     setPendingInviteUsers([]);
+                    setNewChannelName("");
                 }}
                 onInvite={handleChannelInvite}
                 onGenerateLink={handleGenerateChannelLink}
@@ -1160,6 +1237,19 @@ const styles = StyleSheet.create({
     scrollContent: {
         paddingTop: 8,
         paddingBottom: 80,
+    },
+    // Only stretch the content to fill the viewport when there is no list to
+    // show, so the empty state can center. Lists keep their natural, top-aligned
+    // layout.
+    scrollContentEmpty: {
+        flexGrow: 1,
+    },
+    // Keep the horizontal chip bar at its natural height — RN ScrollView's base
+    // style is flexGrow: 1, which would otherwise make it expand and push the
+    // list/empty state down when the parent content container is stretched.
+    chipsScroll: {
+        flexGrow: 0,
+        flexShrink: 0,
     },
 
     // ── Chips ──
@@ -1300,8 +1390,8 @@ const styles = StyleSheet.create({
         flex: 1,
         alignItems: "center",
         justifyContent: "center",
-        marginTop: 80,
         paddingHorizontal: 24,
+        paddingVertical: 40,
     },
     iconStack: {
         position: "relative",

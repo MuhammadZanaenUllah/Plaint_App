@@ -161,7 +161,9 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         messages: state.messages.filter(
-          (m) => m.id.toString() !== action.messageId,
+          (m) =>
+            String(m._id) !== String(action.messageId) &&
+            String(m.id) !== String(action.messageId),
         ),
       };
     case "SET_REACTIONS":
@@ -338,7 +340,7 @@ export type ChatContextValue = {
   }) => Promise<ChatMessage>;
   deleteMessage: (
     messageId: string,
-    deleteFor: "self" | "everyone",
+    deleteFor: "me" | "everyone",
   ) => Promise<void>;
 
   // Reaction actions
@@ -594,6 +596,28 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         hasAttachments: !!params.attachments?.length,
       });
 
+      // Record a just-sent message locally: append it and update the room's
+      // last_message so a brand-new DM surfaces in the chat list immediately
+      // (empty DMs with no messages are hidden).
+      const registerSentMessage = (sent: ChatMessage) => {
+        dispatch({ type: "ADD_MESSAGE", message: sent });
+        const room = stateRef.current.rooms.find((r) => r._id === sent.room_id);
+        if (room) {
+          dispatch({
+            type: "UPDATE_ROOM",
+            room: {
+              ...room,
+              last_message: {
+                text: sent.text,
+                sender_name: sent.sender_name,
+                createdAt: sent.createdAt,
+                attachments: sent.attachments,
+              },
+            },
+          });
+        }
+      };
+
       // No attachments — send as JSON (backend requirement)
       if (!params.attachments || params.attachments.length === 0) {
         const body: Record<string, unknown> = {
@@ -604,6 +628,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           body.mentions = params.mentions;
         }
         if (params.parent_id) {
+          // Reply target — the backend contract lists both `parent_id` and
+          // `reply_to`; send the same Mongo ObjectId under both so the quoted
+          // reply is persisted and returned as `parent_id`.
+          body.parent_id = params.parent_id;
           body.reply_to = params.parent_id;
         }
         if (params.postType) {
@@ -619,7 +647,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const res = await chatService.sendTextMessage(body);
         console.log("[Chat] sendMessage JSON response:", JSON.stringify(res));
         if (res.Good && res.message) {
-          dispatch({ type: "ADD_MESSAGE", message: res.message });
+          registerSentMessage(res.message);
           return res.message;
         }
         throw new Error("Failed to send message");
@@ -650,7 +678,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         });
         if (response.Good && response.message) {
           console.log("[Chat] message sent via upload:", response.message.id);
-          dispatch({ type: "ADD_MESSAGE", message: response.message });
+          registerSentMessage(response.message);
           return response.message;
         }
         throw new Error("Failed to send message");
@@ -662,7 +690,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         messageId: res.message?.id,
       });
       if (res.Good && res.message) {
-        dispatch({ type: "ADD_MESSAGE", message: res.message });
+        registerSentMessage(res.message);
         return res.message;
       }
       throw new Error("Failed to send message");
@@ -695,21 +723,23 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   );
 
   const deleteChatMessage = useCallback(
-    async (messageId: string, deleteFor: "self" | "everyone") => {
+    async (messageId: string, deleteFor: "me" | "everyone") => {
       const res = await chatService.deleteMessage(messageId, deleteFor);
       if (!res.Good) {
-        console.log(res.message ?? "Failed to delete message");
+        throw new Error(res.message || "Failed to delete message");
       }
-      if (deleteFor === "self") {
-        dispatch({ type: "REMOVE_MESSAGE", messageId });
-      }
-      if (deleteFor === "everyone") {
-        const roomId = stateRef.current.messages.find(
-          (m) => m._id === messageId || m.id.toString() === messageId,
-        )?.room_id;
-        if (roomId) {
-          socketService.emitMessageDeleted(messageId, roomId);
-        }
+
+      const target = stateRef.current.messages.find(
+        (m) => m._id === messageId || String(m.id) === messageId,
+      );
+
+      // Remove from local state immediately so the UI updates for BOTH
+      // "delete for me" and "delete for everyone" without waiting for a refetch
+      // or the socket echo (which the sender does not always receive).
+      dispatch({ type: "REMOVE_MESSAGE", messageId });
+
+      if (deleteFor === "everyone" && target?.room_id) {
+        socketService.emitMessageDeleted(messageId, target.room_id);
       }
     },
     [],

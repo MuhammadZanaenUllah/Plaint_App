@@ -74,6 +74,13 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Reanimated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import EmojiPicker from "rn-emoji-keyboard";
 
@@ -1207,6 +1214,75 @@ function MessageActions({
   );
 }
 
+// ─── Swipe to Reply ─────────────────────────────────────────────────────────
+
+const SWIPE_REPLY_TRIGGER = 56;
+const SWIPE_REPLY_MAX = 88;
+
+function SwipeToReply({
+  children,
+  onReply,
+}: {
+  children: React.ReactNode;
+  onReply: () => void;
+}) {
+  const translateX = useSharedValue(0);
+  const pan = Gesture.Pan()
+    // Only activate on a deliberate horizontal drag so vertical list
+    // scrolling is never captured by the row.
+    .activeOffsetX([-18, 18])
+    .failOffsetY([-14, 14])
+    .onUpdate((e) => {
+      translateX.value = Math.max(0, Math.min(e.translationX, SWIPE_REPLY_MAX));
+    })
+    .onEnd((e) => {
+      if (e.translationX > SWIPE_REPLY_TRIGGER) {
+        runOnJS(onReply)();
+      }
+      translateX.value = withSpring(0, { damping: 18, stiffness: 220 });
+    });
+
+  const rowStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+
+  const iconStyle = useAnimatedStyle(() => {
+    const progress = Math.min(1, translateX.value / SWIPE_REPLY_TRIGGER);
+    return {
+      opacity: progress,
+      transform: [{ scale: 0.5 + progress * 0.5 }],
+    };
+  });
+
+  return (
+    <View style={swipeReplyStyles.container}>
+      <Reanimated.View style={[swipeReplyStyles.iconWrap, iconStyle]}>
+        <Ionicons name="arrow-undo" size={18} color="#00DEAB" />
+      </Reanimated.View>
+      <GestureDetector gesture={pan}>
+        <Reanimated.View style={rowStyle}>{children}</Reanimated.View>
+      </GestureDetector>
+    </View>
+  );
+}
+
+const swipeReplyStyles = StyleSheet.create({
+  container: {
+    position: "relative",
+    justifyContent: "center",
+  },
+  iconWrap: {
+    position: "absolute",
+    left: 18,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#E6FBF5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});
+
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 const MessageBubble = React.memo(function MessageBubble({
@@ -1215,7 +1291,7 @@ const MessageBubble = React.memo(function MessageBubble({
   members,
   showSenderName = false,
   isChannel = false,
-  repliedMessage,
+  repliedPreview,
   onLongPress,
   onReactionPress,
 }: {
@@ -1224,7 +1300,7 @@ const MessageBubble = React.memo(function MessageBubble({
   members?: RoomMember[];
   showSenderName?: boolean;
   isChannel?: boolean;
-  repliedMessage?: ChatMessage | null;
+  repliedPreview?: { senderName: string; text: string } | null;
   onLongPress?: (msg: ChatMessage, e?: GestureResponderEvent) => void;
   onReactionPress?: (msg: ChatMessage, emoji: string) => void;
 }) {
@@ -1251,22 +1327,6 @@ const MessageBubble = React.memo(function MessageBubble({
     !isChannel &&
     !!otherMember &&
     (message.is_read ?? []).includes(otherMember.id);
-
-  const repliedSenderMember = repliedMessage
-    ? members?.find((m) => m.id === repliedMessage.sender_id)
-    : undefined;
-  const repliedSenderName = repliedMessage
-    ? isOwnMessage(repliedMessage, currentUserId)
-      ? "You"
-      : repliedMessage.sender_name ||
-        (repliedSenderMember
-          ? `${repliedSenderMember.first_name} ${repliedSenderMember.last_name}`
-          : "")
-    : "";
-  const repliedPreviewText = repliedMessage
-    ? repliedMessage.text ||
-      (repliedMessage.attachments?.length ? "📎 Attachment" : "")
-    : "";
 
   const likedByMe = new Set(
     (message.reactions ?? [])
@@ -1369,13 +1429,13 @@ const MessageBubble = React.memo(function MessageBubble({
                   message.is_pinned && styles.bubblePinnedIncoming,
                 ]}
               >
-                {repliedMessage ? (
+                {repliedPreview ? (
                   <View style={styles.quotedPreview}>
                     <Text style={styles.quotedSender} numberOfLines={1}>
-                      {repliedSenderName}
+                      {repliedPreview.senderName}
                     </Text>
-                    <Text style={styles.quotedText} numberOfLines={1}>
-                      {repliedPreviewText}
+                    <Text style={styles.quotedText} numberOfLines={2}>
+                      {repliedPreview.text}
                     </Text>
                   </View>
                 ) : null}
@@ -1498,13 +1558,13 @@ const MessageBubble = React.memo(function MessageBubble({
                 message.is_pinned && styles.bubblePinnedOutgoing,
               ]}
             >
-              {repliedMessage ? (
+              {repliedPreview ? (
                 <View style={styles.quotedPreview}>
                   <Text style={styles.quotedSender} numberOfLines={1}>
-                    {repliedSenderName}
+                    {repliedPreview.senderName}
                   </Text>
-                  <Text style={styles.quotedText} numberOfLines={1}>
-                    {repliedPreviewText}
+                  <Text style={styles.quotedText} numberOfLines={2}>
+                    {repliedPreview.text}
                   </Text>
                 </View>
               ) : null}
@@ -1906,7 +1966,7 @@ function DeleteMessageModal({
   currentUserId: number;
   callerPermission?: ChatPermission;
   onClose: () => void;
-  onConfirmDelete: (deleteFor: "self" | "everyone") => void;
+  onConfirmDelete: (deleteFor: "me" | "everyone") => void;
 }) {
   if (!visible || !message) return null;
 
@@ -1960,7 +2020,7 @@ function DeleteMessageModal({
               style={delModalStyles.deleteSelfBtn}
               activeOpacity={0.7}
               onPress={() => {
-                onConfirmDelete("self");
+                onConfirmDelete("me");
                 onClose();
               }}
             >
@@ -2303,6 +2363,12 @@ export default function ConversationScreen() {
 
   const [message, setMessage] = useState("");
   const scrollRef = useRef<any>(null);
+  const composerRef = useRef<TextInput>(null);
+  // Optimistic quoted-reply previews keyed by sent-message id, so the quote is
+  // visible immediately even if the send response omits the parent reference.
+  const localReplyPreviewRef = useRef<
+    Map<string, { senderName: string; text: string }>
+  >(new Map());
   const [postTypeOpen, setPostTypeOpen] = useState(false);
   const [addPeopleOpen, setAddPeopleOpen] = useState(false);
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
@@ -2492,17 +2558,97 @@ export default function ConversationScreen() {
   const [dateFilterEnd, setDateFilterEnd] = useState<Date | null>(null);
 
   // Scroll-to-bottom FAB — the list is inverted, so offset 0 is the
-  // newest message; show the button once the user has scrolled away from it.
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  // newest message; show the button (and count new incoming messages) once the
+  // user has scrolled away from it, without yanking them back down.
+  // The state is scoped to a room id so switching rooms derives a clean slate
+  // (no reset effect / cascading render needed).
+  const AT_BOTTOM_THRESHOLD = 60;
+  const [scrollUi, setScrollUi] = useState<{
+    roomId?: string;
+    show: boolean;
+    count: number;
+  }>({ roomId, show: false, count: 0 });
+  const showScrollToBottom = scrollUi.roomId === roomId && scrollUi.show;
+  const newMessageCount = scrollUi.roomId === roomId ? scrollUi.count : 0;
+  const atBottomRef = useRef(true);
+  const newestMessageIdRef = useRef<string | null>(null);
+  const trackedRoomRef = useRef(roomId);
+  const lastShowButtonRef = useRef(false);
+
   const handleMessagesScroll = useCallback(
     (e: { nativeEvent: { contentOffset: { y: number } } }) => {
-      setShowScrollToBottom(e.nativeEvent.contentOffset.y > 300);
+      const y = e.nativeEvent.contentOffset.y;
+      const atBottom = y <= AT_BOTTOM_THRESHOLD;
+      atBottomRef.current = atBottom;
+      const nextShow = !atBottom;
+      // Only set state when the button visibility actually flips — avoids a
+      // state update on every scroll frame.
+      if (nextShow === lastShowButtonRef.current) return;
+      lastShowButtonRef.current = nextShow;
+      setScrollUi((prev) => {
+        if (prev.roomId !== roomId) return { roomId, show: nextShow, count: 0 };
+        return { ...prev, show: nextShow, count: nextShow ? prev.count : 0 };
+      });
     },
-    [],
+    [roomId],
   );
   const scrollToBottom = useCallback(() => {
     scrollRef.current?.scrollToOffset({ offset: 0, animated: true });
-  }, []);
+    atBottomRef.current = true;
+    lastShowButtonRef.current = false;
+    setScrollUi({ roomId, show: false, count: 0 });
+  }, [roomId]);
+
+  // Auto-scroll when the user is already at the bottom; otherwise count the
+  // newly-arrived incoming messages so the scroll-down button can badge them.
+  useEffect(() => {
+    const msgs = state.messages;
+    const newest = msgs[msgs.length - 1];
+    const newestId = newest ? String(newest._id ?? newest.id) : null;
+
+    // Switching rooms: start tracking fresh from the newest loaded message.
+    if (trackedRoomRef.current !== roomId) {
+      trackedRoomRef.current = roomId;
+      newestMessageIdRef.current = null;
+      atBottomRef.current = true;
+      lastShowButtonRef.current = false;
+      localReplyPreviewRef.current.clear();
+    }
+
+    if (newestMessageIdRef.current === null) {
+      newestMessageIdRef.current = newestId;
+      atBottomRef.current = true;
+      return;
+    }
+    if (!newestId || newestId === newestMessageIdRef.current) return;
+
+    const prevId = newestMessageIdRef.current;
+    const prevIdx = msgs.findIndex(
+      (m) => String(m._id ?? m.id) === prevId,
+    );
+    const arrived = prevIdx >= 0 ? msgs.slice(prevIdx + 1) : [newest];
+    newestMessageIdRef.current = newestId;
+
+    if (atBottomRef.current) {
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollToOffset({ offset: 0, animated: true });
+      });
+      setScrollUi((prev) =>
+        prev.roomId === roomId ? { ...prev, count: 0 } : prev,
+      );
+    } else {
+      const incoming = arrived.filter(
+        (m) => String(m.sender_id) !== String(currentUserId),
+      ).length;
+      if (incoming > 0) {
+        setScrollUi((prev) =>
+          prev.roomId === roomId
+            ? { ...prev, show: true, count: prev.count + incoming }
+            : { roomId, show: true, count: incoming },
+        );
+      }
+    }
+  }, [state.messages, currentUserId, roomId]);
 
   const startRecording = useCallback(async () => {
     if (!roomId || recordingBusyRef.current || isRecording) return;
@@ -2818,6 +2964,7 @@ export default function ConversationScreen() {
     socketService.emitStopTyping(roomId, currentUserId, currentUserName);
     const text = message.trim();
     const mentions = mentionedUserIds;
+    const replyTarget = replyTo;
     setMessage("");
     setMentionedUserIds([]);
     setMentionActive(false);
@@ -2827,12 +2974,35 @@ export default function ConversationScreen() {
 
     try {
       console.log("[Conv] Sending message:", { roomId, text });
-      await sendMessage({
+      const sent = await sendMessage({
         room_id: roomId,
         text,
         ...(mentions.length > 0 ? { mentions } : {}),
-        parent_id: replyTo?.id.toString(),
+        // Reply target must be the Mongo ObjectId (`_id`), never the numeric
+        // `id` — the backend 500s on a numeric reply reference.
+        parent_id: replyTarget?._id,
       });
+      // Cache the quoted preview against the sent message id so it renders
+      // even if the response doesn't echo `parent_id`.
+      if (replyTarget && sent) {
+        const targetMember = state.rooms
+          .find((r) => r._id === roomId || r.id.toString() === roomId)
+          ?.members?.find((m) => m.id === replyTarget.sender_id);
+        const preview = {
+          senderName: isOwnMessage(replyTarget, currentUserId)
+            ? "You"
+            : replyTarget.sender_name ||
+              (targetMember
+                ? `${targetMember.first_name} ${targetMember.last_name}`
+                : ""),
+          text:
+            replyTarget.text ||
+            (replyTarget.attachments?.length ? "📎 Attachment" : ""),
+        };
+        if (sent._id) localReplyPreviewRef.current.set(String(sent._id), preview);
+        if (sent.id != null)
+          localReplyPreviewRef.current.set(String(sent.id), preview);
+      }
       console.log("[Conv] Message sent successfully");
       setTimeout(() => {
         scrollRef.current?.scrollToOffset({ offset: 0, animated: true });
@@ -2841,7 +3011,7 @@ export default function ConversationScreen() {
       console.log("[Conv] Send message error:", err);
       setMessage(text);
       setMentionedUserIds(mentions);
-      setReplyTo(replyTo);
+      setReplyTo(replyTarget);
     } finally {
       setSending(false);
     }
@@ -2856,6 +3026,7 @@ export default function ConversationScreen() {
     currentUserId,
     currentUserName,
     mentionedUserIds,
+    state.rooms,
   ]);
 
   const handleReact = useCallback(
@@ -3197,27 +3368,83 @@ export default function ConversationScreen() {
   }, [state.messages]);
 
   const renderItem = useCallback(
-    ({ item, index }: { item: ChatMessage; index: number }) => (
-      <View
-        style={{
-          paddingHorizontal: 16,
-          paddingTop: index === 0 ? 8 : 20,
-        }}
-      >
-        <MessageBubble
-          message={item}
-          currentUserId={currentUserId}
-          members={currentRoom?.members}
-          showSenderName={isChannel}
-          isChannel={isChannel}
-          repliedMessage={
-            item.parent_id ? messageById.get(item.parent_id) : null
-          }
-          onLongPress={handleLongPress}
-          onReactionPress={handleReactEmoji}
-        />
-      </View>
-    ),
+    ({ item, index }: { item: ChatMessage; index: number }) => {
+      // Resolve the quoted reply preview. The backend may embed the parent as
+      // an object (`{ sender_name, text }`) or reference it by ObjectId, and
+      // may expose it as `parent_id` or `reply_to`.
+      const parentRef = (item.parent_id ??
+        (item as { reply_to?: unknown }).reply_to) as
+        | string
+        | { sender_name?: string; text?: string; attachments?: unknown[] }
+        | null;
+      let repliedPreview: { senderName: string; text: string } | null = null;
+      if (parentRef && typeof parentRef === "object") {
+        const p = parentRef as {
+          sender_name?: string;
+          text?: string;
+          attachments?: unknown[];
+        };
+        repliedPreview = {
+          senderName: p.sender_name || "Message",
+          text:
+            p.text ||
+            (p.attachments && p.attachments.length > 0 ? "📎 Attachment" : ""),
+        };
+      } else if (typeof parentRef === "string") {
+        const found = messageById.get(parentRef);
+        if (found) {
+          const member = currentRoom?.members?.find(
+            (m) => m.id === found.sender_id,
+          );
+          repliedPreview = {
+            senderName: isOwnMessage(found, currentUserId)
+              ? "You"
+              : found.sender_name ||
+                (member ? `${member.first_name} ${member.last_name}` : ""),
+            text:
+              found.text ||
+              (found.attachments?.length ? "📎 Attachment" : ""),
+          };
+        } else {
+          repliedPreview = { senderName: "Message", text: "" };
+        }
+      }
+
+      // Fall back to an optimistic preview captured when the reply was sent.
+      if (!repliedPreview) {
+        repliedPreview =
+          localReplyPreviewRef.current.get(String(item._id)) ??
+          localReplyPreviewRef.current.get(String(item.id)) ??
+          null;
+      }
+
+      return (
+        <View
+          style={{
+            paddingHorizontal: 16,
+            paddingTop: index === 0 ? 8 : 20,
+          }}
+        >
+          <SwipeToReply
+            onReply={() => {
+              setReplyTo(item);
+              setTimeout(() => composerRef.current?.focus(), 60);
+            }}
+          >
+            <MessageBubble
+              message={item}
+              currentUserId={currentUserId}
+              members={currentRoom?.members}
+              showSenderName={isChannel}
+              isChannel={isChannel}
+              repliedPreview={repliedPreview}
+              onLongPress={handleLongPress}
+              onReactionPress={handleReactEmoji}
+            />
+          </SwipeToReply>
+        </View>
+      );
+    },
     [
       currentUserId,
       currentRoom?.members,
@@ -3323,13 +3550,13 @@ export default function ConversationScreen() {
                   <Text style={styles.headerName} numberOfLines={1}>
                     {name}
                   </Text>
-                  <Text style={styles.headerStatus}>
-                    {isChannel
-                      ? `${roomPermissions.length} member${roomPermissions.length !== 1 ? "s" : ""}`
-                      : roomMembers[0]?.isOnline
-                        ? "Active"
-                        : "Offline"}
-                  </Text>
+                  {/* Presence status (Active/Online/Offline) is intentionally
+                      not shown in Chat. Channels still show their member count. */}
+                  {isChannel && (
+                    <Text style={styles.headerStatus}>
+                      {`${roomPermissions.length} member${roomPermissions.length !== 1 ? "s" : ""}`}
+                    </Text>
+                  )}
                 </View>
               </View>
 
@@ -3378,6 +3605,15 @@ export default function ConversationScreen() {
                   onChangeText={setSearch}
                   autoFocus
                 />
+                {search.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => setSearch("")}
+                    hitSlop={8}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+                  </TouchableOpacity>
+                )}
               </View>
               <TouchableOpacity
                 onPress={() => {
@@ -3636,6 +3872,7 @@ export default function ConversationScreen() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={0}
         >
+          <View style={styles.flex}>
           <FlatList
             ref={scrollRef}
             style={styles.scroll}
@@ -3772,8 +4009,16 @@ export default function ConversationScreen() {
               onPress={scrollToBottom}
             >
               <Ionicons name="chevron-down" size={20} color="#1D1D1D" />
+              {newMessageCount > 0 && (
+                <View style={styles.scrollToBottomBadge}>
+                  <Text style={styles.scrollToBottomBadgeText}>
+                    {newMessageCount > 99 ? "99+" : newMessageCount}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           )}
+          </View>
 
           {/* ── Reply Preview ── */}
           {replyTo && (
@@ -3944,6 +4189,7 @@ export default function ConversationScreen() {
                   <View style={styles.inputContainer}>
                     <View style={styles.inputRow}>
                       <TextInput
+                        ref={composerRef}
                         style={styles.textInput}
                         placeholder="Type anything..."
                         placeholderTextColor="#9CA3AF"
@@ -4355,12 +4601,30 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
-    elevation: 5,
+    elevation: 6,
     borderWidth: 1,
     borderColor: "#E5E7EB",
+    zIndex: 20,
   },
-
-  // ── Header ──
+  scrollToBottomBadge: {
+    position: "absolute",
+    top: -5,
+    right: -5,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: TEAL,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#fff",
+  },
+  scrollToBottomBadgeText: {
+    color: "#fff",
+    fontSize: rf(9.5),
+    fontFamily: "SF_Pro_Semibold",
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",

@@ -180,6 +180,7 @@ export function buildMessageFormData(params: {
   }
   if (params.parent_id) {
     formData.append("parent_id", params.parent_id);
+    formData.append("reply_to", params.parent_id);
   }
   if (params.postType) {
     formData.append("postType", params.postType);

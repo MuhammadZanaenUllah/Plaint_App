@@ -455,6 +455,7 @@ export default function AddPeopleModal({
                 <FlatList
                   data={filtered}
                   keyExtractor={(item) => item.id}
+                  style={modalStyles.list}
                   renderItem={({ item }) => (
                     <UserRow
                       user={item}
@@ -465,6 +466,7 @@ export default function AddPeopleModal({
                     />
                   )}
                   keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={{ paddingBottom: 32 }}
                 />
@@ -505,8 +507,12 @@ const modalStyles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    maxHeight: "88%",
-    minHeight: "50%",
+    // `flex: 1` + `maxHeight` gives the sheet a definite height (bottom sheet),
+    // which is required for the body/list to be bounded so the list scrolls in
+    // the space above the pinned Invite footer instead of sliding underneath it.
+    flex: 1,
+    maxHeight: "92%",
+    overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -3 },
     shadowOpacity: 0.25,
@@ -530,6 +536,11 @@ const modalStyles = StyleSheet.create({
     paddingTop: 10,
   },
   body: {
+    flex: 1,
+    flexShrink: 1,
+    minHeight: 0,
+  },
+  list: {
     flex: 1,
   },
   footer: {

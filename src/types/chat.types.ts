@@ -94,7 +94,15 @@ export type ChatMessage = {
   sender_name?: string;
   sender_image?: string;
   attachments: MessageAttachment[];
-  parent_id: string | null;
+  /**
+   * Reply target. The backend may return either the parent message's Mongo
+   * ObjectId (string) or an embedded preview object `{ sender_name, text }`
+   * depending on the endpoint — handle both.
+   */
+  parent_id:
+    | string
+    | { sender_name?: string; text?: string; attachments?: MessageAttachment[] }
+    | null;
   reactions?: MessageReaction[];
   is_pinned?: boolean;
   is_edited?: boolean;
@@ -148,12 +156,12 @@ export type EditMessageResponse = {
 
 export type DeleteMessageRequest = {
   messageId: string;
-  deleteFor: "self" | "everyone";
+  deleteFor: "me" | "everyone";
 };
 
 export type DeleteMessageResponse = {
   Good: true;
-  deleteFor: "self" | "everyone";
+  deleteFor: "me" | "everyone";
   message: string;
 };
 

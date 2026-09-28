@@ -233,6 +233,18 @@ export default function AppHeader({
                   onChangeText={handleSearchChange}
                   // autoFocus
                 />
+                {search.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSearch("");
+                      setSearchText("");
+                    }}
+                    hitSlop={8}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+                  </TouchableOpacity>
+                )}
               </View>
               {showFilter && (
                 <Pressable
