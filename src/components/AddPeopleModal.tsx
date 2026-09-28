@@ -409,7 +409,7 @@ export default function AddPeopleModal({
                 activeOpacity={0.8}
                 hitSlop={8}
               >
-                <Ionicons name="close" size={17} color="#fff" />
+                <Ionicons name="close" size={12} color="#fff" />
               </TouchableOpacity>
 
               <Text style={modalStyles.title}>Add People</Text>
@@ -552,11 +552,11 @@ const modalStyles = StyleSheet.create({
   },
   closeBtn: {
     position: "absolute",
-    top: 18,
-    right: 20,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    top: 14,
+    right: 16,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: "#1D1D1D",
     justifyContent: "center",
     alignItems: "center",
@@ -568,11 +568,11 @@ const modalStyles = StyleSheet.create({
     elevation: 5,
   },
   title: {
-    fontSize: rf(26),
+    fontSize: rf(16),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
     marginHorizontal: 20,
-    marginBottom: 22,
+    marginBottom: 12,
   },
   channelControls: {
     marginHorizontal: 20,

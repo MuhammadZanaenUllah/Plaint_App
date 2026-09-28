@@ -493,7 +493,7 @@ export default function InviteToChannelModal({
                     onPress={onClose}
                     hitSlop={8}
                   >
-                    <Ionicons name="close" size={18} color="#6B7280" />
+                    <Ionicons name="close" size={12} color="#6B7280" />
                   </TouchableOpacity>
                 </View>
 
@@ -656,17 +656,17 @@ const modal = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 18,
+    marginBottom: 12,
   },
   title: {
-    fontSize: rf(20),
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
   closeBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: "#F3F4F6",
     justifyContent: "center",
     alignItems: "center",

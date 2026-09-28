@@ -1099,12 +1099,12 @@ const ddStyles = StyleSheet.create({
   },
   pill: {
     backgroundColor: "#F0F2F5",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    borderRadius: 7,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
   text: {
-    fontSize: rf(12),
+    fontSize: rf(10.5),
     fontFamily: "SF_Pro_Medium",
     color: "#54656F",
   },
@@ -1244,6 +1244,7 @@ const MessageBubble = React.memo(function MessageBubble({
   isChannel = false,
   repliedPreview,
   highlighted = false,
+  showTimestamp = true,
   onLongPress,
   onReactionPress,
 }: {
@@ -1254,6 +1255,7 @@ const MessageBubble = React.memo(function MessageBubble({
   isChannel?: boolean;
   repliedPreview?: { senderName: string; text: string } | null;
   highlighted?: boolean;
+  showTimestamp?: boolean;
   onLongPress?: (msg: ChatMessage, e?: GestureResponderEvent) => void;
   onReactionPress?: (msg: ChatMessage, emoji: string) => void;
 }) {
@@ -1361,21 +1363,27 @@ const MessageBubble = React.memo(function MessageBubble({
         ]}
       >
         <View style={styles.incomingRow}>
-          <Avatar
-            name={senderName}
-            imagePath={senderImage}
-            size={34}
-            borderRadius={20}
-            fontSize={14}
-            fontFamily="SF_Pro_Regular"
-          />
+          {showTimestamp ? (
+            <Avatar
+              name={senderName}
+              imagePath={senderImage}
+              size={30}
+              borderRadius={16}
+              fontSize={12}
+              fontFamily="SF_Pro_Regular"
+            />
+          ) : (
+            <View style={styles.avatarSpacer} />
+          )}
           <View style={styles.incomingContent}>
-            <Text style={styles.senderMeta}>
-              {showSenderName ? `${senderName} ` : null}
-              <Text style={styles.timeMeta}>
-                {showSenderName ? `| ${time}` : time}
+            {showTimestamp && (
+              <Text style={styles.senderMeta}>
+                {showSenderName ? `${senderName} ` : null}
+                <Text style={styles.timeMeta}>
+                  {showSenderName ? `| ${time}` : time}
+                </Text>
               </Text>
-            </Text>
+            )}
             <Animated.View style={{ transform: [{ scale: bubbleScale }] }}>
               <Pressable
                 onPressIn={handlePressIn}
@@ -1497,10 +1505,14 @@ const MessageBubble = React.memo(function MessageBubble({
       <View style={styles.outgoingRow}>
         <View style={styles.outgoingContent}>
           <Text style={styles.senderMetaOutgoing}>
-            {showSenderName ? `${senderName} ` : null}
-            <Text style={styles.timeMeta}>
-              {showSenderName ? `| ${time}` : time}
-            </Text>{" "}
+            {showTimestamp && showSenderName ? `${senderName} ` : null}
+            {showTimestamp ? (
+              <>
+                <Text style={styles.timeMeta}>
+                  {showSenderName ? `| ${time}` : time}
+                </Text>{" "}
+              </>
+            ) : null}
             <Ionicons
               name={isReadByOther ? "checkmark-done" : "checkmark"}
               size={13}
@@ -1616,14 +1628,18 @@ const MessageBubble = React.memo(function MessageBubble({
             </View>
           )}
         </View>
-        <Avatar
-          name={senderName}
-          imagePath={senderImage}
-          size={34}
-          borderRadius={20}
-          fontSize={14}
-          fontFamily="SF_Pro_Regular"
-        />
+        {showTimestamp ? (
+          <Avatar
+            name={senderName}
+            imagePath={senderImage}
+            size={30}
+            borderRadius={16}
+            fontSize={12}
+            fontFamily="SF_Pro_Regular"
+          />
+        ) : (
+          <View style={styles.avatarSpacer} />
+        )}
       </View>
     </View>
   );
@@ -2099,11 +2115,13 @@ const delModalStyles = StyleSheet.create({
   },
 });
 
-// ─── Conversation Menu Modal (header three-dot) ───────────────────────────────
+// ─── Conversation Menu Popover (header three-dot) ─────────────────────────────
 
-function RoomMenuModal({
+type RoomMenuAnchor = { x: number; y: number; width: number; height: number };
+
+function RoomMenuPopover({
   visible,
-  roomName,
+  anchor,
   isMuted,
   canDelete,
   isChannel,
@@ -2113,7 +2131,7 @@ function RoomMenuModal({
   onDelete,
 }: {
   visible: boolean;
-  roomName: string;
+  anchor: RoomMenuAnchor | null;
   isMuted: boolean;
   canDelete: boolean;
   isChannel: boolean;
@@ -2122,7 +2140,16 @@ function RoomMenuModal({
   onMarkUnread: () => void;
   onDelete: () => void;
 }) {
-  if (!visible) return null;
+  if (!visible || !anchor) return null;
+
+  const { width: screenW } = Dimensions.get("window");
+  const CARD_WIDTH = 224;
+  const margin = 8;
+  const right = Math.min(
+    Math.max(screenW - (anchor.x + anchor.width), margin),
+    screenW - CARD_WIDTH - margin,
+  );
+  const top = anchor.y + anchor.height + 6;
 
   return (
     <Modal
@@ -2133,26 +2160,19 @@ function RoomMenuModal({
     >
       <Pressable style={roomMenuStyles.overlay} onPress={onClose}>
         <Pressable
-          style={roomMenuStyles.sheet}
+          style={[roomMenuStyles.card, { top, right, width: CARD_WIDTH }]}
           onStartShouldSetResponder={() => true}
         >
-          <View style={roomMenuStyles.handle} />
-          <Text style={roomMenuStyles.title} numberOfLines={1}>
-            {roomName}
-          </Text>
-
           <TouchableOpacity
             style={roomMenuStyles.item}
-            activeOpacity={0.7}
+            activeOpacity={0.65}
             onPress={onToggleMute}
           >
-            <View style={roomMenuStyles.itemIcon}>
-              <Ionicons
-                name={isMuted ? "notifications" : "notifications-off-outline"}
-                size={19}
-                color="#1D1D1D"
-              />
-            </View>
+            <Ionicons
+              name={isMuted ? "notifications" : "notifications-off-outline"}
+              size={15}
+              color="#6B7280"
+            />
             <Text style={roomMenuStyles.itemText}>
               {isMuted ? "Unmute notifications" : "Mute notifications"}
             </Text>
@@ -2160,26 +2180,20 @@ function RoomMenuModal({
 
           <TouchableOpacity
             style={roomMenuStyles.item}
-            activeOpacity={0.7}
+            activeOpacity={0.65}
             onPress={onMarkUnread}
           >
-            <View style={roomMenuStyles.itemIcon}>
-              <Ionicons name="mail-unread-outline" size={19} color="#1D1D1D" />
-            </View>
+            <Ionicons name="mail-unread-outline" size={15} color="#6B7280" />
             <Text style={roomMenuStyles.itemText}>Mark as unread</Text>
           </TouchableOpacity>
 
           {canDelete && (
             <TouchableOpacity
               style={roomMenuStyles.item}
-              activeOpacity={0.7}
+              activeOpacity={0.65}
               onPress={onDelete}
             >
-              <View
-                style={[roomMenuStyles.itemIcon, roomMenuStyles.itemIconDanger]}
-              >
-                <Ionicons name="trash-outline" size={19} color="#EF4444" />
-              </View>
+              <Ionicons name="trash-outline" size={15} color="#EF4444" />
               <Text
                 style={[roomMenuStyles.itemText, roomMenuStyles.itemTextDanger]}
               >
@@ -2187,14 +2201,6 @@ function RoomMenuModal({
               </Text>
             </TouchableOpacity>
           )}
-
-          <TouchableOpacity
-            style={roomMenuStyles.cancel}
-            activeOpacity={0.7}
-            onPress={onClose}
-          >
-            <Text style={roomMenuStyles.cancelText}>Cancel</Text>
-          </TouchableOpacity>
         </Pressable>
       </Pressable>
     </Modal>
@@ -2204,75 +2210,154 @@ function RoomMenuModal({
 const roomMenuStyles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
-    justifyContent: "flex-end",
+    backgroundColor: "rgba(0, 0, 0, 0.18)",
   },
-  sheet: {
+  card: {
+    position: "absolute",
     backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    paddingHorizontal: 18,
-    paddingTop: 10,
-    paddingBottom: 28,
+    borderRadius: 12,
+    paddingVertical: 4,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
     shadowRadius: 16,
     elevation: 12,
-  },
-  handle: {
-    alignSelf: "center",
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#E5E7EB",
-    marginBottom: 12,
-  },
-  title: {
-    fontSize: rf(13),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#6B7280",
-    marginBottom: 8,
-    paddingHorizontal: 4,
   },
   item: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 13,
-    paddingHorizontal: 4,
-  },
-  itemIcon: {
-    width: 38,
+    gap: 10,
+    paddingHorizontal: 14,
     height: 38,
-    borderRadius: 19,
-    backgroundColor: "#F3F4F6",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 14,
-  },
-  itemIconDanger: {
-    backgroundColor: "#FEF2F2",
   },
   itemText: {
-    fontSize: rf(15),
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Medium",
     color: "#1D1D1D",
   },
   itemTextDanger: {
     color: "#EF4444",
   },
-  cancel: {
-    marginTop: 6,
+});
+
+// ─── Delete Chat confirm (custom, minimal) ────────────────────────────────────
+
+function DeleteChatModal({
+  visible,
+  isChannel,
+  onClose,
+  onConfirm,
+}: {
+  visible: boolean;
+  isChannel: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  if (!visible) return null;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable style={deleteChatStyles.overlay} onPress={onClose}>
+        <Pressable
+          style={deleteChatStyles.card}
+          onStartShouldSetResponder={() => true}
+        >
+          <Text style={deleteChatStyles.title}>
+            {isChannel ? "Delete channel?" : "Delete chat?"}
+          </Text>
+          <Text style={deleteChatStyles.message}>
+            {isChannel
+              ? "This channel will be deleted for all its members. This can't be undone."
+              : "This chat will be deleted from your list. The other person will still have it."}
+          </Text>
+          <View style={deleteChatStyles.actions}>
+            <TouchableOpacity
+              style={[deleteChatStyles.btn, deleteChatStyles.cancelBtn]}
+              activeOpacity={0.8}
+              onPress={onClose}
+            >
+              <Text style={deleteChatStyles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[deleteChatStyles.btn, deleteChatStyles.deleteBtn]}
+              activeOpacity={0.85}
+              onPress={onConfirm}
+            >
+              <Text style={deleteChatStyles.deleteText}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const deleteChatStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 32,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 320,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 22,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    elevation: 12,
+  },
+  title: {
+    fontSize: rf(16),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#1D1D1D",
+    textAlign: "center",
+  },
+  message: {
+    fontSize: rf(13),
+    fontFamily: "SF_Pro_Regular",
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 19,
+    marginTop: 8,
+  },
+  actions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 20,
+  },
+  btn: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F3F4F6",
     borderRadius: 12,
-    paddingVertical: 13,
+    paddingVertical: 12,
+  },
+  cancelBtn: {
+    backgroundColor: "#F3F4F6",
   },
   cancelText: {
     fontSize: rf(14),
-    fontFamily: "SF_Pro_Semibold",
+    fontFamily: "SF_Pro_Medium",
     color: "#4B5563",
+  },
+  deleteBtn: {
+    backgroundColor: "#EF4444",
+  },
+  deleteText: {
+    fontSize: rf(14),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#FFFFFF",
   },
 });
 
@@ -2553,9 +2638,9 @@ const waModalStyles = StyleSheet.create({
     justifyContent: "center",
   },
   focusedBubble: {
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     maxWidth: "85%",
     shadowColor: "#000",
     shadowOpacity: 0.2,
@@ -2564,7 +2649,7 @@ const waModalStyles = StyleSheet.create({
   },
   ownBubble: {
     alignSelf: "flex-end",
-    backgroundColor: "#00DEAB",
+    backgroundColor: "#E7FCF7",
     borderBottomRightRadius: 4,
   },
   otherBubble: {
@@ -2573,15 +2658,15 @@ const waModalStyles = StyleSheet.create({
     borderBottomLeftRadius: 4,
   },
   senderName: {
-    fontSize: rf(12),
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Semibold",
     color: "#00DEAB",
     marginBottom: 2,
   },
   bubbleText: {
-    fontSize: rf(15),
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
-    lineHeight: 20,
+    lineHeight: 18,
   },
   ownText: {
     color: "#1F2937",
@@ -2635,7 +2720,7 @@ type FilterTab = "date" | "attachments" | "chat_member" | "post_type" | null;
 // Inline list items: a message, or a static date divider that stays attached to
 // the messages of its day while scrolling (WhatsApp-style).
 type MessageListItem =
-  | { type: "message"; message: ChatMessage }
+  | { type: "message"; message: ChatMessage; showTime: boolean }
   | { type: "divider"; label: string; key: string };
 
 // Stable viewability config for the message list (must not change identity).
@@ -2778,7 +2863,7 @@ export default function ConversationScreen() {
           attachments: files,
           onUploadProgress: (prog) => {
             setUploadProgress({
-              percentage: prog.percentage,
+              percentage: Math.min(100, Math.max(0, prog.percentage)),
               fileName: files[0].name,
             });
           },
@@ -2888,8 +2973,30 @@ export default function ConversationScreen() {
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<TextInput>(null);
 
-  // Three-dot conversation menu (mute / mark unread / delete chat)
+  // Three-dot conversation menu (mute / mark unread / delete chat), shown as a
+  // small popover anchored to the header button.
   const [roomMenuOpen, setRoomMenuOpen] = useState(false);
+  const [deleteChatConfirmOpen, setDeleteChatConfirmOpen] = useState(false);
+  const [roomMenuAnchor, setRoomMenuAnchor] = useState<RoomMenuAnchor | null>(
+    null,
+  );
+  const roomMenuBtnRef = useRef<View>(null);
+  const openRoomMenu = useCallback(() => {
+    const node = roomMenuBtnRef.current;
+    const openAtFallback = () => {
+      const { width: sw } = Dimensions.get("window");
+      setRoomMenuAnchor({ x: sw - 56, y: 56, width: 40, height: 40 });
+      setRoomMenuOpen(true);
+    };
+    if (node?.measureInWindow) {
+      node.measureInWindow((x, y, width, height) => {
+        setRoomMenuAnchor({ x, y, width, height });
+        setRoomMenuOpen(true);
+      });
+    } else {
+      openAtFallback();
+    }
+  }, []);
 
   // Filter tabs
   const [activeFilter, setActiveFilter] = useState<FilterTab>(null);
@@ -3141,7 +3248,10 @@ export default function ConversationScreen() {
         text: "🎤 Voice message",
         attachments: [{ uri, name, type }],
         onUploadProgress: (prog) => {
-          setUploadProgress({ percentage: prog.percentage, fileName: name });
+          setUploadProgress({
+            percentage: Math.min(100, Math.max(0, prog.percentage)),
+            fileName: name,
+          });
         },
         abortUpload: abortUploadRef,
       });
@@ -3741,31 +3851,22 @@ export default function ConversationScreen() {
   const handleDeleteChat = () => {
     if (!roomId || !canDeleteChat) return;
     setRoomMenuOpen(false);
-    Alert.alert(
-      "Delete chat?",
-      isChannel
-        ? "This channel will be deleted for all its members. This can't be undone."
-        : "This chat will be deleted from your list. The other person will still have it.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              if (isChannel) {
-                await deleteRoom(roomId);
-              } else {
-                await hideRoom(roomId);
-              }
-              router.back();
-            } catch {
-              showError("Error", "Could not delete chat");
-            }
-          },
-        },
-      ],
-    );
+    setDeleteChatConfirmOpen(true);
+  };
+
+  const confirmDeleteChat = async () => {
+    if (!roomId) return;
+    setDeleteChatConfirmOpen(false);
+    try {
+      if (isChannel) {
+        await deleteRoom(roomId);
+      } else {
+        await hideRoom(roomId);
+      }
+      router.back();
+    } catch {
+      showError("Error", "Could not delete chat");
+    }
   };
 
   // ── @-mention candidates (derived from the room's member list) ─────────
@@ -3882,7 +3983,7 @@ export default function ConversationScreen() {
         <View
           style={{
             paddingHorizontal: 16,
-            paddingTop: index === 0 ? 8 : 16,
+            paddingTop: index === 0 ? 6 : 10,
           }}
         >
           <SwipeToReply
@@ -3899,6 +4000,7 @@ export default function ConversationScreen() {
               isChannel={isChannel}
               repliedPreview={repliedPreview}
               highlighted={highlightedMessageId === (message._id as string)}
+              showTimestamp={item.showTime}
               onLongPress={handleLongPress}
               onReactionPress={handleReactEmoji}
             />
@@ -3944,6 +4046,7 @@ export default function ConversationScreen() {
   const listItems = useMemo<MessageListItem[]>(() => {
     const items: MessageListItem[] = [];
     let lastDateKey: string | null = null;
+    let prevTs: number | null = null;
     for (const m of filteredMessages) {
       const d = m.createdAt ? new Date(m.createdAt) : null;
       const valid = !!d && !isNaN(d.getTime());
@@ -3957,8 +4060,17 @@ export default function ConversationScreen() {
           key: `divider-${dateKey}-${m._id ?? m.id ?? items.length}`,
         });
         lastDateKey = dateKey;
+        // A new day always starts a new timestamp group.
+        prevTs = null;
       }
-      items.push({ type: "message", message: m });
+      const ts = valid ? d!.getTime() : null;
+      // WhatsApp-style grouping: only the first message of a burst carries the
+      // timestamp. A message within 1 minute of the previous one is grouped
+      // with it (no separate timestamp); more than 1 minute apart starts a new
+      // group that shows the timestamp.
+      const showTime = prevTs === null || ts === null || ts - prevTs > 60000;
+      items.push({ type: "message", message: m, showTime });
+      prevTs = ts;
     }
     return items.reverse();
   }, [filteredMessages]);
@@ -4127,9 +4239,10 @@ export default function ConversationScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
+                ref={roomMenuBtnRef}
                 hitSlop={8}
                 style={styles.headerIconBtn}
-                onPress={() => setRoomMenuOpen(true)}
+                onPress={openRoomMenu}
               >
                 <Ionicons
                   name="ellipsis-vertical"
@@ -4462,7 +4575,7 @@ export default function ConversationScreen() {
             }
             ListFooterComponent={
               <>
-                {state.messagesLoading && (
+                {state.messagesLoading && state.messages.length > 0 && (
                   <View style={{ padding: 16, alignItems: "center" }}>
                     <ActivityIndicator size="small" color="#00DEAB" />
                   </View>
@@ -4625,7 +4738,7 @@ export default function ConversationScreen() {
                   Uploading {uploadProgress.fileName}...
                 </Text>
                 <Text style={styles.uploadProgressPercent}>
-                  {uploadProgress.percentage}%
+                  {Math.min(100, Math.max(0, uploadProgress.percentage))}%
                 </Text>
                 <TouchableOpacity
                   activeOpacity={0.4}
@@ -4642,7 +4755,7 @@ export default function ConversationScreen() {
                 <View
                   style={[
                     styles.uploadProgressBarFill,
-                    { width: `${uploadProgress.percentage}%` },
+                    { width: `${Math.min(100, Math.max(0, uploadProgress.percentage))}%` },
                   ]}
                 />
               </View>
@@ -5029,10 +5142,10 @@ export default function ConversationScreen() {
         }}
       />
 
-      {/* ── Conversation Menu (header three-dot) ── */}
-      <RoomMenuModal
+      {/* ── Conversation Menu popover (header three-dot) ── */}
+      <RoomMenuPopover
         visible={roomMenuOpen}
-        roomName={name}
+        anchor={roomMenuAnchor}
         isMuted={!!currentRoom?.is_muted}
         canDelete={canDeleteChat}
         isChannel={isChannel}
@@ -5040,6 +5153,14 @@ export default function ConversationScreen() {
         onToggleMute={handleToggleMute}
         onMarkUnread={handleMarkUnread}
         onDelete={handleDeleteChat}
+      />
+
+      {/* ── Delete chat confirmation (custom) ── */}
+      <DeleteChatModal
+        visible={deleteChatConfirmOpen}
+        isChannel={isChannel}
+        onClose={() => setDeleteChatConfirmOpen(false)}
+        onConfirm={confirmDeleteChat}
       />
 
       {/* ── Pinned messages modal (opened from the Pinned filter card) ── */}
@@ -5392,25 +5513,29 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "flex-start",
     alignItems: "flex-start",
-    gap: 10,
+    gap: 8,
+  },
+  // Keeps grouped messages (no avatar) aligned under the group's first bubble.
+  avatarSpacer: {
+    width: 30,
   },
   incomingContent: {
     flex: 1,
     alignItems: "flex-start",
   },
   senderMeta: {
-    fontSize: rf(11),
+    fontSize: rf(10),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_SECONDARY,
-    marginBottom: 5,
+    marginBottom: 3,
     textAlign: "left",
   },
   incomingBubble: {
     backgroundColor: "#F3F4F6",
-    borderRadius: 14,
+    borderRadius: 12,
     borderTopLeftRadius: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
     maxWidth: "90%",
   },
 
@@ -5418,33 +5543,33 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "flex-end",
     alignItems: "flex-start",
-    gap: 10,
+    gap: 8,
   },
   outgoingContent: {
     flex: 1,
     alignItems: "flex-end",
   },
   senderMetaOutgoing: {
-    fontSize: rf(11),
+    fontSize: rf(10),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_SECONDARY,
-    marginBottom: 5,
+    marginBottom: 3,
     textAlign: "right",
   },
   outgoingBubble: {
-    backgroundColor: "#00DEAB",
-    borderRadius: 14,
+    backgroundColor: "#E7FCF7",
+    borderRadius: 12,
     borderTopRightRadius: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
     maxWidth: "90%",
   },
 
   bubbleText: {
-    fontSize: rf(14),
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
-    lineHeight: 20,
+    lineHeight: 18,
   },
   forwardedRow: {
     flexDirection: "row",
@@ -5478,7 +5603,7 @@ const styles = StyleSheet.create({
     color: "#6B7280",
   },
   timeMeta: {
-    fontSize: rf(11),
+    fontSize: rf(9.5),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_SECONDARY,
   },
@@ -5497,7 +5622,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#CCF3E6",
   },
   bubblePinnedOutgoing: {
-    backgroundColor: "#E3EAF7",
+    backgroundColor: "#D2F6EA",
   },
   pinBadge: {
     flexDirection: "row",

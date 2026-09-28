@@ -176,7 +176,7 @@ export default function CreateChannelModal({
                 activeOpacity={0.7}
                 hitSlop={8}
               >
-                <Ionicons name="close" size={18} color="#1D1D1D" />
+                <Ionicons name="close" size={12} color="#1D1D1D" />
               </TouchableOpacity>
             </View>
 
@@ -227,14 +227,14 @@ const modalStyles = StyleSheet.create({
     alignItems: "flex-start",
     justifyContent: "space-between",
     marginHorizontal: 20,
-    marginBottom: 20,
+    marginBottom: 12,
   },
   headerTitleCol: {
     flex: 1,
     marginRight: 12,
   },
   mainTitle: {
-    fontSize: rf(20),
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
@@ -255,9 +255,9 @@ const modalStyles = StyleSheet.create({
     maxWidth: 200,
   },
   closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: "#F3F4F6",
     justifyContent: "center",
     alignItems: "center",

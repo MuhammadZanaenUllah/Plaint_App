@@ -32,7 +32,12 @@ export function uploadWithProgress(
 
   xhr.upload.addEventListener("progress", (event) => {
     if (event.lengthComputable && onProgress) {
-      const percentage = Math.round((event.loaded / event.total) * 100);
+      // Some environments report `loaded`/`total` such that the raw value can
+      // exceed 100; cap the displayed progress to a normal 0–100 range.
+      const percentage = Math.min(
+        100,
+        Math.round((event.loaded / event.total) * 100),
+      );
       onProgress({
         loaded: event.loaded,
         total: event.total,
