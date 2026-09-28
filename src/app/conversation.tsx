@@ -1243,6 +1243,7 @@ const MessageBubble = React.memo(function MessageBubble({
   showSenderName = false,
   isChannel = false,
   repliedPreview,
+  highlighted = false,
   onLongPress,
   onReactionPress,
 }: {
@@ -1252,6 +1253,7 @@ const MessageBubble = React.memo(function MessageBubble({
   showSenderName?: boolean;
   isChannel?: boolean;
   repliedPreview?: { senderName: string; text: string } | null;
+  highlighted?: boolean;
   onLongPress?: (msg: ChatMessage, e?: GestureResponderEvent) => void;
   onReactionPress?: (msg: ChatMessage, emoji: string) => void;
 }) {
@@ -1352,7 +1354,12 @@ const MessageBubble = React.memo(function MessageBubble({
 
   if (!own) {
     return (
-      <View style={styles.messageWrapper}>
+      <View
+        style={[
+          styles.messageWrapper,
+          highlighted && styles.messageHighlight,
+        ]}
+      >
         <View style={styles.incomingRow}>
           <Avatar
             name={senderName}
@@ -1484,7 +1491,9 @@ const MessageBubble = React.memo(function MessageBubble({
   }
 
   return (
-    <View style={styles.messageWrapper}>
+    <View
+      style={[styles.messageWrapper, highlighted && styles.messageHighlight]}
+    >
       <View style={styles.outgoingRow}>
         <View style={styles.outgoingContent}>
           <Text style={styles.senderMetaOutgoing}>
@@ -2267,6 +2276,225 @@ const roomMenuStyles = StyleSheet.create({
   },
 });
 
+// ─── Pinned Messages Modal ────────────────────────────────────────────────────
+
+function PinnedMessagesModal({
+  visible,
+  messages,
+  currentUserId,
+  members,
+  onClose,
+  onJump,
+  onUnpin,
+}: {
+  visible: boolean;
+  messages: ChatMessage[];
+  currentUserId: number;
+  members?: RoomMember[];
+  onClose: () => void;
+  onJump: (message: ChatMessage) => void;
+  onUnpin: (messageId: string) => void;
+}) {
+  if (!visible) return null;
+
+  // Newest first — the most recent pin is the easiest to reach.
+  const ordered = [...messages].sort((a, b) => {
+    const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return tb - ta;
+  });
+
+  const senderLabel = (msg: ChatMessage) => {
+    if (isOwnMessage(msg, currentUserId)) return "You";
+    if (msg.sender_name) return msg.sender_name;
+    const member = members?.find((m) => m.id === msg.sender_id);
+    return member
+      ? `${member.first_name} ${member.last_name}`.trim() || "Unknown"
+      : "Unknown";
+  };
+
+  const previewOf = (msg: ChatMessage) =>
+    msg.text?.trim() ||
+    (msg.attachments?.length
+      ? `📎 ${msg.attachments.length} attachment${msg.attachments.length > 1 ? "s" : ""}`
+      : "Message");
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable style={pinnedModalStyles.overlay} onPress={onClose}>
+        <Pressable
+          style={pinnedModalStyles.card}
+          onStartShouldSetResponder={() => true}
+        >
+          <View style={pinnedModalStyles.header}>
+            <View style={pinnedModalStyles.headerIcon}>
+              <Ionicons name="pin" size={16} color="#00DEAB" />
+            </View>
+            <Text style={pinnedModalStyles.headerTitle}>Pinned messages</Text>
+            <Text style={pinnedModalStyles.headerCount}>{messages.length}</Text>
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={10}
+              style={pinnedModalStyles.closeBtn}
+            >
+              <Ionicons name="close" size={20} color="#6B7280" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={pinnedModalStyles.list}
+            contentContainerStyle={pinnedModalStyles.listContent}
+            showsVerticalScrollIndicator
+          >
+            {ordered.map((msg) => (
+              <View
+                key={String(msg._id ?? msg.id)}
+                style={pinnedModalStyles.row}
+              >
+                <TouchableOpacity
+                  style={pinnedModalStyles.rowMain}
+                  activeOpacity={0.7}
+                  onPress={() => onJump(msg)}
+                >
+                  <Text style={pinnedModalStyles.rowSender} numberOfLines={1}>
+                    {senderLabel(msg)}
+                    <Text style={pinnedModalStyles.rowTime}>
+                      {"  ·  "}
+                      {formatMessageTime(msg.createdAt)}
+                    </Text>
+                  </Text>
+                  <Text style={pinnedModalStyles.rowText} numberOfLines={2}>
+                    {previewOf(msg)}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={pinnedModalStyles.unpinBtn}
+                  activeOpacity={0.7}
+                  onPress={() => onUnpin(String(msg._id ?? msg.id))}
+                >
+                  <Ionicons name="pin" size={15} color="#EF4444" />
+                  <Text style={pinnedModalStyles.unpinText}>Unpin</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const pinnedModalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    maxHeight: "78%",
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    elevation: 10,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E7EB",
+  },
+  headerIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#E6FBF5",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: rf(15),
+    fontFamily: "SF_Pro_Bold",
+    color: "#1D1D1D",
+  },
+  headerCount: {
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#00DEAB",
+    backgroundColor: "#E6FBF5",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    overflow: "hidden",
+    marginRight: 6,
+  },
+  closeBtn: {
+    padding: 2,
+  },
+  list: {
+    maxHeight: 460,
+  },
+  listContent: {
+    paddingVertical: 4,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#F3F4F6",
+  },
+  rowMain: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  rowSender: {
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#1D1D1D",
+    marginBottom: 2,
+  },
+  rowTime: {
+    fontSize: rf(11),
+    fontFamily: "SF_Pro_Regular",
+    color: "#9CA3AF",
+  },
+  rowText: {
+    fontSize: rf(13),
+    fontFamily: "SF_Pro_Regular",
+    color: "#4B5563",
+    lineHeight: 18,
+  },
+  unpinBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "#FEF2F2",
+  },
+  unpinText: {
+    fontSize: rf(11),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#EF4444",
+  },
+});
+
 const waModalStyles = StyleSheet.create({
   overlay: {
     position: "absolute",
@@ -2979,18 +3207,32 @@ export default function ConversationScreen() {
     setActiveFilter((prev) => (prev === tab ? null : tab));
   };
 
-  // ── Pinned messages banner (WhatsApp-style) ─────────────────────────
+  // ── Pinned messages ─────────────────────────────────────────────────
+  // Multiple messages can be pinned. They stay in their chronological place
+  // in the timeline; the "Pinned" filter card opens a modal listing them all.
   const pinnedMessages = state.pinnedMessages;
-  const [pinnedIndex, setPinnedIndex] = useState(0);
-  const [pinnedRoomId, setPinnedRoomId] = useState(roomId);
-  if (pinnedRoomId !== roomId) {
-    setPinnedRoomId(roomId);
-    setPinnedIndex(0);
-  }
-  const activePinned =
-    pinnedMessages.length > 0
-      ? pinnedMessages[Math.min(pinnedIndex, pinnedMessages.length - 1)]
-      : null;
+  const [pinnedModalOpen, setPinnedModalOpen] = useState(false);
+  // Jump-to-message request: while set, the effect below paginates until the
+  // message is loaded, then scrolls to and briefly highlights it.
+  const [pendingJumpId, setPendingJumpId] = useState<string | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<
+    string | null
+  >(null);
+  const jumpAttemptsRef = useRef(0);
+  const jumpHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  const handleJumpToMessage = useCallback((msg: ChatMessage) => {
+    setPinnedModalOpen(false);
+    // Clear any active filters/search so the target is present in the list.
+    setSearch("");
+    setActiveFilter(null);
+    setDateFilterStart(null);
+    setDateFilterEnd(null);
+    jumpAttemptsRef.current = 0;
+    setPendingJumpId(String(msg._id ?? msg.id));
+  }, []);
 
   // Trigger initial user search when AddPeople modal opens
   useEffect(() => {
@@ -3411,7 +3653,7 @@ export default function ConversationScreen() {
         {
           text: msg.is_pinned ? "Unpin" : "Pin",
           onPress: () => {
-            togglePin(msg._id).catch(() => {});
+            togglePin(msg._id, roomId).catch(() => {});
           },
         },
         ...(isOwn || canDeleteOthers
@@ -3428,7 +3670,7 @@ export default function ConversationScreen() {
         { text: "Cancel", style: "cancel" },
       ]);
     },
-    [currentUserId, callerPermission, togglePin, deleteMessage],
+    [currentUserId, callerPermission, togglePin, deleteMessage, roomId],
   );
 
   const handleDateFilterChange = useCallback(
@@ -3656,6 +3898,7 @@ export default function ConversationScreen() {
               showSenderName={isChannel}
               isChannel={isChannel}
               repliedPreview={repliedPreview}
+              highlighted={highlightedMessageId === (message._id as string)}
               onLongPress={handleLongPress}
               onReactionPress={handleReactEmoji}
             />
@@ -3668,6 +3911,7 @@ export default function ConversationScreen() {
       currentRoom?.members,
       isChannel,
       messageById,
+      highlightedMessageId,
       handleLongPress,
       handleReactEmoji,
     ],
@@ -3718,6 +3962,75 @@ export default function ConversationScreen() {
     }
     return items.reverse();
   }, [filteredMessages]);
+
+  // Resolve a pending "jump to pinned message" request: scroll if already
+  // loaded, otherwise keep paginating older messages until it appears (with a
+  // safety cap so a missing message can't loop forever).
+  useEffect(() => {
+    if (!pendingJumpId) return;
+    const index = listItems.findIndex(
+      (it) =>
+        it.type === "message" && String(it.message._id) === pendingJumpId,
+    );
+    if (index >= 0) {
+      const targetId = pendingJumpId;
+      requestAnimationFrame(() => {
+        try {
+          scrollRef.current?.scrollToIndex({
+            index,
+            animated: true,
+            viewPosition: 0.5,
+          });
+        } catch {
+          // onScrollToIndexFailed retries once the row is measured.
+        }
+        setHighlightedMessageId(targetId);
+        setPendingJumpId(null);
+        if (jumpHighlightTimerRef.current) {
+          clearTimeout(jumpHighlightTimerRef.current);
+        }
+        jumpHighlightTimerRef.current = setTimeout(
+          () => setHighlightedMessageId(null),
+          2400,
+        );
+      });
+      return;
+    }
+    if (
+      roomId &&
+      state.hasMore &&
+      !state.messagesLoading &&
+      jumpAttemptsRef.current < 40
+    ) {
+      jumpAttemptsRef.current += 1;
+      fetchMessages(roomId, state.messagePage + 1).catch(() => {});
+    } else {
+      requestAnimationFrame(() => {
+        setPendingJumpId(null);
+        showInfo(
+          "Message unavailable",
+          "It may have been deleted or is too old",
+        );
+      });
+    }
+  }, [
+    pendingJumpId,
+    listItems,
+    state.hasMore,
+    state.messagesLoading,
+    state.messagePage,
+    roomId,
+    fetchMessages,
+  ]);
+
+  // Clear any pending jump-highlight timer when leaving the screen.
+  useEffect(() => {
+    return () => {
+      if (jumpHighlightTimerRef.current) {
+        clearTimeout(jumpHighlightTimerRef.current);
+      }
+    };
+  }, []);
 
   // Track the date of the topmost visible list item so the temporary scrolling
   // label can show the date of the messages currently being viewed. This never
@@ -3924,6 +4237,21 @@ export default function ConversationScreen() {
               </Text>
             </TouchableOpacity>
 
+            {/* Pinned card — only when this chat has at least one pinned
+                message. Opens a modal; it does not filter the timeline. */}
+            {pinnedMessages.length > 0 && (
+              <TouchableOpacity
+                style={styles.filterChip}
+                activeOpacity={0.75}
+                onPress={() => setPinnedModalOpen(true)}
+              >
+                <Ionicons name="pin" size={11} color="#6B7280" />
+                <Text style={styles.filterChipText}>
+                  Pinned{pinnedMessages.length > 1 ? ` ${pinnedMessages.length}` : ""}
+                </Text>
+              </TouchableOpacity>
+            )}
+
             {isChannel && (
               <>
                 <TouchableOpacity
@@ -4076,28 +4404,8 @@ export default function ConversationScreen() {
           </View>
         )}
 
-        {/* ── Pinned messages banner (WhatsApp-style) ── */}
-        {activePinned && !searchOpen && (
-          <Pressable
-            style={styles.pinnedBanner}
-            onPress={() =>
-              setPinnedIndex((i) => (i + 1) % pinnedMessages.length)
-            }
-          >
-            <Ionicons name="pin" size={14} color="#00DEAB" />
-            <View style={styles.pinnedBannerBody}>
-              <Text style={styles.pinnedBannerTitle} numberOfLines={1}>
-                {pinnedMessages.length > 1
-                  ? `Pinned message ${pinnedIndex + 1} of ${pinnedMessages.length}`
-                  : "Pinned message"}
-              </Text>
-              <Text style={styles.pinnedBannerText} numberOfLines={1}>
-                {activePinned.text ||
-                  (activePinned.attachments?.length ? "Attachment" : "")}
-              </Text>
-            </View>
-          </Pressable>
-        )}
+        {/* Pinned messages are no longer surfaced at the top — they stay in
+            the timeline and are listed via the "Pinned" filter card. */}
 
         {/* ── Scrollable content ── */}
         <KeyboardAvoidingView
@@ -4119,6 +4427,24 @@ export default function ConversationScreen() {
             renderItem={renderItem}
             onEndReached={handleLoadMore}
             onEndReachedThreshold={0.3}
+            onScrollToIndexFailed={(info: {
+              index: number;
+              averageItemLength: number;
+            }) => {
+              // The target row isn't measured yet (variable heights) — retry
+              // shortly so jumping from Pinned lands reliably.
+              setTimeout(() => {
+                try {
+                  scrollRef.current?.scrollToIndex({
+                    index: info.index,
+                    animated: true,
+                    viewPosition: 0.5,
+                  });
+                } catch {
+                  // give up quietly; the user can scroll manually
+                }
+              }, 300);
+            }}
             windowSize={11}
             maxToRenderPerBatch={15}
             updateCellsBatchingPeriod={30}
@@ -4661,7 +4987,7 @@ export default function ConversationScreen() {
         }}
         onPin={() => {
           if (selectedMsgForModal?.message) {
-            togglePin(selectedMsgForModal.message._id).catch(() => {});
+            togglePin(selectedMsgForModal.message._id, roomId).catch(() => {});
           }
         }}
         onEdit={() => {
@@ -4714,6 +5040,19 @@ export default function ConversationScreen() {
         onToggleMute={handleToggleMute}
         onMarkUnread={handleMarkUnread}
         onDelete={handleDeleteChat}
+      />
+
+      {/* ── Pinned messages modal (opened from the Pinned filter card) ── */}
+      <PinnedMessagesModal
+        visible={pinnedModalOpen && pinnedMessages.length > 0}
+        messages={pinnedMessages}
+        currentUserId={currentUserId}
+        members={currentRoom?.members}
+        onClose={() => setPinnedModalOpen(false)}
+        onJump={handleJumpToMessage}
+        onUnpin={(messageId) => {
+          togglePin(messageId, roomId).catch(() => {});
+        }}
       />
 
       {/* ── Emoji Picker (rn-emoji-keyboard) ── */}
@@ -5030,6 +5369,11 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   messageWrapper: { width: "100%" },
+  // Temporary flash applied to a message when jumping to it from Pinned.
+  messageHighlight: {
+    backgroundColor: "rgba(0, 222, 171, 0.14)",
+    borderRadius: 12,
+  },
   searchResultBadge: {
     backgroundColor: "#F3F4F6",
     borderRadius: 8,
@@ -5167,31 +5511,6 @@ const styles = StyleSheet.create({
     color: "#00A67E",
     textTransform: "uppercase",
   },
-  pinnedBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: "#F0FDF9",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  pinnedBannerBody: {
-    flex: 1,
-  },
-  pinnedBannerTitle: {
-    fontSize: rf(11),
-    fontFamily: "SF_Pro_Regular",
-    color: "#00A67E",
-    marginBottom: 1,
-  },
-  pinnedBannerText: {
-    fontSize: rf(12),
-    fontFamily: "SF_Pro_Regular",
-    color: TEXT_PRIMARY,
-  },
-
   // ── Reactions ──
   reactionsRow: {
     flexDirection: "row",

@@ -45,6 +45,7 @@ type ChatAction =
   | { type: "REMOVE_MESSAGE"; messageId: string }
   | { type: "SET_REACTIONS"; messageId: string; reactions: MessageReaction[] }
   | { type: "SET_PINNED"; messages: ChatMessage[] }
+  | { type: "SET_PINNED_FLAGS"; pinnedIds: string[] }
   | { type: "SET_POST_TYPES"; postTypes: CustomPostType[] }
   | {
       type: "SET_ROOM_PERMISSIONS";
@@ -83,23 +84,52 @@ const initialState: ChatState = {
 };
 
 /**
- * Effective per-user history cutoff for a room: the later of the backend's
- * `my_visible_from` (1:1 rooms only — that is where `hide-room` applies) and
- * the locally persisted delete timestamp. Returns null when there is none.
+ * Effective per-user history cutoff for a room: the timestamp from which the
+ * user is allowed to see messages (older messages stay hidden).
+ *
+ * The locally recorded delete time is authoritative for "deleted for me"
+ * because it is the (server-sourced) timestamp of the last message before the
+ * deletion and is never mutated afterwards. The backend's `my_visible_from` is
+ * used only as a fallback when there is no local record (e.g. the chat was
+ * deleted for this user from another device). If we naively took the `max` of
+ * both, a backend that bumps `my_visible_from` forward when it reactivates a
+ * room would make the very first new message fall *at* the cutoff and be
+ * wrongly hidden.
  */
 function getRoomHistoryCutoff(
   room: Room | undefined,
   localCutoff?: string | null,
 ): string | null {
-  const serverCutoff =
-    room && room.type === "direct" ? (room.my_visible_from ?? null) : null;
-  const local = localCutoff ?? null;
-  if (serverCutoff && local) {
-    return new Date(serverCutoff).getTime() >= new Date(local).getTime()
-      ? serverCutoff
-      : local;
+  if (localCutoff) return localCutoff;
+  return room && room.type === "direct" ? (room.my_visible_from ?? null) : null;
+}
+
+/** Stable identity for a chat message across `_id` / numeric `id` shapes. */
+function messageKey(message?: ChatMessage | null): string {
+  if (!message) return "";
+  return String(message._id ?? message.id ?? "");
+}
+
+/**
+ * Union two pinned-message lists, de-duplicated by message id (server list
+ * first, then locally-recorded pins). The backend's `GET /chat/pins/:roomId`
+ * is the source of truth for pins made by anyone, but on deployments that only
+ * retain a single pinned message per room, this guarantees the current user's
+ * multiple pins stay visible and survive reopening the chat.
+ */
+function mergePinnedMessages(
+  a: ChatMessage[],
+  b: ChatMessage[],
+): ChatMessage[] {
+  const seen = new Set<string>();
+  const out: ChatMessage[] = [];
+  for (const m of [...a, ...b]) {
+    const key = messageKey(m);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(m);
   }
-  return serverCutoff ?? local;
+  return out;
 }
 
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
@@ -198,6 +228,17 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
     case "SET_PINNED":
       return { ...state, pinnedMessages: action.messages };
+    case "SET_PINNED_FLAGS": {
+      const pinned = new Set(action.pinnedIds);
+      let changed = false;
+      const messages = state.messages.map((m) => {
+        const want = pinned.has(messageKey(m));
+        if (!!m.is_pinned === want) return m;
+        changed = true;
+        return { ...m, is_pinned: want };
+      });
+      return changed ? { ...state, messages } : state;
+    }
     case "SET_POST_TYPES":
       return { ...state, postTypes: action.postTypes };
     case "SET_ROOM_PERMISSIONS":
@@ -373,7 +414,7 @@ export type ChatContextValue = {
   toggleReaction: (messageId: string, emoji: string) => Promise<void>;
 
   // Pin actions
-  togglePin: (messageId: string) => Promise<void>;
+  togglePin: (messageId: string, roomId?: string) => Promise<void>;
   fetchPinnedMessages: (roomId: string) => Promise<void>;
 
   // Member actions
@@ -486,6 +527,22 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     chatCutoffsRef.current = chatCutoffs;
   }, [chatCutoffs]);
 
+  // Session guards/state used to reactivate a chat the user deleted for
+  // themselves the moment its first new message arrives (see
+  // `reactivateDeletedChat`). All are refs so the once-registered socket
+  // listener can use them without stale closures.
+  const reactivatedRoomsRef = useRef<Set<string>>(new Set());
+  const pendingUnknownMessagesRef = useRef<Map<string, ChatMessage>>(new Map());
+  const cutoffsLoadedRef = useRef(false);
+  const reactivateDeletedChatRef = useRef<
+    (roomId: string, message: ChatMessage) => void
+  >(() => {});
+  // Assigned once `fetchRooms` exists (below). Lets the socket listener and the
+  // deferred cutoff loader trigger a list refresh.
+  const fetchRoomsRef = useRef<
+    ((opts?: { silent?: boolean }) => Promise<void>) | null
+  >(null);
+
   const persistChatCutoffs = useCallback(
     (cutoffs: Record<string, string>, uid: number) => {
       if (!uid) return;
@@ -506,25 +563,48 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   // Load persisted cutoffs for the signed-in user.
   useEffect(() => {
     let cancelled = false;
+    cutoffsLoadedRef.current = false;
+    // Reset per-session reactivation state when the signed-in user changes.
+    reactivatedRoomsRef.current.clear();
+    pendingUnknownMessagesRef.current.clear();
     (async () => {
       const uid = authState.user?.id ?? 0;
-      if (!uid) {
-        if (!cancelled) setChatCutoffs({});
-        return;
-      }
-      try {
-        const raw = await AsyncStorage.getItem(`planit_chat_cutoffs_${uid}`);
-        if (cancelled || !raw) return;
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          const clean: Record<string, string> = {};
-          for (const [key, value] of Object.entries(parsed)) {
-            if (typeof value === "string") clean[key] = value;
+      const loaded: Record<string, string> = {};
+      if (uid) {
+        try {
+          const raw = await AsyncStorage.getItem(`planit_chat_cutoffs_${uid}`);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (
+              parsed &&
+              typeof parsed === "object" &&
+              !Array.isArray(parsed)
+            ) {
+              for (const [key, value] of Object.entries(parsed)) {
+                if (typeof value === "string") loaded[key] = value;
+              }
+            }
           }
-          setChatCutoffs(clean);
+        } catch {
+          // ignore malformed cache
         }
-      } catch {
-        // ignore malformed cache
+      }
+      if (cancelled) return;
+      setChatCutoffs(loaded);
+      cutoffsLoadedRef.current = true;
+      // Replay any messages that arrived before the cutoffs finished loading
+      // (otherwise the very first message after a restart could be missed).
+      const pending = Array.from(
+        pendingUnknownMessagesRef.current.entries(),
+      );
+      pendingUnknownMessagesRef.current.clear();
+      for (const [rid, msg] of pending) {
+        if (loaded[rid]) {
+          reactivateDeletedChatRef.current(rid, msg);
+        } else {
+          socketService.joinChatRoom(rid);
+          fetchRoomsRef.current?.({ silent: true })?.catch(() => {});
+        }
       }
     })();
     return () => {
@@ -549,6 +629,70 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     return ids;
   }, [chatCutoffs, state.rooms]);
 
+  // Keep deleted-for-me rooms subscribed so their next message is delivered
+  // even while the room is absent from /chat/rooms.
+  useEffect(() => {
+    if (!socketConnected) return;
+    Object.keys(chatCutoffs).forEach((rid) => {
+      socketService.joinChatRoom(rid);
+    });
+  }, [chatCutoffs, socketConnected]);
+
+  // ── Pinned messages (multi-pin, per user) ────────────────────────────────
+  // `GET /chat/pins/:roomId` is the source of truth for pins made by anyone.
+  // On deployments that only retain one pinned message per room, we additionally
+  // remember the pins this user performed (persisted per user, per room) and
+  // union them with the server list, so multiple pins remain visible and
+  // survive closing/reopening the chat.
+  const [localPins, setLocalPins] = useState<Record<string, ChatMessage[]>>({});
+  const localPinsRef = useRef(localPins);
+  useEffect(() => {
+    localPinsRef.current = localPins;
+  }, [localPins]);
+  // Last server-returned pin list per room (used to decide whether an unpin
+  // actually needs a server call or is only a local-only pin).
+  const serverPinsRef = useRef<Record<string, ChatMessage[]>>({});
+
+  const persistLocalPins = useCallback(
+    (pins: Record<string, ChatMessage[]>, uid: number) => {
+      if (!uid) return;
+      AsyncStorage.setItem(
+        `planit_chat_pins_${uid}`,
+        JSON.stringify(pins),
+      ).catch(() => {});
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const uid = authState.user?.id ?? 0;
+      if (!uid) {
+        if (!cancelled) setLocalPins({});
+        serverPinsRef.current = {};
+        return;
+      }
+      try {
+        const raw = await AsyncStorage.getItem(`planit_chat_pins_${uid}`);
+        if (cancelled || !raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const clean: Record<string, ChatMessage[]> = {};
+          for (const [key, value] of Object.entries(parsed)) {
+            if (Array.isArray(value)) clean[key] = value as ChatMessage[];
+          }
+          setLocalPins(clean);
+        }
+      } catch {
+        // ignore malformed cache
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authState.user?.id]);
+
   // ── Room Actions ──────────────────────────────────────────────────────────
 
   const fetchRooms = useCallback(async (opts?: { silent?: boolean }) => {
@@ -564,7 +708,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           "[Chat] First room sample:",
           JSON.stringify(res.rooms?.[0]).slice(0, 500),
         );
-        dispatch({ type: "LOAD_ROOMS", rooms: res.rooms });
+        // Preserve deleted-for-me chats that have already been reactivated by
+        // an incoming message: some backends keep hiding such a room from
+        // /chat/rooms until the user re-enters it, which would otherwise drop
+        // the just-reappeared chat on the next refresh.
+        const serverIds = new Set(res.rooms.map((r) => r._id));
+        const preserved = stateRef.current.rooms.filter(
+          (r) => reactivatedRoomsRef.current.has(r._id) && !serverIds.has(r._id),
+        );
+        dispatch({ type: "LOAD_ROOMS", rooms: [...res.rooms, ...preserved] });
       } else {
         dispatch({ type: "SET_ERROR", error: "Failed to load rooms" });
       }
@@ -573,9 +725,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: "SET_ERROR", error: extractErrorMessage(error) });
     }
   }, []);
-  // Ref so socket listeners (registered once) can trigger a silent refresh
-  // when a message arrives for a chat that is not currently in the list.
-  const fetchRoomsRef = useRef(fetchRooms);
+  // Expose fetchRooms to the once-registered socket listener and the deferred
+  // cutoff loader (the ref itself is declared with the hidden-chat state).
   useEffect(() => {
     fetchRoomsRef.current = fetchRooms;
   }, [fetchRooms]);
@@ -597,6 +748,63 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     },
     [],
   );
+
+  // Reactivate a chat the user deleted for themselves the moment its first new
+  // message arrives. GET /chat/rooms omits (or hides) such a room, so unlike a
+  // normal incoming message it cannot be surfaced by merging `last_message`
+  // into an existing local room — the room object itself is missing.
+  //
+  // This performs exactly the initialization the manual "New Chat → <user>"
+  // flow performs: POST /chat/get-or-create-room returns the authoritative
+  // room object (regardless of its hidden-for-me state), which we add to local
+  // state, and then we subscribe the socket to that room. Without this, the
+  // very first incoming message after a delete/restart was received (toast
+  // shown) but the chat never appeared until the user opened it manually.
+  const reactivateDeletedChat = useCallback(
+    async (roomId: string, message: ChatMessage) => {
+      // Only reactivate chats this user explicitly deleted for themselves, and
+      // only once per app session unless re-deleted.
+      if (!chatCutoffsRef.current[roomId]) return;
+      if (reactivatedRoomsRef.current.has(roomId)) return;
+      reactivatedRoomsRef.current.add(roomId);
+      try {
+        const room = await getOrCreateRoom({
+          type: "direct",
+          targetId: Number(message.sender_id),
+        });
+        // Subscribe to the room so future messages are delivered/joined.
+        socketService.joinChatRoom(room._id);
+        // Ensure the local room reflects the incoming message so it clears the
+        // local hidden state (a newer message is by definition after the
+        // cutoff) — do not depend on the server echoing last_message back.
+        dispatch({
+          type: "ADD_ROOM",
+          room: {
+            ...room,
+            unreadCount: Math.max(room.unreadCount ?? 0, 1),
+            force_unread: room.force_unread ?? false,
+            last_message: {
+              text: message.text,
+              sender_name: message.sender_name,
+              createdAt: message.createdAt ?? new Date().toISOString(),
+              attachments: message.attachments,
+            },
+          },
+        });
+      } catch {
+        // Allow a retry on the next incoming message.
+        reactivatedRoomsRef.current.delete(roomId);
+        throw new Error("Failed to reactivate room");
+      }
+    },
+    [getOrCreateRoom],
+  );
+
+  useEffect(() => {
+    reactivateDeletedChatRef.current = (roomId, message) => {
+      reactivateDeletedChat(roomId, message).catch(() => {});
+    };
+  }, [reactivateDeletedChat]);
 
   const setCurrentRoom = useCallback((room: Room | null) => {
     dispatch({ type: "SET_CURRENT_ROOM", room });
@@ -633,6 +841,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const existing = stateRef.current.rooms.find((r) => r._id === roomId);
       const lastAt = existing?.last_message?.createdAt;
       const cutoff = lastAt ?? new Date().toISOString();
+      // Re-arm automatic reactivation for this room (a second delete must
+      // trigger it again on the next incoming message).
+      reactivatedRoomsRef.current.delete(roomId);
       setChatCutoffs((prev) => {
         const next = { ...prev, [roomId]: cutoff };
         persistChatCutoffs(next, userIdRef.current);
@@ -705,6 +916,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           append: page > 1,
         });
         dispatch({ type: "SET_MESSAGE_PAGE", page });
+        // Keep the pin badges consistent with the known pinned set, since a
+        // single-pin backend won't mark older pinned messages as pinned.
+        dispatch({
+          type: "SET_PINNED_FLAGS",
+          pinnedIds: (stateRef.current.pinnedMessages ?? []).map((m) =>
+            messageKey(m),
+          ),
+        });
       } else {
         dispatch({ type: "SET_ERROR", error: "Failed to load messages" });
       }
@@ -911,31 +1130,123 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // ── Pin Actions ─────────────────────────────────────────────────────────
 
-  const fetchPinnedMessages = useCallback(async (roomId: string) => {
-    const res = await chatService.getPinnedMessages(roomId);
-    if (res.Good) {
-      dispatch({ type: "SET_PINNED", messages: res.pinned });
-    }
+  // Some pin responses carry only a partial message; backfill fields from the
+  // already-loaded message so the pinned list always has content to show.
+  const enrichPinnedMessage = useCallback((message: ChatMessage): ChatMessage => {
+    const key = messageKey(message);
+    const full = stateRef.current.messages.find((m) => messageKey(m) === key);
+    if (!full) return message;
+    return {
+      ...full,
+      ...message,
+      text: message.text || full.text,
+      sender_name: message.sender_name || full.sender_name,
+      createdAt: message.createdAt || full.createdAt,
+      attachments:
+        (message.attachments?.length ?? 0) > 0
+          ? message.attachments
+          : full.attachments,
+    };
   }, []);
 
+  const fetchPinnedMessages = useCallback(
+    async (roomId: string) => {
+      if (!roomId) return;
+      const res = await chatService.getPinnedMessages(roomId);
+      const server = (res?.Good && Array.isArray(res.pinned)
+        ? res.pinned
+        : []
+      ).map(enrichPinnedMessage);
+      serverPinsRef.current = { ...serverPinsRef.current, [roomId]: server };
+      // Union server pins (everyone's) with pins this user made locally, so
+      // multiple pins stay visible even if the server only keeps one.
+      const merged = mergePinnedMessages(
+        server,
+        (localPinsRef.current[roomId] ?? []).map(enrichPinnedMessage),
+      );
+      dispatch({ type: "SET_PINNED", messages: merged });
+      dispatch({
+        type: "SET_PINNED_FLAGS",
+        pinnedIds: merged.map((m) => messageKey(m)),
+      });
+    },
+    [enrichPinnedMessage],
+  );
+
+  // Re-merge the visible pinned list whenever the locally-persisted pins
+  // change (e.g. they finish loading after the room was opened), so multiple
+  // pins show without needing to reopen the chat.
+  useEffect(() => {
+    const rid = stateRef.current.currentRoom?._id;
+    if (!rid) return;
+    const merged = mergePinnedMessages(
+      serverPinsRef.current[rid] ?? [],
+      (localPins[rid] ?? []).map(enrichPinnedMessage),
+    );
+    dispatch({ type: "SET_PINNED", messages: merged });
+    dispatch({
+      type: "SET_PINNED_FLAGS",
+      pinnedIds: merged.map((m) => messageKey(m)),
+    });
+  }, [localPins, enrichPinnedMessage]);
+
   const togglePinAction = useCallback(
-    async (messageId: string) => {
+    async (messageId: string, roomId?: string) => {
+      const rid = roomId ?? "";
+      const serverList = rid ? (serverPinsRef.current[rid] ?? []) : [];
+      const localList = rid ? (localPinsRef.current[rid] ?? []) : [];
+      const inServer = serverList.some((m) => messageKey(m) === messageId);
+      const inLocal = localList.some((m) => messageKey(m) === messageId);
+      const currentlyPinned = inServer || inLocal;
+
+      // Unpinning a pin that only exists locally (the server already replaced
+      // it with a newer single pin) must NOT call toggle-pin: toggling it would
+      // pin it again server-side. Just drop it locally.
+      if (currentlyPinned && !inServer && rid) {
+        setLocalPins((prev) => {
+          const nextList = (prev[rid] ?? []).filter(
+            (m) => messageKey(m) !== messageId,
+          );
+          const next = { ...prev, [rid]: nextList };
+          persistLocalPins(next, userIdRef.current);
+          return next;
+        });
+        fetchPinnedMessages(rid).catch(() => {});
+        return;
+      }
+
       const res = await chatService.togglePin(messageId);
       if (!res.Good) {
         console.log("Failed to toggle pin");
       }
-      socketService.emitMessagePinned(
-        res.message.room_id,
-        messageId,
-        res.is_pinned,
-        res.message,
-      );
-      // Update message in state
-      dispatch({ type: "UPDATE_MESSAGE", message: res.message });
-      // Refresh the pinned banner list so it reflects the toggle immediately
-      fetchPinnedMessages(res.message.room_id).catch(() => {});
+      const pinnedMsg = res.message ? enrichPinnedMessage(res.message) : null;
+      if (rid) {
+        socketService.emitMessagePinned(
+          rid,
+          messageId,
+          res.is_pinned,
+          pinnedMsg ?? res.message,
+        );
+      }
+      // Update the message in state (badge/tint).
+      if (pinnedMsg) {
+        dispatch({ type: "UPDATE_MESSAGE", message: pinnedMsg });
+      }
+      if (rid) {
+        setLocalPins((prev) => {
+          const list = prev[rid] ?? [];
+          const nextList = res.is_pinned
+            ? mergePinnedMessages(list, pinnedMsg ? [pinnedMsg] : [])
+            : list.filter((m) => messageKey(m) !== messageId);
+          const next = { ...prev, [rid]: nextList };
+          persistLocalPins(next, userIdRef.current);
+          return next;
+        });
+        // Recompute the authoritative + local union and message flags.
+        fetchPinnedMessages(rid).catch(() => {});
+      }
     },
-    [fetchPinnedMessages],
+    [fetchPinnedMessages, persistLocalPins, enrichPinnedMessage],
   );
 
   // ── Member Actions ──────────────────────────────────────────────────────
@@ -1165,9 +1476,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const cleanupConnect = socketService.onSocketEvent("connect", () => {
         setSocketConnected(true);
         socketService.registerUser(userId);
-        // Rejoin all rooms on reconnect
+        // Rejoin all rooms on reconnect — including deleted-for-me chats the
+        // server no longer lists, so their next message is delivered.
+        const joined = new Set<string>();
         stateRef.current.rooms.forEach((room) => {
+          if (joined.has(room._id)) return;
+          joined.add(room._id);
           socketService.joinChatRoom(room._id);
+        });
+        Object.keys(chatCutoffsRef.current).forEach((rid) => {
+          if (joined.has(rid)) return;
+          joined.add(rid);
+          socketService.joinChatRoom(rid);
         });
       });
 
@@ -1276,12 +1596,23 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             });
           }
 
-          // A message from the other user on a chat that is not in the list
-          // (e.g. one deleted for me) must bring it back. A silent refresh
-          // re-adds it with the new last_message, which clears its derived
-          // hidden state. Chats already in state update above.
+          // A message from the other user must surface its chat:
+          //  - If the chat was deleted for me, run the same initialization the
+          //    manual "New Chat → user" flow does (get-or-create + join) so it
+          //    reappears even though GET /chat/rooms hides it for me.
+          //  - If the room is simply unknown, subscribe + refresh.
+          // Chats already in local state were updated above.
           if (!room && message.sender_id !== userIdRef.current) {
-            fetchRoomsRef.current?.({ silent: true })?.catch(() => {});
+            if (chatCutoffsRef.current[message.room_id]) {
+              reactivateDeletedChatRef.current(message.room_id, message);
+            } else if (!cutoffsLoadedRef.current) {
+              // Cutoffs not loaded yet — replay once they are, otherwise the
+              // first message after a restart could be missed.
+              pendingUnknownMessagesRef.current.set(message.room_id, message);
+            } else {
+              socketService.joinChatRoom(message.room_id);
+              fetchRoomsRef.current?.({ silent: true })?.catch(() => {});
+            }
           }
 
           if (message.sender_id !== userIdRef.current) {
@@ -1435,13 +1766,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         "messagePinned",
         (data) => {
           const typed = data as {
+            room_id?: string;
             messageId: string;
             isPinned: boolean;
             message: ChatMessage;
           };
-          dispatch({ type: "UPDATE_MESSAGE", message: typed.message });
-          if (typed.message?.room_id) {
-            fetchPinnedMessages(typed.message.room_id).catch(() => {});
+          if (typed.message) {
+            dispatch({ type: "UPDATE_MESSAGE", message: typed.message });
+          }
+          // `room_id` is carried at the top level of this event's payload.
+          const pinnedRoomId = typed.room_id ?? typed.message?.room_id;
+          if (pinnedRoomId) {
+            fetchPinnedMessages(pinnedRoomId).catch(() => {});
           }
         },
       );
@@ -1467,6 +1803,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         (data) => {
           const typed = data as { messageId: string };
           dispatch({ type: "REMOVE_MESSAGE", messageId: typed.messageId });
+          // A deleted message must not linger in the local multi-pin store.
+          setLocalPins((prev) => {
+            let changed = false;
+            const next: Record<string, ChatMessage[]> = {};
+            for (const [rid, list] of Object.entries(prev)) {
+              const filtered = list.filter(
+                (m) => messageKey(m) !== typed.messageId,
+              );
+              if (filtered.length !== list.length) changed = true;
+              next[rid] = filtered;
+            }
+            if (!changed) return prev;
+            persistLocalPins(next, userIdRef.current);
+            return next;
+          });
         },
       );
 
