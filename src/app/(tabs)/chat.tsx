@@ -23,9 +23,14 @@ import {
     filterRoomsByType,
     filterUnreadRooms,
     formatChatListTime,
+    formatVoiceDuration,
     getRoomAvatar,
     getRoomDisplayName,
+    getVoiceNoteSecondsFromAttachment,
+    getVoiceNoteSecondsFromText,
+    isAudioAttachment,
     isRoomUnread,
+    isVoiceNoteText,
 } from "@/utils/chatHelpers";
 import {
     openConversation,
@@ -786,6 +791,16 @@ export default function ChatScreen() {
             if (failed > 0) parts.push(`${failed} failed`);
             if (parts.length > 0) showSuccess("Channel Ready", `"${room.name}": ${parts.join(", ")}.`);
 
+            // Mark as invited first so a trailing onClose can't delete the room,
+            // then close the invite modal BEFORE navigating. It is a native
+            // Modal rendered above the navigator; leaving it open made it show
+            // over the channel and reappear when coming back with the back button.
+            channelInvitedRef.current = true;
+            setInviteModalVisible(false);
+            createdRoomRef.current = null;
+            setPendingInviteUsers([]);
+            setNewChannelName("");
+
             // Navigate to the new channel (guarded against duplicate taps)
             openConversation({
                 roomId: room._id,
@@ -794,8 +809,6 @@ export default function ChatScreen() {
                 isChannel: "true",
                 roomType: "channel",
             });
-            channelInvitedRef.current = true;
-            setNewChannelName("");
         },
         [pendingInviteUsers, fetchRooms]
     );
@@ -1136,10 +1149,24 @@ export default function ChatScreen() {
                             {displayRooms.map((room: Room) => {
                                     const displayName = getRoomDisplayName(room, currentUserId);
                                     const unread = isRoomUnread(room);
+                                    const lastAtts = room.last_message?.attachments ?? [];
+                                    const lastText = room.last_message?.text ?? "";
+                                    const lastAudio = lastAtts.find((a) => isAudioAttachment(a));
+                                    const lastIsVoice = !!lastAudio || isVoiceNoteText(lastText);
+                                    const lastVoiceSecs = lastIsVoice
+                                        ? (lastAudio
+                                              ? getVoiceNoteSecondsFromAttachment(lastAudio)
+                                              : null) ??
+                                          getVoiceNoteSecondsFromText(lastText)
+                                        : null;
                                     const lastPreview = room.last_message
-                                        ? (room.last_message.attachments && room.last_message.attachments.length > 0
-                                            ? `📎 ${room.last_message.attachments.length} attachment${room.last_message.attachments.length > 1 ? "s" : ""}`
-                                            : room.last_message.text || "No messages yet")
+                                        ? lastIsVoice
+                                            ? lastVoiceSecs != null
+                                                ? `Voice note · ${formatVoiceDuration(lastVoiceSecs)}`
+                                                : "Voice note"
+                                            : lastAtts.length > 0
+                                                ? `📎 ${lastAtts.length} attachment${lastAtts.length > 1 ? "s" : ""}`
+                                                : room.last_message.text || "No messages yet"
                                         : "No messages yet";
 
                                     return (
@@ -1169,9 +1196,26 @@ export default function ChatScreen() {
                                                 <Text style={styles.chatName} numberOfLines={1}>
                                                     {displayName}
                                                 </Text>
-                                                <Text style={styles.chatSnippet} numberOfLines={1}>
-                                                    {lastPreview}
-                                                </Text>
+                                                {lastIsVoice ? (
+                                                    <View style={styles.chatSnippetRow}>
+                                                        <Ionicons
+                                                            name="mic"
+                                                            size={12}
+                                                            color="#4B5563"
+                                                            style={styles.chatSnippetMic}
+                                                        />
+                                                        <Text
+                                                            style={[styles.chatSnippet, styles.chatSnippetFlex]}
+                                                            numberOfLines={1}
+                                                        >
+                                                            {lastPreview}
+                                                        </Text>
+                                                    </View>
+                                                ) : (
+                                                    <Text style={styles.chatSnippet} numberOfLines={1}>
+                                                        {lastPreview}
+                                                    </Text>
+                                                )}
                                             </View>
                                             <View style={styles.chatMeta}>
                                                 {unread && room.unreadCount > 0 && (
@@ -1580,6 +1624,16 @@ const styles = StyleSheet.create({
         fontSize: rf(11),
         fontFamily: "SF_Pro_Regular",
         color: "#4B5563",
+    },
+    chatSnippetRow: {
+        flexDirection: "row",
+        alignItems: "center",
+    },
+    chatSnippetFlex: {
+        flex: 1,
+    },
+    chatSnippetMic: {
+        marginRight: 3,
     },
     chatMeta: {
         flexDirection: "row",

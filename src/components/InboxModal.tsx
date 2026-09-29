@@ -302,7 +302,10 @@ export default function InboxModal({
               </View>
             ) : (
               displayNotifications.map((item, index) => {
-                const { name, message } = getNotificationDisplay(item);
+                const { name, message } = getNotificationDisplay(
+                  item,
+                  chatState.rooms,
+                );
                 return (
                 <TouchableOpacity
                   key={`${item.id}-${index}`}

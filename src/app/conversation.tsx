@@ -20,11 +20,19 @@ import {
   RoomMember,
 } from "@/types/chat.types";
 import {
+  buildVoiceNoteFileName,
+  buildVoiceNoteText,
   canPerformAction,
   filterMessagesByText,
   formatMessageTime,
+  formatVoiceDuration,
+  getMessagePostType,
   getRoomAvatar,
+  getVoiceNoteSeconds,
+  getVoiceNoteSecondsFromAttachment,
+  isAudioAttachment,
   isOwnMessage,
+  isVoiceNoteText,
   resolveFileUrl,
   resolveSecureFileUrl,
 } from "@/utils/chatHelpers";
@@ -65,15 +73,19 @@ import {
   Dimensions,
   FlatList,
   GestureResponderEvent,
+  ImageStyle,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
   Pressable,
   ScrollView,
+  StyleProp,
   StyleSheet,
   Text,
   TextInput,
+  TextStyle,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -202,7 +214,13 @@ function getWaveformBars(seed: string): number[] {
   return bars;
 }
 
-function VoiceNotePlayer({ audioUrl }: { audioUrl: string }) {
+function VoiceNotePlayer({
+  audioUrl,
+  initialDurationSec,
+}: {
+  audioUrl: string;
+  initialDurationSec?: number | null;
+}) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -382,6 +400,14 @@ function VoiceNotePlayer({ audioUrl }: { audioUrl: string }) {
   const progress = duration > 0 ? (position / duration) * 100 : 0;
   const posSec = Math.floor(position / 1000);
   const durSec = Math.floor(duration / 1000);
+  // Prefer the real audio duration; fall back to the duration we tagged on the
+  // message/filename so the length is visible before the note is played.
+  const totalSec =
+    durSec > 0
+      ? durSec
+      : initialDurationSec && initialDurationSec > 0
+        ? Math.floor(initialDurationSec)
+        : 0;
 
   return (
     <View style={vnStyles.container}>
@@ -412,8 +438,10 @@ function VoiceNotePlayer({ audioUrl }: { audioUrl: string }) {
           })}
         </View>
         <Text style={vnStyles.timeText}>
-          {duration > 0
-            ? `${Math.floor(posSec / 60)}:${(posSec % 60).toString().padStart(2, "0")} / ${Math.floor(durSec / 60)}:${(durSec % 60).toString().padStart(2, "0")}`
+          {totalSec > 0
+            ? isPlaying || position > 0
+              ? `${formatVoiceDuration(posSec)} / ${formatVoiceDuration(totalSec)}`
+              : formatVoiceDuration(totalSec)
             : isPlaying
               ? "Playing..."
               : "Voice note"}
@@ -746,7 +774,6 @@ const ATTACH_TABS = ["Images", "Videos", "Docs", "Links"];
 
 const IMAGE_EXTS = ["jpg", "jpeg", "png", "gif", "webp", "heic"];
 const VIDEO_EXTS = ["mp4", "mov", "avi", "webm", "mkv", "m4v", "3gp"];
-const AUDIO_EXTS = ["mp3", "wav", "m4a", "ogg", "caf"];
 
 function getAttachmentExt(a: MessageAttachment): string {
   // Prefer `url` over `name` (the server-assigned filename in `name` is
@@ -771,17 +798,76 @@ function isVideoAttachment(a: MessageAttachment): boolean {
   );
 }
 
-function isAudioAttachment(a: MessageAttachment): boolean {
+// Matches http(s) URLs embedded in a message's plain text.
+const URL_PATTERN = /(https?:\/\/[^\s]+)/gi;
+const URL_FULL_PATTERN = /^https?:\/\/[^\s]+$/i;
+
+/** Renders message text with clickable, underlined links. */
+function LinkifiedText({
+  text,
+  style,
+}: {
+  text: string;
+  style?: StyleProp<TextStyle>;
+}) {
+  const parts = text.split(URL_PATTERN);
   return (
-    AUDIO_EXTS.includes(getAttachmentExt(a)) ||
-    (a.type || "").startsWith("audio/")
+    <Text style={style}>
+      {parts.map((part, i) =>
+        URL_FULL_PATTERN.test(part) ? (
+          <Text
+            key={i}
+            style={styles.linkText}
+            onPress={() =>
+              Linking.openURL(part).catch(() =>
+                showError("Error", "Could not open link"),
+              )
+            }
+          >
+            {part}
+          </Text>
+        ) : (
+          part
+        ),
+      )}
+    </Text>
   );
 }
 
-// Matches http(s) URLs embedded in a message's plain text.
-const URL_PATTERN = /(https?:\/\/[^\s]+)/gi;
+/**
+ * Build the body text for a "replying to…" preview. Voice notes surface their
+ * length (the only way to tell two voice notes apart in a quoted reply).
+ */
+function getReplyPreviewText(m?: {
+  text?: string | null;
+  attachments?: { url?: string | null; name?: string | null; type?: string | null }[] | null;
+} | null): string {
+  if (!m) return "";
+  const audio = (m.attachments ?? []).find((a) => isAudioAttachment(a));
+  if (audio) {
+    // Duration may be encoded in the filename or tagged in the message text.
+    const secs = getVoiceNoteSeconds(m);
+    return secs != null
+      ? `🎤 Voice note · ${formatVoiceDuration(secs)}`
+      : "🎤 Voice note";
+  }
+  if (isVoiceNoteText(m.text)) {
+    const secs = getVoiceNoteSeconds(m);
+    return secs != null
+      ? `🎤 Voice note · ${formatVoiceDuration(secs)}`
+      : "🎤 Voice note";
+  }
+  if (m.text) return m.text;
+  return (m.attachments?.length ?? 0) > 0 ? "📎 Attachment" : "";
+}
 
-function AttachmentsPanel({ messages }: { messages: ChatMessage[] }) {
+function AttachmentsPanel({
+  messages,
+  onOpenImage,
+}: {
+  messages: ChatMessage[];
+  onOpenImage?: (images: MessageAttachment[], index: number) => void;
+}) {
   const [activeTab, setActiveTab] = useState("Images");
 
   const imageAttachments = useMemo(
@@ -855,6 +941,7 @@ function AttachmentsPanel({ messages }: { messages: ChatMessage[] }) {
                 key={index}
                 activeOpacity={0.85}
                 style={ap.imageThumbWrap}
+                onPress={() => onOpenImage?.(imageAttachments, index)}
               >
                 <SecureImage url={item.url} style={ap.imageThumb} />
               </TouchableOpacity>
@@ -1061,6 +1148,15 @@ const ap = StyleSheet.create({
 // ─── Date Divider ─────────────────────────────────────────────────────────────
 
 const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAY_LONG = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
 const MONTH_SHORT = [
   "Jan",
   "Feb",
@@ -1076,10 +1172,23 @@ const MONTH_SHORT = [
   "Dec",
 ];
 
-/** WhatsApp-style static date label, e.g. "Mon, 11 Sep". */
+/**
+ * WhatsApp-style static date label:
+ *   Today | Yesterday | weekday name (last 7 days) | "Mon, 11 Sep" (older).
+ */
 function formatDateDivider(dateInput?: Date | string | null): string {
   const d = dateInput ? new Date(dateInput) : null;
   if (!d || isNaN(d.getTime())) return "";
+
+  const startOfDay = (x: Date) =>
+    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const dayDiff = Math.round(
+    (startOfDay(new Date()) - startOfDay(d)) / 86_400_000,
+  );
+
+  if (dayDiff === 0) return "Today";
+  if (dayDiff === 1) return "Yesterday";
+  if (dayDiff > 1 && dayDiff < 7) return WEEKDAY_LONG[d.getDay()];
   return `${WEEKDAY_SHORT[d.getDay()]}, ${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`;
 }
 
@@ -1238,6 +1347,211 @@ const swipeReplyStyles = StyleSheet.create({
   },
 });
 
+// ─── Attachment Cluster (WhatsApp-style) ──────────────────────────────────────
+// Groups multiple image attachments into a compact grid instead of stacking
+// them full-size, and makes every image/doc tappable (images open in a viewer,
+// docs open externally).
+
+const ATT_GRID_WIDTH = 220;
+const ATT_GRID_GAP = 3;
+const ATT_CELL = Math.floor((ATT_GRID_WIDTH - ATT_GRID_GAP) / 2);
+
+function AttachmentCluster({
+  images,
+  docs,
+  onOpenImage,
+}: {
+  images: MessageAttachment[];
+  docs: MessageAttachment[];
+  onOpenImage?: (images: MessageAttachment[], index: number) => void;
+}) {
+  const openDoc = (doc: MessageAttachment) => {
+    const target = resolveFileUrl(doc.url);
+    if (!target) return;
+    Linking.openURL(target).catch(() =>
+      showError("Error", "Could not open attachment"),
+    );
+  };
+
+  const count = images.length;
+  const hasImages = count > 0;
+  const hasDocs = docs.length > 0;
+
+  const cellStyle: StyleProp<ImageStyle> = {
+    width: ATT_CELL,
+    height: ATT_CELL,
+    borderRadius: 8,
+    backgroundColor: "#E5E7EB",
+  };
+
+  const renderImage = (
+    att: MessageAttachment,
+    index: number,
+    style: StyleProp<ImageStyle>,
+    overlay?: number,
+  ) => (
+    <TouchableOpacity
+      key={`img-${index}`}
+      activeOpacity={0.9}
+      onPress={() => onOpenImage?.(images, index)}
+    >
+      <SecureImage url={att.url} style={style} resizeMode="cover" />
+      {overlay && overlay > 0 ? (
+        <View style={styles.attGridMore}>
+          <Text style={styles.attGridMoreText}>{`+${overlay}`}</Text>
+        </View>
+      ) : null}
+    </TouchableOpacity>
+  );
+
+  return (
+    <>
+      {hasImages ? (
+        <View style={styles.attGridWrap}>
+          {count === 1 ? (
+            renderImage(images[0], 0, styles.attachedImage)
+          ) : count === 2 ? (
+            <View style={styles.attGridRow}>
+              {renderImage(images[0], 0, cellStyle)}
+              {renderImage(images[1], 1, cellStyle)}
+            </View>
+          ) : count === 3 ? (
+            <View style={styles.attGridCol}>
+              {renderImage(images[0], 0, { width: ATT_GRID_WIDTH, height: ATT_CELL, borderRadius: 8, backgroundColor: "#E5E7EB" })}
+              <View style={styles.attGridRow}>
+                {renderImage(images[1], 1, cellStyle)}
+                {renderImage(images[2], 2, cellStyle)}
+              </View>
+            </View>
+          ) : (
+            <View style={styles.attGridCol}>
+              <View style={styles.attGridRow}>
+                {renderImage(images[0], 0, cellStyle)}
+                {renderImage(images[1], 1, cellStyle)}
+              </View>
+              <View style={styles.attGridRow}>
+                {renderImage(images[2], 2, cellStyle)}
+                {renderImage(images[3], 3, cellStyle, count - 4)}
+              </View>
+            </View>
+          )}
+        </View>
+      ) : null}
+
+      {hasDocs ? (
+        <View style={styles.docAttachmentContainer}>
+          {docs.map((doc, i) => (
+            <TouchableOpacity
+              key={`doc-${i}`}
+              style={styles.docRow}
+              activeOpacity={0.7}
+              onPress={() => openDoc(doc)}
+            >
+              <Ionicons name="document-text" size={18} color="#00DEAB" />
+              <Text style={styles.docName} numberOfLines={1}>
+                {doc.name || "Document"}
+              </Text>
+              <Ionicons name="chevron-forward" size={15} color="#9CA3AF" />
+            </TouchableOpacity>
+          ))}
+        </View>
+      ) : null}
+    </>
+  );
+}
+
+// ─── Image Viewer ─────────────────────────────────────────────────────────────
+
+function ImageViewerModal({
+  visible,
+  images,
+  index,
+  onClose,
+  onChangeIndex,
+}: {
+  visible: boolean;
+  images: MessageAttachment[];
+  index: number;
+  onClose: () => void;
+  onChangeIndex: (index: number) => void;
+}) {
+  const listRef = useRef<FlatList<MessageAttachment>>(null);
+  const { width, height } = Dimensions.get("window");
+  const safeIndex =
+    images.length > 0 ? Math.max(0, Math.min(index, images.length - 1)) : 0;
+
+  useEffect(() => {
+    if (!visible || images.length === 0) return;
+    const t = setTimeout(() => {
+      listRef.current?.scrollToIndex({ index: safeIndex, animated: false });
+    }, 0);
+    return () => clearTimeout(t);
+  }, [visible, safeIndex, images.length]);
+
+  if (!visible || images.length === 0) return null;
+
+  return (
+    <Modal
+      visible
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={styles.viewerRoot}>
+        <FlatList
+          ref={listRef}
+          data={images}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          keyExtractor={(_, i) => `viewer-${i}`}
+          getItemLayout={(_, i) => ({
+            length: width,
+            offset: width * i,
+            index: i,
+          })}
+          initialScrollIndex={safeIndex}
+          onMomentumScrollEnd={(e) => {
+            const i = Math.round(e.nativeEvent.contentOffset.x / width);
+            onChangeIndex(i);
+          }}
+          renderItem={({ item }) => (
+            <View
+              style={{
+                width,
+                height,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <SecureImage
+                url={item.url}
+                style={{ width: width - 20, height: height * 0.72 }}
+                resizeMode="contain"
+              />
+            </View>
+          )}
+        />
+        <TouchableOpacity
+          style={styles.viewerClose}
+          onPress={onClose}
+          hitSlop={12}
+        >
+          <Ionicons name="close" size={26} color="#fff" />
+        </TouchableOpacity>
+        {images.length > 1 ? (
+          <View style={styles.viewerCounter}>
+            <Text style={styles.viewerCounterText}>
+              {`${safeIndex + 1} / ${images.length}`}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+    </Modal>
+  );
+}
+
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 const MessageBubble = React.memo(function MessageBubble({
@@ -1251,6 +1565,8 @@ const MessageBubble = React.memo(function MessageBubble({
   showTimestamp = true,
   onLongPress,
   onReactionPress,
+  onOpenImage,
+  postTypes,
 }: {
   message: ChatMessage;
   currentUserId: number;
@@ -1262,6 +1578,8 @@ const MessageBubble = React.memo(function MessageBubble({
   showTimestamp?: boolean;
   onLongPress?: (msg: ChatMessage, e?: GestureResponderEvent) => void;
   onReactionPress?: (msg: ChatMessage, emoji: string) => void;
+  onOpenImage?: (images: MessageAttachment[], index: number) => void;
+  postTypes?: { name: string; color: string; icon?: string }[];
 }) {
   const own = isOwnMessage(message, currentUserId);
   const senderMember = members?.find((m) => m.id === message.sender_id);
@@ -1278,6 +1596,27 @@ const MessageBubble = React.memo(function MessageBubble({
     null;
   const time = formatMessageTime(message.createdAt);
 
+  // Post-type label (if the message was tagged with one).
+  const messagePostType = getMessagePostType(message);
+  const postTypeColor =
+    postTypes?.find((p) => p.name === messagePostType)?.color ?? "#00DEAB";
+  const postTypeBadge = messagePostType ? (
+    <View
+      style={[
+        styles.postTypeBadge,
+        { backgroundColor: postTypeColor + "22" },
+      ]}
+    >
+      <Ionicons name="pricetag" size={10} color={postTypeColor} />
+      <Text
+        style={[styles.postTypeBadgeText, { color: postTypeColor }]}
+        numberOfLines={1}
+      >
+        {messagePostType}
+      </Text>
+    </View>
+  ) : null;
+
   // Read receipt — only meaningful for a 1:1 direct chat's own messages
   // (a channel/group has many readers, so a single tick pair doesn't map
   // cleanly the way it does in WhatsApp's 1:1 view).
@@ -1293,18 +1632,13 @@ const MessageBubble = React.memo(function MessageBubble({
       .map((r) => r.emoji),
   );
 
-  const audioAtt = message.attachments?.find((a) => {
-    const str = (a.url || a.name || "").toLowerCase();
-    return (
-      str.includes(".m4a") ||
-      str.includes(".mp3") ||
-      str.includes(".wav") ||
-      str.includes(".webm") ||
-      str.includes(".ogg") ||
-      str.includes(".caf") ||
-      (a.type || "").startsWith("audio/")
-    );
-  });
+  const audioAtt = message.attachments?.find((a) => isAudioAttachment(a));
+  // Voice-note length: prefer the encoded filename, fall back to the text tag.
+  const voiceNoteSeconds =
+    getVoiceNoteSecondsFromAttachment(audioAtt ?? null) ??
+    (isVoiceNoteText(message.text)
+      ? getVoiceNoteSeconds({ text: message.text, attachments: null })
+      : null);
 
   const imageAtts = message.attachments?.filter((a) => {
     const str = (a.url || a.name || "").toLowerCase();
@@ -1399,6 +1733,7 @@ const MessageBubble = React.memo(function MessageBubble({
                   message.is_pinned && styles.bubblePinnedIncoming,
                 ]}
               >
+                {postTypeBadge}
                 {repliedPreview ? (
                   <View style={styles.quotedPreview}>
                     <Text style={styles.quotedSender} numberOfLines={1}>
@@ -1424,45 +1759,27 @@ const MessageBubble = React.memo(function MessageBubble({
                     </Text>
                   </View>
                 ) : null}
-                {audioAtt ? <VoiceNotePlayer audioUrl={audioAtt.url} /> : null}
-                {imageAtts && imageAtts.length > 0 ? (
-                  <View style={styles.imageAttachmentContainer}>
-                    {imageAtts.map((att, i) => (
-                      <SecureImage
-                        key={i}
-                        url={att.url}
-                        style={styles.attachedImage}
-                        resizeMode="cover"
-                      />
-                    ))}
-                  </View>
+                {audioAtt ? (
+                  <VoiceNotePlayer
+                    audioUrl={audioAtt.url}
+                    initialDurationSec={voiceNoteSeconds}
+                  />
                 ) : null}
-                {docAtts && docAtts.length > 0 ? (
-                  <View style={styles.docAttachmentContainer}>
-                    {docAtts.map((doc, i) => (
-                      <View key={i} style={styles.docRow}>
-                        <Ionicons
-                          name="document-text"
-                          size={18}
-                          color="#00DEAB"
-                        />
-                        <Text style={styles.docName} numberOfLines={1}>
-                          {doc.name || "Document"}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
+                <AttachmentCluster
+                  images={imageAtts ?? []}
+                  docs={docAtts ?? []}
+                  onOpenImage={onOpenImage}
+                />
                 {message.text &&
-                message.text !== "🎤 Voice message" &&
+                !isVoiceNoteText(message.text) &&
                 !message.text.startsWith("📎 ") ? (
-                  <Text style={styles.bubbleText}>{message.text}</Text>
+                  <LinkifiedText text={message.text} style={styles.bubbleText} />
                 ) : message.text &&
                   message.text.startsWith("📎 ") &&
                   !imageAtts?.length &&
                   !docAtts?.length &&
                   !audioAtt ? (
-                  <Text style={styles.bubbleText}>{message.text}</Text>
+                  <LinkifiedText text={message.text} style={styles.bubbleText} />
                 ) : null}
               </Pressable>
             </Animated.View>
@@ -1534,6 +1851,7 @@ const MessageBubble = React.memo(function MessageBubble({
                 message.is_pinned && styles.bubblePinnedOutgoing,
               ]}
             >
+              {postTypeBadge}
               {repliedPreview ? (
                 <View style={styles.quotedPreview}>
                   <Text style={styles.quotedSender} numberOfLines={1}>
@@ -1559,45 +1877,27 @@ const MessageBubble = React.memo(function MessageBubble({
                   </Text>
                 </View>
               ) : null}
-              {audioAtt ? <VoiceNotePlayer audioUrl={audioAtt.url} /> : null}
-              {imageAtts && imageAtts.length > 0 ? (
-                <View style={styles.imageAttachmentContainer}>
-                  {imageAtts.map((att, i) => (
-                    <SecureImage
-                      key={i}
-                      url={att.url}
-                      style={styles.attachedImage}
-                      resizeMode="cover"
-                    />
-                  ))}
-                </View>
-              ) : null}
-              {docAtts && docAtts.length > 0 ? (
-                <View style={styles.docAttachmentContainer}>
-                  {docAtts.map((doc, i) => (
-                    <View key={i} style={styles.docRow}>
-                      <Ionicons
-                        name="document-text"
-                        size={18}
-                        color="#00DEAB"
-                      />
-                      <Text style={styles.docName} numberOfLines={1}>
-                        {doc.name || "Document"}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              ) : null}
+              {audioAtt ? (
+                  <VoiceNotePlayer
+                    audioUrl={audioAtt.url}
+                    initialDurationSec={voiceNoteSeconds}
+                  />
+                ) : null}
+              <AttachmentCluster
+                images={imageAtts ?? []}
+                docs={docAtts ?? []}
+                onOpenImage={onOpenImage}
+              />
               {message.text &&
-              message.text !== "🎤 Voice message" &&
+              !isVoiceNoteText(message.text) &&
               !message.text.startsWith("📎 ") ? (
-                <Text style={styles.bubbleText}>{message.text}</Text>
+                <LinkifiedText text={message.text} style={styles.bubbleText} />
               ) : message.text &&
                 message.text.startsWith("📎 ") &&
                 !imageAtts?.length &&
                 !docAtts?.length &&
                 !audioAtt ? (
-                <Text style={styles.bubbleText}>{message.text}</Text>
+                <LinkifiedText text={message.text} style={styles.bubbleText} />
               ) : null}
             </Pressable>
           </Animated.View>
@@ -1729,6 +2029,14 @@ function WhatsAppMessageModal({
   const canDeleteOthers = canPerformAction(callerPermission, "delete");
   const allowEdit = own || canEditOthers;
   const allowDelete = own || canDeleteOthers;
+  // Copy is only offered for real text messages — never for voice notes or
+  // attachment-only marker texts ("📎 file").
+  const copyableText =
+    message.text &&
+    !isVoiceNoteText(message.text) &&
+    !message.text.startsWith("📎 ")
+      ? message.text
+      : "";
 
   const screenHeight = Dimensions.get("window").height;
   const clampedY = targetY
@@ -1847,19 +2155,21 @@ function WhatsAppMessageModal({
               <Text style={waModalStyles.menuText}>Reply</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={waModalStyles.menuItem}
-              activeOpacity={0.6}
-              onPress={() => handlePressAction(onCopy)}
-            >
-              <Ionicons
-                name="copy-outline"
-                size={18}
-                color="#374151"
-                style={waModalStyles.menuIcon}
-              />
-              <Text style={waModalStyles.menuText}>Copy Text</Text>
-            </TouchableOpacity>
+            {copyableText ? (
+              <TouchableOpacity
+                style={waModalStyles.menuItem}
+                activeOpacity={0.6}
+                onPress={() => handlePressAction(onCopy)}
+              >
+                <Ionicons
+                  name="copy-outline"
+                  size={18}
+                  color="#374151"
+                  style={waModalStyles.menuIcon}
+                />
+                <Text style={waModalStyles.menuText}>Copy Text</Text>
+              </TouchableOpacity>
+            ) : null}
 
             <TouchableOpacity
               style={waModalStyles.menuItem}
@@ -1937,22 +2247,22 @@ function DeleteMessageModal({
   visible,
   message,
   currentUserId,
-  callerPermission,
   onClose,
   onConfirmDelete,
 }: {
   visible: boolean;
   message: ChatMessage | null;
   currentUserId: number;
-  callerPermission?: ChatPermission;
   onClose: () => void;
   onConfirmDelete: (deleteFor: "me" | "everyone") => void;
 }) {
   if (!visible || !message) return null;
 
   const own = isOwnMessage(message, currentUserId);
-  const canDeleteOthers = canPerformAction(callerPermission, "delete");
-  const allowDeleteEveryone = own || canDeleteOthers;
+  // "Delete for Everyone" is only available for messages the current user
+  // sent. Received messages can only be deleted for the current user
+  // ("Delete for Me"), regardless of any channel/permission delete rights.
+  const allowDeleteEveryone = own;
 
   return (
     <Modal
@@ -2832,6 +3142,10 @@ export default function ConversationScreen() {
     Map<string, { senderName: string; text: string }>
   >(new Map());
   const [postTypeOpen, setPostTypeOpen] = useState(false);
+  // Post type selected for the NEXT outgoing message (composer), and the post
+  // type currently filtering the message timeline (header "Post Type" panel).
+  const [selectedPostType, setSelectedPostType] = useState<string | null>(null);
+  const [filterPostType, setFilterPostType] = useState<string | null>(null);
   const [addPeopleOpen, setAddPeopleOpen] = useState(false);
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
   // Users selected in AddPeopleModal (pre-fills the invite modal's email field
@@ -2872,6 +3186,7 @@ export default function ConversationScreen() {
             files.length === 1
               ? `📎 ${files[0].name}`
               : `📎 ${files.length} attachments`,
+          ...(selectedPostType ? { postType: selectedPostType } : {}),
           attachments: files,
           onUploadProgress: (prog) => {
             setUploadProgress({
@@ -2881,6 +3196,7 @@ export default function ConversationScreen() {
           },
           abortUpload: abortUploadRef,
         });
+        setSelectedPostType(null);
       } catch (err) {
         console.log("[Attachment] Send error:", err);
         showError("Upload Error", "Failed to upload attachments.");
@@ -2889,7 +3205,7 @@ export default function ConversationScreen() {
         setUploadProgress(null);
       }
     },
-    [roomId, sendMessage],
+    [roomId, sendMessage, selectedPostType],
   );
 
   const handlePickCamera = useCallback(async () => {
@@ -3039,6 +3355,12 @@ export default function ConversationScreen() {
   const recordingAutoStopSentRef = useRef(false);
 
   const recordingSeconds = Math.floor(recorderState.durationMillis / 1000);
+  // Latest recording length, readable from the send callback without making it
+  // depend on every recorder-state tick.
+  const recorderDurationRef = useRef(0);
+  useEffect(() => {
+    recorderDurationRef.current = recorderState.durationMillis;
+  }, [recorderState.durationMillis]);
 
   const [dateFilterStart, setDateFilterStart] = useState<Date | null>(null);
   const [dateFilterEnd, setDateFilterEnd] = useState<Date | null>(null);
@@ -3217,6 +3539,12 @@ export default function ConversationScreen() {
     if (!roomId || recordingBusyRef.current) return;
     recordingBusyRef.current = true;
     setSending(true);
+    // Capture the length BEFORE stopping (the recorder state resets on stop)
+    // so it can be tagged on the message for a WhatsApp-style duration.
+    const recordedSeconds = Math.max(
+      1,
+      Math.round(recorderDurationRef.current / 1000),
+    );
     try {
       const uri = await stopRecording();
       if (!uri) {
@@ -3229,7 +3557,10 @@ export default function ConversationScreen() {
       // Web records audio/webm (matches IMAGE_AND_AUDIO_HANDLING.md §3.1);
       // iOS/Android record AAC in an MP4 (.m4a) container.
       const isWeb = Platform.OS === "web";
-      const name = `voice-note-${Date.now()}.${isWeb ? "webm" : "m4a"}`;
+      const name = buildVoiceNoteFileName(
+        recordedSeconds,
+        isWeb ? "webm" : "m4a",
+      );
       const type = isWeb ? "audio/webm" : "audio/mp4";
 
       // Verify the recorded file exists and log its size before uploading.
@@ -3257,7 +3588,7 @@ export default function ConversationScreen() {
       // FormDataPart implementation" — see AGENT_API_INTEGRATION.md.
       await sendMessage({
         room_id: roomId,
-        text: "🎤 Voice message",
+        text: buildVoiceNoteText(recordedSeconds),
         attachments: [{ uri, name, type }],
         onUploadProgress: (prog) => {
           setUploadProgress({
@@ -3502,10 +3833,13 @@ export default function ConversationScreen() {
         room_id: roomId,
         text,
         ...(mentions.length > 0 ? { mentions } : {}),
+        ...(selectedPostType ? { postType: selectedPostType } : {}),
         // Reply target must be the Mongo ObjectId (`_id`), never the numeric
         // `id` — the backend 500s on a numeric reply reference.
         parent_id: replyTarget?._id,
       });
+      // The post type is applied per message; reset it after a successful send.
+      setSelectedPostType(null);
       // Cache the quoted preview against the sent message id so it renders
       // even if the response doesn't echo `parent_id`.
       if (replyTarget && sent) {
@@ -3519,9 +3853,7 @@ export default function ConversationScreen() {
               (targetMember
                 ? `${targetMember.first_name} ${targetMember.last_name}`
                 : ""),
-          text:
-            replyTarget.text ||
-            (replyTarget.attachments?.length ? "📎 Attachment" : ""),
+          text: getReplyPreviewText(replyTarget),
         };
         if (sent._id) localReplyPreviewRef.current.set(String(sent._id), preview);
         if (sent.id != null)
@@ -3551,6 +3883,7 @@ export default function ConversationScreen() {
     currentUserName,
     mentionedUserIds,
     state.rooms,
+    selectedPostType,
   ]);
 
   const handleReact = useCallback(
@@ -3913,6 +4246,23 @@ export default function ConversationScreen() {
       .slice(0, 6);
   }, [mentionActive, mentionQuery, roomMembers, isChannel]);
 
+  // Full-screen image viewer (swipe through a message's images).
+  const [viewerImages, setViewerImages] = useState<MessageAttachment[]>([]);
+  const [viewerIndex, setViewerIndex] = useState(0);
+  const [viewerVisible, setViewerVisible] = useState(false);
+
+  const openImageViewer = useCallback(
+    (images: MessageAttachment[], index: number) => {
+      if (!images || images.length === 0) return;
+      setViewerImages(images);
+      setViewerIndex(Math.max(0, Math.min(index, images.length - 1)));
+      setViewerVisible(true);
+    },
+    [],
+  );
+
+  const closeImageViewer = useCallback(() => setViewerVisible(false), []);
+
   const handleLongPress = useCallback(
     (msg: ChatMessage, e?: GestureResponderEvent) => {
       triggerHaptic("medium");
@@ -3955,13 +4305,11 @@ export default function ConversationScreen() {
         const p = parentRef as {
           sender_name?: string;
           text?: string;
-          attachments?: unknown[];
+          attachments?: { url?: string | null; name?: string | null; type?: string | null }[];
         };
         repliedPreview = {
           senderName: p.sender_name || "Message",
-          text:
-            p.text ||
-            (p.attachments && p.attachments.length > 0 ? "📎 Attachment" : ""),
+          text: getReplyPreviewText(p),
         };
       } else if (typeof parentRef === "string") {
         const found = messageById.get(parentRef);
@@ -3974,9 +4322,7 @@ export default function ConversationScreen() {
               ? "You"
               : found.sender_name ||
                 (member ? `${member.first_name} ${member.last_name}` : ""),
-            text:
-              found.text ||
-              (found.attachments?.length ? "📎 Attachment" : ""),
+            text: getReplyPreviewText(found),
           };
         } else {
           repliedPreview = { senderName: "Message", text: "" };
@@ -4015,6 +4361,8 @@ export default function ConversationScreen() {
               showTimestamp={item.showTime}
               onLongPress={handleLongPress}
               onReactionPress={handleReactEmoji}
+              onOpenImage={openImageViewer}
+              postTypes={postTypes}
             />
           </SwipeToReply>
         </View>
@@ -4028,6 +4376,8 @@ export default function ConversationScreen() {
       highlightedMessageId,
       handleLongPress,
       handleReactEmoji,
+      openImageViewer,
+      postTypes,
     ],
   );
 
@@ -4049,8 +4399,21 @@ export default function ConversationScreen() {
         return msgDate >= startMs && msgDate <= endMs;
       });
     }
+
+    // Post-type filter from the header "Post Type" panel.
+    if (filterPostType) {
+      filtered = filtered.filter(
+        (m) => getMessagePostType(m) === filterPostType,
+      );
+    }
     return filtered;
-  }, [state.messages, search, dateFilterStart, dateFilterEnd]);
+  }, [
+    state.messages,
+    search,
+    dateFilterStart,
+    dateFilterEnd,
+    filterPostType,
+  ]);
 
   // Build the list items with a static date divider before the first message of
   // each day (chronological), then reverse for the inverted list. Deliberately
@@ -4059,6 +4422,7 @@ export default function ConversationScreen() {
     const items: MessageListItem[] = [];
     let lastDateKey: string | null = null;
     let prevTs: number | null = null;
+    let prevSenderId: number | null = null;
     for (const m of filteredMessages) {
       const d = m.createdAt ? new Date(m.createdAt) : null;
       const valid = !!d && !isNaN(d.getTime());
@@ -4074,15 +4438,23 @@ export default function ConversationScreen() {
         lastDateKey = dateKey;
         // A new day always starts a new timestamp group.
         prevTs = null;
+        prevSenderId = null;
       }
       const ts = valid ? d!.getTime() : null;
-      // WhatsApp-style grouping: only the first message of a burst carries the
-      // timestamp. A message within 1 minute of the previous one is grouped
-      // with it (no separate timestamp); more than 1 minute apart starts a new
-      // group that shows the timestamp.
-      const showTime = prevTs === null || ts === null || ts - prevTs > 60000;
+      // WhatsApp-style grouping: only the first message of a sender's
+      // consecutive group carries the timestamp + avatar. A new group starts:
+      //  - on a new day,
+      //  - when the sender changes (e.g. the other person replies right after a
+      //    burst, or you reply right after receiving one), so their first
+      //    message always shows their initial/time,
+      //  - or when more than 1 minute passed since the previous message.
+      const senderChanged =
+        prevSenderId === null || String(m.sender_id) !== String(prevSenderId);
+      const showTime =
+        prevTs === null || ts === null || senderChanged || ts - prevTs > 60000;
       items.push({ type: "message", message: m, showTime });
       prevTs = ts;
+      prevSenderId = m.sender_id;
     }
     return items.reverse();
   }, [filteredMessages]);
@@ -4405,7 +4777,8 @@ export default function ConversationScreen() {
                 <TouchableOpacity
                   style={[
                     styles.filterChip,
-                    activeFilter === "post_type" && styles.filterChipActive,
+                    (activeFilter === "post_type" || !!filterPostType) &&
+                      styles.filterChipActive,
                   ]}
                   activeOpacity={0.75}
                   onPress={() => toggleFilter("post_type")}
@@ -4413,12 +4786,16 @@ export default function ConversationScreen() {
                   <Ionicons
                     name="apps-outline"
                     size={11}
-                    color={activeFilter === "post_type" ? "#fff" : "#6B7280"}
+                    color={
+                      activeFilter === "post_type" || !!filterPostType
+                        ? "#fff"
+                        : "#6B7280"
+                    }
                   />
                   <Text
                     style={[
                       styles.filterChipText,
-                      activeFilter === "post_type" &&
+                      (activeFilter === "post_type" || !!filterPostType) &&
                         styles.filterChipTextActive,
                     ]}
                   >
@@ -4438,30 +4815,53 @@ export default function ConversationScreen() {
         )}
         {!searchOpen && activeFilter === "attachments" && (
           <View style={styles.panelWrapper}>
-            <AttachmentsPanel messages={state.messages} />
+            <AttachmentsPanel
+              messages={state.messages}
+              onOpenImage={openImageViewer}
+            />
           </View>
         )}
         {!searchOpen && activeFilter === "post_type" && isChannel && (
           <View style={styles.panelWrapper}>
             <View style={styles.postTypeListPanel}>
-              {postTypes.map((pt: { name: string; color: string }) => (
-                <TouchableOpacity
-                  key={pt.name}
-                  style={[
-                    styles.postTypeListRow,
-                    { backgroundColor: pt.color + "15" },
-                  ]}
-                  activeOpacity={0.75}
-                >
-                  <Ionicons name="pricetag" size={14} color={pt.color} />
-                  <Text
-                    style={[styles.postTypeListLabel, { color: pt.color }]}
-                    numberOfLines={1}
+              {postTypes.map((pt: { name: string; color: string }) => {
+                const isActive = filterPostType === pt.name;
+                return (
+                  <TouchableOpacity
+                    key={pt.name}
+                    style={[
+                      styles.postTypeListRow,
+                      { backgroundColor: pt.color + "15" },
+                      isActive && {
+                        borderWidth: 1.5,
+                        borderColor: pt.color,
+                      },
+                    ]}
+                    activeOpacity={0.75}
+                    onPress={() =>
+                      setFilterPostType((prev) =>
+                        prev === pt.name ? null : pt.name,
+                      )
+                    }
                   >
-                    {pt.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Ionicons name="pricetag" size={14} color={pt.color} />
+                    <Text
+                      style={[styles.postTypeListLabel, { color: pt.color }]}
+                      numberOfLines={1}
+                    >
+                      {pt.name}
+                    </Text>
+                    {isActive && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={16}
+                        color={pt.color}
+                        style={{ marginLeft: "auto" }}
+                      />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
               {postTypes.length === 0 && (
                 <Text
                   style={{
@@ -4680,10 +5080,12 @@ export default function ConversationScreen() {
               ) : null
             }
             onScroll={handleMessagesScroll}
+            onScrollBeginDrag={() => Keyboard.dismiss()}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={CHAT_VIEWABILITY_CONFIG}
             scrollEventThrottle={16}
             showsVerticalScrollIndicator={false}
+            keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.scrollContent}
           />
@@ -4724,7 +5126,7 @@ export default function ConversationScreen() {
                   Replying to {replyTo.sender_name}
                 </Text>
                 <Text style={styles.replyPreviewText} numberOfLines={1}>
-                  {replyTo.text}
+                  {getReplyPreviewText(replyTo)}
                 </Text>
               </View>
               <TouchableOpacity
@@ -4944,13 +5346,14 @@ export default function ConversationScreen() {
                               onPress={() => setPostTypeOpen(!postTypeOpen)}
                             >
                               <Text
+                                numberOfLines={1}
                                 style={[
                                   styles.postTypeToggleText,
                                   postTypeOpen &&
                                     styles.postTypeToggleTextActive,
                                 ]}
                               >
-                                Post Type
+                                {selectedPostType ?? "Post Type"}
                               </Text>
                             </TouchableOpacity>
                           )}
@@ -4988,31 +5391,43 @@ export default function ConversationScreen() {
                         keyboardShouldPersistTaps="handled"
                       >
                         {postTypes.map(
-                          (pt: { name: string; color: string }) => (
-                            <TouchableOpacity
-                              key={pt.name}
-                              style={[
-                                styles.postTypeChip,
-                                { backgroundColor: pt.color + "15" },
-                              ]}
-                              activeOpacity={0.4}
-                            >
-                              <Ionicons
-                                name="pricetag"
-                                size={14}
-                                color={pt.color}
-                                style={{ marginRight: 4 }}
-                              />
-                              <Text
+                          (pt: { name: string; color: string }) => {
+                            const isSelected = selectedPostType === pt.name;
+                            return (
+                              <TouchableOpacity
+                                key={pt.name}
                                 style={[
-                                  styles.postTypeChipText,
-                                  { color: pt.color },
+                                  styles.postTypeChip,
+                                  {
+                                    backgroundColor: isSelected
+                                      ? pt.color
+                                      : pt.color + "15",
+                                  },
                                 ]}
+                                activeOpacity={0.4}
+                                onPress={() =>
+                                  setSelectedPostType((prev) =>
+                                    prev === pt.name ? null : pt.name,
+                                  )
+                                }
                               >
-                                {pt.name}
-                              </Text>
-                            </TouchableOpacity>
-                          ),
+                                <Ionicons
+                                  name="pricetag"
+                                  size={14}
+                                  color={isSelected ? "#fff" : pt.color}
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text
+                                  style={[
+                                    styles.postTypeChipText,
+                                    { color: isSelected ? "#fff" : pt.color },
+                                  ]}
+                                >
+                                  {pt.name}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          },
                         )}
                       </ScrollView>
                     )}
@@ -5099,8 +5514,14 @@ export default function ConversationScreen() {
             setReplyTo(selectedMsgForModal.message);
         }}
         onCopy={() => {
-          if (selectedMsgForModal?.message) {
-            Clipboard.setStringAsync(selectedMsgForModal.message.text);
+          const msg = selectedMsgForModal?.message;
+          // Only real text messages can be copied (not voice notes / markers).
+          if (
+            msg?.text &&
+            !isVoiceNoteText(msg.text) &&
+            !msg.text.startsWith("📎 ")
+          ) {
+            Clipboard.setStringAsync(msg.text);
             showInfo("Copied", "Message text copied to clipboard");
           }
         }}
@@ -5134,15 +5555,20 @@ export default function ConversationScreen() {
         visible={!!deleteModalMsg}
         message={deleteModalMsg}
         currentUserId={currentUserId}
-        callerPermission={callerPermission}
         onClose={() => setDeleteModalMsg(null)}
         onConfirmDelete={(deleteFor) => {
           if (deleteModalMsg) {
+            // Safety net: "everyone" is only ever valid for your own messages.
+            const effectiveDeleteFor =
+              deleteFor === "everyone" &&
+              !isOwnMessage(deleteModalMsg, currentUserId)
+                ? "me"
+                : deleteFor;
             const mId = deleteModalMsg._id;
-            deleteMessage(mId, deleteFor)
+            deleteMessage(mId, effectiveDeleteFor)
               .then(() => {
                 showSuccess(
-                  deleteFor === "everyone"
+                  effectiveDeleteFor === "everyone"
                     ? "Message deleted for everyone"
                     : "Message deleted for you",
                 );
@@ -5152,6 +5578,15 @@ export default function ConversationScreen() {
               });
           }
         }}
+      />
+
+      {/* ── Full-screen image viewer ── */}
+      <ImageViewerModal
+        visible={viewerVisible}
+        images={viewerImages}
+        index={viewerIndex}
+        onClose={closeImageViewer}
+        onChangeIndex={setViewerIndex}
       />
 
       {/* ── Conversation Menu popover (header three-dot) ── */}
@@ -5582,6 +6017,10 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
     lineHeight: 18,
+  },
+  linkText: {
+    color: "#0A84FF",
+    textDecorationLine: "underline",
   },
   forwardedRow: {
     flexDirection: "row",
@@ -6025,6 +6464,21 @@ const styles = StyleSheet.create({
     fontSize: rf(12),
     fontFamily: "SF_Pro_Medium",
   },
+  // Small label shown inside a message bubble that carries a post type.
+  postTypeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginBottom: 4,
+  },
+  postTypeBadgeText: {
+    fontSize: rf(10),
+    fontFamily: "SF_Pro_Semibold",
+  },
 
   postTypeListPanel: {
     flexDirection: "row",
@@ -6255,6 +6709,63 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: "#E5E7EB",
     marginBottom: 2,
+  },
+  attGridWrap: {
+    width: ATT_GRID_WIDTH,
+    marginBottom: 2,
+  },
+  attGridRow: {
+    flexDirection: "row",
+    gap: ATT_GRID_GAP,
+  },
+  attGridCol: {
+    gap: ATT_GRID_GAP,
+  },
+  attGridMore: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: ATT_CELL,
+    height: ATT_CELL,
+    borderRadius: 8,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  attGridMoreText: {
+    color: "#fff",
+    fontSize: rf(20),
+    fontFamily: "SF_Pro_Semibold",
+  },
+  // Full-screen image viewer
+  viewerRoot: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.96)",
+  },
+  viewerClose: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 54 : 24,
+    right: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  viewerCounter: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 60 : 30,
+    alignSelf: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
+  viewerCounterText: {
+    color: "#fff",
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Medium",
   },
   docAttachmentContainer: {
     marginBottom: 4,

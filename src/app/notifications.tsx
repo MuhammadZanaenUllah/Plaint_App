@@ -444,7 +444,10 @@ export default function NotificationsScreen() {
             </View>
           ) : (
             visibleNotifications.map((item, index) => {
-              const { name, message } = getNotificationDisplay(item);
+              const { name, message } = getNotificationDisplay(
+                item,
+                chatState.rooms,
+              );
               return (
               <Pressable
                 key={`${item.id}-${index}`}

@@ -86,6 +86,128 @@ export function formatMessageTime(dateString?: string): string {
   return formatRelativeTime(dateString);
 }
 
+/**
+ * The post-type / topic label a message was sent with (if any). The backend
+ * accepts `postType` on send and may echo it back as `postType`, `post_type`
+ * or (older contract) `topic_name`.
+ */
+export function getMessagePostType(message?: {
+  postType?: string | null;
+  post_type?: string | null;
+  topic_name?: string | null;
+} | null): string | null {
+  if (!message) return null;
+  const value =
+    message.postType ?? message.post_type ?? message.topic_name ?? null;
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed || null;
+}
+
+// ─── Voice Notes ──────────────────────────────────────────────────────────────
+
+/** The marker text every voice-note message carries. */
+export const VOICE_NOTE_TEXT = "🎤 Voice message";
+
+const VOICE_NOTE_AUDIO_EXTS = [
+  "mp3",
+  "wav",
+  "m4a",
+  "ogg",
+  "caf",
+  "webm",
+  "aac",
+  "opus",
+];
+
+type AttachmentLike = {
+  url?: string | null;
+  name?: string | null;
+  originalName?: string | null;
+  type?: string | null;
+};
+
+/** True when an attachment is a playable audio / voice-note file. */
+export function isAudioAttachment(a?: AttachmentLike | null): boolean {
+  if (!a) return false;
+  if ((a.type ?? "").toLowerCase().startsWith("audio/")) return true;
+  const candidate = `${a.url ?? ""} ${a.name ?? ""}`
+    .split(/[?#]/)[0]
+    .toLowerCase();
+  return VOICE_NOTE_AUDIO_EXTS.some((ext) => candidate.includes(`.${ext}`));
+}
+
+/**
+ * Duration (seconds) encoded into a voice-note filename, e.g.
+ * `voice-note-7s-1730000000000.m4a` → 7. Returns null when absent.
+ */
+export function getVoiceNoteSecondsFromAttachment(
+  a?: AttachmentLike | null,
+): number | null {
+  if (!a) return null;
+  const candidates = [a.originalName, a.name, a.url].filter(
+    Boolean,
+  ) as string[];
+  for (const c of candidates) {
+    const m = /voice[-_ ]?note[-_ ]?(\d+)s/i.exec(c);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n >= 0) return n;
+    }
+  }
+  return null;
+}
+
+/** True when a message's text is the voice-note marker (possibly + duration). */
+export function isVoiceNoteText(text?: string | null): boolean {
+  return !!text && text.startsWith(VOICE_NOTE_TEXT);
+}
+
+/** Parse a `M:SS` duration from a voice-note message text. */
+export function getVoiceNoteSecondsFromText(
+  text?: string | null,
+): number | null {
+  if (!text) return null;
+  const m = /(\d+):(\d{2})/.exec(text);
+  if (!m) return null;
+  const secs = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+  return Number.isFinite(secs) ? secs : null;
+}
+
+/** Seconds for a voice-note message (attachment filename first, then text). */
+export function getVoiceNoteSeconds(message?: {
+  text?: string | null;
+  attachments?: AttachmentLike[] | null;
+} | null): number | null {
+  if (!message) return null;
+  const audio = (message.attachments ?? []).find((a) => isAudioAttachment(a));
+  const fromAtt = getVoiceNoteSecondsFromAttachment(audio ?? null);
+  if (fromAtt != null) return fromAtt;
+  return getVoiceNoteSecondsFromText(message.text);
+}
+
+/** Format seconds as `M:SS` (matches WhatsApp voice-note length). */
+export function formatVoiceDuration(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+}
+
+/** Build the text stored with a recorded voice note (duration-tagged). */
+export function buildVoiceNoteText(seconds?: number | null): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) {
+    return VOICE_NOTE_TEXT;
+  }
+  return `${VOICE_NOTE_TEXT} · ${formatVoiceDuration(seconds)}`;
+}
+
+/** Build a duration-tagged voice-note filename for upload. */
+export function buildVoiceNoteFileName(
+  seconds: number,
+  ext: string,
+): string {
+  const secs = Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : 0;
+  return `voice-note-${secs}s-${Date.now()}.${ext}`;
+}
+
 /** Format a message time for the chat list (shorter format). */
 export function formatChatListTime(dateString?: string): string {
   if (!dateString) return "";
@@ -369,12 +491,71 @@ export function buildMentionMarkup(userId: number, fullName: string): string {
  *  2. The leading proper-noun in the backend message text ("<Name> assigned/…").
  *  3. Fallback label "System".
  */
-export function getNotificationDisplay(item: NotificationItem | null | undefined): {
+const NOTIFICATION_OBJECT_ID_RE = /^[a-fA-F0-9]{24}$/;
+
+/** True for backend chat notifications (plain "chat" or a chat mention). */
+function isChatNotificationType(typ?: string | null): boolean {
+  const t = (typ ?? "").toLowerCase();
+  return t === "chat" || t.includes("mention");
+}
+
+/** Preview text for a room's most recent message (used by chat notifications). */
+function getRoomPreviewText(room?: Room | null): string {
+  const lm = room?.last_message;
+  if (!lm) return "";
+  if (lm.text) return lm.text;
+  const atts = lm.attachments ?? [];
+  if (atts.length > 0) {
+    return atts.some((a) => isAudioAttachment(a)) ? "🎤 Voice note" : "📎 Attachment";
+  }
+  return "";
+}
+
+/**
+ * Resolve the room a chat notification refers to. The backend stores the chat
+ * room's Mongo ObjectId in `description` (and/or `lead_id`), NOT message text.
+ */
+export function findRoomForNotification(
+  item: NotificationItem | null | undefined,
+  rooms?: Room[],
+): Room | undefined {
+  if (!item || !rooms || rooms.length === 0) return undefined;
+  const roomId = (item.description ?? "").trim();
+  const leadId = Number(item.lead_id) || 0;
+  return rooms.find(
+    (r) =>
+      (!!roomId && (r._id === roomId || String(r.id) === roomId)) ||
+      (leadId > 0 && (r.id === leadId || r._id === String(leadId))),
+  );
+}
+
+export function getNotificationDisplay(
+  item: NotificationItem | null | undefined,
+  rooms?: Room[],
+): {
   name: string;
   message: string;
 } {
   const title = (item?.title ?? "").trim();
-  const description = (item?.description ?? "").trim();
+  let description = (item?.description ?? "").trim();
+
+  // Chat notifications put the ROOM ID in `description`; resolve the room's
+  // latest message so the raw id is never shown as the preview.
+  let chatPreviewFromRoom = false;
+  if (isChatNotificationType(item?.typ)) {
+    const room = findRoomForNotification(item, rooms);
+    const descriptionLooksLikeId =
+      NOTIFICATION_OBJECT_ID_RE.test(description) || /^\d+$/.test(description);
+    if (room) {
+      description = getRoomPreviewText(room) || "Sent you a message";
+      chatPreviewFromRoom = true;
+    } else if (descriptionLooksLikeId) {
+      // Room not loaded yet — never surface the raw id.
+      description = "Sent you a message";
+      chatPreviewFromRoom = true;
+    }
+  }
+
   const text =
     mentionMarkupToDisplay(
       (description.length >= title.length ? description : title) || title
@@ -386,6 +567,11 @@ export function getNotificationDisplay(item: NotificationItem | null | undefined
     : "";
 
   if (assignedName) {
+    // For chat room-id notifications `text` is already just the message
+    // preview, so don't strip the sender's name out of it.
+    if (chatPreviewFromRoom) {
+      return { name: assignedName, message: text };
+    }
     // Strip the leading actor tokens (full name, first name, or last name)
     // from the message so the name renders exactly once as the sender.
     const nameParts = assignedName.toLowerCase().split(/\s+/);
@@ -396,6 +582,14 @@ export function getNotificationDisplay(item: NotificationItem | null | undefined
     }
     const rest = tokens.slice(i).join(" ").trim();
     return { name: assignedName, message: rest || text };
+  }
+
+  // Chat notification without an `assigned` actor: derive the sender from the
+  // title (e.g. "Areeb sent you a message" → "Areeb"), and keep the resolved
+  // message preview as the body.
+  if (chatPreviewFromRoom) {
+    const titleName = title.match(/^([A-Z][\w.'-]*(?:\s+[A-Z][\w.'-]*)?)\s+/);
+    return { name: (titleName ? titleName[1] : title).trim() || "Chat", message: text };
   }
 
   // No `assigned` object — detect "<Name> <verb> …" messages embedded in the

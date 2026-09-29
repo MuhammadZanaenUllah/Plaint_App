@@ -138,6 +138,62 @@ function messageBelongsToRoom(
 }
 
 /**
+ * Return a copy of `room` whose preview/unread reflect an incoming message.
+ *
+ * The chat list only renders a DM once it has an unread count or a
+ * `last_message` (see chat.tsx `displayRooms`). A brand-new room is added to
+ * local state (via `/chat/rooms`, `get-or-create-room`, or the `newRoom`
+ * socket event) without that preview, so a first-time incoming message was
+ * filtered out until a later message happened to arrive while the room was
+ * already known. Applying the triggering message here makes the chat appear
+ * immediately.
+ */
+function withIncomingMessage(
+  room: Room,
+  message: ChatMessage,
+  currentUserId: number,
+  isCurrentRoom: boolean,
+): Room {
+  const isFromOther = String(message.sender_id) !== String(currentUserId);
+  const unreadCount =
+    isFromOther && !isCurrentRoom
+      ? Math.max(room.unreadCount ?? 0, 1)
+      : (room.unreadCount ?? 0);
+  return {
+    ...room,
+    unreadCount,
+    last_message: {
+      text: message.text,
+      sender_name: message.sender_name,
+      createdAt: message.createdAt ?? new Date().toISOString(),
+      attachments: message.attachments,
+    },
+  };
+}
+
+/**
+ * Merge a server snapshot of a room with the previously-known local copy,
+ * preferring whichever carries the newer `last_message` (and keeping the
+ * higher unread count). Prevents a room-list refresh whose payload lags the
+ * socket message from wiping a just-received preview and hiding the chat.
+ */
+function preferNewerRoomSnapshot(prev: Room | undefined, next: Room): Room {
+  if (!prev) return next;
+  const prevAt = prev.last_message?.createdAt
+    ? new Date(prev.last_message.createdAt).getTime()
+    : 0;
+  const nextAt = next.last_message?.createdAt
+    ? new Date(next.last_message.createdAt).getTime()
+    : 0;
+  if (prevAt <= nextAt) return next;
+  return {
+    ...next,
+    last_message: prev.last_message,
+    unreadCount: Math.max(next.unreadCount ?? 0, prev.unreadCount ?? 0),
+  };
+}
+
+/**
  * Union two pinned-message lists, de-duplicated by message id (server list
  * first, then locally-recorded pins). The backend's `GET /chat/pins/:roomId`
  * is the source of truth for pins made by anyone, but on deployments that only
@@ -172,8 +228,15 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         loading: false,
         messagesLoading: false,
       };
-    case "LOAD_ROOMS":
-      return { ...state, rooms: action.rooms, loading: false, error: null };
+    case "LOAD_ROOMS": {
+      // Preserve a locally-known, newer preview/unread for rooms whose server
+      // payload is behind (e.g. the first message of a brand-new chat).
+      const prevById = new Map(state.rooms.map((r) => [r._id, r]));
+      const rooms = action.rooms.map((room) =>
+        preferNewerRoomSnapshot(prevById.get(room._id), room),
+      );
+      return { ...state, rooms, loading: false, error: null };
+    }
     case "SET_CURRENT_ROOM": {
       if (!action.room) {
         return {
@@ -285,13 +348,17 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         roomCreator: action.createdBy,
       };
     case "ADD_ROOM": {
-      const exists = state.rooms.some((r) => r.id === action.room.id);
-      return {
-        ...state,
-        rooms: exists
-          ? state.rooms.map((r) => (r.id === action.room.id ? action.room : r))
-          : [action.room, ...state.rooms],
-      };
+      const existing = state.rooms.find((r) => r.id === action.room.id);
+      if (existing) {
+        const mergedRoom = preferNewerRoomSnapshot(existing, action.room);
+        return {
+          ...state,
+          rooms: state.rooms.map((r) =>
+            r.id === action.room.id ? mergedRoom : r,
+          ),
+        };
+      }
+      return { ...state, rooms: [action.room, ...state.rooms] };
     }
     case "UPDATE_ROOM":
       if (!action.room) return state;
@@ -324,8 +391,9 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         );
         if (idx >= 0) {
           const prev = merged[idx];
+          const base = preferNewerRoomSnapshot(prev, room);
           merged[idx] = {
-            ...room,
+            ...base,
             unreadCount: prev.unreadCount ?? 0,
             force_unread: prev.force_unread ?? false,
             is_muted: prev.is_muted ?? room.is_muted,
@@ -570,6 +638,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   // listener can use them without stale closures.
   const reactivatedRoomsRef = useRef<Set<string>>(new Set());
   const pendingUnknownMessagesRef = useRef<Map<string, ChatMessage>>(new Map());
+  // Incoming messages for rooms not yet in local state, held until the room is
+  // added (via /chat/rooms, get-or-create or the `newRoom` socket event) so a
+  // first-time chat shows up in the list with its preview/unread immediately.
+  const pendingIncomingRef = useRef<Map<string, ChatMessage>>(new Map());
   const cutoffsLoadedRef = useRef(false);
   const reactivateDeletedChatRef = useRef<
     (roomId: string, message: ChatMessage) => void
@@ -615,6 +687,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     // Reset per-session reactivation state when the signed-in user changes.
     reactivatedRoomsRef.current.clear();
     pendingUnknownMessagesRef.current.clear();
+    pendingIncomingRef.current.clear();
     (async () => {
       const uid = authState.user?.id ?? 0;
       const loaded: Record<string, string> = {};
@@ -651,6 +724,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           reactivateDeletedChatRef.current(rid, msg);
         } else {
           socketService.joinChatRoom(rid);
+          pendingIncomingRef.current.set(rid, msg);
           fetchRoomsRef.current?.({ silent: true })?.catch(() => {});
         }
       }
@@ -743,6 +817,23 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // ── Room Actions ──────────────────────────────────────────────────────────
 
+  // Attach any remembered incoming message to the matching rooms as they enter
+  // local state, then clear the consumed entries.
+  const applyPendingIncoming = useCallback((rooms: Room[]): Room[] => {
+    if (pendingIncomingRef.current.size === 0) return rooms;
+    return rooms.map((room) => {
+      const message = pendingIncomingRef.current.get(room._id);
+      if (!message) return room;
+      pendingIncomingRef.current.delete(room._id);
+      return withIncomingMessage(
+        room,
+        message,
+        userIdRef.current,
+        stateRef.current.currentRoom?._id === room._id,
+      );
+    });
+  }, []);
+
   const fetchRooms = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) dispatch({ type: "SET_LOADING", loading: true });
     try {
@@ -764,7 +855,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const preserved = stateRef.current.rooms.filter(
           (r) => reactivatedRoomsRef.current.has(r._id) && !serverIds.has(r._id),
         );
-        dispatch({ type: "LOAD_ROOMS", rooms: [...res.rooms, ...preserved] });
+        // Merge in any pending incoming message so a newly-created room is not
+        // dropped from the list for lacking a last_message.
+        dispatch({
+          type: "LOAD_ROOMS",
+          rooms: applyPendingIncoming([...res.rooms, ...preserved]),
+        });
       } else {
         dispatch({ type: "SET_ERROR", error: "Failed to load rooms" });
       }
@@ -772,7 +868,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       console.log("[Chat] fetchRooms error:", error);
       dispatch({ type: "SET_ERROR", error: extractErrorMessage(error) });
     }
-  }, []);
+  }, [applyPendingIncoming]);
   // Expose fetchRooms to the once-registered socket listener and the deferred
   // cutoff loader (the ref itself is declared with the hidden-chat state).
   useEffect(() => {
@@ -789,8 +885,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         roomType: res.room?.type,
       });
       if (res.Good && res.room) {
-        dispatch({ type: "ADD_ROOM", room: res.room });
-        return res.room;
+        // If a message arrived for this room before it was loaded, attach it as
+        // the preview/unread so a first-time chat appears immediately.
+        const pending = pendingIncomingRef.current.get(res.room._id);
+        let room = res.room;
+        if (pending) {
+          pendingIncomingRef.current.delete(res.room._id);
+          room = withIncomingMessage(
+            res.room,
+            pending,
+            userIdRef.current,
+            stateRef.current.currentRoom?._id === res.room._id,
+          );
+        }
+        dispatch({ type: "ADD_ROOM", room });
+        return room;
       }
       throw new Error("Failed to create room");
     },
@@ -1006,7 +1115,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       // Record a just-sent message locally: append it and update the room's
       // last_message so a brand-new DM surfaces in the chat list immediately
       // (empty DMs with no messages are hidden).
-      const registerSentMessage = (sent: ChatMessage) => {
+      const registerSentMessage = (rawSent: ChatMessage) => {
+        // Keep the post-type label locally if the API response didn't echo it,
+        // so the tag shows immediately without waiting for a refetch.
+        const sent =
+          params.postType && !rawSent.postType
+            ? { ...rawSent, postType: params.postType }
+            : rawSent;
         dispatch({ type: "ADD_MESSAGE", message: sent });
         const room = stateRef.current.rooms.find((r) => r._id === sent.room_id);
         if (room) {
@@ -1131,6 +1246,40 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // When the newest loaded message of the open conversation is deleted, roll
+  // the room's list preview back to the previous message so the chat list no
+  // longer shows the deleted text. No-op for non-latest messages.
+  const rollbackRoomPreview = useCallback((deletedMessageId: string) => {
+    const messages = stateRef.current.messages;
+    const targetIndex = messages.findIndex(
+      (m) =>
+        String(m._id) === String(deletedMessageId) ||
+        String(m.id) === String(deletedMessageId),
+    );
+    // Only relevant when the removed message was the newest loaded one.
+    if (targetIndex < 0 || targetIndex !== messages.length - 1) return;
+    const target = messages[targetIndex];
+    const roomId = target?.room_id;
+    if (!roomId) return;
+    const room = stateRef.current.rooms.find((r) => r._id === roomId);
+    if (!room) return;
+    const prev = targetIndex > 0 ? messages[targetIndex - 1] : null;
+    dispatch({
+      type: "UPDATE_ROOM",
+      room: {
+        ...room,
+        last_message: prev
+          ? {
+              text: prev.text,
+              sender_name: prev.sender_name,
+              createdAt: prev.createdAt,
+              attachments: prev.attachments,
+            }
+          : undefined,
+      },
+    });
+  }, []);
+
   const deleteChatMessage = useCallback(
     async (messageId: string, deleteFor: "me" | "everyone") => {
       const res = await chatService.deleteMessage(messageId, deleteFor);
@@ -1146,12 +1295,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       // "delete for me" and "delete for everyone" without waiting for a refetch
       // or the socket echo (which the sender does not always receive).
       dispatch({ type: "REMOVE_MESSAGE", messageId });
+      // Keep the chat-list preview in sync (show the previous message).
+      rollbackRoomPreview(messageId);
 
       if (deleteFor === "everyone" && target?.room_id) {
         socketService.emitMessageDeleted(messageId, target.room_id);
       }
     },
-    [],
+    [rollbackRoomPreview],
   );
 
   // ── Reaction Actions ────────────────────────────────────────────────────
@@ -1634,7 +1785,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const cleanupNewRoom = socketService.onSocketEvent(
         "newRoom",
         (roomData) => {
-          const room = roomData as Room;
+          const incomingRoom = roomData as Room;
+          // If a message already arrived for this room (the `newRoom` event can
+          // trail `receiveChatMessage`), attach it as the preview/unread so the
+          // brand-new chat appears in the list right away.
+          const pending = pendingIncomingRef.current.get(incomingRoom._id);
+          let room = incomingRoom;
+          if (pending) {
+            pendingIncomingRef.current.delete(incomingRoom._id);
+            room = withIncomingMessage(
+              incomingRoom,
+              pending,
+              userIdRef.current,
+              stateRef.current.currentRoom?._id === incomingRoom._id,
+            );
+          }
           const isNewRoom = !stateRef.current.rooms.some(
             (r) => r._id === room._id || String(r.id) === String(room.id),
           );
@@ -1741,6 +1906,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               pendingUnknownMessagesRef.current.set(message.room_id, message);
             } else {
               socketService.joinChatRoom(message.room_id);
+              // Remember the message so the room, once loaded, carries it as
+              // its preview/unread and appears in the chat list immediately.
+              pendingIncomingRef.current.set(message.room_id, message);
               fetchRoomsRef.current?.({ silent: true })?.catch(() => {});
             }
           }
@@ -1941,6 +2109,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         (data) => {
           const typed = data as { messageId: string };
           dispatch({ type: "REMOVE_MESSAGE", messageId: typed.messageId });
+          // Roll the room's list preview back if the newest message was deleted.
+          rollbackRoomPreview(typed.messageId);
           // A deleted message must not linger in the local multi-pin store.
           setLocalPins((prev) => {
             let changed = false;
@@ -2180,7 +2350,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         });
       }
     },
-    [fetchPinnedMessages],
+    [fetchPinnedMessages, rollbackRoomPreview],
   );
 
   const cleanupChatListeners = useCallback(() => {
