@@ -1,6 +1,6 @@
 //this is the splash screen 
 import { useEffect, useRef } from "react";
-import { useRouter } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { Image, StyleSheet, View } from "react-native";
 import * as SecureStore from "expo-secure-store";
@@ -8,16 +8,30 @@ import TopMintGlow from "@/components/gradientheader";
 import BottomMintGlow from "@/components/gradientfooter";
 import Images from "@/constants/images";
 import { useAuth } from "@/hooks/useAuth";
+import { usePushNotifications } from "@/context/PushNotificationContext";
 import useAppFonts from "@/theme/useAppFonts";
 
 const ONBOARDING_KEY = "hasCompletedOnboarding";
 
 export default function SplashScreen() {
   const router = useRouter();
+  const pathname = usePathname();
   const { state } = useAuth();
+  const { handleNotificationTap, consumePendingNotificationTap } =
+    usePushNotifications();
   const [fontsLoaded] = useAppFonts();
   const navigated = useRef(false);
   const timerDone = useRef(false);
+  // Latest push deep-link handler + current route, so the one-shot 5s timer
+  // closure never acts on stale values.
+  const handleTapRef = useRef(handleNotificationTap);
+  const pathnameRef = useRef(pathname);
+  useEffect(() => {
+    handleTapRef.current = handleNotificationTap;
+  }, [handleNotificationTap]);
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
   // The 5s timer effect below only runs once (on mount) and its closure
   // over checkAndNavigate is frozen at that point — fontsLoaded and
   // state.loading are still stale there when the timeout fires later. Mirror
@@ -34,7 +48,22 @@ export default function SplashScreen() {
     if (authStateRef.current.loading) return;
     if (!fontsLoadedRef.current) return;
 
+    // A cold-start notification deep-link may have already moved us off the
+    // splash — never override it with the default destination.
+    const currentPath = pathnameRef.current;
+    const onSplash =
+      !currentPath || currentPath === "/" || currentPath === "/index";
+    if (!onSplash) return;
+
     navigated.current = true;
+
+    // If the app was launched by tapping a chat notification, deep-link into
+    // that conversation instead of the default tab.
+    const pendingTap = consumePendingNotificationTap();
+    if (pendingTap && authStateRef.current.isAuthenticated) {
+      handleTapRef.current(pendingTap);
+      return;
+    }
 
     const hasOnboarded = await SecureStore.getItemAsync(ONBOARDING_KEY);
 

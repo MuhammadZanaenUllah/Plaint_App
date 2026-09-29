@@ -27,11 +27,18 @@ function FloatingInput({ value, onChangeText, label }: FloatingInputProps) {
   const [focused, setFocused] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
-  const animate = (to: number) =>
-    Animated.timing(anim, { toValue: to, duration: 180, useNativeDriver: false }).start();
+  // Drive the floating label from the current value/focus so that resetting
+  // the input (e.g. reopening the modal) also drops the label back down.
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: focused || value ? 1 : 0,
+      duration: 180,
+      useNativeDriver: false,
+    }).start();
+  }, [focused, value, anim]);
 
-  const handleFocus = () => { animate(1); setFocused(true); };
-  const handleBlur = () => { if (!value) animate(0); setFocused(false); };
+  const handleFocus = () => setFocused(true);
+  const handleBlur = () => setFocused(false);
 
   const labelTop = anim.interpolate({ inputRange: [0, 1], outputRange: [13, -10] });
   const labelSize = anim.interpolate({ inputRange: [0, 1], outputRange: [14, 11] });
@@ -115,7 +122,7 @@ export default function CreateChannelModal({
   onClose,
   onNext,
   title = "Create Channel",
-  placeholder = "Write your channel name",
+  placeholder = "Type your channel name",
 }: CreateChannelModalProps) {
   const [channelName, setChannelName] = useState("");
 
@@ -137,6 +144,7 @@ export default function CreateChannelModal({
   const handleNext = () => {
     Keyboard.dismiss();
     onNext(channelName);
+    setChannelName("");
   };
 
   return (

@@ -71,6 +71,11 @@ export type PushNotificationContextValue = {
   ) => Promise<void>;
   resetBadge: (companyId: number) => Promise<void>;
   handleNotificationTap: (data: PushNotificationData | null) => void;
+  /**
+   * Returns and clears a cold-start notification tap that arrived before the
+   * app was ready to navigate (used by the splash screen to deep-link).
+   */
+  consumePendingNotificationTap: () => PushNotificationData | null;
 };
 
 const PushNotificationContext =
@@ -97,10 +102,20 @@ export function PushNotificationProvider({
   const foregroundListener = useRef<{ remove: () => void } | null>(null);
   const notificationDataRef = useRef<PushNotificationData | null>(null);
   const lastTokenRef = useRef<string | null>(null);
+  // Cold-start handling: the notification that launched the app must be
+  // processed after auth/session is restored, and only once per session.
+  const coldStartHandledRef = useRef(false);
+  const pendingNotificationRef = useRef<PushNotificationData | null>(null);
+  const handleNotificationTapRef = useRef<
+    (data: PushNotificationData | null) => void
+  >(() => {});
 
   const { state: authState } = useAuth();
   const currentUserId = authState?.user?.id ?? 0;
   const { state: chatState } = useChat();
+
+  // Auth/session must be restored before we can resolve a room and navigate.
+  const authReady = !!authState?.isAuthenticated && !authState?.loading;
 
   const requestPermissions = useCallback(async () => {
     console.log(
@@ -373,6 +388,15 @@ export function PushNotificationProvider({
         "📲 [PushNotification] Handling notification tap navigation with data:",
         data,
       );
+
+      // Cold start: session/auth isn't ready yet. Stash the tap; the splash
+      // screen consumes it (via `consumePendingNotificationTap`) once it is
+      // ready to navigate, so we never navigate before the splash finishes.
+      if (!authReady) {
+        if (data) pendingNotificationRef.current = data;
+        return;
+      }
+
       if (!data) {
         // TASK MODULE DISABLED — fallback was "/(tabs)/tasks"; Chat is the
         // default tab now.
@@ -480,8 +504,75 @@ export function PushNotificationProvider({
           break;
       }
     },
-    [chatState.rooms, currentUserId],
+    [chatState.rooms, currentUserId, authReady],
   );
+
+  // Keep the latest handler reachable from the once-registered listeners and
+  // the cold-start probe without re-subscribing.
+  useEffect(() => {
+    handleNotificationTapRef.current = handleNotificationTap;
+  }, [handleNotificationTap]);
+
+  // Consumed by the splash screen (after its 5s boot) so a cold-start tap
+  // deep-links instead of the default tab — the provider must NOT navigate
+  // before the splash finishes or the splash would override it.
+  const consumePendingNotificationTap = useCallback(() => {
+    const pending = pendingNotificationRef.current;
+    pendingNotificationRef.current = null;
+    return pending;
+  }, []);
+
+  // Cold-start probe: when the app was launched by tapping a notification the
+  // response listener misses it (it fires before JS subscribes). Read the last
+  // response so the tapped conversation still opens.
+  useEffect(() => {
+    if (!hasNativeModule || !Notifications) return;
+    if (coldStartHandledRef.current) return;
+    coldStartHandledRef.current = true;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const N = Notifications as unknown as {
+          getLastNotificationResponseAsync?: () => Promise<any>;
+          getLastNotificationResponse?: () => any;
+          clearLastNotificationResponseAsync?: () => Promise<void>;
+          clearLastNotificationResponse?: () => void;
+        };
+        const response =
+          typeof N.getLastNotificationResponseAsync === "function"
+            ? await N.getLastNotificationResponseAsync()
+            : typeof N.getLastNotificationResponse === "function"
+              ? N.getLastNotificationResponse()
+              : null;
+        if (cancelled || !response) return;
+        // Clear it so a later cold start doesn't replay a stale tap.
+        try {
+          const clearing = N.clearLastNotificationResponseAsync?.();
+          if (clearing && typeof clearing.catch === "function") {
+            clearing.catch(() => {});
+          }
+        } catch {}
+        try {
+          N.clearLastNotificationResponse?.();
+        } catch {}
+        const data = response?.notification?.request?.content
+          ?.data as PushNotificationData | null;
+        if (!data) return;
+        notificationDataRef.current = data;
+        handleNotificationTapRef.current(data);
+      } catch (err) {
+        console.warn(
+          "📲 [PushNotification] Cold-start notification probe failed:",
+          err,
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!hasNativeModule || !Notifications) return;
@@ -596,6 +687,7 @@ export function PushNotificationProvider({
       updateDeviceToken,
       resetBadge,
       handleNotificationTap,
+      consumePendingNotificationTap,
     }),
     [
       state,
@@ -604,6 +696,7 @@ export function PushNotificationProvider({
       updateDeviceToken,
       resetBadge,
       handleNotificationTap,
+      consumePendingNotificationTap,
     ],
   );
 

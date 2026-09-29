@@ -834,6 +834,143 @@ function LinkifiedText({
   );
 }
 
+// ─── Member Permission Sheet ──────────────────────────────────────────────────
+
+const MEMBER_PERMISSION_OPTIONS: ChannelPermission[] = [
+  "Full edit",
+  "Edit",
+  "Comment",
+  "View Only",
+];
+
+/**
+ * Small anchored popover shown when the channel owner taps the edit icon on a
+ * member in the "Chat members" panel. Mirrors the permission options used in
+ * the Invite-to-Channel modal.
+ */
+function MemberPermissionSheet({
+  visible,
+  memberName,
+  current,
+  anchor,
+  onSelect,
+  onClose,
+}: {
+  visible: boolean;
+  memberName?: string;
+  current?: ChannelPermission;
+  anchor: { x: number; y: number } | null;
+  onSelect: (permission: ChannelPermission) => void;
+  onClose: () => void;
+}) {
+  if (!visible || !anchor) return null;
+
+  const { width: screenW, height: screenH } = Dimensions.get("window");
+  const CARD_WIDTH = 168;
+  const margin = 8;
+  // Anchor the card under the tapped edit icon, clamped to the screen.
+  const left = Math.min(
+    Math.max(anchor.x - CARD_WIDTH + 24, margin),
+    screenW - CARD_WIDTH - margin,
+  );
+  const top = Math.min(
+    Math.max(anchor.y + 6, margin),
+    screenH - 210,
+  );
+
+  return (
+    <Modal
+      visible
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <Pressable style={memberSheetStyles.overlay} onPress={onClose}>
+        <Pressable
+          style={[memberSheetStyles.card, { top, left, width: CARD_WIDTH }]}
+          onStartShouldSetResponder={() => true}
+        >
+          <Text style={memberSheetStyles.header} numberOfLines={1}>
+            {memberName || "Member"}
+          </Text>
+          {MEMBER_PERMISSION_OPTIONS.map((opt) => {
+            const active = current === opt;
+            return (
+              <TouchableOpacity
+                key={opt}
+                style={[
+                  memberSheetStyles.option,
+                  active && memberSheetStyles.optionActive,
+                ]}
+                activeOpacity={0.7}
+                onPress={() => onSelect(opt)}
+              >
+                <Text
+                  style={[
+                    memberSheetStyles.optionText,
+                    active && memberSheetStyles.optionTextActive,
+                  ]}
+                >
+                  {opt}
+                </Text>
+                {active && <Ionicons name="checkmark" size={13} color="#00DEAB" />}
+              </TouchableOpacity>
+            );
+          })}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const memberSheetStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.12)",
+  },
+  card: {
+    position: "absolute",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.05)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  header: {
+    fontSize: rf(10.5),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#9CA3AF",
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  option: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  optionActive: {
+    backgroundColor: "#F0FDF9",
+  },
+  optionText: {
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Regular",
+    color: "#1D1D1D",
+  },
+  optionTextActive: {
+    fontFamily: "SF_Pro_Semibold",
+    color: "#00A67E",
+  },
+});
+
 /**
  * Build the body text for a "replying to…" preview. Voice notes surface their
  * length (the only way to tell two voice notes apart in a quoted reply).
@@ -3064,6 +3201,8 @@ export default function ConversationScreen() {
     fetchPostTypes,
     postTypes,
     addMember,
+    removeMember,
+    updatePermission,
     fetchRoomPermissions,
     roomPermissions,
     roomCreator,
@@ -3160,6 +3299,14 @@ export default function ConversationScreen() {
   const [deleteModalMsg, setDeleteModalMsg] = useState<ChatMessage | null>(
     null,
   );
+  // Member whose permission is being edited from the "Chat members" panel,
+  // plus the screen position of the tapped edit icon to anchor the popover.
+  const [permissionSheetMember, setPermissionSheetMember] = useState<{
+    id: number;
+    name: string;
+    permission: ChannelPermission;
+    anchor: { x: number; y: number };
+  } | null>(null);
 
   // ── @-mention picker ───────────────────────────────────────────────────
   const [mentionActive, setMentionActive] = useState(false);
@@ -4038,9 +4185,60 @@ export default function ConversationScreen() {
   const handleUpdateChannelMemberPermission = useCallback(
     async (memberId: number, permission: ChannelPermission) => {
       if (!roomId) return;
-      await chatService.updatePermission({ roomId, userId: memberId, permission });
+      // Use the ChatContext action (it also patches local room permissions).
+      await updatePermission(roomId, memberId, permission);
     },
-    [roomId],
+    [roomId, updatePermission],
+  );
+
+  // Apply a permission chosen from the member permission sheet.
+  const handleSelectMemberPermission = useCallback(
+    async (permission: ChannelPermission) => {
+      const member = permissionSheetMember;
+      setPermissionSheetMember(null);
+      if (!member || !roomId) return;
+      try {
+        await handleUpdateChannelMemberPermission(member.id, permission);
+        fetchRoomPermissions(roomId).catch(() => {});
+        showSuccess("Permission updated", `${member.name}: ${permission}`);
+      } catch {
+        showError("Error", "Could not update permission");
+      }
+    },
+    [
+      permissionSheetMember,
+      roomId,
+      handleUpdateChannelMemberPermission,
+      fetchRoomPermissions,
+    ],
+  );
+
+  // Remove a member from the channel (owner / managers only).
+  const handleRemoveChannelMember = useCallback(
+    (memberId: number, name: string) => {
+      if (!roomId) return;
+      Alert.alert(
+        "Remove member",
+        `Remove ${name} from this channel?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Remove",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await removeMember(roomId, memberId);
+                fetchRoomPermissions(roomId).catch(() => {});
+                showSuccess("Removed", `${name} was removed from the channel`);
+              } catch {
+                showError("Error", "Could not remove member");
+              }
+            },
+          },
+        ],
+      );
+    },
+    [roomId, removeMember, fetchRoomPermissions],
   );
 
   const handleEmojiReact = useCallback(
@@ -4151,9 +4349,14 @@ export default function ConversationScreen() {
 
   // Channel creator (from room permissions) or fallback to the room payload.
   const roomOwnerId = roomCreator ?? currentRoom?.created_by ?? null;
+  const isRoomOwner =
+    roomOwnerId !== null && currentUserId === roomOwnerId;
   // Channels may only be deleted by their creator; 1:1 chats by either user.
-  const canDeleteChat =
-    !isChannel || (roomOwnerId !== null && currentUserId === roomOwnerId);
+  const canDeleteChat = !isChannel || isRoomOwner;
+  // The channel creator always manages members; other members need the
+  // permission-management right.
+  const canModerateMembers =
+    isChannel && (isRoomOwner || canManageMembers);
 
   useEffect(() => {
     return () => {
@@ -4885,8 +5088,14 @@ export default function ConversationScreen() {
                   (m) => m.id === perm.userId,
                 );
                 const fullName = memberInfo
-                  ? `${memberInfo.first_name} ${memberInfo.last_name}`
+                  ? `${memberInfo.first_name} ${memberInfo.last_name}`.trim()
                   : `User #${perm.userId}`;
+                const isSelf = perm.userId === currentUserId;
+                const isOwner =
+                  roomOwnerId !== null && perm.userId === roomOwnerId;
+                // Only the channel owner (or a manager) can remove members or
+                // change their permission — and never for themselves / the owner.
+                const showActions = canModerateMembers && !isSelf && !isOwner;
                 return (
                   <View key={perm.userId} style={styles.memberRow}>
                     <Avatar
@@ -4901,15 +5110,49 @@ export default function ConversationScreen() {
                     <Text style={styles.memberName} numberOfLines={1}>
                       {fullName}
                     </Text>
-                    <Text
-                      style={{
-                        fontSize: rf(11),
-                        color: "#6B7280",
-                        fontFamily: "SF_Pro_Regular",
-                      }}
-                    >
+                    <Text style={styles.memberPermissionText}>
                       {perm.permission}
                     </Text>
+                    {showActions && (
+                      <View style={styles.memberActions}>
+                        <TouchableOpacity
+                          style={styles.memberActionBtn}
+                          activeOpacity={0.7}
+                          accessibilityLabel={`Edit ${fullName} permissions`}
+                          onPress={(e) =>
+                            setPermissionSheetMember({
+                              id: perm.userId,
+                              name: fullName,
+                              permission: perm.permission as ChannelPermission,
+                              anchor: {
+                                x: e.nativeEvent.pageX,
+                                y: e.nativeEvent.pageY,
+                              },
+                            })
+                          }
+                        >
+                          <Ionicons
+                            name="create-outline"
+                            size={18}
+                            color="#374151"
+                          />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.memberActionBtn}
+                          activeOpacity={0.7}
+                          accessibilityLabel={`Remove ${fullName} from channel`}
+                          onPress={() =>
+                            handleRemoveChannelMember(perm.userId, fullName)
+                          }
+                        >
+                          <Ionicons
+                            name="log-out-outline"
+                            size={18}
+                            color="#EF4444"
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
                 );
               })}
@@ -5587,6 +5830,16 @@ export default function ConversationScreen() {
         index={viewerIndex}
         onClose={closeImageViewer}
         onChangeIndex={setViewerIndex}
+      />
+
+      {/* ── Member permission sheet (Chat members panel) ── */}
+      <MemberPermissionSheet
+        visible={!!permissionSheetMember}
+        memberName={permissionSheetMember?.name}
+        current={permissionSheetMember?.permission}
+        anchor={permissionSheetMember?.anchor ?? null}
+        onSelect={handleSelectMemberPermission}
+        onClose={() => setPermissionSheetMember(null)}
       />
 
       {/* ── Conversation Menu popover (header three-dot) ── */}
@@ -6536,6 +6789,24 @@ const styles = StyleSheet.create({
     fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
+  },
+  memberPermissionText: {
+    fontSize: rf(11),
+    color: "#6B7280",
+    fontFamily: "SF_Pro_Regular",
+    marginRight: 4,
+  },
+  memberActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  memberActionBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   // ── Modal Overlay ──
