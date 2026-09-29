@@ -13,15 +13,13 @@ import {
   Room,
   SearchUser,
 } from "@/types/chat.types";
+import { getMessageInitials, isRoomUnread } from "@/utils/chatHelpers";
 import {
-  getMessageInitials,
-  getRoomDisplayName,
-  getRoomInitials,
-  isRoomUnread,
-} from "@/utils/chatHelpers";
+  openConversation,
+  openRoomConversation,
+} from "@/utils/conversationNavigation";
 import { extractErrorMessage } from "@/utils/errorHandler";
 import { showInfo } from "@/utils/toast";
-import { router } from "expo-router";
 import React, {
   createContext,
   useCallback,
@@ -1570,29 +1568,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (room) {
-        router.push({
-          pathname: "/conversation",
-          params: {
-            roomId: room._id ?? rid,
-            name: getRoomDisplayName(room, userIdRef.current),
-            initials: getRoomInitials(room, userIdRef.current),
-            isChannel: String(room.type === "channel"),
-            roomType: room.type,
-          },
-        });
+        openRoomConversation(room, userIdRef.current);
         return;
       }
 
-      router.push({
-        pathname: "/conversation",
-        params: senderName
+      openConversation(
+        senderName
           ? {
               roomId: rid,
               name: senderName,
               initials: getMessageInitials(senderName),
             }
           : { roomId: rid },
-      });
+      );
     },
     [],
   );

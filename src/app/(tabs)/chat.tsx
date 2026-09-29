@@ -25,11 +25,14 @@ import {
     formatChatListTime,
     getRoomAvatar,
     getRoomDisplayName,
-    getRoomInitials,
     isRoomUnread,
 } from "@/utils/chatHelpers";
+import {
+    openConversation,
+    openRoomConversation,
+} from "@/utils/conversationNavigation";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import {
     useCallback,
     useEffect,
@@ -364,6 +367,15 @@ export default function ChatScreen() {
         fetchRooms();
     }, [fetchRooms]);
 
+    // Clear the "recently opened" row highlight whenever the chat list regains
+    // focus (e.g. after closing a conversation) so the grey selected background
+    // never lingers behind the chat/channel that was opened.
+    useFocusEffect(
+        useCallback(() => {
+            setSelectedChatId(null);
+        }, []),
+    );
+
     // Initialize socket when user is available
     useEffect(() => {
         if (currentUserId) {
@@ -570,16 +582,8 @@ export default function ChatScreen() {
             if (isRoomUnread(room)) {
                 markRead(room._id).catch(() => { });
             }
-            router.push({
-                pathname: "/conversation",
-                params: {
-                    roomId: room._id,
-                    name: getRoomDisplayName(room, currentUserId),
-                    initials: getRoomInitials(room, currentUserId),
-                    isChannel: String(room.type === "channel"),
-                    roomType: room.type,
-                },
-            });
+            // Guarded: repeated taps on the same row open one screen only.
+            openRoomConversation(room, currentUserId);
         },
         [currentUserId, markRead]
     );
@@ -633,24 +637,12 @@ export default function ChatScreen() {
                     type: "direct",
                     targetId: parseInt(user.id, 10),
                 });
-                router.push({
-                    pathname: "/conversation",
-                    params: {
-                        roomId: room._id,
-                        name: getRoomDisplayName(room, currentUserId),
-                        initials: getRoomInitials(room, currentUserId),
-                        isChannel: "false",
-                        roomType: "direct",
-                    },
-                });
+                openRoomConversation(room, currentUserId);
             } catch {
-                // Fallback: navigate with user info
-                router.push({
-                    pathname: "/conversation",
-                    params: {
-                        name: user.name,
-                        initials: user.name.charAt(0).toUpperCase(),
-                    },
+                // Fallback: navigate with user info (no room id available)
+                openConversation({
+                    name: user.name,
+                    initials: user.name.charAt(0).toUpperCase(),
                 });
             }
         },
@@ -794,16 +786,13 @@ export default function ChatScreen() {
             if (failed > 0) parts.push(`${failed} failed`);
             if (parts.length > 0) showSuccess("Channel Ready", `"${room.name}": ${parts.join(", ")}.`);
 
-            // Navigate to the new channel
-            router.push({
-                pathname: "/conversation",
-                params: {
-                    roomId: room._id,
-                    name: room.name,
-                    initials: room.name.charAt(0).toUpperCase(),
-                    isChannel: "true",
-                    roomType: "channel",
-                },
+            // Navigate to the new channel (guarded against duplicate taps)
+            openConversation({
+                roomId: room._id,
+                name: room.name,
+                initials: room.name.charAt(0).toUpperCase(),
+                isChannel: "true",
+                roomType: "channel",
             });
             channelInvitedRef.current = true;
             setNewChannelName("");

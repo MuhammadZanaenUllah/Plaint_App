@@ -8,7 +8,7 @@ import type {
   PushNotificationData,
   PushNotificationState,
 } from "@/types/push.types";
-import { getRoomDisplayName, getRoomInitials } from "@/utils/chatHelpers";
+import { openRoomConversation } from "@/utils/conversationNavigation";
 import Constants from "expo-constants";
 import { router } from "expo-router";
 import React, {
@@ -424,16 +424,8 @@ export function PushNotificationProvider({
             const roomIdStr = String(data.room_id);
             const openChatRoom = (room: Room | undefined) => {
               if (room) {
-                router.push({
-                  pathname: "/conversation",
-                  params: {
-                    roomId: roomIdStr,
-                    name: getRoomDisplayName(room, currentUserId),
-                    initials: getRoomInitials(room, currentUserId),
-                    isChannel: String(room.type === "channel"),
-                    roomType: room.type,
-                  },
-                });
+                // Guarded: a repeated push tap can't stack a duplicate screen.
+                openRoomConversation(room, currentUserId);
               } else {
                 router.push("/(tabs)/chat");
               }

@@ -28,6 +28,10 @@ import {
   resolveFileUrl,
   resolveSecureFileUrl,
 } from "@/utils/chatHelpers";
+import {
+  markConversationClosed,
+  markConversationOpen,
+} from "@/utils/conversationNavigation";
 import { canEditChannel } from "@/utils/permissions";
 import { triggerHaptic } from "@/utils/haptics";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
@@ -2769,6 +2773,14 @@ export default function ConversationScreen() {
     ? `${authState.state.user.first_name} ${authState.state.user.last_name}`.trim() ||
       `User #${currentUserId}`
     : `User #${currentUserId}`;
+
+  // Register this open conversation with the navigation guard so re-taps on
+  // the same chat row / notification / toast cannot stack a duplicate copy of
+  // this screen. Cleared on unmount, allowing the room to be opened again.
+  useEffect(() => {
+    markConversationOpen(roomId);
+    return () => markConversationClosed(roomId);
+  }, [roomId]);
 
   // ── Room-level permission gating ──────────────────────────────────────
   // Room permissions come from GET /chat/room-permissions/:roomId

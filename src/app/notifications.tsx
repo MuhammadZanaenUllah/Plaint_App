@@ -17,10 +17,13 @@ import { useChat } from "@/hooks/useChat";
 // TASK MODULE DISABLED — task notification taps no longer open a task detail.
 // import { viewTask } from "@/services/api/tasks.service";
 import { NotificationItem } from "@/types/chat.types";
-import { getNotificationDisplay, getRoomDisplayName, getRoomInitials, isMentionNotification } from "@/utils/chatHelpers";
+import { getNotificationDisplay, isMentionNotification } from "@/utils/chatHelpers";
+import {
+  openConversation,
+  openRoomConversation,
+} from "@/utils/conversationNavigation";
 import { formatFullDateTime as formatFullDateTimeShared } from "@/utils/dateFormat";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -179,17 +182,7 @@ export default function NotificationsScreen() {
         );
 
         if (targetRoom) {
-          const rId = targetRoom._id || (targetRoom.id ? String(targetRoom.id) : "");
-          router.push({
-            pathname: "/conversation",
-            params: {
-              roomId: rId,
-              name: getRoomDisplayName(targetRoom, currentUserId),
-              initials: getRoomInitials(targetRoom, currentUserId),
-              isChannel: String(targetRoom.type === "channel"),
-              roomType: targetRoom.type,
-            },
-          });
+          openRoomConversation(targetRoom, currentUserId);
           return;
         }
 
@@ -201,17 +194,7 @@ export default function NotificationsScreen() {
               targetId: targetUserId,
             });
             if (room) {
-              const rId = room._id || (room.id ? String(room.id) : "");
-              router.push({
-                pathname: "/conversation",
-                params: {
-                  roomId: rId,
-                  name: getRoomDisplayName(room, currentUserId),
-                  initials: getRoomInitials(room, currentUserId),
-                  isChannel: "false",
-                  roomType: "direct",
-                },
-              });
+              openRoomConversation(room, currentUserId);
               return;
             }
           } catch {
@@ -220,15 +203,12 @@ export default function NotificationsScreen() {
         }
 
         // 3. Fallback
-        router.push({
-          pathname: "/conversation",
-          params: {
-            roomId: leadId > 0 ? String(leadId) : undefined,
-            name: getNotificationName(item),
-            initials: getNotificationInitials(item),
-            isChannel: "false",
-            roomType: "direct",
-          },
+        openConversation({
+          roomId: leadId > 0 ? String(leadId) : undefined,
+          name: getNotificationName(item),
+          initials: getNotificationInitials(item),
+          isChannel: "false",
+          roomType: "direct",
         });
       }
       // TASK MODULE DISABLED — tapping a task notification used to fetch the

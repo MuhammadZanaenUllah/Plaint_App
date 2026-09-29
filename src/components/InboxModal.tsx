@@ -3,10 +3,13 @@ import { useNotifications } from "@/context/NotificationContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { NotificationItem } from "@/types/chat.types";
-import { getNotificationDisplay, getRoomDisplayName, getRoomInitials, isMentionNotification } from "@/utils/chatHelpers";
+import { getNotificationDisplay, isMentionNotification } from "@/utils/chatHelpers";
+import {
+  openConversation,
+  openRoomConversation,
+} from "@/utils/conversationNavigation";
 import { formatRelativeTime } from "@/utils/dateFormat";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -126,17 +129,7 @@ export default function InboxModal({
         );
 
         if (targetRoom) {
-          const rId = targetRoom._id || (targetRoom.id ? String(targetRoom.id) : "");
-          router.push({
-            pathname: "/conversation",
-            params: {
-              roomId: rId,
-              name: getRoomDisplayName(targetRoom, currentUserId),
-              initials: getRoomInitials(targetRoom, currentUserId),
-              isChannel: String(targetRoom.type === "channel"),
-              roomType: targetRoom.type,
-            },
-          });
+          openRoomConversation(targetRoom, currentUserId);
           return;
         }
 
@@ -148,17 +141,7 @@ export default function InboxModal({
               targetId: targetUserId,
             });
             if (room) {
-              const rId = room._id || (room.id ? String(room.id) : "");
-              router.push({
-                pathname: "/conversation",
-                params: {
-                  roomId: rId,
-                  name: getRoomDisplayName(room, currentUserId),
-                  initials: getRoomInitials(room, currentUserId),
-                  isChannel: "false",
-                  roomType: "direct",
-                },
-              });
+              openRoomConversation(room, currentUserId);
               return;
             }
           } catch {
@@ -167,15 +150,12 @@ export default function InboxModal({
         }
 
         // 3. Fallback
-        router.push({
-          pathname: "/conversation",
-          params: {
-            roomId: leadId > 0 ? String(leadId) : undefined,
-            name: getNotificationName(item),
-            initials: getNotificationInitials(item),
-            isChannel: "false",
-            roomType: "direct",
-          },
+        openConversation({
+          roomId: leadId > 0 ? String(leadId) : undefined,
+          name: getNotificationName(item),
+          initials: getNotificationInitials(item),
+          isChannel: "false",
+          roomType: "direct",
         });
       } else if (item.task_id && item.task_id !== 0) {
         onNotificationPress?.(item);

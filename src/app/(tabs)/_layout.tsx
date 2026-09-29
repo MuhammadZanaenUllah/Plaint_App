@@ -6,6 +6,7 @@ import AppHeader from "@/components/headerapp";
 import { SearchProvider } from "@/context/SearchContext";
 import { useAuth } from "@/hooks/useAuth";
 import { Tabs, useSegments } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -78,6 +79,9 @@ function TabLayoutContent() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
+      {/* Transparent status bar with dark content, matching the conversation
+          screen (`<StatusBar style="dark" />`) instead of the light app default. */}
+      <StatusBar style="dark" />
       <View
         style={{
           overflow: "visible",
