@@ -13,8 +13,15 @@ import {
   Room,
   SearchUser,
 } from "@/types/chat.types";
+import {
+  getMessageInitials,
+  getRoomDisplayName,
+  getRoomInitials,
+  isRoomUnread,
+} from "@/utils/chatHelpers";
 import { extractErrorMessage } from "@/utils/errorHandler";
 import { showInfo } from "@/utils/toast";
+import { router } from "expo-router";
 import React, {
   createContext,
   useCallback,
@@ -111,6 +118,28 @@ function messageKey(message?: ChatMessage | null): string {
 }
 
 /**
+ * Whether a message belongs to the currently active conversation.
+ *
+ * `state.messages` is a single list that backs the ONE open conversation. An
+ * incoming message must only be appended to it when its `room_id` matches the
+ * active room (Mongo `_id`, or the numeric `id` as a fallback). This is the
+ * authoritative guard that keeps a message from another 1:1/channel from
+ * leaking into the chat screen that happens to be open.
+ */
+function messageBelongsToRoom(
+  message: ChatMessage | null | undefined,
+  room: Room | null | undefined,
+): boolean {
+  if (!message || !room) return false;
+  const msgRoomId = message.room_id != null ? String(message.room_id) : "";
+  if (!msgRoomId) return false;
+  return (
+    (room._id != null && msgRoomId === String(room._id)) ||
+    (room.id != null && msgRoomId === String(room.id))
+  );
+}
+
+/**
  * Union two pinned-message lists, de-duplicated by message id (server list
  * first, then locally-recorded pins). The backend's `GET /chat/pins/:roomId`
  * is the source of truth for pins made by anyone, but on deployments that only
@@ -181,6 +210,16 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         messagesLoading: false,
       };
     case "ADD_MESSAGE": {
+      // Cross-room contamination guard: `state.messages` only ever backs the
+      // currently open conversation. A message from any other room must NOT be
+      // appended here — it is still handled by the socket listener's room-list /
+      // unread / toast logic and is loaded from the API when its own
+      // conversation is opened. Without this check, an incoming message from
+      // (e.g.) Nida leaked into an open Areeb↔Awais chat.
+      if (!messageBelongsToRoom(action.message, state.currentRoom)) {
+        return state;
+      }
+
       const newIdStr = String(action.message._id ?? action.message.id ?? "");
       const existsIndex = state.messages.findIndex((m) => {
         if (action.message._id && m._id && String(m._id) === String(action.message._id)) return true;
@@ -542,6 +581,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const fetchRoomsRef = useRef<
     ((opts?: { silent?: boolean }) => Promise<void>) | null
   >(null);
+  // Assigned once `openChatRoomFromNotification` exists (below). Lets the
+  // once-registered socket listener open the room a toast belongs to without
+  // making `initSocket` unstable (which would re-register every listener).
+  const openChatRoomRef = useRef<
+    (roomId: string, senderName?: string) => void
+  >(() => {});
+  // Assigned once `markReadAction` exists (below) so the notification-toast
+  // navigation can clear the room's unread badge without an unstable dep.
+  const markReadRef = useRef<(roomId: string) => Promise<void>>(
+    async () => {},
+  );
 
   const persistChatCutoffs = useCallback(
     (cutoffs: Record<string, string>, uid: number) => {
@@ -1468,6 +1518,94 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // ── Socket Actions ───────────────────────────────────────────────────────
 
+  // Keep the latest markRead action reachable from the toast-navigation
+  // callback below (which must stay referentially stable for `initSocket`).
+  useEffect(() => {
+    markReadRef.current = markReadAction;
+  }, [markReadAction]);
+
+  /**
+   * Open the conversation a chat notification/toast belongs to.
+   *
+   * The room id carried by the message/notification is the single source of
+   * truth — never a username/display name. It is resolved against the local
+   * room list first (Mongo `_id`, numeric `id` as fallback) so the screen gets
+   * the correct name/initials/channel flag; if the room is not loaded yet
+   * (app restart, freshly received chat) the room list is refreshed once and
+   * the lookup retried. As a last resort we navigate with the room id alone —
+   * the conversation screen loads its messages directly from that id.
+   */
+  const openChatRoomFromNotification = useCallback(
+    async (roomId: string, senderName?: string) => {
+      const rid = String(roomId ?? "");
+      if (!rid) return;
+
+      // Already viewing this conversation — don't stack a duplicate screen.
+      const active = stateRef.current.currentRoom;
+      if (active && (String(active._id) === rid || String(active.id) === rid)) {
+        return;
+      }
+
+      const findRoom = (rooms: Room[]) =>
+        rooms.find((r) => String(r._id) === rid || String(r.id) === rid);
+
+      let room = findRoom(stateRef.current.rooms);
+      if (!room) {
+        try {
+          const res = await chatService.getRooms();
+          if (res?.Good && res.rooms) {
+            // MERGE_ROOMS preserves local unread/mute state.
+            dispatch({ type: "MERGE_ROOMS", rooms: res.rooms });
+            room = findRoom(res.rooms);
+          }
+        } catch {
+          // Fall through to id-only navigation below.
+        }
+      }
+
+      // Opening a chat clears its unread badge — same as tapping its row in
+      // the chat list.
+      if (room && isRoomUnread(room)) {
+        markReadRef.current(rid).catch(() => {});
+      }
+
+      if (room) {
+        router.push({
+          pathname: "/conversation",
+          params: {
+            roomId: room._id ?? rid,
+            name: getRoomDisplayName(room, userIdRef.current),
+            initials: getRoomInitials(room, userIdRef.current),
+            isChannel: String(room.type === "channel"),
+            roomType: room.type,
+          },
+        });
+        return;
+      }
+
+      router.push({
+        pathname: "/conversation",
+        params: senderName
+          ? {
+              roomId: rid,
+              name: senderName,
+              initials: getMessageInitials(senderName),
+            }
+          : { roomId: rid },
+      });
+    },
+    [],
+  );
+
+  // Expose the callback to the once-registered socket listener via a ref
+  // (same pattern as `reactivateDeletedChatRef`) so `initSocket` never has to
+  // depend on it and never re-registers its listeners.
+  useEffect(() => {
+    openChatRoomRef.current = (roomId, senderName) => {
+      openChatRoomFromNotification(roomId, senderName).catch(() => {});
+    };
+  }, [openChatRoomFromNotification]);
+
   const initSocket = useCallback(
     async (userId: number) => {
       userIdRef.current = userId;
@@ -1562,6 +1700,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         "receiveChatMessage",
         (messageData) => {
           const message = messageData as ChatMessage;
+          // The ADD_MESSAGE reducer only appends this when `message.room_id`
+          // matches the currently open room, so a message from another
+          // conversation can never leak into the active chat screen. The room
+          // list / unread / toast updates below still run for every room.
           dispatch({ type: "ADD_MESSAGE", message });
 
           // Update the room's last_message + unreadCount for real-time chat list updates
@@ -1639,8 +1781,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               );
               const sender = message.sender_name ?? "Someone";
               const bodyText = message.text ?? "";
+              // Tapping the toast opens the exact conversation the message
+              // belongs to (resolved by room id, never by display name).
+              const openRoomFromToast = () => {
+                openChatRoomRef.current(
+                  String(message.room_id ?? ""),
+                  message.sender_name,
+                );
+              };
               if (isMention) {
-                showInfo(`${sender} mentioned you`, bodyText);
+                showInfo(`${sender} mentioned you`, bodyText, openRoomFromToast);
                 addNotification({
                   id: -Math.abs(message.id),
                   title: `${sender} mentioned you in a chat`,
@@ -1667,7 +1817,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                   bodyText.length > 120
                     ? `${bodyText.slice(0, 120)}…`
                     : bodyText;
-                showInfo(sender, preview);
+                showInfo(sender, preview, openRoomFromToast);
               }
             }
           }
