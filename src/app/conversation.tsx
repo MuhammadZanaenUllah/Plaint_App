@@ -44,6 +44,7 @@ import { canEditChannel } from "@/utils/permissions";
 import { triggerHaptic } from "@/utils/haptics";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { getStoredToken } from "@/utils/token";
+import { useAuthToken } from "@/utils/secureImageFetch";
 import { Ionicons } from "@expo/vector-icons";
 import {
   RecordingPresets,
@@ -53,6 +54,7 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
+import { useVideoPlayer, VideoView, type VideoSource } from "expo-video";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import { Directory, File as FileSystemFile, Paths } from "expo-file-system";
@@ -798,6 +800,37 @@ function isVideoAttachment(a: MessageAttachment): boolean {
   );
 }
 
+/**
+ * Build an expo-video source for a chat attachment. Backend `/public/...`
+ * files are auth-gated, so they must be streamed through the `secure-file`
+ * proxy with the auth headers (a bare URL in a browser/external player would
+ * just 401 — which is why videos previously "opened" the backend URL).
+ */
+function buildVideoSource(
+  url: string | null | undefined,
+  token: string | null | undefined,
+): VideoSource {
+  if (!url) return null;
+  const lower = url.toLowerCase();
+  if (
+    lower.startsWith("http://") ||
+    lower.startsWith("https://") ||
+    lower.startsWith("file://") ||
+    lower.startsWith("content://") ||
+    lower.startsWith("blob:") ||
+    lower.startsWith("data:")
+  ) {
+    return { uri: url };
+  }
+  const headers = token
+    ? { authToken: token, "x-access-token": token }
+    : undefined;
+  const uri = url.replace(/^\/+/, "").startsWith("public/")
+    ? resolveSecureFileUrl(url)
+    : resolveFileUrl(url);
+  return { uri, headers };
+}
+
 // Matches http(s) URLs embedded in a message's plain text.
 const URL_PATTERN = /(https?:\/\/[^\s]+)/gi;
 const URL_FULL_PATTERN = /^https?:\/\/[^\s]+$/i;
@@ -1001,9 +1034,11 @@ function getReplyPreviewText(m?: {
 function AttachmentsPanel({
   messages,
   onOpenImage,
+  onOpenVideo,
 }: {
   messages: ChatMessage[];
   onOpenImage?: (images: MessageAttachment[], index: number) => void;
+  onOpenVideo?: (url: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState("Images");
 
@@ -1095,9 +1130,7 @@ function AttachmentsPanel({
                 key={index}
                 style={ap.fileRow}
                 activeOpacity={0.7}
-                onPress={() =>
-                  Linking.openURL(resolveFileUrl(item.url)).catch(() => {})
-                }
+                onPress={() => onOpenVideo?.(item.url)}
               >
                 <View style={ap.fileIconBadge}>
                   <Ionicons name="videocam" size={16} color="#00DEAB" />
@@ -1496,11 +1529,15 @@ const ATT_CELL = Math.floor((ATT_GRID_WIDTH - ATT_GRID_GAP) / 2);
 function AttachmentCluster({
   images,
   docs,
+  videos = [],
   onOpenImage,
+  onOpenVideo,
 }: {
   images: MessageAttachment[];
   docs: MessageAttachment[];
+  videos?: MessageAttachment[];
   onOpenImage?: (images: MessageAttachment[], index: number) => void;
+  onOpenVideo?: (url: string) => void;
 }) {
   const openDoc = (doc: MessageAttachment) => {
     const target = resolveFileUrl(doc.url);
@@ -1513,6 +1550,7 @@ function AttachmentCluster({
   const count = images.length;
   const hasImages = count > 0;
   const hasDocs = docs.length > 0;
+  const hasVideos = videos.length > 0;
 
   const cellStyle: StyleProp<ImageStyle> = {
     width: ATT_CELL,
@@ -1572,6 +1610,28 @@ function AttachmentCluster({
               </View>
             </View>
           )}
+        </View>
+      ) : null}
+
+      {hasVideos ? (
+        <View style={styles.videoAttachmentContainer}>
+          {videos.map((vid, i) => (
+            <TouchableOpacity
+              key={`video-${i}`}
+              style={styles.videoCard}
+              activeOpacity={0.85}
+              onPress={() => onOpenVideo?.(vid.url)}
+            >
+              <View style={styles.videoCardBody}>
+                <View style={styles.videoCardPlay}>
+                  <Ionicons name="play" size={16} color="#fff" />
+                </View>
+                <Text style={styles.videoCardText} numberOfLines={1}>
+                  {vid.name || "Video"}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
         </View>
       ) : null}
 
@@ -1689,6 +1749,61 @@ function ImageViewerModal({
   );
 }
 
+// ─── Video Viewer ─────────────────────────────────────────────────────────────
+
+/**
+ * Full-screen in-app video player. Streams the (auth-gated) video through the
+ * secure-file proxy with headers instead of opening the raw backend URL.
+ */
+function VideoViewerModal({
+  visible,
+  url,
+  onClose,
+}: {
+  visible: boolean;
+  url: string | null;
+  onClose: () => void;
+}) {
+  const token = useAuthToken();
+  // Only create a source while open — swapping to `null` releases the player.
+  const source = useMemo<VideoSource>(
+    () => (visible ? buildVideoSource(url, token) : null),
+    [visible, url, token],
+  );
+  const player = useVideoPlayer(source, (p) => {
+    p.loop = false;
+  });
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={styles.videoViewerRoot}>
+        <TouchableOpacity
+          style={styles.videoViewerClose}
+          onPress={onClose}
+          hitSlop={12}
+        >
+          <Ionicons name="close" size={26} color="#fff" />
+        </TouchableOpacity>
+        {source ? (
+          <VideoView
+            player={player}
+            style={styles.videoViewerPlayer}
+            nativeControls
+            contentFit="contain"
+            fullscreenOptions={{ enable: true }}
+          />
+        ) : null}
+      </View>
+    </Modal>
+  );
+}
+
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 const MessageBubble = React.memo(function MessageBubble({
@@ -1703,6 +1818,7 @@ const MessageBubble = React.memo(function MessageBubble({
   onLongPress,
   onReactionPress,
   onOpenImage,
+  onOpenVideo,
   postTypes,
 }: {
   message: ChatMessage;
@@ -1716,6 +1832,7 @@ const MessageBubble = React.memo(function MessageBubble({
   onLongPress?: (msg: ChatMessage, e?: GestureResponderEvent) => void;
   onReactionPress?: (msg: ChatMessage, emoji: string) => void;
   onOpenImage?: (images: MessageAttachment[], index: number) => void;
+  onOpenVideo?: (url: string) => void;
   postTypes?: { name: string; color: string; icon?: string }[];
 }) {
   const own = isOwnMessage(message, currentUserId);
@@ -1790,6 +1907,8 @@ const MessageBubble = React.memo(function MessageBubble({
     );
   });
 
+  const videoAtts = message.attachments?.filter((a) => isVideoAttachment(a));
+
   const docAtts = message.attachments?.filter((a) => {
     const str = (a.url || a.name || "").toLowerCase();
     const isAudio =
@@ -1806,7 +1925,7 @@ const MessageBubble = React.memo(function MessageBubble({
       str.includes(".gif") ||
       str.includes(".heic") ||
       (a.type || "").startsWith("image/");
-    return !isAudio && !isImage;
+    return !isAudio && !isImage && !isVideoAttachment(a);
   });
 
   const bubbleScale = useRef(new Animated.Value(1)).current;
@@ -1905,7 +2024,9 @@ const MessageBubble = React.memo(function MessageBubble({
                 <AttachmentCluster
                   images={imageAtts ?? []}
                   docs={docAtts ?? []}
+                  videos={videoAtts ?? []}
                   onOpenImage={onOpenImage}
+                  onOpenVideo={onOpenVideo}
                 />
                 {message.text &&
                 !isVoiceNoteText(message.text) &&
@@ -1915,6 +2036,7 @@ const MessageBubble = React.memo(function MessageBubble({
                   message.text.startsWith("📎 ") &&
                   !imageAtts?.length &&
                   !docAtts?.length &&
+                  !videoAtts?.length &&
                   !audioAtt ? (
                   <LinkifiedText text={message.text} style={styles.bubbleText} />
                 ) : null}
@@ -2023,7 +2145,9 @@ const MessageBubble = React.memo(function MessageBubble({
               <AttachmentCluster
                 images={imageAtts ?? []}
                 docs={docAtts ?? []}
+                videos={videoAtts ?? []}
                 onOpenImage={onOpenImage}
+                onOpenVideo={onOpenVideo}
               />
               {message.text &&
               !isVoiceNoteText(message.text) &&
@@ -2033,6 +2157,7 @@ const MessageBubble = React.memo(function MessageBubble({
                 message.text.startsWith("📎 ") &&
                 !imageAtts?.length &&
                 !docAtts?.length &&
+                !videoAtts?.length &&
                 !audioAtt ? (
                 <LinkifiedText text={message.text} style={styles.bubbleText} />
               ) : null}
@@ -4466,6 +4591,16 @@ export default function ConversationScreen() {
 
   const closeImageViewer = useCallback(() => setViewerVisible(false), []);
 
+  // In-app video viewer (play a video attachment without opening a URL).
+  const [videoViewerUrl, setVideoViewerUrl] = useState<string | null>(null);
+  const openVideoViewer = useCallback(
+    (url: string) => {
+      if (url) setVideoViewerUrl(url);
+    },
+    [],
+  );
+  const closeVideoViewer = useCallback(() => setVideoViewerUrl(null), []);
+
   const handleLongPress = useCallback(
     (msg: ChatMessage, e?: GestureResponderEvent) => {
       triggerHaptic("medium");
@@ -4565,6 +4700,7 @@ export default function ConversationScreen() {
               onLongPress={handleLongPress}
               onReactionPress={handleReactEmoji}
               onOpenImage={openImageViewer}
+              onOpenVideo={openVideoViewer}
               postTypes={postTypes}
             />
           </SwipeToReply>
@@ -4580,6 +4716,7 @@ export default function ConversationScreen() {
       handleLongPress,
       handleReactEmoji,
       openImageViewer,
+      openVideoViewer,
       postTypes,
     ],
   );
@@ -5021,6 +5158,7 @@ export default function ConversationScreen() {
             <AttachmentsPanel
               messages={state.messages}
               onOpenImage={openImageViewer}
+              onOpenVideo={openVideoViewer}
             />
           </View>
         )}
@@ -5830,6 +5968,13 @@ export default function ConversationScreen() {
         index={viewerIndex}
         onClose={closeImageViewer}
         onChangeIndex={setViewerIndex}
+      />
+
+      {/* ── Full-screen in-app video player ── */}
+      <VideoViewerModal
+        visible={!!videoViewerUrl}
+        url={videoViewerUrl}
+        onClose={closeVideoViewer}
       />
 
       {/* ── Member permission sheet (Chat members panel) ── */}
@@ -7056,6 +7201,62 @@ const styles = StyleSheet.create({
     fontSize: rf(13),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
+  },
+
+  // ── Video attachments ──
+  videoAttachmentContainer: {
+    marginBottom: 4,
+    gap: 4,
+  },
+  videoCard: {
+    width: 220,
+    height: 140,
+    borderRadius: 10,
+    backgroundColor: "#111827",
+    overflow: "hidden",
+  },
+  videoCardBody: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+  },
+  videoCardPlay: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.22)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  videoCardText: {
+    color: "#fff",
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Medium",
+    maxWidth: "100%",
+  },
+  videoViewerRoot: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.96)",
+    justifyContent: "center",
+  },
+  videoViewerClose: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 54 : 24,
+    right: 18,
+    zIndex: 2,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  videoViewerPlayer: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    backgroundColor: "#000",
   },
 
   // ── Inline Editing Banner ──

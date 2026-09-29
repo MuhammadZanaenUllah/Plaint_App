@@ -69,11 +69,14 @@
         {
           "icon": "./assets/images/android-icon-foreground.png",
           "color": "#00DEAB",
-          "sounds": ["./assets/sounds/notification.mp3"]
+          "sounds": [
+            "./assets/sounds/notification.mp3"
+          ]
         }
       ],
       "expo-image",
-      "expo-sharing"
+      "expo-sharing",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,
