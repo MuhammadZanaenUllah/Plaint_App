@@ -31,6 +31,7 @@ import {
     isAudioAttachment,
     isRoomUnread,
     isVoiceNoteText,
+    sortRoomsByRecentActivity,
 } from "@/utils/chatHelpers";
 import {
     openConversation,
@@ -516,8 +517,8 @@ export default function ChatScreen() {
         // Text search from the header search bar — matches the room name, the
         // other member's name/email for DMs, and the last message preview.
         const query = searchText.trim().toLowerCase();
-        if (!query) return base;
-        return base.filter((room) => {
+        if (!query) return sortRoomsByRecentActivity(base);
+        const filtered = base.filter((room) => {
             const displayName = getRoomDisplayName(room, currentUserId).toLowerCase();
             const otherMember = room.type === "direct"
                 ? room.members.find((m) => m.id !== currentUserId)
@@ -534,6 +535,10 @@ export default function ChatScreen() {
                 preview.includes(query)
             );
         });
+        // WhatsApp-style: most recent activity first (applies to every chip and
+        // to search results). Recomputed on each last_message/unread update, so
+        // a room jumps to the top in real time when a message arrives.
+        return sortRoomsByRecentActivity(filtered);
     }, [visibleRooms, activeChip, searchText, currentUserId]);
 
     // PROJECT MODULE DISABLED

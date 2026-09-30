@@ -1205,6 +1205,27 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       };
       dispatch({ type: "ADD_MESSAGE", message: optimistic });
 
+      // Optimistically bump the room's last_message so the chat moves to the
+      // top of the list (WhatsApp-style) the moment you send, without waiting
+      // for the server confirmation below.
+      const sendingRoom = stateRef.current.rooms.find(
+        (r) => r._id === params.room_id,
+      );
+      if (sendingRoom) {
+        dispatch({
+          type: "UPDATE_ROOM",
+          room: {
+            ...sendingRoom,
+            last_message: {
+              text: optimistic.text,
+              sender_name: optimistic.sender_name,
+              createdAt: optimistic.createdAt,
+              attachments: optimistic.attachments,
+            },
+          },
+        });
+      }
+
       // Replace the placeholder with the server-confirmed message and refresh
       // the room's last_message so a brand-new DM surfaces in the chat list.
       const registerSentMessage = (rawSent: ChatMessage) => {

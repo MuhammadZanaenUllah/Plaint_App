@@ -59,6 +59,24 @@ export function filterRoomsByType(
   return rooms.filter((r) => r.type === type);
 }
 
+/**
+ * Sort rooms by most recent activity (WhatsApp-style): the room whose
+ * `last_message.createdAt` is newest comes first, oldest last. Rooms with no
+ * last message sink to the bottom. Returns a new array (never mutates the
+ * input), so it is safe to call on a filtered subset at render time.
+ */
+export function sortRoomsByRecentActivity(rooms: Room[]): Room[] {
+  const activityAt = (room: Room): number => {
+    const iso = room.last_message?.createdAt;
+    if (!iso) return 0;
+    const t = new Date(iso).getTime();
+    return Number.isFinite(t) ? t : 0;
+  };
+  return [...rooms].sort(
+    (a, b) => activityAt(b) - activityAt(a) || (b.id ?? 0) - (a.id ?? 0)
+  );
+}
+
 /** Filter rooms that are unread. */
 export function filterUnreadRooms(rooms: Room[]): Room[] {
   return rooms.filter(isRoomUnread);
