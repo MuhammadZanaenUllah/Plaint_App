@@ -41,7 +41,7 @@ import {
   markConversationClosed,
   markConversationOpen,
 } from "@/utils/conversationNavigation";
-import { canEditChannel } from "@/utils/permissions";
+import { canDeleteDirectChat } from "@/utils/permissions";
 import { triggerHaptic } from "@/utils/haptics";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { getStoredToken } from "@/utils/token";
@@ -1479,9 +1479,11 @@ const SWIPE_REPLY_MAX = 88;
 function SwipeToReply({
   children,
   onReply,
+  enabled = true,
 }: {
   children: React.ReactNode;
   onReply: () => void;
+  enabled?: boolean;
 }) {
   const translateX = useSharedValue(0);
   const pan = Gesture.Pan()
@@ -1510,6 +1512,12 @@ function SwipeToReply({
       transform: [{ scale: 0.5 + progress * 0.5 }],
     };
   });
+
+  // View Only members get no reply affordance (website §2.6). Hooks above are
+  // always called so the hook order stays stable across renders.
+  if (!enabled) {
+    return <View style={swipeReplyStyles.container}>{children}</View>;
+  }
 
   return (
     <View style={swipeReplyStyles.container}>
@@ -2254,7 +2262,7 @@ function WhatsAppMessageModal({
   message,
   targetY,
   currentUserId,
-  callerPermission,
+  withinEditWindow,
   onClose,
   onReactionSelect,
   onOpenEmojiPicker,
@@ -2269,7 +2277,7 @@ function WhatsAppMessageModal({
   message: ChatMessage | null;
   targetY?: number;
   currentUserId: number;
-  callerPermission?: ChatPermission;
+  withinEditWindow?: boolean;
   onClose: () => void;
   onReactionSelect: (emoji: string) => void;
   onOpenEmojiPicker: () => void;
@@ -2323,7 +2331,6 @@ function WhatsAppMessageModal({
   if (!mounted || !message) return null;
 
   const own = isOwnMessage(message, currentUserId);
-  const canEditOthers = canPerformAction(callerPermission, "edit");
   // Only plain text messages are editable — never attachments (images, docs,
   // videos) or voice notes.
   const hasAttachments = (message.attachments?.length ?? 0) > 0;
@@ -2332,10 +2339,9 @@ function WhatsAppMessageModal({
     !!message.text &&
     !isVoiceNoteText(message.text) &&
     !message.text.startsWith("📎 ");
-  const allowEdit = (own || canEditOthers) && isEditableText;
-  // Delete is always available (received messages delete for the current user
-  // only); "Delete for Everyone" stays restricted to own messages below.
-  const allowDelete = true;
+  // Website §2.6: edit/delete are limited to YOUR OWN messages within 1 hour.
+  const allowEdit = own && isEditableText && !!withinEditWindow;
+  const allowDelete = own && !!withinEditWindow;
   // Copy is only offered for real text messages — never for voice notes or
   // attachment-only marker texts ("📎 file").
   const copyableText =
@@ -2740,6 +2746,238 @@ const delModalStyles = StyleSheet.create({
   },
 });
 
+// ─── Create Post Type Modal (Full edit / Edit only) ──────────────────────────
+
+const POST_TYPE_COLORS = [
+  "#00DEAB",
+  "#556EE6",
+  "#F59E0B",
+  "#EF4444",
+  "#8B5CF6",
+  "#0EA5E9",
+];
+const POST_TYPE_ICONS: React.ComponentProps<typeof Ionicons>["name"][] = [
+  "pricetag",
+  "megaphone",
+  "bulb",
+  "chatbubbles",
+  "flag",
+  "star",
+];
+
+function PostTypeCreateModal({
+  visible,
+  onClose,
+  onCreate,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onCreate: (name: string, color: string, icon: string) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [color, setColor] = useState(POST_TYPE_COLORS[0]);
+  const [icon, setIcon] = useState<React.ComponentProps<typeof Ionicons>["name"]>(
+    POST_TYPE_ICONS[0],
+  );
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setName("");
+      setColor(POST_TYPE_COLORS[0]);
+      setIcon(POST_TYPE_ICONS[0]);
+      setSaving(false);
+    }
+  }, [visible]);
+
+  const handleCreate = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      showError("Validation", "Post type name is required");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onCreate(trimmed, color, icon);
+      onClose();
+    } catch {
+      showError("Error", "Could not create post type");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <Pressable style={ptStyles.overlay} onPress={onClose}>
+        <Pressable style={ptStyles.card} onStartShouldSetResponder={() => true}>
+          <Text style={ptStyles.title}>New Post Type</Text>
+          <TextInput
+            style={ptStyles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="Post type name"
+            placeholderTextColor="#9CA3AF"
+            maxLength={30}
+          />
+          <View style={ptStyles.swatchRow}>
+            {POST_TYPE_COLORS.map((c) => (
+              <TouchableOpacity
+                key={c}
+                style={[
+                  ptStyles.swatch,
+                  { backgroundColor: c },
+                  color === c && ptStyles.swatchActive,
+                ]}
+                activeOpacity={0.7}
+                onPress={() => setColor(c)}
+              />
+            ))}
+          </View>
+          <View style={ptStyles.iconRow}>
+            {POST_TYPE_ICONS.map((ic) => (
+              <TouchableOpacity
+                key={ic}
+                style={[
+                  ptStyles.iconBtn,
+                  icon === ic && ptStyles.iconBtnActive,
+                ]}
+                activeOpacity={0.7}
+                onPress={() => setIcon(ic)}
+              >
+                <Ionicons name={ic} size={17} color={icon === ic ? color : "#6B7280"} />
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={ptStyles.footer}>
+            <TouchableOpacity
+              style={ptStyles.cancelBtn}
+              activeOpacity={0.7}
+              onPress={onClose}
+              disabled={saving}
+            >
+              <Text style={ptStyles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[ptStyles.createBtn, { backgroundColor: color }]}
+              activeOpacity={0.85}
+              onPress={handleCreate}
+              disabled={saving}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={ptStyles.createText}>Create</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const ptStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.42)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 18,
+  },
+  title: {
+    fontSize: rf(15),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#1D1D1D",
+    marginBottom: 12,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: rf(13),
+    fontFamily: "SF_Pro_Regular",
+    color: "#1D1D1D",
+    marginBottom: 14,
+  },
+  swatchRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 14,
+  },
+  swatch: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+  },
+  swatchActive: {
+    borderWidth: 2,
+    borderColor: "#1D1D1D",
+  },
+  iconRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 18,
+  },
+  iconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconBtnActive: {
+    borderColor: "#1D1D1D",
+    backgroundColor: "#F3F4F6",
+  },
+  footer: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+  },
+  cancelBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 8,
+  },
+  cancelText: {
+    fontSize: rf(13),
+    fontFamily: "SF_Pro_Medium",
+    color: "#4B5563",
+  },
+  createBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 8,
+    minWidth: 78,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  createText: {
+    fontSize: rf(13),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#fff",
+  },
+});
+
 // ─── Conversation Menu Popover (header three-dot) ─────────────────────────────
 
 type RoomMenuAnchor = { x: number; y: number; width: number; height: number };
@@ -2749,21 +2987,29 @@ function RoomMenuPopover({
   anchor,
   isMuted,
   canDelete,
+  canLeave,
+  canClear,
   isChannel,
   onClose,
   onToggleMute,
   onMarkUnread,
   onDelete,
+  onLeave,
+  onClear,
 }: {
   visible: boolean;
   anchor: RoomMenuAnchor | null;
   isMuted: boolean;
   canDelete: boolean;
+  canLeave: boolean;
+  canClear: boolean;
   isChannel: boolean;
   onClose: () => void;
   onToggleMute: () => void;
   onMarkUnread: () => void;
   onDelete: () => void;
+  onLeave: () => void;
+  onClear: () => void;
 }) {
   if (!visible || !anchor) return null;
 
@@ -2811,6 +3057,32 @@ function RoomMenuPopover({
             <Ionicons name="mail-unread-outline" size={15} color="#6B7280" />
             <Text style={roomMenuStyles.itemText}>Mark as unread</Text>
           </TouchableOpacity>
+
+          {canClear && (
+            <TouchableOpacity
+              style={roomMenuStyles.item}
+              activeOpacity={0.65}
+              onPress={onClear}
+            >
+              <Ionicons name="trash-bin-outline" size={15} color="#6B7280" />
+              <Text style={roomMenuStyles.itemText}>Clear chat history</Text>
+            </TouchableOpacity>
+          )}
+
+          {canLeave && (
+            <TouchableOpacity
+              style={roomMenuStyles.item}
+              activeOpacity={0.65}
+              onPress={onLeave}
+            >
+              <Ionicons name="exit-outline" size={15} color="#EF4444" />
+              <Text
+                style={[roomMenuStyles.itemText, roomMenuStyles.itemTextDanger]}
+              >
+                Leave channel
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {canDelete && (
             <TouchableOpacity
@@ -3387,6 +3659,10 @@ export default function ConversationScreen() {
     markUnread,
     deleteRoom,
     hideRoom,
+    leaveRoom,
+    clearMessages,
+    createPostType,
+    deletePostType,
   } = useChat();
   const { typingUsers } = useChatPresence();
   const authState = useAuth();
@@ -3431,6 +3707,22 @@ export default function ConversationScreen() {
     return canPerformAction(callerPermission, "comment");
   }, [isChannel, callerPermission]);
 
+  // "View Only" members may read but not use any message actions (react, reply,
+  // pin, forward, edit, delete, copy) — the website hides them entirely.
+  const canUseMessageActions = useMemo(() => {
+    if (!isChannel) return true;
+    if (!callerPermission) return true;
+    return canPerformAction(callerPermission, "comment");
+  }, [isChannel, callerPermission]);
+
+  // Edit/Delete are limited to your OWN messages within 1 hour (website §2.6).
+  const isWithinEditWindow = useCallback((msg: ChatMessage): boolean => {
+    if (!msg?.createdAt) return false;
+    const t = new Date(msg.createdAt).getTime();
+    if (!Number.isFinite(t)) return false;
+    return Date.now() - t <= 60 * 60 * 1000;
+  }, []);
+
   // Only Edit / Full edit may tag messages with a post type.
   const canManagePostTypes = useMemo(() => {
     if (!callerPermission) return false;
@@ -3438,13 +3730,10 @@ export default function ConversationScreen() {
   }, [callerPermission]);
 
   // Only the room creator / Full edit may add people to a channel.
-  // Module-level: for channels this also requires the `chat-edit` permission.
   const canManageMembers = useMemo(() => {
     if (!callerPermission) return false;
-    if (!canPerformAction(callerPermission, "manage")) return false;
-    if (isChannel && !canEditChannel(currentUser)) return false;
-    return true;
-  }, [callerPermission, isChannel, currentUser]);
+    return canPerformAction(callerPermission, "manage");
+  }, [callerPermission]);
 
   const [message, setMessage] = useState("");
   const scrollRef = useRef<any>(null);
@@ -3502,6 +3791,7 @@ export default function ConversationScreen() {
   // type currently filtering the message timeline (header "Post Type" panel).
   const [selectedPostType, setSelectedPostType] = useState<string | null>(null);
   const [filterPostType, setFilterPostType] = useState<string | null>(null);
+  const [postTypeCreateOpen, setPostTypeCreateOpen] = useState(false);
   const [addPeopleOpen, setAddPeopleOpen] = useState(false);
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
   // Users selected in AddPeopleModal (pre-fills the invite modal's email field
@@ -4501,8 +4791,54 @@ export default function ConversationScreen() {
     [roomId, removeMember, fetchRoomPermissions],
   );
 
+  // Create a channel post type (Full edit / Edit only — website §2.3).
+  const handleCreatePostType = useCallback(
+    async (name: string, color: string, icon: string) => {
+      if (!roomId || !canManagePostTypes) return;
+      await createPostType(roomId, name, color, icon);
+      showSuccess("Post type created", name);
+    },
+    [roomId, canManagePostTypes, createPostType],
+  );
+
+  // Delete a channel post type (Full edit / Edit only).
+  const handleDeletePostType = useCallback(
+    (name: string) => {
+      if (!roomId || !canManagePostTypes) return;
+      Alert.alert(
+        "Delete post type",
+        `Delete "${name}"? This cannot be undone.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await deletePostType(roomId, name);
+                if (filterPostType === name) setFilterPostType(null);
+                if (selectedPostType === name) setSelectedPostType(null);
+                showSuccess("Post type deleted", name);
+              } catch {
+                showError("Error", "Could not delete post type");
+              }
+            },
+          },
+        ],
+      );
+    },
+    [
+      roomId,
+      canManagePostTypes,
+      deletePostType,
+      filterPostType,
+      selectedPostType,
+    ],
+  );
+
   const handleEmojiReact = useCallback(
     async (msg: ChatMessage, emoji: string) => {
+      if (!canReact) return;
       setEmojiPickerOpen(false);
       setEmojiPickerMsg(null);
       const existingUserReaction = (msg.reactions ?? []).find(
@@ -4515,7 +4851,7 @@ export default function ConversationScreen() {
         await toggleReaction(msg._id, emoji);
       } catch {}
     },
-    [toggleReaction, currentUserId],
+    [toggleReaction, currentUserId, canReact],
   );
 
   const handleForward = useCallback(
@@ -4542,9 +4878,9 @@ export default function ConversationScreen() {
 
   const handleMore = useCallback(
     (msg: ChatMessage) => {
+      if (!canUseMessageActions) return;
       const isOwn = isOwnMessage(msg, currentUserId);
-      const canEditOthers = canPerformAction(callerPermission, "edit");
-      const canDeleteOthers = canPerformAction(callerPermission, "delete");
+      const withinWindow = isWithinEditWindow(msg);
       Alert.alert("Message Options", "", [
         {
           text: "Copy Text",
@@ -4552,7 +4888,7 @@ export default function ConversationScreen() {
             Clipboard.setStringAsync(msg.text);
           },
         },
-        ...(isOwn || canEditOthers
+        ...(isOwn && withinWindow
           ? [
               {
                 text: "Edit",
@@ -4569,7 +4905,7 @@ export default function ConversationScreen() {
             togglePin(msg._id, roomId).catch(() => {});
           },
         },
-        ...(isOwn || canDeleteOthers
+        ...(isOwn && withinWindow
           ? [
               {
                 text: "Delete",
@@ -4583,7 +4919,13 @@ export default function ConversationScreen() {
         { text: "Cancel", style: "cancel" },
       ]);
     },
-    [currentUserId, callerPermission, togglePin, deleteMessage, roomId],
+    [
+      currentUserId,
+      canUseMessageActions,
+      isWithinEditWindow,
+      togglePin,
+      roomId,
+    ],
   );
 
   const handleDateFilterChange = useCallback(
@@ -4611,12 +4953,19 @@ export default function ConversationScreen() {
   const roomOwnerId = roomCreator ?? currentRoom?.created_by ?? null;
   const isRoomOwner =
     roomOwnerId !== null && currentUserId === roomOwnerId;
-  // Channels may only be deleted by their creator; 1:1 chats by either user.
-  const canDeleteChat = !isChannel || isRoomOwner;
+  // Channels may only be deleted by their creator. 1:1 chats require the
+  // `chat-delete` permission (website Sidebar §1.18.5).
+  const canDeleteChat = isChannel
+    ? isRoomOwner
+    : canDeleteDirectChat(currentUser);
   // The channel creator always manages members; other members need the
   // permission-management right.
   const canModerateMembers =
     isChannel && (isRoomOwner || canManageMembers);
+  // Any channel member may leave; 1:1 chats are hidden/deleted instead.
+  const canLeaveChannel = isChannel && !isRoomOwner;
+  // Clearing history is limited to the creator / Full edit (owner is Full edit).
+  const canClearHistory = isChannel && (isRoomOwner || canManageMembers);
 
   useEffect(() => {
     return () => {
@@ -4675,6 +5024,57 @@ export default function ConversationScreen() {
     } catch {
       showError("Error", "Could not delete chat");
     }
+  };
+
+  // Leave a channel. Any member may leave (website §2.4 self-remove). The room
+  // is removed for this user; the creator must delete it instead.
+  const handleLeaveChannel = () => {
+    if (!roomId || !canLeaveChannel) return;
+    setRoomMenuOpen(false);
+    Alert.alert(
+      "Leave channel",
+      `Leave "${currentRoom?.name ?? "this channel"}"? You will need a new invite to rejoin.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Leave",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await leaveRoom(roomId);
+              router.back();
+            } catch {
+              showError("Error", "Could not leave channel");
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  // Clear the channel's message history for everyone. Creator / Full edit only.
+  const handleClearHistory = () => {
+    if (!roomId || !canClearHistory) return;
+    setRoomMenuOpen(false);
+    Alert.alert(
+      "Clear chat history",
+      "Clear all messages in this channel for everyone? This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await clearMessages(roomId);
+              showSuccess("Chat history cleared");
+            } catch {
+              showError("Error", "Could not clear chat history");
+            }
+          },
+        },
+      ],
+    );
   };
 
   // ── @-mention candidates (derived from the room's member list) ─────────
@@ -4788,11 +5188,13 @@ export default function ConversationScreen() {
 
   const handleLongPress = useCallback(
     (msg: ChatMessage, e?: GestureResponderEvent) => {
+      // View Only members get no message actions (website §2.6).
+      if (!canUseMessageActions) return;
       triggerHaptic("medium");
       const y = e?.nativeEvent?.pageY ?? Dimensions.get("window").height / 2;
       setSelectedMsgForModal({ message: msg, targetY: y });
     },
-    [],
+    [canUseMessageActions],
   );
 
   // Lookup for the "replying to" quote preview — only messages already
@@ -4923,6 +5325,7 @@ export default function ConversationScreen() {
           }}
         >
           <SwipeToReply
+            enabled={canUseMessageActions}
             onReply={() => {
               setReplyTo(message);
               setTimeout(() => composerRef.current?.focus(), 60);
@@ -4958,6 +5361,7 @@ export default function ConversationScreen() {
       highlightedMessageId,
       handleLongPress,
       handleReactEmoji,
+      canUseMessageActions,
       openImageViewer,
       openVideoViewer,
       handleJumpToMessageId,
@@ -5974,7 +6378,6 @@ export default function ConversationScreen() {
                           />
                         </TouchableOpacity>
                         {isChannel &&
-                          postTypes.length > 0 &&
                           canManagePostTypes && (
                             <TouchableOpacity
                               activeOpacity={0.4}
@@ -6026,6 +6429,31 @@ export default function ConversationScreen() {
                         contentContainerStyle={styles.postTypeScrollContent}
                         keyboardShouldPersistTaps="handled"
                       >
+                        {canManagePostTypes && (
+                          <TouchableOpacity
+                            style={[
+                              styles.postTypeChip,
+                              { backgroundColor: "#F3F4F6" },
+                            ]}
+                            activeOpacity={0.4}
+                            onPress={() => setPostTypeCreateOpen(true)}
+                          >
+                            <Ionicons
+                              name="add"
+                              size={14}
+                              color="#374151"
+                              style={{ marginRight: 4 }}
+                            />
+                            <Text
+                              style={[
+                                styles.postTypeChipText,
+                                { color: "#374151" },
+                              ]}
+                            >
+                              New
+                            </Text>
+                          </TouchableOpacity>
+                        )}
                         {postTypes.map(
                           (pt: { name: string; color: string }) => {
                             const isSelected = selectedPostType === pt.name;
@@ -6045,6 +6473,11 @@ export default function ConversationScreen() {
                                   setSelectedPostType((prev) =>
                                     prev === pt.name ? null : pt.name,
                                   )
+                                }
+                                onLongPress={
+                                  canManagePostTypes
+                                    ? () => handleDeletePostType(pt.name)
+                                    : undefined
                                 }
                               >
                                 <Ionicons
@@ -6127,7 +6560,11 @@ export default function ConversationScreen() {
         message={selectedMsgForModal?.message ?? null}
         targetY={selectedMsgForModal?.targetY}
         currentUserId={currentUserId}
-        callerPermission={callerPermission}
+        withinEditWindow={
+          selectedMsgForModal?.message
+            ? isWithinEditWindow(selectedMsgForModal.message)
+            : false
+        }
         onClose={() => setSelectedMsgForModal(null)}
         onReactionSelect={(emoji) => {
           if (selectedMsgForModal?.message) {
@@ -6237,17 +6674,28 @@ export default function ConversationScreen() {
         onClose={() => setPermissionSheetMember(null)}
       />
 
+      {/* ── Create post type (Full edit / Edit) ── */}
+      <PostTypeCreateModal
+        visible={postTypeCreateOpen}
+        onClose={() => setPostTypeCreateOpen(false)}
+        onCreate={handleCreatePostType}
+      />
+
       {/* ── Conversation Menu popover (header three-dot) ── */}
       <RoomMenuPopover
         visible={roomMenuOpen}
         anchor={roomMenuAnchor}
         isMuted={!!currentRoom?.is_muted}
         canDelete={canDeleteChat}
+        canLeave={canLeaveChannel}
+        canClear={canClearHistory}
         isChannel={isChannel}
         onClose={() => setRoomMenuOpen(false)}
         onToggleMute={handleToggleMute}
         onMarkUnread={handleMarkUnread}
         onDelete={handleDeleteChat}
+        onLeave={handleLeaveChannel}
+        onClear={handleClearHistory}
       />
 
       {/* ── Delete chat confirmation (custom) ── */}

@@ -17,6 +17,10 @@ export type UserData = {
   image: string;
   role_title: string;
   user_permissions: string[];
+  /** Present in the login payload; used to bypass the permission/login gates. */
+  is_saas_admin?: boolean;
+  user_type?: string;
+  has_seen_welcome?: boolean;
 };
 
 export type CompanyPolicy = {

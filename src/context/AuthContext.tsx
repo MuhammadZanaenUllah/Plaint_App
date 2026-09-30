@@ -1,6 +1,7 @@
 import * as authService from "@/services/api/auth.service";
 import { setAuthFailureHandler } from "@/services/api/client";
 import { getModules } from "@/services/api/modules.service";
+import { onSocketEvent } from "@/services/socket/socketService";
 import { Company, UserData } from "@/types/auth.types";
 import { invalidateAuthTokenCache } from "@/utils/secureImageFetch";
 import {
@@ -24,6 +25,7 @@ import React, {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
 } from "react";
 
 type AuthState = {
@@ -46,7 +48,8 @@ type AuthAction =
   | { type: "DEFAULT_PASSWORD"; email: string }
   | { type: "LOGOUT" }
   | { type: "SET_LOADING"; loading: boolean }
-  | { type: "SET_ADVANCED_TASK_MODULE"; enabled: boolean };
+  | { type: "SET_ADVANCED_TASK_MODULE"; enabled: boolean }
+  | { type: "SET_USER_PERMISSIONS"; permissions: string[] };
 
 const initialState: AuthState = {
   user: null,
@@ -93,6 +96,14 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
       return { ...state, loading: action.loading };
     case "SET_ADVANCED_TASK_MODULE":
       return { ...state, hasAdvancedTaskModule: action.enabled };
+    case "SET_USER_PERMISSIONS":
+      // Live permission refresh (socket `role_update`). Permissions drive all
+      // Chat/Task UI gating, so update the user object in place.
+      if (!state.user) return state;
+      return {
+        ...state,
+        user: { ...state.user, user_permissions: action.permissions },
+      };
     default:
       return state;
   }
@@ -115,6 +126,10 @@ export const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, initialState);
+
+  // Latest auth state for socket handlers (registered once, no stale closure).
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   useEffect(() => {
     async function restore() {
@@ -150,6 +165,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAuthFailureHandler(() => {
       dispatch({ type: "LOGOUT" });
     });
+  }, []);
+
+  // Live permission refresh (website App.js): the backend emits `role_update`
+  // with action "update_permissions" when a role's permissions change. If it
+  // targets the current user's company + role, replace `user_permissions` so
+  // every permission-gated Chat/Task control re-evaluates immediately. The
+  // socket service queues this listener until the shared socket connects.
+  useEffect(() => {
+    const cleanup = onSocketEvent("role_update", (data) => {
+      const typed = data as {
+        company_id?: number;
+        roleId?: number;
+        action?: string;
+        permissions?: string[];
+      };
+      if (typed.action !== "update_permissions") return;
+      if (!Array.isArray(typed.permissions)) return;
+      const current = stateRef.current;
+      if (!current.user) return;
+      const sameCompany =
+        typed.company_id === undefined ||
+        typed.company_id === current.company?.company_id;
+      const sameRole =
+        typed.roleId === undefined || typed.roleId === current.user.role;
+      if (!sameCompany || !sameRole) return;
+      dispatch({ type: "SET_USER_PERMISSIONS", permissions: typed.permissions });
+      setStoredUser({
+        ...current.user,
+        user_permissions: typed.permissions,
+      }).catch(() => {});
+    });
+    return cleanup;
   }, []);
 
   // Look up the company's own module list (from its package) once a session
@@ -237,6 +284,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const successRes =
         res as import("@/types/auth.types").LoginSuccessResponse;
+
+      // Login gate (website §1.4): a normal user cannot proceed without
+      // permissions or an assigned company policy. SaaS admins and Company
+      // Admins are exempt.
+      const ud = successRes.user.userdata;
+      const roleTitle = (ud.role_title ?? "").trim().toLowerCase();
+      const isCompanyAdmin = roleTitle === "company admin";
+      const isSaasAdmin =
+        ud.is_saas_admin === true ||
+        (successRes.company_id === 0 &&
+          (roleTitle === "saas admin" || ud.role === 12));
+      if (!isCompanyAdmin && !isSaasAdmin) {
+        if (!(ud.user_permissions ?? []).length) {
+          throw new Error(
+            "No permission assigned to you. Please contact company admin or hr to add permissions",
+          );
+        }
+        if (!successRes.user.company?.policy) {
+          throw new Error(
+            "No policy is assigned to your account. Please contact your HR or Administrator.",
+          );
+        }
+      }
+
       // console.log("=========================================");
       console.log(
         "[Auth] LOGIN userdata:",

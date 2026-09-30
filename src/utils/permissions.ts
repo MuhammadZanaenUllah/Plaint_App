@@ -47,18 +47,17 @@ export function canViewChat(user?: UserData | null): boolean {
  *
  *  The backend has no dedicated "create channel" permission key, so every user
  *  with chat access may create a channel. Deletion is separate and reserved for
- *  the channel creator (see `canDeleteChannel` usage / `Room.created_by`). */
+ *  the channel creator (see `Room.created_by` / `canDeleteDirectChat`). */
 export function canCreateChannel(user?: UserData | null): boolean {
   return canViewChat(user);
 }
 
-/** Edit a channel (rename, manage members). */
-export function canEditChannel(user?: UserData | null): boolean {
-  return hasPermission(user, "chat-edit");
-}
-
-/** Delete a channel. */
-export function canDeleteChannel(user?: UserData | null): boolean {
+/** Delete/hide a 1:1 (direct) conversation.
+ *
+ *  Matches the website Sidebar rule (§1.18.5): deleting a direct room requires
+ *  the `chat-delete` permission. Channels are not covered here — they may only
+ *  be deleted by their creator (see `conversation.tsx` `canDeleteChat`). */
+export function canDeleteDirectChat(user?: UserData | null): boolean {
   return hasPermission(user, "chat-delete");
 }
 
