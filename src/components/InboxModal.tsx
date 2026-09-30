@@ -89,8 +89,16 @@ export default function InboxModal({
 
   const handleItemPress = useCallback(
     async (item: NotificationItem) => {
+      console.log("[InboxModal] item pressed", {
+        id: item.id,
+        typ: item.typ,
+        readed: item.readed,
+        activeTab,
+      });
       if (item.readed === 0) {
         markRead(item.id);
+      } else {
+        console.log(`[InboxModal] id=${item.id} already read — skipping markRead`);
       }
       onClose();
 
@@ -161,7 +169,7 @@ export default function InboxModal({
         onNotificationPress?.(item);
       }
     },
-    [currentUserId, markRead, onClose, onNotificationPress, chatState.rooms, getOrCreateRoom],
+    [currentUserId, markRead, onClose, onNotificationPress, chatState.rooms, getOrCreateRoom, activeTab],
   );
 
   const filteredNotifications = notifState.notifications

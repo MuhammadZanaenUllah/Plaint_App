@@ -144,8 +144,16 @@ export default function NotificationsScreen() {
 
   const handleItemPress = useCallback(
     async (item: NotificationItem) => {
+      console.log("[Inbox] item pressed", {
+        id: item.id,
+        typ: item.typ,
+        readed: item.readed,
+        activeTab,
+      });
       if (item.readed === 0) {
         markRead(item.id);
+      } else {
+        console.log(`[Inbox] id=${item.id} already read — skipping markRead`);
       }
       const typ = (item.typ ?? "").toLowerCase();
       const hasTask = !!item.task_id && item.task_id !== 0;
@@ -228,7 +236,7 @@ export default function NotificationsScreen() {
     // TASK MODULE DISABLED — `companyId` was only used by the task branch above;
     // re-add it to this dependency array when restoring the Task module.
     // [companyId, currentUserId, markRead, chatState.rooms, getOrCreateRoom],
-    [currentUserId, markRead, chatState.rooms, getOrCreateRoom],
+    [currentUserId, markRead, chatState.rooms, getOrCreateRoom, activeTab],
   );
 
   const filteredNotifications = notifState.notifications

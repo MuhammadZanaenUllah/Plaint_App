@@ -110,12 +110,15 @@ export async function apiPost<T>(
 ): Promise<T> {
   const token = await getStoredToken();
   const url = `${BASE_URL}${path}`;
-  console.log(
-    "[API] POST:",
-    path,
-    "body:",
-    isFormData ? "(FormData)" : JSON.stringify(body).slice(0, 500),
-  );
+  // JSON.stringify(undefined) returns undefined (not a string), so calling
+  // .slice() on it threw for no-body POSTs (e.g. markNotificationRead) BEFORE
+  // the request was ever sent. Guard the preview instead.
+  const bodyPreview = isFormData
+    ? "(FormData)"
+    : body === undefined
+      ? "(no body)"
+      : JSON.stringify(body).slice(0, 500);
+  console.log("[API] POST:", path, "body:", bodyPreview);
 
   const res = await fetch(url, {
     method: "POST",

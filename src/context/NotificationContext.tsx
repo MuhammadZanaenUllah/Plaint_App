@@ -277,13 +277,23 @@ export function NotificationProvider({
   }, [currentUserId, currentCompanyId, fetchNotifications, addNotification]);
 
   const markRead = useCallback(async (notificationId: number) => {
+    console.log(`[Notifications] markRead → calling POST /notification/readone/${notificationId}`);
     try {
       const res = await chatService.markNotificationRead(notificationId);
+      console.log(
+        `[Notifications] markRead ← response for id=${notificationId}:`,
+        JSON.stringify(res),
+      );
       if (res.Good) {
         dispatch({ type: "MARK_READ", id: notificationId });
+        console.log(`[Notifications] MARK_READ dispatched for id=${notificationId} (readed=1)`);
+      } else {
+        console.warn(
+          `[Notifications] markRead NOT applied for id=${notificationId} (Good=${(res as { Good?: boolean }).Good})`,
+        );
       }
-    } catch {
-      // Silent fail
+    } catch (e) {
+      console.warn(`[Notifications] markRead ERROR for id=${notificationId}`, e);
     }
   }, []);
 
