@@ -659,11 +659,16 @@ function DateFilterPanel({
 }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const [startDate, setStartDate] = useState<Date | null>(today);
+  // Default range when the Date card is opened: Last 90 days.
+  const defaultStart = new Date(today);
+  defaultStart.setDate(today.getDate() - 89);
+  const [startDate, setStartDate] = useState<Date | null>(defaultStart);
   const [endDate, setEndDate] = useState<Date | null>(today);
-  const [selectedRange, setSelectedRange] = useState<string | null>("Today");
+  const [selectedRange, setSelectedRange] = useState<string | null>(
+    "Last 90 days",
+  );
   // Fires on mount too (no first-render skip) so the header's Date chip
-  // reflects the "Today" default immediately instead of only after the
+  // reflects the "Last 90 days" default immediately instead of only after the
   // user picks a different range.
   useEffect(() => {
     onFilterChange(startDate, endDate);
@@ -1410,7 +1415,7 @@ const ddStyles = StyleSheet.create({
     paddingVertical: 3,
   },
   text: {
-    fontSize: rf(10.5),
+    fontSize: rf(8),
     fontFamily: "SF_Pro_Medium",
     color: "#54656F",
   },
@@ -3142,15 +3147,29 @@ const roomMenuStyles = StyleSheet.create({
 function DeleteChatModal({
   visible,
   isChannel,
+  title,
+  message,
+  confirmLabel = "Delete",
   onClose,
   onConfirm,
 }: {
   visible: boolean;
-  isChannel: boolean;
+  isChannel?: boolean;
+  title?: string;
+  message?: string;
+  confirmLabel?: string;
   onClose: () => void;
   onConfirm: () => void;
 }) {
   if (!visible) return null;
+
+  const resolvedTitle =
+    title ?? (isChannel ? "Delete channel?" : "Delete chat?");
+  const resolvedMessage =
+    message ??
+    (isChannel
+      ? "This channel will be deleted for all its members. This can't be undone."
+      : "This chat will be deleted from your list. The other person will still have it.");
 
   return (
     <Modal
@@ -3164,14 +3183,8 @@ function DeleteChatModal({
           style={deleteChatStyles.card}
           onStartShouldSetResponder={() => true}
         >
-          <Text style={deleteChatStyles.title}>
-            {isChannel ? "Delete channel?" : "Delete chat?"}
-          </Text>
-          <Text style={deleteChatStyles.message}>
-            {isChannel
-              ? "This channel will be deleted for all its members. This can't be undone."
-              : "This chat will be deleted from your list. The other person will still have it."}
-          </Text>
+          <Text style={deleteChatStyles.title}>{resolvedTitle}</Text>
+          <Text style={deleteChatStyles.message}>{resolvedMessage}</Text>
           <View style={deleteChatStyles.actions}>
             <TouchableOpacity
               style={[deleteChatStyles.btn, deleteChatStyles.cancelBtn]}
@@ -3185,7 +3198,7 @@ function DeleteChatModal({
               activeOpacity={0.85}
               onPress={onConfirm}
             >
-              <Text style={deleteChatStyles.deleteText}>Delete</Text>
+              <Text style={deleteChatStyles.deleteText}>{confirmLabel}</Text>
             </TouchableOpacity>
           </View>
         </Pressable>
@@ -3959,6 +3972,7 @@ export default function ConversationScreen() {
   // small popover anchored to the header button.
   const [roomMenuOpen, setRoomMenuOpen] = useState(false);
   const [deleteChatConfirmOpen, setDeleteChatConfirmOpen] = useState(false);
+  const [leaveChannelConfirmOpen, setLeaveChannelConfirmOpen] = useState(false);
   const [roomMenuAnchor, setRoomMenuAnchor] = useState<RoomMenuAnchor | null>(
     null,
   );
@@ -5031,25 +5045,18 @@ export default function ConversationScreen() {
   const handleLeaveChannel = () => {
     if (!roomId || !canLeaveChannel) return;
     setRoomMenuOpen(false);
-    Alert.alert(
-      "Leave channel",
-      `Leave "${currentRoom?.name ?? "this channel"}"? You will need a new invite to rejoin.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Leave",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await leaveRoom(roomId);
-              router.back();
-            } catch {
-              showError("Error", "Could not leave channel");
-            }
-          },
-        },
-      ],
-    );
+    setLeaveChannelConfirmOpen(true);
+  };
+
+  const confirmLeaveChannel = async () => {
+    if (!roomId) return;
+    setLeaveChannelConfirmOpen(false);
+    try {
+      await leaveRoom(roomId);
+      router.back();
+    } catch {
+      showError("Error", "Could not leave channel");
+    }
   };
 
   // Clear the channel's message history for everyone. Creator / Full edit only.
@@ -5083,15 +5090,15 @@ export default function ConversationScreen() {
     [currentRoom, currentUserId],
   );
 
-  // Existing room members shown in InviteToChannelModal's "Who has access" list
+  // Channel owner (creator) shown in InviteToChannelModal's "Who has access".
   const inviteModalMembers = useMemo<ChannelMember[]>(
     () =>
       (currentRoom?.members ?? []).map((m) => ({
         id: m.id,
         name: `${m.first_name || ""} ${m.last_name || ""}`.trim() || `User #${m.id}`,
-        isOwner: m.id === currentUserId,
+        isOwner: m.id === (roomCreator ?? currentRoom?.created_by),
       })),
-    [currentRoom, currentUserId],
+    [currentRoom, roomCreator],
   );
 
   // People who can be added to this channel. With no query, the default list is
@@ -5667,8 +5674,7 @@ export default function ConversationScreen() {
             <TouchableOpacity
               style={[
                 styles.filterChip,
-                (activeFilter === "date" || dateFilterStart !== null) &&
-                  styles.filterChipActive,
+                activeFilter === "date" && styles.filterChipActive,
               ]}
               activeOpacity={0.75}
               onPress={() => toggleFilter("date")}
@@ -5676,17 +5682,12 @@ export default function ConversationScreen() {
               <Ionicons
                 name="calendar-outline"
                 size={11}
-                color={
-                  activeFilter === "date" || dateFilterStart !== null
-                    ? "#fff"
-                    : "#6B7280"
-                }
+                color={activeFilter === "date" ? "#fff" : "#6B7280"}
               />
               <Text
                 style={[
                   styles.filterChipText,
-                  (activeFilter === "date" || dateFilterStart !== null) &&
-                    styles.filterChipTextActive,
+                  activeFilter === "date" && styles.filterChipTextActive,
                 ]}
               >
                 Date
@@ -6040,9 +6041,9 @@ export default function ConversationScreen() {
                   <View style={styles.workspaceContainer}>
                     <View style={styles.iconStack}>
                       {isChannel ? (
-                        <Icons.ChannelTabIcon width={54} height={54} />
+                        <Icons.ChannelTabIcon width={28} height={28} />
                       ) : (
-                        <MainChatIcon />
+                        <MainChatIcon style={{ width: 28, height: 28 }} />
                       )}
                     </View>
                     <Text style={styles.workspaceTitle}>
@@ -6706,6 +6707,18 @@ export default function ConversationScreen() {
         onConfirm={confirmDeleteChat}
       />
 
+      {/* ── Leave channel confirmation (custom) ── */}
+      <DeleteChatModal
+        visible={leaveChannelConfirmOpen}
+        title="Leave channel?"
+        message={`You'll be removed from "${
+          currentRoom?.name ?? "this channel"
+        }". You will need a new invite to rejoin.`}
+        confirmLabel="Leave"
+        onClose={() => setLeaveChannelConfirmOpen(false)}
+        onConfirm={confirmLeaveChannel}
+      />
+
       {/* ── Pinned messages modal (opened from the Pinned filter card) ── */}
       <PinnedMessagesModal
         visible={pinnedModalOpen && pinnedMessages.length > 0}
@@ -6986,7 +6999,7 @@ const styles = StyleSheet.create({
     borderColor: "#1D1D1D",
   },
   filterChipText: {
-    fontSize: rf(11),
+    fontSize: rf(9.5),
     fontFamily: "SF_Pro_Regular",
     color: "#8A8A8A",
   },
@@ -7012,20 +7025,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 20,
   },
-  iconStack: { marginBottom: 14 },
+  iconStack: { marginBottom: 8 },
   workspaceTitle: {
-    fontSize: rf(20),
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
-    marginBottom: 8,
+    marginBottom: 4,
     textAlign: "center",
   },
   workspaceDescription: {
-    fontSize: rf(12),
+    fontSize: rf(9),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_SECONDARY,
     textAlign: "center",
-    lineHeight: 20,
+    lineHeight: 13,
   },
 
   // ── Messages ──
@@ -7520,15 +7533,15 @@ const styles = StyleSheet.create({
   // Channel specific empty state button
   addPeopleChannelBtn: {
     backgroundColor: TEAL,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginTop: 8,
   },
   addPeopleChannelText: {
     color: "#fff",
     fontFamily: "SF_Pro_Medium",
-    fontSize: rf(13),
+    fontSize: rf(9),
   },
 
   // Post Type

@@ -184,7 +184,7 @@ export default function CreateChannelModal({
                 activeOpacity={0.7}
                 hitSlop={8}
               >
-                <Ionicons name="close" size={12} color="#1D1D1D" />
+                <Ionicons name="close" size={12} color="#fff" />
               </TouchableOpacity>
             </View>
 
@@ -266,7 +266,7 @@ const modalStyles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: "#1D1D1D",
     justifyContent: "center",
     alignItems: "center",
   },

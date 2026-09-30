@@ -374,6 +374,13 @@ export default function InviteToChannelModal({
   const [memberPerms, setMemberPerms] =
     useState<Record<number, ChannelPermission>>({});
 
+  // "Who has access" lists only the channel owner (creator), not every member.
+  // Owner id comes from the room creator, falling back to a member flagged as
+  // the owner. If neither is known, the section renders empty.
+  const ownerId = roomCreator ?? members.find((m) => m.isOwner)?.id ?? null;
+  const ownerMembers =
+    ownerId !== null ? members.filter((m) => m.id === ownerId) : [];
+
   // Reset when modal opens. The Email Address field is pre-filled with the
   // emails of the members selected on the previous screen (still editable).
   const wasVisibleRef = useRef(visible);
@@ -563,7 +570,7 @@ export default function InviteToChannelModal({
                   <Text style={[modal.sectionLabel, { marginTop: 20 }]}>
                     Who has access
                   </Text>
-                  {members.map((member) => {
+                  {ownerMembers.map((member) => {
                     const isOwner =
                       member.isOwner ||
                       (roomCreator ? member.id === roomCreator : false);

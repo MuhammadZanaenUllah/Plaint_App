@@ -264,7 +264,7 @@ export default function ChatScreen() {
     const {
         state, fetchRooms, getOrCreateRoom, markRead,
         setSearchQuery, initSocket, cleanupChatListeners,
-        roomCreator, roomPermissions, deleteRoom, hiddenRoomIds,
+        roomPermissions, deleteRoom, hiddenRoomIds,
         muteRoom, markUnread,
     } = useChat();
     const authState = useAuth();
@@ -852,17 +852,29 @@ export default function ChatScreen() {
         return found?.permission as ChannelPermission | undefined;
     }, [roomPermissions, currentUserId]);
 
-    // Build current room members for the InviteToChannelModal "Who has access" list
+    // Build the channel owner (creator) for the InviteToChannelModal
+    // "Who has access" list — only the owner is shown there. A freshly-created
+    // room's member list can still be empty, so always include the current user
+    // (the creator) as the owner.
     const currentChannelMembers = useMemo<ChannelMember[]>(() => {
         const room = createdRoomRef.current;
-        if (!room) return [];
-        return (room.members ?? []).map((m: any) => ({
+        const ownerId = currentUserId;
+        const list: ChannelMember[] = (room?.members ?? []).map((m: any) => ({
             id: m.id,
             name: `${m.first_name || ""} ${m.last_name || ""}`.trim() || `User #${m.id}`,
-            isOwner: m.id === currentUserId,
+            isOwner: m.id === ownerId,
         }));
+        if (ownerId && !list.some((m) => m.id === ownerId)) {
+            const me = currentUser;
+            const myName = me
+                ? `${me.first_name || ""} ${me.last_name || ""}`.trim() ||
+                  `User #${currentUserId}`
+                : `User #${currentUserId}`;
+            list.unshift({ id: ownerId, name: myName, isOwner: true });
+        }
+        return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [inviteModalVisible, currentUserId]);
+    }, [inviteModalVisible, currentUserId, currentUser]);
 
     // PROJECT MODULE DISABLED
     // Handler for creating a channel under a specific project
@@ -1450,7 +1462,7 @@ export default function ChatScreen() {
                 roomId={createdRoomRef.current?._id ?? ""}
                 members={currentChannelMembers}
                 currentUserId={currentUserId}
-                roomCreator={roomCreator}
+                roomCreator={currentUserId}
                 callerPermission={callerPermission}
                 initialEmails={pendingInviteUsers
                     .map((u) => u.email)
