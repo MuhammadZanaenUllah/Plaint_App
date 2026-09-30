@@ -1893,8 +1893,8 @@ const MessageBubble = React.memo(function MessageBubble({
 
   // Post-type label (if the message was tagged with one).
   const messagePostType = getMessagePostType(message);
-  const postTypeColor =
-    postTypes?.find((p) => p.name === messagePostType)?.color ?? "#00DEAB";
+  const postTypeMeta = postTypes?.find((p) => p.name === messagePostType);
+  const postTypeColor = postTypeMeta?.color ?? "#00DEAB";
   const postTypeBadge = messagePostType ? (
     <View
       style={[
@@ -1902,7 +1902,11 @@ const MessageBubble = React.memo(function MessageBubble({
         { backgroundColor: postTypeColor + "22" },
       ]}
     >
-      <Ionicons name="pricetag" size={10} color={postTypeColor} />
+      <Ionicons
+        name={resolvePostTypeIcon(postTypeMeta?.icon)}
+        size={10}
+        color={postTypeColor}
+      />
       <Text
         style={[styles.postTypeBadgeText, { color: postTypeColor }]}
         numberOfLines={1}
@@ -2753,21 +2757,147 @@ const delModalStyles = StyleSheet.create({
 // ─── Create Post Type Modal (Full edit / Edit only) ──────────────────────────
 
 const POST_TYPE_COLORS = [
-  "#00DEAB",
-  "#556EE6",
-  "#F59E0B",
-  "#EF4444",
-  "#8B5CF6",
-  "#0EA5E9",
+  "#0DDFAB", // teal
+  "#1A73E8", // blue
+  "#EA4335", // red
+  "#FBBC04", // yellow
+  "#34A853", // green
+  "#FF6D00", // orange
+  "#9C27B0", // purple
+  "#E91E63", // pink
+  "#00BCD4", // cyan
+  "#FF5722", // deep orange
 ];
 const POST_TYPE_ICONS: React.ComponentProps<typeof Ionicons>["name"][] = [
-  "pricetag",
-  "megaphone",
-  "bulb",
-  "chatbubbles",
-  "flag",
-  "star",
+  "pricetag-outline",
+  "star-outline",
+  "flash-outline",
+  "heart-outline",
+  "flag-outline",
+  "bookmark-outline",
+  "information-circle-outline",
+  "checkmark-circle-outline",
+  "megaphone-outline",
+  "notifications-outline",
+  "bulb-outline",
+  "chatbubbles-outline",
 ];
+
+// Maps the icon names the backend may store (our Ionicons names, plus the
+// website's Lucide-style names) to a valid Ionicons name so a post type's
+// chosen icon actually renders in the chips instead of always falling back to
+// the first icon.
+const POST_TYPE_ICON_ALIASES: Record<
+  string,
+  React.ComponentProps<typeof Ionicons>["name"]
+> = {
+  tag: "pricetag-outline",
+  pricetag: "pricetag-outline",
+  "pricetag-outline": "pricetag-outline",
+  star: "star-outline",
+  "star-outline": "star-outline",
+  zap: "flash-outline",
+  flash: "flash-outline",
+  "flash-outline": "flash-outline",
+  heart: "heart-outline",
+  "heart-outline": "heart-outline",
+  flag: "flag-outline",
+  "flag-outline": "flag-outline",
+  bookmark: "bookmark-outline",
+  "bookmark-outline": "bookmark-outline",
+  info: "information-circle-outline",
+  "info-circle": "information-circle-outline",
+  "information-circle": "information-circle-outline",
+  "information-circle-outline": "information-circle-outline",
+  "check-circle": "checkmark-circle-outline",
+  "circle-check": "checkmark-circle-outline",
+  "checkmark-circle": "checkmark-circle-outline",
+  "checkmark-circle-outline": "checkmark-circle-outline",
+  megaphone: "megaphone-outline",
+  "megaphone-outline": "megaphone-outline",
+  bell: "notifications-outline",
+  notifications: "notifications-outline",
+  "notifications-outline": "notifications-outline",
+  bulb: "bulb-outline",
+  lightbulb: "bulb-outline",
+  "bulb-outline": "bulb-outline",
+  "message-square": "chatbubbles-outline",
+  message: "chatbubbles-outline",
+  chat: "chatbubbles-outline",
+  chatbubbles: "chatbubbles-outline",
+  "chatbubbles-outline": "chatbubbles-outline",
+};
+
+function resolvePostTypeIcon(
+  icon?: string | null,
+): React.ComponentProps<typeof Ionicons>["name"] {
+  const key = (icon ?? "").trim().toLowerCase();
+  return POST_TYPE_ICON_ALIASES[key] ?? "pricetag-outline";
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const raw = hex.replace("#", "");
+  const full =
+    raw.length === 3
+      ? raw
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : raw;
+  const num = parseInt(full || "000000", 16);
+  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  const to = (v: number) => clamp(v).toString(16).padStart(2, "0");
+  return `#${to(r)}${to(g)}${to(b)}`.toUpperCase();
+}
+
+/** A single 0-255 RGB channel slider (responder-based, no native slider dep). */
+function RgbSlider({
+  value,
+  onChange,
+  trackColor,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  trackColor: string;
+}) {
+  const widthRef = useRef(1);
+  const setFromX = (x: number) => {
+    const ratio = Math.max(0, Math.min(1, x / (widthRef.current || 1)));
+    onChange(Math.round(ratio * 255));
+  };
+  return (
+    <View style={ptStyles.sliderRow}>
+      <View
+        style={ptStyles.sliderTrack}
+        onLayout={(e) => {
+          widthRef.current = e.nativeEvent.layout.width || 1;
+        }}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={(e) => setFromX(e.nativeEvent.locationX)}
+        onResponderMove={(e) => setFromX(e.nativeEvent.locationX)}
+      >
+        <View
+          style={[
+            ptStyles.sliderFill,
+            { width: `${(value / 255) * 100}%`, backgroundColor: trackColor },
+          ]}
+        />
+        <View
+          style={[
+            ptStyles.sliderThumb,
+            { left: `${(value / 255) * 100}%`, borderColor: trackColor },
+          ]}
+        />
+      </View>
+      <Text style={ptStyles.sliderValue}>{value}</Text>
+    </View>
+  );
+}
 
 function PostTypeCreateModal({
   visible,
@@ -2784,15 +2914,30 @@ function PostTypeCreateModal({
     POST_TYPE_ICONS[0],
   );
   const [saving, setSaving] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [rgb, setRgb] = useState(() => hexToRgb(POST_TYPE_COLORS[0]));
 
   useEffect(() => {
     if (visible) {
       setName("");
       setColor(POST_TYPE_COLORS[0]);
+      setRgb(hexToRgb(POST_TYPE_COLORS[0]));
       setIcon(POST_TYPE_ICONS[0]);
       setSaving(false);
+      setCustomOpen(false);
     }
   }, [visible]);
+
+  const selectPreset = (c: string) => {
+    setColor(c);
+    setRgb(hexToRgb(c));
+    setCustomOpen(false);
+  };
+
+  const applyRgb = (next: { r: number; g: number; b: number }) => {
+    setRgb(next);
+    setColor(rgbToHex(next.r, next.g, next.b));
+  };
 
   const handleCreate = async () => {
     const trimmed = name.trim();
@@ -2830,20 +2975,8 @@ function PostTypeCreateModal({
             placeholderTextColor="#9CA3AF"
             maxLength={30}
           />
-          <View style={ptStyles.swatchRow}>
-            {POST_TYPE_COLORS.map((c) => (
-              <TouchableOpacity
-                key={c}
-                style={[
-                  ptStyles.swatch,
-                  { backgroundColor: c },
-                  color === c && ptStyles.swatchActive,
-                ]}
-                activeOpacity={0.7}
-                onPress={() => setColor(c)}
-              />
-            ))}
-          </View>
+
+          <Text style={ptStyles.sectionLabel}>Icon</Text>
           <View style={ptStyles.iconRow}>
             {POST_TYPE_ICONS.map((ic) => (
               <TouchableOpacity
@@ -2855,10 +2988,70 @@ function PostTypeCreateModal({
                 activeOpacity={0.7}
                 onPress={() => setIcon(ic)}
               >
-                <Ionicons name={ic} size={17} color={icon === ic ? color : "#6B7280"} />
+                <Ionicons
+                  name={ic}
+                  size={18}
+                  color={icon === ic ? color : "#6B7280"}
+                />
               </TouchableOpacity>
             ))}
           </View>
+
+          <Text style={ptStyles.sectionLabel}>Color</Text>
+          <View style={ptStyles.swatchRow}>
+            {POST_TYPE_COLORS.map((c) => (
+              <TouchableOpacity
+                key={c}
+                style={[
+                  ptStyles.swatch,
+                  { backgroundColor: c },
+                  color.toUpperCase() === c.toUpperCase() &&
+                    !customOpen &&
+                    ptStyles.swatchActive,
+                ]}
+                activeOpacity={0.7}
+                onPress={() => selectPreset(c)}
+              />
+            ))}
+          </View>
+
+          {/* Custom color — tapping the swatch opens the RGB picker. */}
+          <TouchableOpacity
+            style={ptStyles.customRow}
+            activeOpacity={0.75}
+            onPress={() => setCustomOpen((v) => !v)}
+          >
+            <View style={[ptStyles.customSwatch, { backgroundColor: color }]} />
+            <Text style={ptStyles.customLabel}>
+              {customOpen ? "Custom color" : "Use a custom color"}
+            </Text>
+            <Ionicons
+              name={customOpen ? "chevron-up" : "color-palette-outline"}
+              size={16}
+              color="#6B7280"
+            />
+          </TouchableOpacity>
+
+          {customOpen && (
+            <View style={ptStyles.rgbPanel}>
+              <RgbSlider
+                value={rgb.r}
+                onChange={(r) => applyRgb({ ...rgb, r })}
+                trackColor="#EA4335"
+              />
+              <RgbSlider
+                value={rgb.g}
+                onChange={(g) => applyRgb({ ...rgb, g })}
+                trackColor="#34A853"
+              />
+              <RgbSlider
+                value={rgb.b}
+                onChange={(b) => applyRgb({ ...rgb, b })}
+                trackColor="#1A73E8"
+              />
+              <Text style={ptStyles.hexText}>{color}</Text>
+            </View>
+          )}
           <View style={ptStyles.footer}>
             <TouchableOpacity
               style={ptStyles.cancelBtn}
@@ -2898,6 +3091,7 @@ const ptStyles = StyleSheet.create({
   card: {
     width: "100%",
     maxWidth: 360,
+    maxHeight: "90%",
     backgroundColor: "#fff",
     borderRadius: 16,
     padding: 18,
@@ -2907,6 +3101,13 @@ const ptStyles = StyleSheet.create({
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
     marginBottom: 12,
+  },
+  sectionLabel: {
+    fontSize: rf(11),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#9CA3AF",
+    letterSpacing: 0.8,
+    marginBottom: 8,
   },
   input: {
     borderWidth: 1,
@@ -2921,13 +3122,14 @@ const ptStyles = StyleSheet.create({
   },
   swatchRow: {
     flexDirection: "row",
-    gap: 10,
-    marginBottom: 14,
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 12,
   },
   swatch: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
   },
   swatchActive: {
     borderWidth: 2,
@@ -2936,8 +3138,8 @@ const ptStyles = StyleSheet.create({
   iconRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 18,
+    gap: 8,
+    marginBottom: 16,
   },
   iconBtn: {
     width: 34,
@@ -2951,6 +3153,74 @@ const ptStyles = StyleSheet.create({
   iconBtnActive: {
     borderColor: "#1D1D1D",
     backgroundColor: "#F3F4F6",
+  },
+  customRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  customSwatch: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 2,
+    borderColor: "#1D1D1D",
+  },
+  customLabel: {
+    flex: 1,
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Medium",
+    color: "#4B5563",
+  },
+  rgbPanel: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+    gap: 8,
+  },
+  sliderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  sliderTrack: {
+    flex: 1,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#E5E7EB",
+    justifyContent: "center",
+  },
+  sliderFill: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 11,
+  },
+  sliderThumb: {
+    position: "absolute",
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    marginLeft: -9,
+  },
+  sliderValue: {
+    width: 32,
+    textAlign: "right",
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Medium",
+    color: "#374151",
+  },
+  hexText: {
+    textAlign: "center",
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#1D1D1D",
   },
   footer: {
     flexDirection: "row",
@@ -5855,7 +6125,7 @@ export default function ConversationScreen() {
         {!searchOpen && activeFilter === "post_type" && isChannel && (
           <View style={styles.panelWrapper}>
             <View style={styles.postTypeListPanel}>
-              {postTypes.map((pt: { name: string; color: string }) => {
+              {postTypes.map((pt: { name: string; color: string; icon?: string }) => {
                 const isActive = filterPostType === pt.name;
                 return (
                   <TouchableOpacity
@@ -5875,7 +6145,11 @@ export default function ConversationScreen() {
                       )
                     }
                   >
-                    <Ionicons name="pricetag" size={14} color={pt.color} />
+                    <Ionicons
+                      name={resolvePostTypeIcon(pt.icon)}
+                      size={14}
+                      color={pt.color}
+                    />
                     <Text
                       style={[styles.postTypeListLabel, { color: pt.color }]}
                       numberOfLines={1}
@@ -6497,7 +6771,7 @@ export default function ConversationScreen() {
                           </TouchableOpacity>
                         )}
                         {postTypes.map(
-                          (pt: { name: string; color: string }) => {
+                          (pt: { name: string; color: string; icon?: string }) => {
                             const isSelected = selectedPostType === pt.name;
                             return (
                               <TouchableOpacity
@@ -6523,7 +6797,7 @@ export default function ConversationScreen() {
                                 }
                               >
                                 <Ionicons
-                                  name="pricetag"
+                                  name={resolvePostTypeIcon(pt.icon)}
                                   size={14}
                                   color={isSelected ? "#fff" : pt.color}
                                   style={{ marginRight: 4 }}
