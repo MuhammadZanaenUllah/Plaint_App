@@ -42,6 +42,7 @@ import {
   markConversationOpen,
 } from "@/utils/conversationNavigation";
 import { canDeleteDirectChat } from "@/utils/permissions";
+import { openChatDocument } from "@/utils/openChatDocument";
 import { triggerHaptic } from "@/utils/haptics";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { getStoredToken } from "@/utils/token";
@@ -1182,7 +1183,7 @@ function AttachmentsPanel({
                 style={ap.fileRow}
                 activeOpacity={0.7}
                 onPress={() =>
-                  Linking.openURL(resolveFileUrl(item.url)).catch(() => {})
+                  openChatDocument(item.url, item.name).catch(() => {})
                 }
               >
                 <View style={ap.fileIconBadge}>
@@ -1576,9 +1577,7 @@ function AttachmentCluster({
   onOpenVideo?: (url: string) => void;
 }) {
   const openDoc = (doc: MessageAttachment) => {
-    const target = resolveFileUrl(doc.url);
-    if (!target) return;
-    Linking.openURL(target).catch(() =>
+    openChatDocument(doc.url, doc.name).catch(() =>
       showError("Error", "Could not open attachment"),
     );
   };
