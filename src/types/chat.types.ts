@@ -108,6 +108,8 @@ export type ChatMessage = {
   is_edited?: boolean;
   is_read?: number[];
   postType?: string;
+  /** Locally-added optimistic message that is still being sent. */
+  is_pending?: boolean;
   is_forwarded?: boolean;
   forwarded_from_name?: string;
   mentions?: number[];

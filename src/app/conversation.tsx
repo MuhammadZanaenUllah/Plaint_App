@@ -1819,6 +1819,7 @@ const MessageBubble = React.memo(function MessageBubble({
   onReactionPress,
   onOpenImage,
   onOpenVideo,
+  onPressReply,
   postTypes,
 }: {
   message: ChatMessage;
@@ -1826,13 +1827,18 @@ const MessageBubble = React.memo(function MessageBubble({
   members?: RoomMember[];
   showSenderName?: boolean;
   isChannel?: boolean;
-  repliedPreview?: { senderName: string; text: string } | null;
+  repliedPreview?: {
+    senderName: string;
+    text: string;
+    targetId?: string;
+  } | null;
   highlighted?: boolean;
   showTimestamp?: boolean;
   onLongPress?: (msg: ChatMessage, e?: GestureResponderEvent) => void;
   onReactionPress?: (msg: ChatMessage, emoji: string) => void;
   onOpenImage?: (images: MessageAttachment[], index: number) => void;
   onOpenVideo?: (url: string) => void;
+  onPressReply?: (messageId: string) => void;
   postTypes?: { name: string; color: string; icon?: string }[];
 }) {
   const own = isOwnMessage(message, currentUserId);
@@ -1870,6 +1876,32 @@ const MessageBubble = React.memo(function MessageBubble({
       </Text>
     </View>
   ) : null;
+
+  // Quoted reply preview. When the parent message id is known it becomes
+  // tappable — tapping scrolls to and highlights the original message.
+  const replyTargetId = repliedPreview?.targetId;
+  const replyPreviewBody = repliedPreview ? (
+    <>
+      <Text style={styles.quotedSender} numberOfLines={1}>
+        {repliedPreview.senderName}
+      </Text>
+      <Text style={styles.quotedText} numberOfLines={2}>
+        {repliedPreview.text}
+      </Text>
+    </>
+  ) : null;
+  const quotedPreviewNode =
+    repliedPreview && replyTargetId && onPressReply ? (
+      <TouchableOpacity
+        style={styles.quotedPreview}
+        activeOpacity={0.7}
+        onPress={() => onPressReply(replyTargetId)}
+      >
+        {replyPreviewBody}
+      </TouchableOpacity>
+    ) : repliedPreview ? (
+      <View style={styles.quotedPreview}>{replyPreviewBody}</View>
+    ) : null;
 
   // Read receipt — only meaningful for a 1:1 direct chat's own messages
   // (a channel/group has many readers, so a single tick pair doesn't map
@@ -1950,20 +1982,15 @@ const MessageBubble = React.memo(function MessageBubble({
 
   if (!own) {
     return (
-      <View
-        style={[
-          styles.messageWrapper,
-          highlighted && styles.messageHighlight,
-        ]}
-      >
+      <View style={styles.messageWrapper}>
         <View style={styles.incomingRow}>
           {showTimestamp ? (
             <Avatar
               name={senderName}
               imagePath={senderImage}
-              size={30}
-              borderRadius={16}
-              fontSize={12}
+              size={25}
+              borderRadius={13}
+              fontSize={10}
               fontFamily="SF_Pro_Regular"
             />
           ) : (
@@ -1987,19 +2014,11 @@ const MessageBubble = React.memo(function MessageBubble({
                 style={[
                   styles.incomingBubble,
                   message.is_pinned && styles.bubblePinnedIncoming,
+                  highlighted && styles.bubbleHighlight,
                 ]}
               >
                 {postTypeBadge}
-                {repliedPreview ? (
-                  <View style={styles.quotedPreview}>
-                    <Text style={styles.quotedSender} numberOfLines={1}>
-                      {repliedPreview.senderName}
-                    </Text>
-                    <Text style={styles.quotedText} numberOfLines={2}>
-                      {repliedPreview.text}
-                    </Text>
-                  </View>
-                ) : null}
+                {quotedPreviewNode}
                 {message.is_forwarded ? (
                   <View style={styles.forwardedRow}>
                     <Ionicons
@@ -2079,9 +2098,7 @@ const MessageBubble = React.memo(function MessageBubble({
   }
 
   return (
-    <View
-      style={[styles.messageWrapper, highlighted && styles.messageHighlight]}
-    >
+    <View style={styles.messageWrapper}>
       <View style={styles.outgoingRow}>
         <View style={styles.outgoingContent}>
           <Text style={styles.senderMetaOutgoing}>
@@ -2093,11 +2110,15 @@ const MessageBubble = React.memo(function MessageBubble({
                 </Text>{" "}
               </>
             ) : null}
-            <Ionicons
-              name={isReadByOther ? "checkmark-done" : "checkmark"}
-              size={13}
-              color={isReadByOther ? "#0DDFAB" : "#9CA3AF"}
-            />
+            {message.is_pending ? (
+              <ActivityIndicator size={9} color="#9CA3AF" />
+            ) : (
+              <Ionicons
+                name={isReadByOther ? "checkmark-done" : "checkmark"}
+                size={13}
+                color={isReadByOther ? "#0DDFAB" : "#9CA3AF"}
+              />
+            )}
           </Text>
           <Animated.View style={{ transform: [{ scale: bubbleScale }] }}>
             <Pressable
@@ -2108,19 +2129,11 @@ const MessageBubble = React.memo(function MessageBubble({
               style={[
                 styles.outgoingBubble,
                 message.is_pinned && styles.bubblePinnedOutgoing,
+                highlighted && styles.bubbleHighlight,
               ]}
             >
               {postTypeBadge}
-              {repliedPreview ? (
-                <View style={styles.quotedPreview}>
-                  <Text style={styles.quotedSender} numberOfLines={1}>
-                    {repliedPreview.senderName}
-                  </Text>
-                  <Text style={styles.quotedText} numberOfLines={2}>
-                    {repliedPreview.text}
-                  </Text>
-                </View>
-              ) : null}
+              {quotedPreviewNode}
               {message.is_forwarded ? (
                 <View style={styles.forwardedRow}>
                   <Ionicons
@@ -2198,9 +2211,9 @@ const MessageBubble = React.memo(function MessageBubble({
           <Avatar
             name={senderName}
             imagePath={senderImage}
-            size={30}
-            borderRadius={16}
-            fontSize={12}
+            size={25}
+            borderRadius={13}
+            fontSize={10}
             fontFamily="SF_Pro_Regular"
           />
         ) : (
@@ -2288,9 +2301,18 @@ function WhatsAppMessageModal({
 
   const own = isOwnMessage(message, currentUserId);
   const canEditOthers = canPerformAction(callerPermission, "edit");
-  const canDeleteOthers = canPerformAction(callerPermission, "delete");
-  const allowEdit = own || canEditOthers;
-  const allowDelete = own || canDeleteOthers;
+  // Only plain text messages are editable — never attachments (images, docs,
+  // videos) or voice notes.
+  const hasAttachments = (message.attachments?.length ?? 0) > 0;
+  const isEditableText =
+    !hasAttachments &&
+    !!message.text &&
+    !isVoiceNoteText(message.text) &&
+    !message.text.startsWith("📎 ");
+  const allowEdit = (own || canEditOthers) && isEditableText;
+  // Delete is always available (received messages delete for the current user
+  // only); "Delete for Everyone" stays restricted to own messages below.
+  const allowDelete = true;
   // Copy is only offered for real text messages — never for voice notes or
   // attachment-only marker texts ("📎 file").
   const copyableText =
@@ -2494,7 +2516,7 @@ function WhatsAppMessageModal({
                 <Text
                   style={[waModalStyles.menuText, waModalStyles.menuTextDelete]}
                 >
-                  Delete Message
+                  {own ? "Delete Message" : "Delete"}
                 </Text>
               </TouchableOpacity>
             )}
@@ -2543,7 +2565,9 @@ function DeleteMessageModal({
           </View>
           <Text style={delModalStyles.title}>Delete Message?</Text>
           <Text style={delModalStyles.subtitle}>
-            Choose how you want to delete this message.
+            {own
+              ? "Choose how you want to delete this message."
+              : "This message will be deleted for you."}
           </Text>
 
           <View style={delModalStyles.actionsStack}>
@@ -2582,7 +2606,9 @@ function DeleteMessageModal({
                 color="#EF4444"
                 style={{ marginRight: 8 }}
               />
-              <Text style={delModalStyles.deleteSelfText}>Delete for Me</Text>
+              <Text style={delModalStyles.deleteSelfText}>
+                {own ? "Delete for Me" : "Delete"}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -3948,15 +3974,47 @@ export default function ConversationScreen() {
     null,
   );
 
-  const handleJumpToMessage = useCallback((msg: ChatMessage) => {
+  // Scroll to (and briefly highlight) a message by id — used by the Pinned
+  // list and by tapping a quoted reply. It clears any active search/filters
+  // and paginates older pages until the target is loaded.
+  const handleJumpToMessageId = useCallback((messageId: string) => {
+    if (!messageId) return;
     setPinnedModalOpen(false);
-    // Clear any active filters/search so the target is present in the list.
     setSearch("");
     setActiveFilter(null);
     setDateFilterStart(null);
     setDateFilterEnd(null);
     jumpAttemptsRef.current = 0;
-    setPendingJumpId(String(msg._id ?? msg.id));
+    setPendingJumpId(messageId);
+  }, []);
+
+  const handleJumpToMessage = useCallback(
+    (msg: ChatMessage) => {
+      handleJumpToMessageId(String(msg._id ?? msg.id));
+    },
+    [handleJumpToMessageId],
+  );
+
+  // Briefly flash a message twice (on → off → on → off) instead of a static
+  // highlight, then clear it automatically.
+  const blinkMessage = useCallback((messageId: string) => {
+    if (!messageId) return;
+    if (jumpHighlightTimerRef.current) {
+      clearTimeout(jumpHighlightTimerRef.current);
+      jumpHighlightTimerRef.current = null;
+    }
+    const steps = [true, false, true, false];
+    let i = 0;
+    const step = () => {
+      setHighlightedMessageId(steps[i] ? messageId : null);
+      i += 1;
+      if (i < steps.length) {
+        jumpHighlightTimerRef.current = setTimeout(step, 110);
+      } else {
+        jumpHighlightTimerRef.current = null;
+      }
+    };
+    step();
   }, []);
 
   // Trigger initial user search when AddPeople modal opens
@@ -4239,9 +4297,7 @@ export default function ConversationScreen() {
         if (userEmail && emailSet.has(userEmail)) continue;
         try {
           await addMember(roomId, userId);
-          await chatService
-            .updatePermission({ roomId, userId, permission })
-            .catch(() => {});
+          await updatePermission(roomId, userId, permission).catch(() => {});
           directAdded++;
         } catch {
           failed++;
@@ -4277,6 +4333,7 @@ export default function ConversationScreen() {
       roomId,
       pendingInviteUsers,
       addMember,
+      updatePermission,
       fetchRoomPermissions,
     ],
   );
@@ -4559,6 +4616,56 @@ export default function ConversationScreen() {
     [currentRoom, currentUserId],
   );
 
+  // People who can be added to this channel. With no query, the default list is
+  // built from every user we already know across rooms (backend search needs
+  // ≥2 chars); once the user types, the API search results are used instead.
+  // Always excludes the current user and members already in this room.
+  const inviteCandidates = useMemo(() => {
+    const existing = new Set(
+      (currentRoom?.members ?? []).map((m) => String(m.id)),
+    );
+    const map = new Map<
+      string,
+      { id: string; name: string; email?: string }
+    >();
+    const push = (id: string, name: string, email?: string) => {
+      const key = String(id);
+      if (!key || key === String(currentUserId)) return;
+      if (existing.has(key)) return;
+      if (!name.trim()) return;
+      if (!map.has(key)) map.set(key, { id: key, name: name.trim(), email });
+    };
+
+    if (state.searchQuery.trim().length >= 2) {
+      for (const u of state.searchResults ?? []) {
+        push(
+          String(u.id),
+          u.full_name || `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim(),
+          u.email,
+        );
+      }
+    } else {
+      for (const room of state.rooms ?? []) {
+        for (const m of room.members ?? []) {
+          push(
+            String(m.id),
+            `${m.first_name ?? ""} ${m.last_name ?? ""}`.trim(),
+            m.email,
+          );
+        }
+      }
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  }, [
+    currentRoom?.members,
+    currentUserId,
+    state.searchQuery,
+    state.searchResults,
+    state.rooms,
+  ]);
+
   const mentionCandidates = useMemo(() => {
     if (!mentionActive || !isChannel) return [];
     const q = mentionQuery.trim().toLowerCase();
@@ -4638,7 +4745,11 @@ export default function ConversationScreen() {
         | string
         | { sender_name?: string; text?: string; attachments?: unknown[] }
         | null;
-      let repliedPreview: { senderName: string; text: string } | null = null;
+      let repliedPreview: {
+        senderName: string;
+        text: string;
+        targetId?: string;
+      } | null = null;
       if (parentRef && typeof parentRef === "object") {
         const p = parentRef as {
           sender_name?: string;
@@ -4661,9 +4772,11 @@ export default function ConversationScreen() {
               : found.sender_name ||
                 (member ? `${member.first_name} ${member.last_name}` : ""),
             text: getReplyPreviewText(found),
+            targetId: parentRef,
           };
         } else {
-          repliedPreview = { senderName: "Message", text: "" };
+          // Not loaded yet — still tappable so we can paginate to it.
+          repliedPreview = { senderName: "Message", text: "", targetId: parentRef };
         }
       }
 
@@ -4701,6 +4814,7 @@ export default function ConversationScreen() {
               onReactionPress={handleReactEmoji}
               onOpenImage={openImageViewer}
               onOpenVideo={openVideoViewer}
+              onPressReply={handleJumpToMessageId}
               postTypes={postTypes}
             />
           </SwipeToReply>
@@ -4717,6 +4831,7 @@ export default function ConversationScreen() {
       handleReactEmoji,
       openImageViewer,
       openVideoViewer,
+      handleJumpToMessageId,
       postTypes,
     ],
   );
@@ -4820,15 +4935,8 @@ export default function ConversationScreen() {
         } catch {
           // onScrollToIndexFailed retries once the row is measured.
         }
-        setHighlightedMessageId(targetId);
         setPendingJumpId(null);
-        if (jumpHighlightTimerRef.current) {
-          clearTimeout(jumpHighlightTimerRef.current);
-        }
-        jumpHighlightTimerRef.current = setTimeout(
-          () => setHighlightedMessageId(null),
-          2400,
-        );
+        blinkMessage(targetId);
       });
       return;
     }
@@ -4857,6 +4965,7 @@ export default function ConversationScreen() {
     state.messagePage,
     roomId,
     fetchMessages,
+    blinkMessage,
   ]);
 
   // Clear any pending jump-highlight timer when leaving the screen.
@@ -5306,6 +5415,27 @@ export default function ConversationScreen() {
                   No members loaded
                 </Text>
               )}
+
+              {/* Add people to this existing channel (owner / managers only).
+                  Opens the same AddPeople → permission + invite-link flow used
+                  when the channel was created. */}
+              {canModerateMembers && (
+                <TouchableOpacity
+                  style={styles.memberAddRow}
+                  activeOpacity={0.75}
+                  onPress={() => setAddPeopleOpen(true)}
+                >
+                  <View style={styles.memberAddIcon}>
+                    <Ionicons
+                      name="person-add-outline"
+                      size={15}
+                      color="#00DEAB"
+                    />
+                  </View>
+                  <Text style={styles.memberAddText}>Add people</Text>
+                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         )}
@@ -5750,15 +5880,11 @@ export default function ConversationScreen() {
                         onPress={handleSend}
                         disabled={sending || !message.trim()}
                       >
-                        {sending ? (
-                          <ActivityIndicator size="small" color="#fff" />
-                        ) : (
-                          <Ionicons
-                            name={editingMsg ? "checkmark" : "paper-plane"}
-                            size={16}
-                            color="#fff"
-                          />
-                        )}
+                        <Ionicons
+                          name={editingMsg ? "checkmark" : "paper-plane"}
+                          size={16}
+                          color="#fff"
+                        />
                       </TouchableOpacity>
                     </View>
 
@@ -5837,12 +5963,7 @@ export default function ConversationScreen() {
 
       <AddPeopleModal
         visible={addPeopleOpen}
-        users={state.searchResults.map((u) => ({
-          id: String(u.id),
-          name:
-            u.full_name || `${u.first_name || ""} ${u.last_name || ""}`.trim(),
-          email: u.email,
-        }))}
+        users={inviteCandidates}
         isChannelMode={true}
         onClose={() => setAddPeopleOpen(false)}
         onSearch={(query) => setSearchQuery(query)}
@@ -6335,10 +6456,10 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   messageWrapper: { width: "100%" },
-  // Temporary flash applied to a message when jumping to it from Pinned.
-  messageHighlight: {
-    backgroundColor: "rgba(0, 222, 171, 0.14)",
-    borderRadius: 12,
+  // Blink frame applied to the bubble itself (not the whole row) when jumping
+  // to a message from the Pinned list or a quoted reply.
+  bubbleHighlight: {
+    backgroundColor: "rgba(0, 222, 171, 0.35)",
   },
   searchResultBadge: {
     backgroundColor: "#F3F4F6",
@@ -6362,25 +6483,25 @@ const styles = StyleSheet.create({
   },
   // Keeps grouped messages (no avatar) aligned under the group's first bubble.
   avatarSpacer: {
-    width: 30,
+    width: 25,
   },
   incomingContent: {
     flex: 1,
     alignItems: "flex-start",
   },
   senderMeta: {
-    fontSize: rf(10),
+    fontSize: rf(9),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_SECONDARY,
-    marginBottom: 3,
+    marginBottom: 2,
     textAlign: "left",
   },
   incomingBubble: {
     backgroundColor: "#F3F4F6",
     borderRadius: 12,
     borderTopLeftRadius: 4,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     maxWidth: "90%",
   },
 
@@ -6395,26 +6516,26 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   senderMetaOutgoing: {
-    fontSize: rf(10),
+    fontSize: rf(9),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_SECONDARY,
-    marginBottom: 3,
+    marginBottom: 2,
     textAlign: "right",
   },
   outgoingBubble: {
     backgroundColor: "#E7FCF7",
     borderRadius: 12,
     borderTopRightRadius: 4,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     maxWidth: "90%",
   },
 
   bubbleText: {
-    fontSize: rf(13),
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
-    lineHeight: 18,
+    lineHeight: 16,
   },
   linkText: {
     color: "#0A84FF",
@@ -6424,10 +6545,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    marginBottom: 4,
+    marginBottom: 3,
   },
   forwardedText: {
-    fontSize: rf(11),
+    fontSize: rf(10),
     fontFamily: "SF_Pro_Regular",
     fontStyle: "italic",
     color: "#6B7280",
@@ -6437,22 +6558,24 @@ const styles = StyleSheet.create({
     borderLeftColor: "#00DEAB",
     backgroundColor: "rgba(0,222,171,0.08)",
     borderRadius: 6,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    marginBottom: 6,
+    paddingVertical: 3,
+    paddingHorizontal: 7,
+    marginBottom: 4,
+    alignSelf: "flex-start",
+    maxWidth: "96%",
   },
   quotedSender: {
-    fontSize: rf(12),
+    fontSize: rf(10.5),
     fontFamily: "SF_Pro_Semibold",
     color: "#00A67E",
   },
   quotedText: {
-    fontSize: rf(12),
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
   },
   timeMeta: {
-    fontSize: rf(9.5),
+    fontSize: rf(9),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_SECONDARY,
   },
@@ -6952,6 +7075,27 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
+  },
+  memberAddRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    marginTop: 2,
+  },
+  memberAddIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#E6FBF5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  memberAddText: {
+    flex: 1,
+    fontSize: rf(13),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#00A67E",
   },
 
   // ── Modal Overlay ──

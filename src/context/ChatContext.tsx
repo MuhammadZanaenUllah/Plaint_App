@@ -46,6 +46,7 @@ type ChatAction =
       append: boolean;
     }
   | { type: "ADD_MESSAGE"; message: ChatMessage }
+  | { type: "REPLACE_MESSAGE"; tempId: string; message: ChatMessage }
   | { type: "UPDATE_MESSAGE"; message: ChatMessage }
   | { type: "REMOVE_MESSAGE"; messageId: string }
   | { type: "SET_REACTIONS"; messageId: string; reactions: MessageReaction[] }
@@ -300,6 +301,38 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         _id: String(action.message._id ?? action.message.id ?? `msg-${Date.now()}-${Math.random()}`),
       };
       return { ...state, messages: [...state.messages, normalized] };
+    }
+    case "REPLACE_MESSAGE": {
+      // Swap the optimistic "sending" placeholder for the real message.
+      // Remove the placeholder first, then merge the real message (update in
+      // place if it already arrived via the socket echo, else append).
+      let messages = state.messages.filter(
+        (m) =>
+          String(m._id) !== String(action.tempId) &&
+          String(m.id) !== String(action.tempId),
+      );
+      // Never surface a message for a different room in the open conversation
+      // (e.g. a message forwarded to another room).
+      if (!messageBelongsToRoom(action.message, state.currentRoom)) {
+        return messages.length === state.messages.length
+          ? state
+          : { ...state, messages };
+      }
+      const realId = String(action.message._id ?? action.message.id ?? "");
+      const idx = messages.findIndex((m) => {
+        if (action.message._id && m._id && String(m._id) === String(action.message._id)) return true;
+        if (action.message.id && m.id && String(m.id) === String(action.message.id)) return true;
+        if (realId && (String(m._id) === realId || String(m.id) === realId)) return true;
+        return false;
+      });
+      if (idx >= 0) {
+        messages = messages.map((m, i) =>
+          i === idx ? { ...m, ...action.message } : m,
+        );
+      } else {
+        messages = [...messages, action.message];
+      }
+      return { ...state, messages };
     }
     case "UPDATE_MESSAGE":
       return {
@@ -601,8 +634,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const userIdRef = useRef(0);
+  // Current user's display name, used to label optimistic "sending" messages.
+  const currentUserNameRef = useRef("");
 
   const { state: authState } = useAuth();
+  useEffect(() => {
+    const first = authState.user?.first_name ?? "";
+    const last = authState.user?.last_name ?? "";
+    currentUserNameRef.current = `${first} ${last}`.trim();
+  }, [authState.user?.first_name, authState.user?.last_name]);
   const companyIdRef = useRef<number | null>(null);
   useEffect(() => {
     companyIdRef.current = authState.company?.company_id ?? null;
@@ -1112,9 +1152,36 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         hasAttachments: !!params.attachments?.length,
       });
 
-      // Record a just-sent message locally: append it and update the room's
-      // last_message so a brand-new DM surfaces in the chat list immediately
-      // (empty DMs with no messages are hidden).
+      // Optimistic "sending" placeholder: show the bubble immediately with a
+      // tiny spinner where the ticks go. `REPLACE_MESSAGE` swaps it for the
+      // real message once the API responds (or `REMOVE_MESSAGE` on failure).
+      const tempId = `pending-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`;
+      const optimistic: ChatMessage = {
+        _id: tempId,
+        id: -Date.now(),
+        room_id: params.room_id,
+        sender_id: userIdRef.current,
+        text: params.text,
+        sender_name: currentUserNameRef.current || undefined,
+        attachments: (params.attachments ?? []).map((a) => ({
+          name: a.name,
+          url: a.uri,
+          type: a.type,
+        })),
+        parent_id: params.parent_id ?? null,
+        mentions: params.mentions,
+        postType: params.postType,
+        is_forwarded: params.is_forwarded,
+        forwarded_from_name: params.forwarded_from_name,
+        is_pending: true,
+        createdAt: new Date().toISOString(),
+      };
+      dispatch({ type: "ADD_MESSAGE", message: optimistic });
+
+      // Replace the placeholder with the server-confirmed message and refresh
+      // the room's last_message so a brand-new DM surfaces in the chat list.
       const registerSentMessage = (rawSent: ChatMessage) => {
         // Keep the post-type label locally if the API response didn't echo it,
         // so the tag shows immediately without waiting for a refetch.
@@ -1122,7 +1189,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           params.postType && !rawSent.postType
             ? { ...rawSent, postType: params.postType }
             : rawSent;
-        dispatch({ type: "ADD_MESSAGE", message: sent });
+        dispatch({ type: "REPLACE_MESSAGE", tempId, message: sent });
         const room = stateRef.current.rooms.find((r) => r._id === sent.room_id);
         if (room) {
           dispatch({
@@ -1142,6 +1209,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }
       };
 
+      try {
       // No attachments — send as JSON (backend requirement)
       if (!params.attachments || params.attachments.length === 0) {
         const body: Record<string, unknown> = {
@@ -1218,6 +1286,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         return res.message;
       }
       throw new Error("Failed to send message");
+      } catch (err) {
+        // Send failed — drop the optimistic placeholder.
+        dispatch({ type: "REMOVE_MESSAGE", messageId: tempId });
+        throw err;
+      }
     },
     [],
   );
