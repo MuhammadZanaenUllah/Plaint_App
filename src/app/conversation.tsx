@@ -1,4 +1,5 @@
 import { rf } from "@/utils/responsive";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import AddPeopleModal from "@/components/AddPeopleModal";
 import InviteToChannelModal, {
   type ChannelMember,
@@ -1029,6 +1030,28 @@ function getReplyPreviewText(m?: {
   }
   if (m.text) return m.text;
   return (m.attachments?.length ?? 0) > 0 ? "📎 Attachment" : "";
+}
+
+/**
+ * Try to pull the original message id out of a quoted `parent_id` payload.
+ * The backend usually sends `{ sender_name, text }` (no id), but some
+ * deployments include one — support the common shapes.
+ */
+function extractParentId(obj: unknown): string | undefined {
+  if (!obj || typeof obj !== "object") return undefined;
+  const o = obj as Record<string, unknown>;
+  const direct = [o._id, o.id, o.messageId, o.message_id, o.parent_id];
+  for (const c of direct) {
+    if (typeof c === "string" && c) return c;
+    if (typeof c === "number" && c) return String(c);
+  }
+  const nested = o.message;
+  if (nested && typeof nested === "object") {
+    const n = nested as Record<string, unknown>;
+    if (typeof n._id === "string" && n._id) return n._id;
+    if (typeof n.id === "number" && n.id) return String(n.id);
+  }
+  return undefined;
 }
 
 function AttachmentsPanel({
@@ -3431,6 +3454,49 @@ export default function ConversationScreen() {
   const localReplyPreviewRef = useRef<
     Map<string, { senderName: string; text: string }>
   >(new Map());
+  // Persisted map of reply-message id → original (quoted) message id. The
+  // backend returns `parent_id` as an object without an id, so this lets a
+  // reply you sent keep pointing at its target even after reloading the chat.
+  const [replyTargetIds, setReplyTargetIds] = useState<Record<string, string>>(
+    {},
+  );
+  const persistReplyTargets = useCallback(
+    (map: Record<string, string>, uid: number) => {
+      if (!uid) return;
+      AsyncStorage.setItem(
+        `planit_reply_targets_${uid}`,
+        JSON.stringify(map),
+      ).catch(() => {});
+    },
+    [],
+  );
+  useEffect(() => {
+    let cancelled = false;
+    const uid = currentUserId;
+    (async () => {
+      if (!uid) {
+        if (!cancelled) setReplyTargetIds({});
+        return;
+      }
+      try {
+        const raw = await AsyncStorage.getItem(`planit_reply_targets_${uid}`);
+        if (cancelled || !raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const clean: Record<string, string> = {};
+          for (const [k, v] of Object.entries(parsed)) {
+            if (typeof v === "string") clean[k] = v;
+          }
+          setReplyTargetIds(clean);
+        }
+      } catch {
+        // ignore malformed cache
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserId]);
   const [postTypeOpen, setPostTypeOpen] = useState(false);
   // Post type selected for the NEXT outgoing message (composer), and the post
   // type currently filtering the message timeline (header "Post Type" panel).
@@ -4188,6 +4254,17 @@ export default function ConversationScreen() {
         if (sent._id) localReplyPreviewRef.current.set(String(sent._id), preview);
         if (sent.id != null)
           localReplyPreviewRef.current.set(String(sent.id), preview);
+        // Persist the quoted target id so this reply stays tappable later.
+        const targetId = replyTarget._id;
+        if (targetId) {
+          setReplyTargetIds((prev) => {
+            const next = { ...prev };
+            if (sent._id) next[String(sent._id)] = String(targetId);
+            if (sent.id != null) next[String(sent.id)] = String(targetId);
+            persistReplyTargets(next, currentUserId);
+            return next;
+          });
+        }
       }
       console.log("[Conv] Message sent successfully");
       setTimeout(() => {
@@ -4214,6 +4291,7 @@ export default function ConversationScreen() {
     mentionedUserIds,
     state.rooms,
     selectedPostType,
+    persistReplyTargets,
   ]);
 
   const handleReact = useCallback(
@@ -4729,6 +4807,24 @@ export default function ConversationScreen() {
     return map;
   }, [state.messages]);
 
+  // text → message id, only for texts that are unique in the loaded history.
+  // Used to recover the quoted target when the backend's `parent_id` payload
+  // carries no id.
+  const uniqueTextToMessageId = useMemo(() => {
+    const counts = new Map<string, number>();
+    const first = new Map<string, string>();
+    for (const m of state.messages) {
+      const t = m.text;
+      if (!t) continue;
+      counts.set(t, (counts.get(t) ?? 0) + 1);
+      if (!first.has(t)) first.set(t, String(m._id));
+    }
+    for (const [t, c] of counts) {
+      if (c > 1) first.delete(t);
+    }
+    return first;
+  }, [state.messages]);
+
   const renderItem = useCallback(
     ({ item, index }: { item: MessageListItem; index: number }) => {
       if (item.type === "divider") {
@@ -4745,6 +4841,24 @@ export default function ConversationScreen() {
         | string
         | { sender_name?: string; text?: string; attachments?: unknown[] }
         | null;
+
+      // Resolve the quoted target id, in order of reliability:
+      //   1. an explicit id in the payload (string, or an id field on the object)
+      //   2. the id persisted when this reply was sent
+      //   3. a unique loaded message with the same text
+      const keyA = String(message._id ?? "");
+      const keyB = message.id != null ? String(message.id) : "";
+      const persistedTargetId =
+        (keyA && replyTargetIds[keyA]) ||
+        (keyB && replyTargetIds[keyB]) ||
+        undefined;
+      const explicitParentId =
+        typeof parentRef === "string"
+          ? parentRef
+          : parentRef && typeof parentRef === "object"
+            ? extractParentId(parentRef)
+            : undefined;
+
       let repliedPreview: {
         senderName: string;
         text: string;
@@ -4756,9 +4870,14 @@ export default function ConversationScreen() {
           text?: string;
           attachments?: { url?: string | null; name?: string | null; type?: string | null }[];
         };
+        const previewText = getReplyPreviewText(p);
         repliedPreview = {
           senderName: p.sender_name || "Message",
-          text: getReplyPreviewText(p),
+          text: previewText,
+          targetId:
+            explicitParentId ||
+            persistedTargetId ||
+            (previewText ? uniqueTextToMessageId.get(previewText) : undefined),
         };
       } else if (typeof parentRef === "string") {
         const found = messageById.get(parentRef);
@@ -4782,10 +4901,18 @@ export default function ConversationScreen() {
 
       // Fall back to an optimistic preview captured when the reply was sent.
       if (!repliedPreview) {
-        repliedPreview =
-          localReplyPreviewRef.current.get(String(message._id)) ??
-          localReplyPreviewRef.current.get(String(message.id)) ??
+        const cached =
+          localReplyPreviewRef.current.get(keyA) ??
+          localReplyPreviewRef.current.get(keyB) ??
           null;
+        if (cached) {
+          repliedPreview = {
+            ...cached,
+            targetId:
+              persistedTargetId ||
+              (cached.text ? uniqueTextToMessageId.get(cached.text) : undefined),
+          };
+        }
       }
 
       return (
@@ -4826,6 +4953,8 @@ export default function ConversationScreen() {
       currentRoom?.members,
       isChannel,
       messageById,
+      uniqueTextToMessageId,
+      replyTargetIds,
       highlightedMessageId,
       handleLongPress,
       handleReactEmoji,
@@ -6425,7 +6554,9 @@ const styles = StyleSheet.create({
 
   // ── Scroll ──
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 12 },
+  // Inverted list: paddingTop renders at the visual bottom (above the composer)
+  // and paddingBottom at the visual top.
+  scrollContent: { paddingTop: 8, paddingBottom: 12 },
 
   // ── Empty State ──
   workspaceContainer: {
@@ -6503,6 +6634,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 5,
     maxWidth: "90%",
+    overflow: "hidden",
   },
 
   outgoingRow: {
@@ -6529,6 +6661,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 5,
     maxWidth: "90%",
+    overflow: "hidden",
   },
 
   bubbleText: {
@@ -6561,8 +6694,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     paddingHorizontal: 7,
     marginBottom: 4,
-    alignSelf: "flex-start",
-    maxWidth: "96%",
+    overflow: "hidden",
   },
   quotedSender: {
     fontSize: rf(10.5),
@@ -6573,6 +6705,7 @@ const styles = StyleSheet.create({
     fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
+    flexShrink: 1,
   },
   timeMeta: {
     fontSize: rf(9),
