@@ -11,6 +11,7 @@ import {
   MemberPermission,
   MessageReaction,
   Room,
+  RoomMember,
   SearchUser,
 } from "@/types/chat.types";
 import { getMessageInitials, isRoomUnread } from "@/utils/chatHelpers";
@@ -61,6 +62,7 @@ type ChatAction =
   | { type: "ADD_ROOM"; room: Room }
   | { type: "UPDATE_ROOM"; room: Room }
   | { type: "REMOVE_ROOM"; roomId: string }
+  | { type: "REMOVE_ROOM_MEMBER"; roomId: string; userId: number }
   | { type: "MERGE_ROOMS"; rooms: Room[] }
   | { type: "SET_MESSAGE_PAGE"; page: number }
   | { type: "SET_SEARCH_QUERY"; query: string }
@@ -412,6 +414,29 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         currentRoom:
           state.currentRoom?._id === action.roomId ? null : state.currentRoom,
       };
+    case "REMOVE_ROOM_MEMBER": {
+      // A member left / was removed. Drop them from the room's member list and
+      // from the per-room permission map (the "Chat members" panel is driven by
+      // `roomPermissions`, so a stale entry there would show a nameless
+      // "User #id" with edit/remove controls and inflate the member count).
+      const strip = (members: RoomMember[]) =>
+        members.filter((m) => String(m.id) !== String(action.userId));
+      const isCurrent = state.currentRoom?._id === action.roomId;
+      return {
+        ...state,
+        rooms: state.rooms.map((r) =>
+          r._id === action.roomId ? { ...r, members: strip(r.members) } : r,
+        ),
+        currentRoom: isCurrent
+          ? { ...state.currentRoom!, members: strip(state.currentRoom!.members) }
+          : state.currentRoom,
+        roomPermissions: isCurrent
+          ? state.roomPermissions.filter(
+              (p) => String(p.userId) !== String(action.userId),
+            )
+          : state.roomPermissions,
+      };
+    }
     case "MERGE_ROOMS": {
       // Server list is the source of truth for room membership, but local
       // unread state (badges, force_unread, mute) must never be clobbered by
@@ -505,7 +530,7 @@ export type ChatContextValue = {
   roomCreator: number | null;
 
   // Room actions
-  fetchRooms: () => Promise<void>;
+  fetchRooms: (opts?: { silent?: boolean }) => Promise<void>;
   getOrCreateRoom: (data: GetOrCreateRoomRequest) => Promise<Room>;
   setCurrentRoom: (room: Room | null) => void;
   deleteRoom: (roomId: string) => Promise<void>;
@@ -1546,6 +1571,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (!res.Good) {
         console.log(res.message ?? "Failed to remove member");
       }
+      // Update local state immediately so the member disappears from the
+      // "Chat members" panel, the member count and the permission list without
+      // waiting for a refetch.
+      dispatch({ type: "REMOVE_ROOM_MEMBER", roomId, userId });
+      // Notify other clients (including the removed member) so their UIs sync.
+      socketService.leaveChatRoom(roomId, userId);
     },
     [],
   );
@@ -2264,20 +2295,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         "userLeftRoom",
         (data) => {
           const typed = data as { roomId: string; userId: string };
-          const room = stateRef.current.rooms.find(
-            (r) => r._id === typed.roomId,
-          );
-          if (room) {
-            dispatch({
-              type: "UPDATE_ROOM",
-              room: {
-                ...room,
-                members: room.members.filter(
-                  (m) => String(m.id) !== typed.userId,
-                ),
-              },
-            });
+          if (!typed.roomId || typed.userId === undefined || typed.userId === null) {
+            return;
           }
+          // Removes the member from the room AND the permission map so the
+          // "Chat members" panel and member count stay in sync.
+          dispatch({
+            type: "REMOVE_ROOM_MEMBER",
+            roomId: typed.roomId,
+            userId: Number(typed.userId),
+          });
         },
       );
 

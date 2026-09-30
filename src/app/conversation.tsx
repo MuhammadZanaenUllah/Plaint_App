@@ -3663,6 +3663,7 @@ export default function ConversationScreen() {
     removeMember,
     updatePermission,
     fetchRoomPermissions,
+    fetchRooms,
     roomPermissions,
     roomCreator,
     setSearchQuery,
@@ -3826,6 +3827,12 @@ export default function ConversationScreen() {
     name: string;
     permission: ChannelPermission;
     anchor: { x: number; y: number };
+  } | null>(null);
+
+  // Member targeted by the custom "Remove member" confirmation modal.
+  const [removeMemberTarget, setRemoveMemberTarget] = useState<{
+    id: number;
+    name: string;
   } | null>(null);
 
   // ── @-mention picker ───────────────────────────────────────────────────
@@ -4777,33 +4784,27 @@ export default function ConversationScreen() {
     ],
   );
 
-  // Remove a member from the channel (owner / managers only).
+  // Remove a member from the channel (owner / managers only). Opens the custom
+  // confirmation modal; the actual removal happens in `confirmRemoveMember`.
   const handleRemoveChannelMember = useCallback(
     (memberId: number, name: string) => {
       if (!roomId) return;
-      Alert.alert(
-        "Remove member",
-        `Remove ${name} from this channel?`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Remove",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                await removeMember(roomId, memberId);
-                fetchRoomPermissions(roomId).catch(() => {});
-                showSuccess("Removed", `${name} was removed from the channel`);
-              } catch {
-                showError("Error", "Could not remove member");
-              }
-            },
-          },
-        ],
-      );
+      setRemoveMemberTarget({ id: memberId, name });
     },
-    [roomId, removeMember, fetchRoomPermissions],
+    [roomId],
   );
+
+  const confirmRemoveMember = async () => {
+    const target = removeMemberTarget;
+    if (!roomId || !target) return;
+    setRemoveMemberTarget(null);
+    try {
+      await removeMember(roomId, target.id);
+      showSuccess("Removed", `${target.name} was removed from the channel`);
+    } catch {
+      showError("Error", "Could not remove member");
+    }
+  };
 
   // Create a channel post type (Full edit / Edit only — website §2.3).
   const handleCreatePostType = useCallback(
@@ -4963,6 +4964,23 @@ export default function ConversationScreen() {
     }
   }, [currentRoom?._id, currentRoom?.id, setCurrentRoom]);
 
+  // Pull the latest room membership when a channel conversation opens, so a
+  // member who already left/was removed elsewhere disappears here even if no
+  // socket event reached this client.
+  useEffect(() => {
+    if (isChannel) {
+      fetchRooms({ silent: true }).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isChannel, roomId]);
+
+  // Refresh again whenever the "Chat members" panel is opened.
+  useEffect(() => {
+    if (isChannel && activeFilter === "chat_member") {
+      fetchRooms({ silent: true }).catch(() => {});
+    }
+  }, [isChannel, activeFilter, fetchRooms]);
+
   // Channel creator (from room permissions) or fallback to the room payload.
   const roomOwnerId = roomCreator ?? currentRoom?.created_by ?? null;
   const isRoomOwner =
@@ -5100,6 +5118,36 @@ export default function ConversationScreen() {
       })),
     [currentRoom, roomCreator],
   );
+
+  // "Chat members" panel source. Driven by the room's actual member list (the
+  // authoritative source); each member's permission is joined by userId. A
+  // stale permission entry for someone who already left is ignored because they
+  // are no longer in `currentRoom.members` — so a departed member can never be
+  // displayed, counted, or given edit/remove actions.
+  const memberPanelList = useMemo<
+    {
+      id: number;
+      name: string;
+      image?: string;
+      permission: ChannelPermission;
+      isOwner: boolean;
+      isSelf: boolean;
+    }[]
+  >(() => {
+    const permMap = new Map<number, string>();
+    for (const p of state.roomPermissions) {
+      permMap.set(Number(p.userId), p.permission);
+    }
+    return (currentRoom?.members ?? []).map((m) => ({
+      id: m.id,
+      name:
+        `${m.first_name || ""} ${m.last_name || ""}`.trim() || `User #${m.id}`,
+      image: m.image,
+      permission: (permMap.get(Number(m.id)) ?? "Comment") as ChannelPermission,
+      isOwner: roomOwnerId !== null && m.id === roomOwnerId,
+      isSelf: m.id === currentUserId,
+    }));
+  }, [currentRoom, state.roomPermissions, roomOwnerId, currentUserId]);
 
   // People who can be added to this channel. With no query, the default list is
   // built from every user we already know across rooms (backend search needs
@@ -5594,7 +5642,7 @@ export default function ConversationScreen() {
                       not shown in Chat. Channels still show their member count. */}
                   {isChannel && (
                     <Text style={styles.headerStatus}>
-                      {`${roomPermissions.length} member${roomPermissions.length !== 1 ? "s" : ""}`}
+                      {`${memberPanelList.length} member${memberPanelList.length !== 1 ? "s" : ""}`}
                     </Text>
                   )}
                 </View>
@@ -5864,24 +5912,18 @@ export default function ConversationScreen() {
         {!searchOpen && activeFilter === "chat_member" && isChannel && (
           <View style={styles.panelWrapper}>
             <View style={styles.memberListPanel}>
-              {state.roomPermissions.map((perm) => {
-                const memberInfo = currentRoom?.members?.find(
-                  (m) => m.id === perm.userId,
-                );
-                const fullName = memberInfo
-                  ? `${memberInfo.first_name} ${memberInfo.last_name}`.trim()
-                  : `User #${perm.userId}`;
-                const isSelf = perm.userId === currentUserId;
-                const isOwner =
-                  roomOwnerId !== null && perm.userId === roomOwnerId;
+              {memberPanelList.map((member) => {
+                const fullName = member.name;
+                const isSelf = member.isSelf;
+                const isOwner = member.isOwner;
                 // Only the channel owner (or a manager) can remove members or
                 // change their permission — and never for themselves / the owner.
                 const showActions = canModerateMembers && !isSelf && !isOwner;
                 return (
-                  <View key={perm.userId} style={styles.memberRow}>
+                  <View key={member.id} style={styles.memberRow}>
                     <Avatar
                       name={fullName}
-                      imagePath={memberInfo?.image}
+                      imagePath={member.image}
                       size={32}
                       borderRadius={16}
                       fontSize={12}
@@ -5892,7 +5934,7 @@ export default function ConversationScreen() {
                       {fullName}
                     </Text>
                     <Text style={styles.memberPermissionText}>
-                      {perm.permission}
+                      {isOwner ? "Owner" : member.permission}
                     </Text>
                     {showActions && (
                       <View style={styles.memberActions}>
@@ -5902,9 +5944,9 @@ export default function ConversationScreen() {
                           accessibilityLabel={`Edit ${fullName} permissions`}
                           onPress={(e) =>
                             setPermissionSheetMember({
-                              id: perm.userId,
+                              id: member.id,
                               name: fullName,
-                              permission: perm.permission as ChannelPermission,
+                              permission: member.permission,
                               anchor: {
                                 x: e.nativeEvent.pageX,
                                 y: e.nativeEvent.pageY,
@@ -5923,7 +5965,7 @@ export default function ConversationScreen() {
                           activeOpacity={0.7}
                           accessibilityLabel={`Remove ${fullName} from channel`}
                           onPress={() =>
-                            handleRemoveChannelMember(perm.userId, fullName)
+                            handleRemoveChannelMember(member.id, fullName)
                           }
                         >
                           <Ionicons
@@ -5937,7 +5979,7 @@ export default function ConversationScreen() {
                   </View>
                 );
               })}
-              {state.roomPermissions.length === 0 && (
+              {memberPanelList.length === 0 && (
                 <Text
                   style={{
                     fontSize: rf(12),
@@ -6717,6 +6759,20 @@ export default function ConversationScreen() {
         confirmLabel="Leave"
         onClose={() => setLeaveChannelConfirmOpen(false)}
         onConfirm={confirmLeaveChannel}
+      />
+
+      {/* ── Remove member confirmation (custom) ── */}
+      <DeleteChatModal
+        visible={!!removeMemberTarget}
+        title="Remove member?"
+        message={
+          removeMemberTarget
+            ? `Remove ${removeMemberTarget.name} from this channel? This can't be undone.`
+            : ""
+        }
+        confirmLabel="Remove"
+        onClose={() => setRemoveMemberTarget(null)}
+        onConfirm={confirmRemoveMember}
       />
 
       {/* ── Pinned messages modal (opened from the Pinned filter card) ── */}
