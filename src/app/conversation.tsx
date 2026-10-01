@@ -42,7 +42,11 @@ import {
   markConversationOpen,
 } from "@/utils/conversationNavigation";
 import { canDeleteDirectChat } from "@/utils/permissions";
-import { openChatDocument } from "@/utils/openChatDocument";
+import {
+  attachmentExtension,
+  openChatDocument,
+} from "@/utils/openChatDocument";
+import { formatFileSize } from "@/services/api/upload.service";
 import { triggerHaptic } from "@/utils/haptics";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { getStoredToken } from "@/utils/token";
@@ -93,7 +97,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from "react-native-gesture-handler";
 import Reanimated, {
   runOnJS,
   useAnimatedStyle,
@@ -104,6 +112,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import EmojiPicker from "rn-emoji-keyboard";
 
 const { ChatIcon: MainChatIcon } = Icons;
+
+// Long-press delay shared by message bubbles and their attachments, so opening
+// the action toolbar feels identical wherever the press lands.
+const ATTACHMENT_LONG_PRESS_DELAY = 250;
 
 // ─── Voice Note Player Component ─────────────────────────────────────────────
 
@@ -221,9 +233,12 @@ function getWaveformBars(seed: string): number[] {
 function VoiceNotePlayer({
   audioUrl,
   initialDurationSec,
+  onLongPress,
 }: {
   audioUrl: string;
   initialDurationSec?: number | null;
+  /** Forwards a long-press on the voice note to the message action toolbar. */
+  onLongPress?: (e: GestureResponderEvent) => void;
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
@@ -414,9 +429,15 @@ function VoiceNotePlayer({
         : 0;
 
   return (
-    <View style={vnStyles.container}>
+    <Pressable
+      style={vnStyles.container}
+      onLongPress={onLongPress}
+      delayLongPress={ATTACHMENT_LONG_PRESS_DELAY}
+    >
       <TouchableOpacity
         onPress={handlePlayPause}
+        onLongPress={onLongPress}
+        delayLongPress={ATTACHMENT_LONG_PRESS_DELAY}
         style={vnStyles.playBtn}
         activeOpacity={0.8}
       >
@@ -451,7 +472,7 @@ function VoiceNotePlayer({
               : "Voice note"}
         </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -1563,18 +1584,66 @@ const ATT_GRID_WIDTH = 220;
 const ATT_GRID_GAP = 3;
 const ATT_CELL = Math.floor((ATT_GRID_WIDTH - ATT_GRID_GAP) / 2);
 
+type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+
+// WhatsApp-style presentation for a document attachment: an accent icon keyed
+// by file type, plus a small metadata line ("PDF • 2.4 MB").
+const DOC_TYPE_STYLE: Record<
+  string,
+  { icon: IoniconName; color: string; tint: string }
+> = {
+  pdf: { icon: "document-text", color: "#EF4444", tint: "#FEE2E2" },
+  doc: { icon: "document-text", color: "#2563EB", tint: "#DBEAFE" },
+  docx: { icon: "document-text", color: "#2563EB", tint: "#DBEAFE" },
+  xls: { icon: "grid", color: "#16A34A", tint: "#DCFCE7" },
+  xlsx: { icon: "grid", color: "#16A34A", tint: "#DCFCE7" },
+  csv: { icon: "grid", color: "#16A34A", tint: "#DCFCE7" },
+  ppt: { icon: "easel", color: "#EA580C", tint: "#FFEDD5" },
+  pptx: { icon: "easel", color: "#EA580C", tint: "#FFEDD5" },
+  zip: { icon: "archive", color: "#D97706", tint: "#FEF3C7" },
+  rar: { icon: "archive", color: "#D97706", tint: "#FEF3C7" },
+  "7z": { icon: "archive", color: "#D97706", tint: "#FEF3C7" },
+  txt: { icon: "document-text", color: "#6B7280", tint: "#F3F4F6" },
+};
+
+function getDocumentPresentation(doc: MessageAttachment): {
+  icon: IoniconName;
+  color: string;
+  tint: string;
+  meta: string;
+} {
+  const ext =
+    attachmentExtension(doc.name) || attachmentExtension(doc.url) || "";
+  const preset = DOC_TYPE_STYLE[ext] ?? {
+    icon: "document-outline" as IoniconName,
+    color: "#00A67E",
+    tint: "#E6FBF5",
+  };
+  const mimeSubtype = (doc.type || "").includes("/")
+    ? (doc.type || "").split("/")[1]
+    : "";
+  const typeLabel = (ext || mimeSubtype || "").toUpperCase().slice(0, 4);
+  const meta = [typeLabel, doc.size ? formatFileSize(doc.size) : ""]
+    .filter(Boolean)
+    .join(" • ");
+  return { icon: preset.icon, color: preset.color, tint: preset.tint, meta };
+}
+
 function AttachmentCluster({
   images,
   docs,
   videos = [],
   onOpenImage,
   onOpenVideo,
+  onLongPress,
 }: {
   images: MessageAttachment[];
   docs: MessageAttachment[];
   videos?: MessageAttachment[];
   onOpenImage?: (images: MessageAttachment[], index: number) => void;
   onOpenVideo?: (url: string) => void;
+  /** Forwards a long-press on any attachment to the message action toolbar. */
+  onLongPress?: (e: GestureResponderEvent) => void;
 }) {
   const openDoc = (doc: MessageAttachment) => {
     openChatDocument(doc.url, doc.name).catch(() =>
@@ -1604,6 +1673,8 @@ function AttachmentCluster({
       key={`img-${index}`}
       activeOpacity={0.9}
       onPress={() => onOpenImage?.(images, index)}
+      onLongPress={onLongPress}
+      delayLongPress={ATTACHMENT_LONG_PRESS_DELAY}
     >
       <SecureImage url={att.url} style={style} resizeMode="cover" />
       {overlay && overlay > 0 ? (
@@ -1656,6 +1727,8 @@ function AttachmentCluster({
               style={styles.videoCard}
               activeOpacity={0.85}
               onPress={() => onOpenVideo?.(vid.url)}
+              onLongPress={onLongPress}
+              delayLongPress={ATTACHMENT_LONG_PRESS_DELAY}
             >
               <View style={styles.videoCardBody}>
                 <View style={styles.videoCardPlay}>
@@ -1672,20 +1745,34 @@ function AttachmentCluster({
 
       {hasDocs ? (
         <View style={styles.docAttachmentContainer}>
-          {docs.map((doc, i) => (
-            <TouchableOpacity
-              key={`doc-${i}`}
-              style={styles.docRow}
-              activeOpacity={0.7}
-              onPress={() => openDoc(doc)}
-            >
-              <Ionicons name="document-text" size={18} color="#00DEAB" />
-              <Text style={styles.docName} numberOfLines={1}>
-                {doc.name || "Document"}
-              </Text>
-              <Ionicons name="chevron-forward" size={15} color="#9CA3AF" />
-            </TouchableOpacity>
-          ))}
+          {docs.map((doc, i) => {
+            const { icon, color, tint, meta } = getDocumentPresentation(doc);
+            return (
+              <TouchableOpacity
+                key={`doc-${i}`}
+                style={styles.docRow}
+                activeOpacity={0.75}
+                onPress={() => openDoc(doc)}
+                onLongPress={onLongPress}
+                delayLongPress={ATTACHMENT_LONG_PRESS_DELAY}
+              >
+                <View style={[styles.docIconBox, { backgroundColor: tint }]}>
+                  <Ionicons name={icon} size={20} color={color} />
+                </View>
+                <View style={styles.docInfo}>
+                  <Text style={styles.docName} numberOfLines={2}>
+                    {doc.name || "Document"}
+                  </Text>
+                  {meta ? (
+                    <Text style={styles.docMeta} numberOfLines={1}>
+                      {meta}
+                    </Text>
+                  ) : null}
+                </View>
+                <Ionicons name="download-outline" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+            );
+          })}
         </View>
       ) : null}
     </>
@@ -1693,6 +1780,143 @@ function AttachmentCluster({
 }
 
 // ─── Image Viewer ─────────────────────────────────────────────────────────────
+
+// Pinch-to-zoom page for the full-screen image viewer:
+//   - pinch to zoom (fit up to 6x)
+//   - drag to pan while zoomed (single finger, so it never fights the pinch)
+//   - double-tap to toggle between fit and 2.5x, centered on the tapped point
+// The page reports its zoom state so the pager can stop paging while an image
+// is zoomed — otherwise a horizontal pan would swipe to the next image.
+const VIEWER_MAX_SCALE = 6;
+const VIEWER_DOUBLE_TAP_SCALE = 2.5;
+
+function ZoomableImage({
+  url,
+  width,
+  height,
+  onZoomChange,
+}: {
+  url: string;
+  width: number;
+  height: number;
+  onZoomChange?: (zoomed: boolean) => void;
+}) {
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const savedTranslateX = useSharedValue(0);
+  const savedTranslateY = useSharedValue(0);
+  const [zoomed, setZoomed] = useState(false);
+
+  const notifyZoom = useCallback(
+    (next: boolean) => {
+      setZoomed(next);
+      onZoomChange?.(next);
+    },
+    [onZoomChange],
+  );
+
+  const pinch = Gesture.Pinch()
+    .onUpdate((e) => {
+      const next = savedScale.value * e.scale;
+      scale.value = Math.min(VIEWER_MAX_SCALE, Math.max(1, next));
+    })
+    .onEnd(() => {
+      if (scale.value <= 1.02) {
+        scale.value = withSpring(1);
+        translateX.value = withSpring(0);
+        translateY.value = withSpring(0);
+        savedScale.value = 1;
+        savedTranslateX.value = 0;
+        savedTranslateY.value = 0;
+        runOnJS(notifyZoom)(false);
+        return;
+      }
+      const maxX = ((scale.value - 1) * width) / 2;
+      const maxY = ((scale.value - 1) * height) / 2;
+      const clampedX = Math.max(-maxX, Math.min(maxX, translateX.value));
+      const clampedY = Math.max(-maxY, Math.min(maxY, translateY.value));
+      translateX.value = withSpring(clampedX);
+      translateY.value = withSpring(clampedY);
+      savedScale.value = scale.value;
+      savedTranslateX.value = clampedX;
+      savedTranslateY.value = clampedY;
+      runOnJS(notifyZoom)(true);
+    });
+
+  const pan = Gesture.Pan()
+    .enabled(zoomed)
+    .maxPointers(1)
+    .onUpdate((e) => {
+      translateX.value = savedTranslateX.value + e.translationX;
+      translateY.value = savedTranslateY.value + e.translationY;
+    })
+    .onEnd(() => {
+      const maxX = ((scale.value - 1) * width) / 2;
+      const maxY = ((scale.value - 1) * height) / 2;
+      const clampedX = Math.max(-maxX, Math.min(maxX, translateX.value));
+      const clampedY = Math.max(-maxY, Math.min(maxY, translateY.value));
+      translateX.value = withSpring(clampedX);
+      translateY.value = withSpring(clampedY);
+      savedTranslateX.value = clampedX;
+      savedTranslateY.value = clampedY;
+    });
+
+  const doubleTap = Gesture.Tap()
+    .numberOfTaps(2)
+    .maxDuration(260)
+    .onEnd((e, success) => {
+      if (!success) return;
+      if (scale.value > 1) {
+        scale.value = withSpring(1);
+        translateX.value = withSpring(0);
+        translateY.value = withSpring(0);
+        savedScale.value = 1;
+        savedTranslateX.value = 0;
+        savedTranslateY.value = 0;
+        runOnJS(notifyZoom)(false);
+        return;
+      }
+      const next = VIEWER_DOUBLE_TAP_SCALE;
+      const maxX = ((next - 1) * width) / 2;
+      const maxY = ((next - 1) * height) / 2;
+      const targetX = -(e.x - width / 2) * (next - 1);
+      const targetY = -(e.y - height / 2) * (next - 1);
+      const clampedX = Math.max(-maxX, Math.min(maxX, targetX));
+      const clampedY = Math.max(-maxY, Math.min(maxY, targetY));
+      scale.value = withSpring(next);
+      translateX.value = withSpring(clampedX);
+      translateY.value = withSpring(clampedY);
+      savedScale.value = next;
+      savedTranslateX.value = clampedX;
+      savedTranslateY.value = clampedY;
+      runOnJS(notifyZoom)(true);
+    });
+
+  const gesture = Gesture.Simultaneous(pinch, pan, doubleTap);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
+  }));
+
+  return (
+    <GestureDetector gesture={gesture}>
+      <Reanimated.View
+        style={[
+          { width, height, alignItems: "center", justifyContent: "center" },
+          animatedStyle,
+        ]}
+      >
+        <SecureImage url={url} style={{ width, height }} resizeMode="contain" />
+      </Reanimated.View>
+    </GestureDetector>
+  );
+}
 
 function ImageViewerModal({
   visible,
@@ -1709,6 +1933,7 @@ function ImageViewerModal({
 }) {
   const listRef = useRef<FlatList<MessageAttachment>>(null);
   const { width, height } = Dimensions.get("window");
+  const [zoomed, setZoomed] = useState(false);
   const safeIndex =
     images.length > 0 ? Math.max(0, Math.min(index, images.length - 1)) : 0;
 
@@ -1730,12 +1955,18 @@ function ImageViewerModal({
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <View style={styles.viewerRoot}>
+      {/* The viewer lives inside a native Modal, which is a separate root on
+          Android — it needs its own GestureHandlerRootView for the pinch/pan
+          gestures to be recognized. */}
+      <GestureHandlerRootView style={styles.viewerRoot}>
         <FlatList
           ref={listRef}
           data={images}
           horizontal
           pagingEnabled
+          // While an image is zoomed, a one-finger drag pans the image, so the
+          // pager must not also react to it.
+          scrollEnabled={!zoomed}
           showsHorizontalScrollIndicator={false}
           keyExtractor={(_, i) => `viewer-${i}`}
           getItemLayout={(_, i) => ({
@@ -1749,20 +1980,12 @@ function ImageViewerModal({
             onChangeIndex(i);
           }}
           renderItem={({ item }) => (
-            <View
-              style={{
-                width,
-                height,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <SecureImage
-                url={item.url}
-                style={{ width: width - 20, height: height * 0.72 }}
-                resizeMode="contain"
-              />
-            </View>
+            <ZoomableImage
+              url={item.url}
+              width={width}
+              height={height}
+              onZoomChange={setZoomed}
+            />
           )}
         />
         <TouchableOpacity
@@ -1779,7 +2002,7 @@ function ImageViewerModal({
             </Text>
           </View>
         ) : null}
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
@@ -2077,6 +2300,7 @@ const MessageBubble = React.memo(function MessageBubble({
                   <VoiceNotePlayer
                     audioUrl={audioAtt.url}
                     initialDurationSec={voiceNoteSeconds}
+                    onLongPress={(e) => onLongPress?.(message, e)}
                   />
                 ) : null}
                 <AttachmentCluster
@@ -2085,6 +2309,7 @@ const MessageBubble = React.memo(function MessageBubble({
                   videos={videoAtts ?? []}
                   onOpenImage={onOpenImage}
                   onOpenVideo={onOpenVideo}
+                  onLongPress={(e) => onLongPress?.(message, e)}
                 />
                 {message.text &&
                 !isVoiceNoteText(message.text) &&
@@ -2192,6 +2417,7 @@ const MessageBubble = React.memo(function MessageBubble({
                   <VoiceNotePlayer
                     audioUrl={audioAtt.url}
                     initialDurationSec={voiceNoteSeconds}
+                    onLongPress={(e) => onLongPress?.(message, e)}
                   />
                 ) : null}
               <AttachmentCluster
@@ -2200,6 +2426,7 @@ const MessageBubble = React.memo(function MessageBubble({
                 videos={videoAtts ?? []}
                 onOpenImage={onOpenImage}
                 onOpenVideo={onOpenVideo}
+                onLongPress={(e) => onLongPress?.(message, e)}
               />
               {message.text &&
               !isVoiceNoteText(message.text) &&
@@ -4333,10 +4560,25 @@ export default function ConversationScreen() {
   // A floating label showing the date of the messages currently in view. It is
   // shown while the user scrolls up (toward older messages) and hidden shortly
   // after scrolling stops — the static inline dividers are never touched.
+  //
+  // It is additionally gated on static-divider visibility: while a date divider
+  // is still on screen it already labels its own section, so the floating label
+  // is suppressed. This prevents showing "Yesterday" while the permanent
+  // "Today" separator is still visible. The gate uses real viewability from the
+  // list's onViewableItemsChanged — not a delay or hardcoded offset.
   const [scrollDateLabel, setScrollDateLabel] = useState<string | null>(null);
   const topVisibleDateRef = useRef<string | null>(null);
+  const visibleDividerRef = useRef(false);
   const scrollDateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScrollYRef = useRef(0);
+
+  const hideScrollDateLabel = useCallback(() => {
+    if (scrollDateTimerRef.current) {
+      clearTimeout(scrollDateTimerRef.current);
+      scrollDateTimerRef.current = null;
+    }
+    setScrollDateLabel(null);
+  }, []);
 
   useEffect(
     () => () => {
@@ -4350,11 +4592,15 @@ export default function ConversationScreen() {
       const y = e.nativeEvent.contentOffset.y;
 
       // Floating date label: display while scrolling up (older messages), then
-      // hide ~0.9s after the last scroll event.
+      // hide ~0.9s after the last scroll event. Never float a date while its
+      // own static separator is still visible — the inline divider already
+      // labels that section, so a newer floating label would contradict it.
       const scrollingUp = y > lastScrollYRef.current + 1;
       lastScrollYRef.current = y;
-      if (scrollingUp && topVisibleDateRef.current) {
-        const label = topVisibleDateRef.current;
+      if (scrollingUp) {
+        const label = visibleDividerRef.current
+          ? null
+          : topVisibleDateRef.current;
         setScrollDateLabel((prev) => (prev === label ? prev : label));
       }
       if (scrollDateTimerRef.current) clearTimeout(scrollDateTimerRef.current);
@@ -5861,12 +6107,16 @@ export default function ConversationScreen() {
     }) => {
       let topIndex = -1;
       let topLabel: string | null = null;
+      let dividerVisible = false;
       for (const v of viewableItems) {
         if (v.index == null || !v.item) continue;
-        const label =
-          v.item.type === "divider"
-            ? v.item.label
-            : formatDateDivider(v.item.message.createdAt ?? null);
+        if (v.item.type === "divider") {
+          // A static separator that is still (even partially) on screen labels
+          // its own section — the floating label must not override it.
+          dividerVisible = true;
+          continue;
+        }
+        const label = formatDateDivider(v.item.message.createdAt ?? null);
         // Skip items with no resolvable date (missing/invalid createdAt)
         // instead of letting them win on index alone — otherwise, once the
         // topmost visible item happens to be one of these, the label here
@@ -5879,8 +6129,12 @@ export default function ConversationScreen() {
         }
       }
       if (topLabel) topVisibleDateRef.current = topLabel;
+      visibleDividerRef.current = dividerVisible;
+      // The instant a separator scrolls back into view, drop the floating label
+      // so the two can never display conflicting dates.
+      if (dividerVisible) hideScrollDateLabel();
     },
-    [],
+    [hideScrollDateLabel],
   );
 
   const handleLoadMore = useCallback(() => {
@@ -8283,17 +8537,33 @@ const styles = StyleSheet.create({
   docRow: {
     flexDirection: "row",
     alignItems: "center",
+    width: ATT_GRID_WIDTH,
     backgroundColor: "#F3F4F6",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    gap: 8,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    gap: 9,
+  },
+  docIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  docInfo: {
+    flex: 1,
   },
   docName: {
-    flex: 1,
-    fontSize: rf(13),
-    fontFamily: "SF_Pro_Regular",
+    fontSize: rf(12.5),
+    fontFamily: "SF_Pro_Medium",
     color: TEXT_PRIMARY,
+  },
+  docMeta: {
+    marginTop: 2,
+    fontSize: rf(10),
+    fontFamily: "SF_Pro_Regular",
+    color: TEXT_SECONDARY,
   },
 
   // ── Video attachments ──
