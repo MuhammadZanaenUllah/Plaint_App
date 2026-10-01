@@ -36,6 +36,7 @@ import {
   getVoiceNoteSecondsFromAttachment,
   isAudioAttachment,
   isOwnMessage,
+  isRoomUnread,
   isVoiceNoteText,
   resolveFileUrl,
   resolveSecureFileUrl,
@@ -4289,6 +4290,7 @@ export default function ConversationScreen() {
     fetchPinnedMessages,
     setCurrentRoom,
     initSocket,
+    markRead,
     muteRoom,
     markUnread,
     deleteRoom,
@@ -5644,9 +5646,20 @@ export default function ConversationScreen() {
   );
 
   useEffect(() => {
-    if (currentRoom) {
-      setCurrentRoom(currentRoom);
+    if (!currentRoom) return;
+    setCurrentRoom(currentRoom);
+    // Read/seen synchronization for notification-opened chats. Tapping a chat
+    // notification navigates straight here, bypassing the chat list's row-tap
+    // `markRead` (chat.tsx) — the only caller of the REST read endpoint. The
+    // socket `messagesRead` event emitted below updates message ticks but NOT
+    // the room's `unreadCount`, which is what the chat list renders. Applying
+    // the same `markRead` action clears both the server read state and the
+    // local room unread badge while this room is the active one. Read rooms
+    // short-circuit, so the normal row-tap flow is unaffected.
+    if (isRoomUnread(currentRoom)) {
+      markRead(currentRoom._id).catch(() => {});
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentRoom?._id, currentRoom?.id, setCurrentRoom]);
 
   // ── Notification / deep-link entry initialization ─────────────────────────

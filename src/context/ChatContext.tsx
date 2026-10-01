@@ -61,6 +61,11 @@ type ChatAction =
     }
   | { type: "ADD_ROOM"; room: Room }
   | { type: "UPDATE_ROOM"; room: Room }
+  // Targeted read/unread flag patch. Deliberately does NOT carry a room
+  // snapshot so a read acknowledgement can never overwrite newer fields
+  // (notably `last_message`) with a stale copy captured before the latest
+  // realtime message was applied.
+  | { type: "SET_ROOM_READ"; roomId: string; read: boolean }
   | { type: "REMOVE_ROOM"; roomId: string }
   | { type: "REMOVE_ROOM_MEMBER"; roomId: string; userId: number }
   | { type: "MERGE_ROOMS"; rooms: Room[] }
@@ -407,6 +412,27 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             ? action.room
             : state.currentRoom,
       };
+    case "SET_ROOM_READ": {
+      // Patch only the read/unread flags. Every other field — crucially
+      // `last_message`, which realtime messages keep advancing — is preserved,
+      // so a read call resolving late can never roll the chat-list preview back
+      // to the message that was present when the call was made.
+      const patch = (room: Room): Room => ({
+        ...room,
+        unreadCount: action.read ? 0 : room.unreadCount,
+        force_unread: action.read ? false : true,
+      });
+      return {
+        ...state,
+        rooms: state.rooms.map((r) =>
+          r._id === action.roomId ? patch(r) : r,
+        ),
+        currentRoom:
+          state.currentRoom?._id === action.roomId
+            ? patch(state.currentRoom)
+            : state.currentRoom,
+      };
+    }
     case "REMOVE_ROOM":
       return {
         ...state,
@@ -1688,33 +1714,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     async (roomId: string) => {
       const res = await chatService.markRead(roomId);
       if (res.Good) {
-        // Update room unread count
-        const room = state.rooms.find((r) => r._id === roomId);
-        if (room) {
-          dispatch({
-            type: "UPDATE_ROOM",
-            room: { ...room, unreadCount: 0, force_unread: false },
-          });
-        }
+        // Patch only the read flags via a targeted action. Building the room
+        // from a `state.rooms` closure here would snapshot `last_message` at
+        // call time and clobber any newer realtime message that landed while
+        // the request was in flight.
+        dispatch({ type: "SET_ROOM_READ", roomId, read: true });
       }
     },
-    [state.rooms],
+    [],
   );
 
   const markUnreadAction = useCallback(
     async (roomId: string) => {
       const res = await chatService.markUnread(roomId);
       if (res.Good) {
-        const room = state.rooms.find((r) => r._id === roomId);
-        if (room) {
-          dispatch({
-            type: "UPDATE_ROOM",
-            room: { ...room, force_unread: true },
-          });
-        }
+        dispatch({ type: "SET_ROOM_READ", roomId, read: false });
       }
     },
-    [state.rooms],
+    [],
   );
 
   // ── Invitation Actions ──────────────────────────────────────────────────
@@ -2034,10 +2051,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             const isFromOther = message.sender_id !== userIdRef.current;
             const isCurrentRoom =
               stateRef.current.currentRoom?._id === message.room_id;
+            // A message from another user that arrives while this room is the
+            // actively viewed conversation is read on arrival: it must not bump
+            // the unread badge, and any pre-existing count must be cleared too
+            // (notification-opened chats never ran the chat list's row-tap
+            // `markRead`, so a lingering count would otherwise survive). The
+            // socket `messagesRead` emit below still flips the sender's ticks.
             const newUnreadCount =
               isFromOther && !isCurrentRoom
                 ? (room.unreadCount ?? 0) + 1
-                : room.unreadCount;
+                : isFromOther && isCurrentRoom
+                  ? 0
+                  : room.unreadCount;
 
             // The room-open effect (conversation.tsx) only emits
             // "messagesRead" once, for whatever was already unread at open
@@ -2046,6 +2071,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             // never flips from "sent" to "seen" for it.
             if (isFromOther && isCurrentRoom) {
               socketService.emitMessagesRead(message.room_id, userIdRef.current);
+              // Persist the read state on the backend as well. The socket
+              // "messagesRead" event only flips other clients' ticks; the
+              // per-user read marker that GET /chat/rooms uses after a reload
+              // is advanced by POST /chat/mark-read. Without this the message
+              // was read in memory but resurfaced as unread after a restart.
+              // Mirrors the web flow ("marks read + emits messagesRead").
+              markReadRef.current(message.room_id).catch(() => {});
             }
 
             dispatch({
