@@ -25,9 +25,14 @@ type Props = Omit<ImageProps, "source"> & {
  */
 export default function SecureImage({ url, style, ...rest }: Props) {
   const token = useAuthToken();
+  // Local device files (e.g. a just-picked/just-captured attachment shown
+  // optimistically before upload) must bypass the secure-file fetch path:
+  // the bytes are already on device, and RN's global fetch can't read
+  // file:// or content:// URIs, so fetching would render a blank placeholder.
+  const isLocalUri = !!url && /^(file|content|data|blob):/i.test(url);
 
   const candidates = useMemo(() => {
-    if (!url || token === undefined) return [];
+    if (!url || isLocalUri || token === undefined) return [];
     const headers = token
       ? { authToken: token, "x-access-token": token }
       : undefined;
@@ -35,7 +40,7 @@ export default function SecureImage({ url, style, ...rest }: Props) {
       { uri: resolveSecureFileUrl(url), headers },
       { uri: resolveFileUrl(url), headers },
     ];
-  }, [url, token]);
+  }, [url, token, isLocalUri]);
 
   const cacheKey = url ?? "";
   const [resolvedUri, setResolvedUri] = useState<string | null>(() =>
@@ -43,6 +48,7 @@ export default function SecureImage({ url, style, ...rest }: Props) {
   );
 
   useEffect(() => {
+    if (!url || isLocalUri) return;
     if (candidates.length === 0) {
       setResolvedUri(null);
       return;
@@ -54,9 +60,13 @@ export default function SecureImage({ url, style, ...rest }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [candidates, cacheKey]);
+  }, [candidates, cacheKey, isLocalUri, url]);
 
   if (!url) return null;
+
+  if (isLocalUri) {
+    return <Image {...rest} source={{ uri: url }} style={style} />;
+  }
 
   if (!resolvedUri) {
     return <View style={style} />;

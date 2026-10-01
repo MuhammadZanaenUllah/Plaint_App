@@ -7,6 +7,9 @@ import InviteToChannelModal, {
 } from "@/components/InviteToChannelModal";
 import Avatar from "@/components/Avatar";
 import CalendarPicker from "@/components/CalendarPicker";
+import MediaComposerModal, {
+  type ComposerFile,
+} from "@/components/MediaComposerModal";
 import SecureImage from "@/components/SecureImage";
 import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
@@ -44,6 +47,8 @@ import {
 import { canDeleteDirectChat } from "@/utils/permissions";
 import {
   attachmentExtension,
+  decodeAttachmentName,
+  downloadChatAttachment,
   openChatDocument,
 } from "@/utils/openChatDocument";
 import { formatFileSize } from "@/services/api/upload.service";
@@ -1088,7 +1093,7 @@ function AttachmentsPanel({
 }: {
   messages: ChatMessage[];
   onOpenImage?: (images: MessageAttachment[], index: number) => void;
-  onOpenVideo?: (url: string) => void;
+  onOpenVideo?: (url: string, name?: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState("Images");
 
@@ -1180,13 +1185,13 @@ function AttachmentsPanel({
                 key={index}
                 style={ap.fileRow}
                 activeOpacity={0.7}
-                onPress={() => onOpenVideo?.(item.url)}
+                onPress={() => onOpenVideo?.(item.url, decodeAttachmentName(item.name))}
               >
                 <View style={ap.fileIconBadge}>
                   <Ionicons name="videocam" size={16} color="#00DEAB" />
                 </View>
                 <Text style={ap.fileName} numberOfLines={1}>
-                  {item.name || "Video"}
+                  {decodeAttachmentName(item.name) || "Video"}
                 </Text>
                 <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
               </TouchableOpacity>
@@ -1204,14 +1209,17 @@ function AttachmentsPanel({
                 style={ap.fileRow}
                 activeOpacity={0.7}
                 onPress={() =>
-                  openChatDocument(item.url, item.name).catch(() => {})
+                  openChatDocument(
+                    item.url,
+                    decodeAttachmentName(item.name),
+                  ).catch(() => {})
                 }
               >
                 <View style={ap.fileIconBadge}>
                   <Ionicons name="document-text" size={16} color="#00DEAB" />
                 </View>
                 <Text style={ap.fileName} numberOfLines={1}>
-                  {item.name || "Document"}
+                  {decodeAttachmentName(item.name) || "Document"}
                 </Text>
                 <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
               </TouchableOpacity>
@@ -1583,6 +1591,8 @@ const swipeReplyStyles = StyleSheet.create({
 const ATT_GRID_WIDTH = 220;
 const ATT_GRID_GAP = 3;
 const ATT_CELL = Math.floor((ATT_GRID_WIDTH - ATT_GRID_GAP) / 2);
+// Document cards are intentionally more compact than the image grid.
+const DOC_CARD_WIDTH = 180;
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -1613,7 +1623,9 @@ function getDocumentPresentation(doc: MessageAttachment): {
   meta: string;
 } {
   const ext =
-    attachmentExtension(doc.name) || attachmentExtension(doc.url) || "";
+    attachmentExtension(decodeAttachmentName(doc.name)) ||
+    attachmentExtension(doc.url) ||
+    "";
   const preset = DOC_TYPE_STYLE[ext] ?? {
     icon: "document-outline" as IoniconName,
     color: "#00A67E",
@@ -1641,14 +1653,31 @@ function AttachmentCluster({
   docs: MessageAttachment[];
   videos?: MessageAttachment[];
   onOpenImage?: (images: MessageAttachment[], index: number) => void;
-  onOpenVideo?: (url: string) => void;
+  onOpenVideo?: (url: string, name?: string) => void;
   /** Forwards a long-press on any attachment to the message action toolbar. */
   onLongPress?: (e: GestureResponderEvent) => void;
 }) {
   const openDoc = (doc: MessageAttachment) => {
-    openChatDocument(doc.url, doc.name).catch(() =>
+    openChatDocument(doc.url, decodeAttachmentName(doc.name)).catch(() =>
       showError("Error", "Could not open attachment"),
     );
+  };
+
+  // Tracks which document is currently being saved so its row can show a
+  // spinner instead of the download icon.
+  const [downloadingDocKey, setDownloadingDocKey] = useState<string | null>(
+    null,
+  );
+  const saveDoc = async (doc: MessageAttachment, key: string) => {
+    if (downloadingDocKey) return;
+    setDownloadingDocKey(key);
+    try {
+      await downloadChatAttachment(doc.url, decodeAttachmentName(doc.name));
+    } catch {
+      showError("Error", "Could not download document");
+    } finally {
+      setDownloadingDocKey(null);
+    }
   };
 
   const count = images.length;
@@ -1726,7 +1755,9 @@ function AttachmentCluster({
               key={`video-${i}`}
               style={styles.videoCard}
               activeOpacity={0.85}
-              onPress={() => onOpenVideo?.(vid.url)}
+              onPress={() =>
+                onOpenVideo?.(vid.url, decodeAttachmentName(vid.name))
+              }
               onLongPress={onLongPress}
               delayLongPress={ATTACHMENT_LONG_PRESS_DELAY}
             >
@@ -1735,7 +1766,7 @@ function AttachmentCluster({
                   <Ionicons name="play" size={16} color="#fff" />
                 </View>
                 <Text style={styles.videoCardText} numberOfLines={1}>
-                  {vid.name || "Video"}
+                  {decodeAttachmentName(vid.name) || "Video"}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -1747,30 +1778,50 @@ function AttachmentCluster({
         <View style={styles.docAttachmentContainer}>
           {docs.map((doc, i) => {
             const { icon, color, tint, meta } = getDocumentPresentation(doc);
+            const docKey = `doc-${i}`;
             return (
-              <TouchableOpacity
-                key={`doc-${i}`}
-                style={styles.docRow}
-                activeOpacity={0.75}
-                onPress={() => openDoc(doc)}
-                onLongPress={onLongPress}
-                delayLongPress={ATTACHMENT_LONG_PRESS_DELAY}
-              >
-                <View style={[styles.docIconBox, { backgroundColor: tint }]}>
-                  <Ionicons name={icon} size={20} color={color} />
-                </View>
-                <View style={styles.docInfo}>
-                  <Text style={styles.docName} numberOfLines={2}>
-                    {doc.name || "Document"}
-                  </Text>
-                  {meta ? (
-                    <Text style={styles.docMeta} numberOfLines={1}>
-                      {meta}
+              <View key={docKey} style={styles.docRow}>
+                <TouchableOpacity
+                  style={styles.docMain}
+                  activeOpacity={0.75}
+                  onPress={() => openDoc(doc)}
+                  onLongPress={onLongPress}
+                  delayLongPress={ATTACHMENT_LONG_PRESS_DELAY}
+                >
+                  <View style={[styles.docIconBox, { backgroundColor: tint }]}>
+                    <Ionicons name={icon} size={20} color={color} />
+                  </View>
+                  <View style={styles.docInfo}>
+                    <Text style={styles.docName} numberOfLines={2}>
+                      {decodeAttachmentName(doc.name) || "Document"}
                     </Text>
-                  ) : null}
-                </View>
-                <Ionicons name="download-outline" size={18} color="#9CA3AF" />
-              </TouchableOpacity>
+                    {meta ? (
+                      <Text style={styles.docMeta} numberOfLines={1}>
+                        {meta}
+                      </Text>
+                    ) : null}
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.docDownloadBtn}
+                  activeOpacity={0.7}
+                  onPress={() => saveDoc(doc, docKey)}
+                  onLongPress={onLongPress}
+                  delayLongPress={ATTACHMENT_LONG_PRESS_DELAY}
+                  disabled={downloadingDocKey === docKey}
+                  hitSlop={8}
+                >
+                  {downloadingDocKey === docKey ? (
+                    <ActivityIndicator size="small" color="#00A67E" />
+                  ) : (
+                    <Ionicons
+                      name="download-outline"
+                      size={19}
+                      color="#6B7280"
+                    />
+                  )}
+                </TouchableOpacity>
+              </View>
             );
           })}
         </View>
@@ -1934,6 +1985,7 @@ function ImageViewerModal({
   const listRef = useRef<FlatList<MessageAttachment>>(null);
   const { width, height } = Dimensions.get("window");
   const [zoomed, setZoomed] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const safeIndex =
     images.length > 0 ? Math.max(0, Math.min(index, images.length - 1)) : 0;
 
@@ -1944,6 +1996,19 @@ function ImageViewerModal({
     }, 0);
     return () => clearTimeout(t);
   }, [visible, safeIndex, images.length]);
+
+  const handleDownload = useCallback(async () => {
+    const current = images[safeIndex];
+    if (!current) return;
+    setDownloading(true);
+    try {
+      await downloadChatAttachment(current.url, current.name);
+    } catch {
+      showError("Error", "Could not download image");
+    } finally {
+      setDownloading(false);
+    }
+  }, [images, safeIndex]);
 
   if (!visible || images.length === 0) return null;
 
@@ -1989,6 +2054,18 @@ function ImageViewerModal({
           )}
         />
         <TouchableOpacity
+          style={styles.viewerDownload}
+          onPress={handleDownload}
+          disabled={downloading}
+          hitSlop={12}
+        >
+          {downloading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Ionicons name="download-outline" size={22} color="#fff" />
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity
           style={styles.viewerClose}
           onPress={onClose}
           hitSlop={12}
@@ -2016,10 +2093,12 @@ function ImageViewerModal({
 function VideoViewerModal({
   visible,
   url,
+  name,
   onClose,
 }: {
   visible: boolean;
   url: string | null;
+  name?: string | null;
   onClose: () => void;
 }) {
   const token = useAuthToken();
@@ -2031,6 +2110,18 @@ function VideoViewerModal({
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
   });
+  const [downloading, setDownloading] = useState(false);
+  const handleDownload = useCallback(async () => {
+    if (!url) return;
+    setDownloading(true);
+    try {
+      await downloadChatAttachment(url, name);
+    } catch {
+      showError("Error", "Could not download video");
+    } finally {
+      setDownloading(false);
+    }
+  }, [url, name]);
 
   return (
     <Modal
@@ -2041,6 +2132,18 @@ function VideoViewerModal({
       onRequestClose={onClose}
     >
       <View style={styles.videoViewerRoot}>
+        <TouchableOpacity
+          style={styles.videoViewerDownload}
+          onPress={handleDownload}
+          disabled={downloading}
+          hitSlop={12}
+        >
+          {downloading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Ionicons name="download-outline" size={22} color="#fff" />
+          )}
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.videoViewerClose}
           onPress={onClose}
@@ -2095,7 +2198,7 @@ const MessageBubble = React.memo(function MessageBubble({
   onLongPress?: (msg: ChatMessage, e?: GestureResponderEvent) => void;
   onReactionPress?: (msg: ChatMessage, emoji: string) => void;
   onOpenImage?: (images: MessageAttachment[], index: number) => void;
-  onOpenVideo?: (url: string) => void;
+  onOpenVideo?: (url: string, name?: string) => void;
   onPressReply?: (messageId: string) => void;
   postTypes?: { name: string; color: string; icon?: string }[];
 }) {
@@ -2504,6 +2607,7 @@ function WhatsAppMessageModal({
   onReply,
   onCopy,
   onForward,
+  onDownload,
   onPin,
   onEdit,
   onDelete,
@@ -2519,6 +2623,7 @@ function WhatsAppMessageModal({
   onReply: () => void;
   onCopy: () => void;
   onForward: () => void;
+  onDownload: () => void;
   onPin: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -2718,6 +2823,22 @@ function WhatsAppMessageModal({
                   style={waModalStyles.menuIcon}
                 />
                 <Text style={waModalStyles.menuText}>Copy Text</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {hasAttachments ? (
+              <TouchableOpacity
+                style={waModalStyles.menuItem}
+                activeOpacity={0.6}
+                onPress={() => handlePressAction(onDownload)}
+              >
+                <Ionicons
+                  name="download-outline"
+                  size={18}
+                  color="#374151"
+                  style={waModalStyles.menuIcon}
+                />
+                <Text style={waModalStyles.menuText}>Download</Text>
               </TouchableOpacity>
             ) : null}
 
@@ -4337,36 +4458,37 @@ export default function ConversationScreen() {
   const [mentionActive, setMentionActive] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionedUserIds, setMentionedUserIds] = useState<number[]>([]);
-  [];
-  // Upload progress
-  const [uploadProgress, setUploadProgress] = useState<{
-    percentage: number;
-    fileName: string;
+  // Attachment composer: holds the picked files until the user taps Send.
+  // `id` forces a fresh mount (and a clean caption/edit state) per selection.
+  const [composer, setComposer] = useState<{
+    id: string;
+    files: ComposerFile[];
   } | null>(null);
-  const abortUploadRef = useRef<{ abort: () => void } | null>(null);
 
-  // Send Attachment files helper
+  // Send Attachment files helper. `caption` (the composer's text) becomes the
+  // message text; without one we fall back to the attachment marker text.
   const sendAttachments = useCallback(
-    async (files: { uri: string; name: string; type: string }[]) => {
+    async (
+      files: { uri: string; name: string; type: string }[],
+      caption?: string,
+    ) => {
       if (!roomId || files.length === 0) return;
       setSending(true);
-      setUploadProgress({ percentage: 0, fileName: files[0].name });
       try {
+        // `sendMessage` adds an optimistic bubble up-front, so the attachment
+        // appears immediately with the pending loader on the ticks and flips to
+        // the sent ticks on success — exactly like a text message. There is no
+        // separate upload progress bar any more.
+        const trimmed = caption?.trim() ?? "";
         await sendMessage({
           room_id: roomId,
-          text:
-            files.length === 1
+          text: trimmed
+            ? trimmed
+            : files.length === 1
               ? `📎 ${files[0].name}`
               : `📎 ${files.length} attachments`,
           ...(selectedPostType ? { postType: selectedPostType } : {}),
           attachments: files,
-          onUploadProgress: (prog) => {
-            setUploadProgress({
-              percentage: Math.min(100, Math.max(0, prog.percentage)),
-              fileName: files[0].name,
-            });
-          },
-          abortUpload: abortUploadRef,
         });
         setSelectedPostType(null);
       } catch (err) {
@@ -4374,10 +4496,21 @@ export default function ConversationScreen() {
         showError("Upload Error", "Failed to upload attachments.");
       } finally {
         setSending(false);
-        setUploadProgress(null);
       }
     },
     [roomId, sendMessage, selectedPostType],
+  );
+
+  // The composer's Send: close it and upload the (possibly edited) files.
+  const handleComposerSend = useCallback(
+    (files: ComposerFile[], caption: string) => {
+      setComposer(null);
+      sendAttachments(
+        files.map((f) => ({ uri: f.uri, name: f.name, type: f.type })),
+        caption,
+      );
+    },
+    [sendAttachments],
   );
 
   const handlePickCamera = useCallback(async () => {
@@ -4397,21 +4530,37 @@ export default function ConversationScreen() {
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
+        const kind: "image" | "video" =
+          asset.type === "video" || asset.type === "pairedVideo"
+            ? "video"
+            : "image";
         const fileName =
           asset.fileName ||
-          `camera_${Date.now()}.${asset.type === "video" ? "mp4" : "jpg"}`;
+          `camera_${Date.now()}.${kind === "video" ? "mp4" : "jpg"}`;
         const fileType =
           asset.mimeType ||
-          (asset.type === "video" ? "video/mp4" : "image/jpeg");
-        await sendAttachments([
-          { uri: asset.uri, name: fileName, type: fileType },
-        ]);
+          (kind === "video" ? "video/mp4" : "image/jpeg");
+        // Show the preview composer instead of sending immediately.
+        setComposer({
+          id: `composer-${Date.now()}`,
+          files: [
+            {
+              uri: asset.uri,
+              name: fileName,
+              type: fileType,
+              kind,
+              width: asset.width,
+              height: asset.height,
+              size: asset.fileSize,
+            },
+          ],
+        });
       }
     } catch (err) {
       console.log("[Attachment] Camera error:", err);
       showError("Error", "Could not capture image from camera.");
     }
-  }, [roomId, sendAttachments]);
+  }, [roomId]);
 
   const handlePickGallery = useCallback(async () => {
     if (!roomId) return;
@@ -4430,22 +4579,33 @@ export default function ConversationScreen() {
         quality: 0.8,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const files = result.assets.map((asset, idx) => ({
-          uri: asset.uri,
-          name:
-            asset.fileName ||
-            `photo_${Date.now()}_${idx}.${asset.type === "video" ? "mp4" : "jpg"}`,
-          type:
-            asset.mimeType ||
-            (asset.type === "video" ? "video/mp4" : "image/jpeg"),
-        }));
-        await sendAttachments(files);
+        const files: ComposerFile[] = result.assets.map((asset, idx) => {
+          const kind: "image" | "video" =
+            asset.type === "video" || asset.type === "pairedVideo"
+              ? "video"
+              : "image";
+          return {
+            uri: asset.uri,
+            name:
+              asset.fileName ||
+              `photo_${Date.now()}_${idx}.${kind === "video" ? "mp4" : "jpg"}`,
+            type:
+              asset.mimeType ||
+              (kind === "video" ? "video/mp4" : "image/jpeg"),
+            kind,
+            width: asset.width,
+            height: asset.height,
+            size: asset.fileSize,
+          };
+        });
+        // Show the preview composer instead of sending immediately.
+        setComposer({ id: `composer-${Date.now()}`, files });
       }
     } catch (err) {
       console.log("[Attachment] Gallery error:", err);
       showError("Error", "Could not pick image from gallery.");
     }
-  }, [roomId, sendAttachments]);
+  }, [roomId]);
 
   const handlePickDocument = useCallback(async () => {
     if (!roomId) return;
@@ -4455,18 +4615,21 @@ export default function ConversationScreen() {
         multiple: true,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const files = result.assets.map((doc, idx) => ({
+        const files: ComposerFile[] = result.assets.map((doc, idx) => ({
           uri: doc.uri,
           name: doc.name || `doc_${Date.now()}_${idx}`,
           type: doc.mimeType || "application/octet-stream",
+          size: doc.size,
+          kind: "document",
         }));
-        await sendAttachments(files);
+        // Show the document composer instead of sending immediately.
+        setComposer({ id: `composer-${Date.now()}`, files });
       }
     } catch (err) {
       console.log("[Attachment] Document error:", err);
       showError("Error", "Could not pick document.");
     }
-  }, [roomId, sendAttachments]);
+  }, [roomId]);
 
   // Search
   const [searchOpen, setSearchOpen] = useState(false);
@@ -4783,29 +4946,19 @@ export default function ConversationScreen() {
         }
       }
 
-      setUploadProgress({ percentage: 0, fileName: name });
-      // Must use the same XHR upload path as images (onUploadProgress).
-      // Expo SDK 57's global `fetch` (WinterCG) cannot serialize React Native
-      // `{ uri, name, type }` FormData parts and throws "Unsupported
-      // FormDataPart implementation" — see AGENT_API_INTEGRATION.md.
+      // The optimistic bubble appears immediately with the pending spinner on
+      // the ticks and flips to the sent ticks on success — same as text.
+      // ChatContext always uploads attachments over XHR internally.
       await sendMessage({
         room_id: roomId,
         text: buildVoiceNoteText(recordedSeconds),
         attachments: [{ uri, name, type }],
-        onUploadProgress: (prog) => {
-          setUploadProgress({
-            percentage: Math.min(100, Math.max(0, prog.percentage)),
-            fileName: name,
-          });
-        },
-        abortUpload: abortUploadRef,
       });
     } catch (err) {
       console.log("[Audio] Send voice note error:", err);
       showError("Error", "Failed to send voice note");
     } finally {
       setSending(false);
-      setUploadProgress(null);
       recordingBusyRef.current = false;
     }
   }, [roomId, stopRecording, sendMessage]);
@@ -5762,15 +5915,16 @@ export default function ConversationScreen() {
 
   const closeImageViewer = useCallback(() => setViewerVisible(false), []);
 
-  // In-app video viewer (play a video attachment without opening a URL).
-  const [videoViewerUrl, setVideoViewerUrl] = useState<string | null>(null);
-  const openVideoViewer = useCallback(
-    (url: string) => {
-      if (url) setVideoViewerUrl(url);
-    },
-    [],
-  );
-  const closeVideoViewer = useCallback(() => setVideoViewerUrl(null), []);
+  // In-app video viewer (play a video attachment without opening a URL). The
+  // filename is kept alongside the URL so the viewer can offer "save to device".
+  const [videoViewer, setVideoViewer] = useState<{
+    url: string;
+    name?: string;
+  } | null>(null);
+  const openVideoViewer = useCallback((url: string, name?: string) => {
+    if (url) setVideoViewer({ url, name });
+  }, []);
+  const closeVideoViewer = useCallback(() => setVideoViewer(null), []);
 
   const handleLongPress = useCallback(
     (msg: ChatMessage, e?: GestureResponderEvent) => {
@@ -5782,6 +5936,22 @@ export default function ConversationScreen() {
     },
     [canUseMessageActions],
   );
+
+  // Save every attachment on a message to the device (photo, video, document,
+  // audio). Each one goes through the authenticated secure-file download and
+  // the OS share/save sheet — so a multi-attachment message prompts once per
+  // file, letting the user choose where each is stored.
+  const handleDownloadMessage = useCallback(async (msg: ChatMessage) => {
+    const attachments = msg.attachments ?? [];
+    if (attachments.length === 0) return;
+    try {
+      for (const att of attachments) {
+        await downloadChatAttachment(att.url, decodeAttachmentName(att.name));
+      }
+    } catch {
+      showError("Error", "Could not download attachment");
+    }
+  }, []);
 
   // Lookup for the "replying to" quote preview — only messages already
   // loaded in this screen can be shown; older, un-paginated-in replies
@@ -6776,43 +6946,6 @@ export default function ConversationScreen() {
             </View>
           )}
 
-          {/* ── Upload Progress ── */}
-          {uploadProgress && (
-            <View style={styles.uploadProgressContainer}>
-              <View style={styles.uploadProgressRow}>
-                <Ionicons
-                  name="cloud-upload-outline"
-                  size={14}
-                  color="#00DEAB"
-                />
-                <Text style={styles.uploadProgressText} numberOfLines={1}>
-                  Uploading {uploadProgress.fileName}...
-                </Text>
-                <Text style={styles.uploadProgressPercent}>
-                  {Math.min(100, Math.max(0, uploadProgress.percentage))}%
-                </Text>
-                <TouchableOpacity
-                  activeOpacity={0.4}
-                  onPress={() => {
-                    abortUploadRef.current?.abort();
-                    setUploadProgress(null);
-                  }}
-                  hitSlop={8}
-                >
-                  <Ionicons name="close-circle" size={16} color="#9CA3AF" />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.uploadProgressBarBg}>
-                <View
-                  style={[
-                    styles.uploadProgressBarFill,
-                    { width: `${Math.min(100, Math.max(0, uploadProgress.percentage))}%` },
-                  ]}
-                />
-              </View>
-            </View>
-          )}
-
           {/* ── Typing Indicator ── */}
           {typingNames.length > 0 && (
             <View style={styles.typingIndicator}>
@@ -7192,6 +7325,11 @@ export default function ConversationScreen() {
             setForwardOpen(true);
           }
         }}
+        onDownload={() => {
+          if (selectedMsgForModal?.message) {
+            handleDownloadMessage(selectedMsgForModal.message);
+          }
+        }}
         onPin={() => {
           if (selectedMsgForModal?.message) {
             togglePin(selectedMsgForModal.message._id, roomId).catch(() => {});
@@ -7255,10 +7393,21 @@ export default function ConversationScreen() {
 
       {/* ── Full-screen in-app video player ── */}
       <VideoViewerModal
-        visible={!!videoViewerUrl}
-        url={videoViewerUrl}
+        visible={!!videoViewer}
+        url={videoViewer?.url ?? null}
+        name={videoViewer?.name}
         onClose={closeVideoViewer}
       />
+
+      {/* ── WhatsApp-style attachment preview / composer (send on demand) ── */}
+      {composer ? (
+        <MediaComposerModal
+          key={composer.id}
+          files={composer.files}
+          onSend={handleComposerSend}
+          onCancel={() => setComposer(null)}
+        />
+      ) : null}
 
       {/* ── Member permission sheet (Chat members panel) ── */}
       <MemberPermissionSheet
@@ -7896,43 +8045,6 @@ const styles = StyleSheet.create({
     color: TEXT_SECONDARY,
   },
 
-  // ── Upload Progress ──
-  uploadProgressContainer: {
-    backgroundColor: "#F9FAFB",
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  uploadProgressRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 6,
-  },
-  uploadProgressText: {
-    flex: 1,
-    fontSize: rf(11),
-    fontFamily: "SF_Pro_Regular",
-    color: TEXT_SECONDARY,
-  },
-  uploadProgressPercent: {
-    fontSize: rf(11),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#00DEAB",
-  },
-  uploadProgressBarBg: {
-    height: 3,
-    backgroundColor: "#E5E7EB",
-    borderRadius: 1.5,
-    overflow: "hidden",
-  },
-  uploadProgressBarFill: {
-    height: "100%",
-    backgroundColor: "#00DEAB",
-    borderRadius: 1.5,
-  },
-
   // ── Input Bar ──
   inputBar: {
     backgroundColor: "#fff",
@@ -8516,6 +8628,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  viewerDownload: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 54 : 24,
+    left: 18,
+    zIndex: 2,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   viewerCounter: {
     position: "absolute",
     top: Platform.OS === "ios" ? 60 : 30,
@@ -8537,17 +8661,30 @@ const styles = StyleSheet.create({
   docRow: {
     flexDirection: "row",
     alignItems: "center",
-    width: ATT_GRID_WIDTH,
+    width: DOC_CARD_WIDTH,
     backgroundColor: "#F3F4F6",
     borderRadius: 10,
     paddingHorizontal: 8,
-    paddingVertical: 8,
-    gap: 9,
+    paddingVertical: 7,
+    gap: 4,
+  },
+  docMain: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  docDownloadBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
   },
   docIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 9,
+    width: 34,
+    height: 34,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -8608,6 +8745,18 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: Platform.OS === "ios" ? 54 : 24,
     right: 18,
+    zIndex: 2,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  videoViewerDownload: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 54 : 24,
+    left: 18,
     zIndex: 2,
     width: 38,
     height: 38,

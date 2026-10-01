@@ -1229,12 +1229,29 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       // Replace the placeholder with the server-confirmed message and refresh
       // the room's last_message so a brand-new DM surfaces in the chat list.
       const registerSentMessage = (rawSent: ChatMessage) => {
+        // Keep the original local filenames for our own attachments: the
+        // backend can echo them percent-encoded or otherwise garbled (e.g.
+        // "My%20File.pdf" / mojibake), while the picked names are correct.
+        // Match by index — the server preserves attachment order.
+        const attachments =
+          params.attachments &&
+          params.attachments.length > 0 &&
+          rawSent.attachments &&
+          rawSent.attachments.length > 0
+            ? rawSent.attachments.map((att, i) => {
+                const localName = params.attachments?.[i]?.name;
+                return localName ? { ...att, name: localName } : att;
+              })
+            : rawSent.attachments;
         // Keep the post-type label locally if the API response didn't echo it,
         // so the tag shows immediately without waiting for a refetch.
-        const sent =
-          params.postType && !rawSent.postType
-            ? { ...rawSent, postType: params.postType }
-            : rawSent;
+        const sent: ChatMessage = {
+          ...rawSent,
+          ...(attachments ? { attachments } : {}),
+          ...(params.postType && !rawSent.postType
+            ? { postType: params.postType }
+            : {}),
+        };
         dispatch({ type: "REPLACE_MESSAGE", tempId, message: sent });
         const room = stateRef.current.rooms.find((r) => r._id === sent.room_id);
         if (room) {
@@ -1291,45 +1308,37 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Failed to send message");
       }
 
-      // Has attachments — send as FormData (multipart)
+      // Has attachments — send as FormData (multipart). Expo SDK 57's global
+      // fetch (WinterCG) cannot serialize React Native `{ uri, name, type }`
+      // FormData parts ("Unsupported FormDataPart implementation"), so
+      // attachments must ALWAYS go through the XHR upload path — never the
+      // global-fetch `chatService.sendMessage`. Progress reporting is optional;
+      // the optimistic bubble's pending spinner is the user-facing feedback.
       const { buildMessageFormData } = await import("@/utils/chatHelpers");
       const formData = buildMessageFormData(params);
-
-      if (params.onUploadProgress) {
-        const { uploadWithProgress } =
-          await import("@/services/api/upload.service");
-        const response = await new Promise<
-          import("@/types/chat.types").SendMessageResponse
-        >((resolve, reject) => {
-          const uploader = uploadWithProgress("/chat/send-message", formData, {
-            onProgress: params.onUploadProgress,
-            onComplete: (resp) =>
-              resolve(resp as import("@/types/chat.types").SendMessageResponse),
-            onError: (err) => {
-              console.log("[Chat] upload error:", err);
-              reject(err);
-            },
-          });
-          if (params.abortUpload) {
-            params.abortUpload.current = uploader;
-          }
+      const { uploadWithProgress } = await import(
+        "@/services/api/upload.service"
+      );
+      const response = await new Promise<
+        import("@/types/chat.types").SendMessageResponse
+      >((resolve, reject) => {
+        const uploader = uploadWithProgress("/chat/send-message", formData, {
+          onProgress: params.onUploadProgress,
+          onComplete: (resp) =>
+            resolve(resp as import("@/types/chat.types").SendMessageResponse),
+          onError: (err) => {
+            console.log("[Chat] upload error:", err);
+            reject(err);
+          },
         });
-        if (response.Good && response.message) {
-          console.log("[Chat] message sent via upload:", response.message.id);
-          registerSentMessage(response.message);
-          return response.message;
+        if (params.abortUpload) {
+          params.abortUpload.current = uploader;
         }
-        throw new Error("Failed to send message");
-      }
-
-      const res = await chatService.sendMessage(formData);
-      console.log("[Chat] sendMessage FormData response:", {
-        Good: res.Good,
-        messageId: res.message?.id,
       });
-      if (res.Good && res.message) {
-        registerSentMessage(res.message);
-        return res.message;
+      if (response.Good && response.message) {
+        console.log("[Chat] message sent via upload:", response.message.id);
+        registerSentMessage(response.message);
+        return response.message;
       }
       throw new Error("Failed to send message");
       } catch (err) {

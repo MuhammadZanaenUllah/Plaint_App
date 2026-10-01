@@ -76,7 +76,15 @@
       ],
       "expo-image",
       "expo-sharing",
-      "expo-video"
+      "expo-video",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos.",
+          "savePhotosPermission": "Allow $(PRODUCT_NAME) to save photos and videos to your device.",
+          "granularPermissions": ["photo", "video"]
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
