@@ -30,6 +30,20 @@ export type ConversationRouteParams = {
 const mountedConversationRoomIds = new Set<string>();
 let pendingConversationRoomId: string | null = null;
 
+// Whether the `(tabs)` navigator that hosts the Chat List is currently mounted
+// as the root of the stack. A push notification can open a conversation before
+// any tab exists (cold start from a terminated/background state), which left
+// only the inert splash screen beneath it — Back then popped to a blank screen.
+// When the Chat List is not mounted yet, the stack is rooted at it before the
+// conversation is pushed, so Back always returns to the Chat List. During the
+// normal chat-list flow the tabs are already mounted, so this is a no-op.
+let tabsRouteMounted = false;
+
+/** Registers/unregisters the `(tabs)` navigator (called by `(tabs)/_layout`). */
+export function markTabsRouteMounted(mounted: boolean): void {
+  tabsRouteMounted = mounted;
+}
+
 /** Registers a mounted conversation screen (called by conversation.tsx). */
 export function markConversationOpen(roomId?: string | null): void {
   const rid = roomId ? String(roomId) : "";
@@ -53,19 +67,31 @@ export function markConversationClosed(roomId?: string | null): void {
  */
 export function openConversation(params: ConversationRouteParams): boolean {
   const roomId = params.roomId ? String(params.roomId) : "";
+  if (
+    roomId &&
+    (mountedConversationRoomIds.has(roomId) ||
+      pendingConversationRoomId === roomId)
+  ) {
+    // Already open/opening — do not touch the stack (would otherwise re-root
+    // it and hide the open conversation).
+    return false;
+  }
+  if (roomId) pendingConversationRoomId = roomId;
+
+  // Root the stack at the Chat List when it isn't present yet (notification
+  // deep-link on cold start). This runs before the conversation push so Back
+  // never lands on the splash/empty stack. No-op in the normal flow, where the
+  // tabs are already mounted.
+  if (!tabsRouteMounted) {
+    router.replace("/(tabs)/chat");
+  }
+
   if (!roomId) {
     // No room id to de-duplicate on (rare fallback path) — preserve the
     // previous navigation behavior.
     router.push({ pathname: "/conversation", params });
     return true;
   }
-  if (
-    mountedConversationRoomIds.has(roomId) ||
-    pendingConversationRoomId === roomId
-  ) {
-    return false;
-  }
-  pendingConversationRoomId = roomId;
   router.push({ pathname: "/conversation", params: { ...params, roomId } });
   return true;
 }

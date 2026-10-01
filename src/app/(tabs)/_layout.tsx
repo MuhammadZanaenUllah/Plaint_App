@@ -5,8 +5,10 @@
 import AppHeader from "@/components/headerapp";
 import { SearchProvider } from "@/context/SearchContext";
 import { useAuth } from "@/hooks/useAuth";
+import { markTabsRouteMounted } from "@/utils/conversationNavigation";
 import { Tabs, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -124,6 +126,14 @@ function TabLayoutContent() {
 }
 
 export default function TabLayout() {
+  // Let navigation helpers know the Chat List is present as the stack root, so
+  // a notification deep-link doesn't need to (re)establish it, and so a cold
+  // start without it can. Cleared on unmount (e.g. logout).
+  useEffect(() => {
+    markTabsRouteMounted(true);
+    return () => markTabsRouteMounted(false);
+  }, []);
+
   return (
     <SearchProvider>
       <TabLayoutContent />
