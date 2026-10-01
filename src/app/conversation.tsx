@@ -2347,9 +2347,11 @@ function WhatsAppMessageModal({
     !!message.text &&
     !isVoiceNoteText(message.text) &&
     !message.text.startsWith("📎 ");
-  // Website §2.6: edit/delete are limited to YOUR OWN messages within 1 hour.
+  // Website §2.6: edit (and "delete for everyone") are limited to YOUR OWN
+  // messages within 1 hour — enforced inside DeleteMessageModal, which also
+  // offers "Delete for Me" with no such limit. So the Delete menu entry
+  // below is never gated — every message can at least be deleted for me.
   const allowEdit = own && isEditableText && !!withinEditWindow;
-  const allowDelete = own && !!withinEditWindow;
   // Copy is only offered for real text messages — never for voice notes or
   // attachment-only marker texts ("📎 file").
   const copyableText =
@@ -2538,25 +2540,23 @@ function WhatsAppMessageModal({
               </TouchableOpacity>
             )}
 
-            {allowDelete && (
-              <TouchableOpacity
-                style={[waModalStyles.menuItem, waModalStyles.menuItemDelete]}
-                activeOpacity={0.6}
-                onPress={() => handlePressAction(onDelete)}
+            <TouchableOpacity
+              style={[waModalStyles.menuItem, waModalStyles.menuItemDelete]}
+              activeOpacity={0.6}
+              onPress={() => handlePressAction(onDelete)}
+            >
+              <Ionicons
+                name="trash-outline"
+                size={18}
+                color="#EF4444"
+                style={waModalStyles.menuIcon}
+              />
+              <Text
+                style={[waModalStyles.menuText, waModalStyles.menuTextDelete]}
               >
-                <Ionicons
-                  name="trash-outline"
-                  size={18}
-                  color="#EF4444"
-                  style={waModalStyles.menuIcon}
-                />
-                <Text
-                  style={[waModalStyles.menuText, waModalStyles.menuTextDelete]}
-                >
-                  {own ? "Delete Message" : "Delete"}
-                </Text>
-              </TouchableOpacity>
-            )}
+                {own ? "Delete Message" : "Delete"}
+              </Text>
+            </TouchableOpacity>
           </View>
         </Animated.View>
       </Animated.View>
@@ -2568,12 +2568,14 @@ function DeleteMessageModal({
   visible,
   message,
   currentUserId,
+  withinEditWindow,
   onClose,
   onConfirmDelete,
 }: {
   visible: boolean;
   message: ChatMessage | null;
   currentUserId: number;
+  withinEditWindow?: boolean;
   onClose: () => void;
   onConfirmDelete: (deleteFor: "me" | "everyone") => void;
 }) {
@@ -2581,9 +2583,9 @@ function DeleteMessageModal({
 
   const own = isOwnMessage(message, currentUserId);
   // "Delete for Everyone" is only available for messages the current user
-  // sent. Received messages can only be deleted for the current user
-  // ("Delete for Me"), regardless of any channel/permission delete rights.
-  const allowDeleteEveryone = own;
+  // sent, within the same 1-hour window as Edit (Website §2.6). "Delete for
+  // Me" below has no such limit — it's a local-only hide, always offered.
+  const allowDeleteEveryone = own && !!withinEditWindow;
 
   return (
     <Modal
@@ -4380,6 +4382,16 @@ export default function ConversationScreen() {
     atBottomRef.current = true;
     lastShowButtonRef.current = false;
     setScrollUi({ roomId, show: false, count: 0 });
+    // Dismiss the floating date label immediately rather than leaving it to
+    // its scroll-driven 900ms auto-hide timer — jumping straight to the
+    // bottom via this button isn't a scroll-up gesture, so that timer never
+    // gets refreshed and the last (now stale) date lingers on screen while
+    // the list animates back down to today's messages.
+    if (scrollDateTimerRef.current) {
+      clearTimeout(scrollDateTimerRef.current);
+      scrollDateTimerRef.current = null;
+    }
+    setScrollDateLabel(null);
   }, [roomId]);
 
   // Auto-scroll when the user is already at the bottom; otherwise count the
@@ -4679,7 +4691,18 @@ export default function ConversationScreen() {
       // without first mounting the chat tab.
       socketService
         .connectSocket()
-        .then(() => socketService.joinChatRoom(roomId))
+        .then(() => {
+          socketService.joinChatRoom(roomId);
+          // Chained onto the same connect promise (not a separate effect)
+          // so this doesn't race the socket's own async connection — firing
+          // it independently silently dropped the read receipt whenever the
+          // socket wasn't connected yet (cold start, deep link/push-opened
+          // conversation), since every socketService emit* no-ops if
+          // `!socket?.connected` and nothing here ever retried it.
+          if (currentUserId) {
+            socketService.emitMessagesRead(roomId, currentUserId);
+          }
+        })
         .catch(() => {});
       if (isChannel) {
         fetchPostTypes(roomId).catch(() => {});
@@ -4690,19 +4713,12 @@ export default function ConversationScreen() {
   }, [
     roomId,
     isChannel,
+    currentUserId,
     fetchMessages,
     fetchPostTypes,
     fetchRoomPermissions,
     fetchPinnedMessages,
   ]);
-
-  // Emit a "messagesRead" socket event whenever the user opens a room
-  // so the sender can mark these messages as read on their side.
-  useEffect(() => {
-    if (roomId && currentUserId) {
-      socketService.emitMessagesRead(roomId, currentUserId);
-    }
-  }, [roomId, currentUserId]);
 
   // Broadcast typing state to the room (only when the user may send).
   const handleTextChange = useCallback(
@@ -5847,12 +5863,19 @@ export default function ConversationScreen() {
       let topLabel: string | null = null;
       for (const v of viewableItems) {
         if (v.index == null || !v.item) continue;
+        const label =
+          v.item.type === "divider"
+            ? v.item.label
+            : formatDateDivider(v.item.message.createdAt ?? null);
+        // Skip items with no resolvable date (missing/invalid createdAt)
+        // instead of letting them win on index alone — otherwise, once the
+        // topmost visible item happens to be one of these, the label here
+        // never updates again (stuck on whatever it last was), no matter how
+        // far up the user keeps scrolling into older history.
+        if (!label) continue;
         if (v.index > topIndex) {
           topIndex = v.index;
-          topLabel =
-            v.item.type === "divider"
-              ? v.item.label
-              : formatDateDivider(v.item.message.createdAt ?? null);
+          topLabel = label;
         }
       }
       if (topLabel) topVisibleDateRef.current = topLabel;
@@ -6939,6 +6962,9 @@ export default function ConversationScreen() {
         visible={!!deleteModalMsg}
         message={deleteModalMsg}
         currentUserId={currentUserId}
+        withinEditWindow={
+          deleteModalMsg ? isWithinEditWindow(deleteModalMsg) : false
+        }
         onClose={() => setDeleteModalMsg(null)}
         onConfirmDelete={(deleteFor) => {
           if (deleteModalMsg) {

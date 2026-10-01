@@ -1999,6 +1999,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 ? (room.unreadCount ?? 0) + 1
                 : room.unreadCount;
 
+            // The room-open effect (conversation.tsx) only emits
+            // "messagesRead" once, for whatever was already unread at open
+            // time — a message that arrives afterward, while still on this
+            // same room, needs its own re-emit or the sender's checkmark
+            // never flips from "sent" to "seen" for it.
+            if (isFromOther && isCurrentRoom) {
+              socketService.emitMessagesRead(message.room_id, userIdRef.current);
+            }
+
             dispatch({
               type: "UPDATE_ROOM",
               room: {
