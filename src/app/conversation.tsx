@@ -110,10 +110,13 @@ import {
   GestureHandlerRootView,
 } from "react-native-gesture-handler";
 import Reanimated, {
+  interpolateColor,
   runOnJS,
   useAnimatedStyle,
+  useFrameCallback,
   useSharedValue,
   withSpring,
+  type SharedValue,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import EmojiPicker from "rn-emoji-keyboard";
@@ -123,6 +126,10 @@ const { ChatIcon: MainChatIcon } = Icons;
 // Long-press delay shared by message bubbles and their attachments, so opening
 // the action toolbar feels identical wherever the press lands.
 const ATTACHMENT_LONG_PRESS_DELAY = 250;
+
+// How long a jumped-to (quoted reply / pinned) message stays highlighted.
+// WhatsApp-style: one sustained highlight, not a flash.
+const JUMP_HIGHLIGHT_MS = 1500;
 
 // ─── Voice Note Player Component ─────────────────────────────────────────────
 
@@ -237,6 +244,43 @@ function getWaveformBars(seed: string): number[] {
   return bars;
 }
 
+/**
+ * One waveform bar. Colour is driven on the UI thread from the shared progress
+ * value, with a one-bar-wide interpolation window so the playhead sweeps
+ * smoothly across the bars instead of snapping each on a status tick.
+ */
+function WaveformBar({
+  height,
+  index,
+  count,
+  progressPct,
+}: {
+  height: number;
+  index: number;
+  count: number;
+  progressPct: SharedValue<number>;
+}) {
+  const animatedStyle = useAnimatedStyle(() => {
+    const barPct = count > 0 ? (index / count) * 100 : 0;
+    const step = count > 0 ? 100 / count : 100;
+    return {
+      // Fade each bar in as the playhead reaches it, over one bar of travel,
+      // so the teal fill sweeps continuously instead of switching in steps.
+      backgroundColor: interpolateColor(
+        progressPct.value,
+        [barPct, barPct + step],
+        ["#D1D5DB", "#00DEAB"],
+        "RGB",
+      ),
+    };
+  });
+  return (
+    <Reanimated.View
+      style={[vnStyles.waveformBar, { height: 3 + height * 13 }, animatedStyle]}
+    />
+  );
+}
+
 function VoiceNotePlayer({
   audioUrl,
   initialDurationSec,
@@ -251,6 +295,36 @@ function VoiceNotePlayer({
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const waveformBars = useMemo(() => getWaveformBars(audioUrl), [audioUrl]);
+  // Smooth waveform progress, driven on the UI thread. Native playback-status
+  // updates only arrive ~once per second, so instead of repainting the bars on
+  // each tick we advance `progressPct` every animation frame and let the status
+  // updates re-sync it. The frame callback runs only while playing.
+  const progressPct = useSharedValue(0);
+  const durationMs = useSharedValue(0);
+  const playingRef = useRef(false);
+
+  const onFrame = useCallback(
+    (frame: { timeSincePreviousFrame: number | null }) => {
+      "worklet";
+      if (durationMs.value <= 0) return;
+      const dt = frame.timeSincePreviousFrame ?? 0;
+      const next = progressPct.value + (dt / durationMs.value) * 100;
+      progressPct.value = next > 100 ? 100 : next;
+    },
+    // Shared values are stable refs; they must not be listed (the compiler
+    // treats a value passed to a hook as immutable).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const frameCallback = useFrameCallback(onFrame, false);
+  const setPlaying = useCallback(
+    (next: boolean) => {
+      playingRef.current = next;
+      frameCallback.setActive(next);
+    },
+    [frameCallback],
+  );
+
   const playerRef = useRef<any>(null);
   const downloadedUriRef = useRef<string | null>(null);
   const finishedRef = useRef(false);
@@ -287,11 +361,13 @@ function VoiceNotePlayer({
         if (isPlaying) {
           playerRef.current.pause();
           setIsPlaying(false);
+          setPlaying(false);
           console.log("[Audio] Voice note paused:", resolvedUrl);
         } else if (!finishedRef.current) {
           // Resuming a paused note — keep the current position.
           playerRef.current.play();
           setIsPlaying(true);
+          setPlaying(true);
           console.log("[Audio] Voice note resumed:", resolvedUrl);
         }
         // If finishedRef.current is true but playerRef still exists
@@ -362,14 +438,28 @@ function VoiceNotePlayer({
             showError("Playback Error", "Could not play audio note.");
             setIsPlaying(false);
             setPosition(0);
+            setPlaying(false);
+            progressPct.value = 0;
             return;
           }
-          if (typeof status.currentTime === "number") {
-            setPosition(status.currentTime * 1000);
-          }
           if (typeof status.duration === "number" && status.duration > 0) {
+            durationMs.value = status.duration * 1000;
             setDuration(status.duration * 1000);
           }
+          if (typeof status.currentTime === "number") {
+            // Re-sync the smooth progress to the authoritative position. While
+            // playing, never move it backwards (the frame callback may already
+            // be slightly ahead between status ticks).
+            const pct =
+              durationMs.value > 0
+                ? ((status.currentTime * 1000) / durationMs.value) * 100
+                : 0;
+            progressPct.value = playingRef.current
+              ? Math.max(progressPct.value, pct)
+              : pct;
+            setPosition(status.currentTime * 1000);
+          }
+          setPlaying(!!status.playing);
           if (status.didJustFinish) {
             console.log("[Audio] Voice note finished.");
             // Release the finished player so the next tap recreates it
@@ -382,6 +472,8 @@ function VoiceNotePlayer({
             finishedRef.current = true;
             setIsPlaying(false);
             setPosition(0);
+            setPlaying(false);
+            progressPct.value = 0;
           }
         });
       }
@@ -389,15 +481,18 @@ function VoiceNotePlayer({
       try {
         newPlayer.play();
         setIsPlaying(true);
+        setPlaying(true);
       } catch (playErr) {
         console.log("[Audio] play() threw:", playErr);
         showError("Playback Error", "Could not start audio playback.");
         setIsPlaying(false);
+        setPlaying(false);
       }
     } catch (err) {
       console.log("[Audio] Failed to play voice note:", err);
       showError("Playback Error", "Could not play audio note.");
       setIsPlaying(false);
+      setPlaying(false);
     }
   };
 
@@ -409,6 +504,7 @@ function VoiceNotePlayer({
         } catch {}
       }
       setIsPlaying(false);
+      setPlaying(false);
     };
     voicePlayerPauseHandlers.add(pauseHandler);
     return () => {
@@ -421,9 +517,10 @@ function VoiceNotePlayer({
         playerRef.current = null;
       }
     };
-  }, []);
+    // `setPlaying` is stable (deps: the stable frame-callback object), so this
+    // still registers the cross-player pause handler exactly once.
+  }, [setPlaying]);
 
-  const progress = duration > 0 ? (position / duration) * 100 : 0;
   const posSec = Math.floor(position / 1000);
   const durSec = Math.floor(duration / 1000);
   // Prefer the real audio duration; fall back to the duration we tagged on the
@@ -452,22 +549,15 @@ function VoiceNotePlayer({
       </TouchableOpacity>
       <View style={vnStyles.trackContainer}>
         <View style={vnStyles.waveformRow}>
-          {waveformBars.map((h, i) => {
-            const barProgress = (i / waveformBars.length) * 100;
-            const isActive = barProgress <= progress;
-            return (
-              <View
-                key={i}
-                style={[
-                  vnStyles.waveformBar,
-                  {
-                    height: 3 + h * 13,
-                    backgroundColor: isActive ? "#00DEAB" : "#D1D5DB",
-                  },
-                ]}
-              />
-            );
-          })}
+          {waveformBars.map((h, i) => (
+            <WaveformBar
+              key={i}
+              height={h}
+              index={i}
+              count={waveformBars.length}
+              progressPct={progressPct}
+            />
+          ))}
         </View>
         <Text style={vnStyles.timeText}>
           {totalSec > 0
@@ -5082,26 +5172,23 @@ export default function ConversationScreen() {
     [handleJumpToMessageId],
   );
 
-  // Briefly flash a message twice (on → off → on → off) instead of a static
-  // highlight, then clear it automatically.
+  // Highlight the jumped-to message once, for a sustained WhatsApp-style
+  // moment, then clear it. Re-invoking for the same message while it is already
+  // lit simply extends the highlight (no second flash), so the behavior is
+  // identical in 1:1 chats and channels.
   const blinkMessage = useCallback((messageId: string) => {
     if (!messageId) return;
     if (jumpHighlightTimerRef.current) {
       clearTimeout(jumpHighlightTimerRef.current);
       jumpHighlightTimerRef.current = null;
     }
-    const steps = [true, false, true, false];
-    let i = 0;
-    const step = () => {
-      setHighlightedMessageId(steps[i] ? messageId : null);
-      i += 1;
-      if (i < steps.length) {
-        jumpHighlightTimerRef.current = setTimeout(step, 110);
-      } else {
-        jumpHighlightTimerRef.current = null;
-      }
-    };
-    step();
+    setHighlightedMessageId(messageId);
+    jumpHighlightTimerRef.current = setTimeout(() => {
+      setHighlightedMessageId((current) =>
+        current === messageId ? null : current,
+      );
+      jumpHighlightTimerRef.current = null;
+    }, JUMP_HIGHLIGHT_MS);
   }, []);
 
   // Trigger initial user search when AddPeople modal opens
