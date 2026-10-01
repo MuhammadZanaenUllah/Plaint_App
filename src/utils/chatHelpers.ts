@@ -245,6 +245,21 @@ export function isOwnMessage(
   return String(sId) === String(currentUserId);
 }
 
+// "Delete for everyone" (and edit) are limited to the sender's own message
+// within this window. After it, only "delete for me" remains available.
+export const MESSAGE_ACTION_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
+/** Whether a message is still inside the own-message action window (1h). */
+export function isWithinMessageActionWindow(
+  message: Pick<ChatMessage, "createdAt"> | null | undefined,
+  now: number = Date.now(),
+): boolean {
+  if (!message?.createdAt) return false;
+  const t = new Date(message.createdAt).getTime();
+  if (!Number.isFinite(t)) return false;
+  return now - t <= MESSAGE_ACTION_WINDOW_MS;
+}
+
 /** Get the last message preview text for a room. */
 export function getLastMessagePreview(message: ChatMessage): string {
   if (message.attachments && message.attachments.length > 0) {

@@ -263,7 +263,7 @@ const swipeStyles = StyleSheet.create({
 
 export default function ChatScreen() {
     const {
-        state, fetchRooms, getOrCreateRoom, markRead,
+        state, fetchRooms, markRead,
         setSearchQuery, initSocket, cleanupChatListeners,
         roomPermissions, deleteRoom, hiddenRoomIds,
         muteRoom, markUnread,
@@ -640,23 +640,36 @@ export default function ChatScreen() {
     );
 
     const handleAddPeopleSelect = useCallback(
-        async (user: { id: string; name: string; email?: string }) => {
+        (user: { id: string; name: string; email?: string }) => {
             setAddPeopleOpen(false);
-            try {
-                const room = await getOrCreateRoom({
-                    type: "direct",
-                    targetId: parseInt(user.id, 10),
-                });
-                openRoomConversation(room, currentUserId);
-            } catch {
-                // Fallback: navigate with user info (no room id available)
-                openConversation({
-                    name: user.name,
-                    initials: user.name.charAt(0).toUpperCase(),
-                });
+            const targetId = parseInt(user.id, 10);
+
+            // Fast path: an already-loaded 1:1 room with this member opens
+            // immediately — no network round-trip before navigation.
+            const existingRoom = state.rooms.find(
+                (r) =>
+                    r.type === "direct" &&
+                    (r.members ?? []).some((m) => m.id === targetId),
+            );
+            if (existingRoom) {
+                if (isRoomUnread(existingRoom)) {
+                    markRead(existingRoom._id).catch(() => {});
+                }
+                openRoomConversation(existingRoom, currentUserId);
+                return;
             }
+
+            // New chat: open the conversation right away with the peer's info
+            // and let the conversation screen get-or-create the room (it swaps
+            // the resolved room id into the route). This removes the
+            // create-room request from the navigation critical path.
+            openConversation({
+                targetId: String(targetId),
+                name: user.name,
+                initials: user.name.trim().charAt(0).toUpperCase() || "C",
+            });
         },
-        [getOrCreateRoom, currentUserId]
+        [currentUserId, state.rooms, markRead]
     );
 
     const handleChannelCreate = useCallback(

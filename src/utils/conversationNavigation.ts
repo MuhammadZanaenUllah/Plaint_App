@@ -21,6 +21,12 @@ import { getRoomDisplayName, getRoomInitials } from "@/utils/chatHelpers";
 
 export type ConversationRouteParams = {
   roomId?: string;
+  /**
+   * Peer user id for a 1:1 chat that does not have a room yet (e.g. opened
+   * from "New Chat"). The conversation screen resolves/creates the room from
+   * it, so navigation never has to wait on the network.
+   */
+  targetId?: string;
   name?: string;
   initials?: string;
   isChannel?: string;

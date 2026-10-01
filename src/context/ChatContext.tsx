@@ -14,7 +14,12 @@ import {
   RoomMember,
   SearchUser,
 } from "@/types/chat.types";
-import { getMessageInitials, isRoomUnread } from "@/utils/chatHelpers";
+import {
+  getMessageInitials,
+  isOwnMessage,
+  isRoomUnread,
+  isWithinMessageActionWindow,
+} from "@/utils/chatHelpers";
 import {
   openConversation,
   openRoomConversation,
@@ -1442,14 +1447,28 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const deleteChatMessage = useCallback(
     async (messageId: string, deleteFor: "me" | "everyone") => {
+      const target = stateRef.current.messages.find(
+        (m) => m._id === messageId || String(m.id) === messageId,
+      );
+
+      // Authorization guard at the API boundary — the UI already hides these
+      // actions, but no caller can bypass the rule:
+      //   • the message must be one the current user personally sent (never
+      //     another user's, not even "delete for me");
+      //   • "delete for everyone" is only allowed within the 1-hour window.
+      // The existence check also means a stale/unknown id can never be used to
+      // issue a delete request.
+      if (!target || !isOwnMessage(target, userIdRef.current)) {
+        throw new Error("You can only delete your own messages");
+      }
+      if (deleteFor === "everyone" && !isWithinMessageActionWindow(target)) {
+        throw new Error("Delete for everyone is only available within 1 hour");
+      }
+
       const res = await chatService.deleteMessage(messageId, deleteFor);
       if (!res.Good) {
         throw new Error(res.message || "Failed to delete message");
       }
-
-      const target = stateRef.current.messages.find(
-        (m) => m._id === messageId || String(m.id) === messageId,
-      );
 
       // Remove from local state immediately so the UI updates for BOTH
       // "delete for me" and "delete for everyone" without waiting for a refetch

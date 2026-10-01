@@ -38,6 +38,7 @@ import {
   isOwnMessage,
   isRoomUnread,
   isVoiceNoteText,
+  isWithinMessageActionWindow,
   resolveFileUrl,
   resolveSecureFileUrl,
 } from "@/utils/chatHelpers";
@@ -2681,9 +2682,10 @@ function WhatsAppMessageModal({
     !isVoiceNoteText(message.text) &&
     !message.text.startsWith("📎 ");
   // Website §2.6: edit (and "delete for everyone") are limited to YOUR OWN
-  // messages within 1 hour — enforced inside DeleteMessageModal, which also
-  // offers "Delete for Me" with no such limit. So the Delete menu entry
-  // below is never gated — every message can at least be deleted for me.
+  // messages within 1 hour. Deletion itself is only ever possible for your own
+  // messages — another user's message offers no Delete entry at all. Within the
+  // window DeleteMessageModal offers both options; after it, only
+  // "Delete for Me".
   const allowEdit = own && isEditableText && !!withinEditWindow;
   // Copy is only offered for real text messages — never for voice notes or
   // attachment-only marker texts ("📎 file").
@@ -2889,23 +2891,25 @@ function WhatsAppMessageModal({
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity
-              style={[waModalStyles.menuItem, waModalStyles.menuItemDelete]}
-              activeOpacity={0.6}
-              onPress={() => handlePressAction(onDelete)}
-            >
-              <Ionicons
-                name="trash-outline"
-                size={18}
-                color="#EF4444"
-                style={waModalStyles.menuIcon}
-              />
-              <Text
-                style={[waModalStyles.menuText, waModalStyles.menuTextDelete]}
+            {own && (
+              <TouchableOpacity
+                style={[waModalStyles.menuItem, waModalStyles.menuItemDelete]}
+                activeOpacity={0.6}
+                onPress={() => handlePressAction(onDelete)}
               >
-                {own ? "Delete Message" : "Delete"}
-              </Text>
-            </TouchableOpacity>
+                <Ionicons
+                  name="trash-outline"
+                  size={18}
+                  color="#EF4444"
+                  style={waModalStyles.menuIcon}
+                />
+                <Text
+                  style={[waModalStyles.menuText, waModalStyles.menuTextDelete]}
+                >
+                  Delete Message
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </Animated.View>
       </Animated.View>
@@ -2930,11 +2934,14 @@ function DeleteMessageModal({
 }) {
   if (!visible || !message) return null;
 
+  // A user can only ever delete their own messages — another user's message is
+  // never deletable (not even "for me"). The entry points are already hidden,
+  // this is the modal-level guard.
   const own = isOwnMessage(message, currentUserId);
-  // "Delete for Everyone" is only available for messages the current user
-  // sent, within the same 1-hour window as Edit (Website §2.6). "Delete for
-  // Me" below has no such limit — it's a local-only hide, always offered.
-  const allowDeleteEveryone = own && !!withinEditWindow;
+  if (!own) return null;
+  // "Delete for Everyone" is only available within the 1-hour window; after it
+  // only "Delete for Me" remains (Website §2.6).
+  const allowDeleteEveryone = !!withinEditWindow;
 
   return (
     <Modal
@@ -2953,9 +2960,7 @@ function DeleteMessageModal({
           </View>
           <Text style={delModalStyles.title}>Delete Message?</Text>
           <Text style={delModalStyles.subtitle}>
-            {own
-              ? "Choose how you want to delete this message."
-              : "This message will be deleted for you."}
+            Choose how you want to delete this message.
           </Text>
 
           <View style={delModalStyles.actionsStack}>
@@ -2995,7 +3000,7 @@ function DeleteMessageModal({
                 style={{ marginRight: 8 }}
               />
               <Text style={delModalStyles.deleteSelfText}>
-                {own ? "Delete for Me" : "Delete"}
+                Delete for Me
               </Text>
             </TouchableOpacity>
 
@@ -4259,6 +4264,7 @@ const CHAT_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 1 };
 export default function ConversationScreen() {
   const params = useLocalSearchParams<{
     roomId?: string;
+    targetId?: string;
     name?: string;
     initials?: string;
     isChannel?: string;
@@ -4268,6 +4274,7 @@ export default function ConversationScreen() {
   const initials = params.initials ?? "C";
   const isChannel = params.isChannel === "true";
   const roomId = params.roomId;
+  const targetId = params.targetId;
 
   const {
     state,
@@ -4284,6 +4291,7 @@ export default function ConversationScreen() {
     updatePermission,
     fetchRoomPermissions,
     fetchRooms,
+    getOrCreateRoom,
     roomPermissions,
     roomCreator,
     setSearchQuery,
@@ -4316,6 +4324,25 @@ export default function ConversationScreen() {
     markConversationOpen(roomId);
     return () => markConversationClosed(roomId);
   }, [roomId]);
+
+  // "New Chat" can open this screen with only a peer id (no room yet) so the
+  // navigation is instant. Resolve/create the 1:1 room here and swap the id
+  // into the route; the room-dependent effects then run as usual. The screen
+  // is already visible (header from the route params) while this is in flight.
+  useEffect(() => {
+    if (roomId || !targetId) return;
+    let cancelled = false;
+    getOrCreateRoom({ type: "direct", targetId: Number(targetId) })
+      .then((room) => {
+        if (!cancelled && room?._id) {
+          router.setParams({ roomId: room._id });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [roomId, targetId, getOrCreateRoom]);
 
   // ── Room-level permission gating ──────────────────────────────────────
   // Room permissions come from GET /chat/room-permissions/:roomId
@@ -4351,13 +4378,13 @@ export default function ConversationScreen() {
     return canPerformAction(callerPermission, "comment");
   }, [isChannel, callerPermission]);
 
-  // Edit/Delete are limited to your OWN messages within 1 hour (website §2.6).
-  const isWithinEditWindow = useCallback((msg: ChatMessage): boolean => {
-    if (!msg?.createdAt) return false;
-    const t = new Date(msg.createdAt).getTime();
-    if (!Number.isFinite(t)) return false;
-    return Date.now() - t <= 60 * 60 * 1000;
-  }, []);
+  // Edit (and "delete for everyone") are limited to your OWN messages within
+  // 1 hour (website §2.6). Delegates to the shared helper so the same rule is
+  // applied by the API-layer delete guard in ChatContext.
+  const isWithinEditWindow = useCallback(
+    (msg: ChatMessage): boolean => isWithinMessageActionWindow(msg),
+    [],
+  );
 
   // Only Edit / Full edit may tag messages with a post type.
   const canManagePostTypes = useMemo(() => {
@@ -5607,7 +5634,9 @@ export default function ConversationScreen() {
             togglePin(msg._id, roomId).catch(() => {});
           },
         },
-        ...(isOwn && withinWindow
+        // Delete is always offered for your OWN messages (within the window it
+        // allows "for everyone", after it only "for me"); never for others'.
+        ...(isOwn
           ? [
               {
                 text: "Delete",
@@ -7397,26 +7426,34 @@ export default function ConversationScreen() {
         }
         onClose={() => setDeleteModalMsg(null)}
         onConfirmDelete={(deleteFor) => {
-          if (deleteModalMsg) {
-            // Safety net: "everyone" is only ever valid for your own messages.
-            const effectiveDeleteFor =
-              deleteFor === "everyone" &&
-              !isOwnMessage(deleteModalMsg, currentUserId)
-                ? "me"
-                : deleteFor;
-            const mId = deleteModalMsg._id;
-            deleteMessage(mId, effectiveDeleteFor)
-              .then(() => {
-                showSuccess(
-                  effectiveDeleteFor === "everyone"
-                    ? "Message deleted for everyone"
-                    : "Message deleted for you",
-                );
-              })
-              .catch(() => {
-                showError("Error", "Failed to delete message");
-              });
+          if (!deleteModalMsg) return;
+          // Safety net (mirrors the API guard in ChatContext): only your own
+          // messages are deletable, and "everyone" only within the 1h window.
+          if (!isOwnMessage(deleteModalMsg, currentUserId)) {
+            showError("Error", "You can only delete your own messages");
+            return;
           }
+          const effectiveDeleteFor =
+            deleteFor === "everyone" && !isWithinEditWindow(deleteModalMsg)
+              ? "me"
+              : deleteFor;
+          const mId = deleteModalMsg._id;
+          deleteMessage(mId, effectiveDeleteFor)
+            .then(() => {
+              showSuccess(
+                effectiveDeleteFor === "everyone"
+                  ? "Message deleted for everyone"
+                  : "Message deleted for you",
+              );
+            })
+            .catch((e) => {
+              showError(
+                "Error",
+                e instanceof Error && e.message
+                  ? e.message
+                  : "Failed to delete message",
+              );
+            });
         }}
       />
 
