@@ -4288,6 +4288,7 @@ export default function ConversationScreen() {
     setSearchQuery,
     fetchPinnedMessages,
     setCurrentRoom,
+    initSocket,
     muteRoom,
     markUnread,
     deleteRoom,
@@ -5647,6 +5648,30 @@ export default function ConversationScreen() {
       setCurrentRoom(currentRoom);
     }
   }, [currentRoom?._id, currentRoom?.id, setCurrentRoom]);
+
+  // ── Notification / deep-link entry initialization ─────────────────────────
+  // The conversation screen can be the FIRST chat screen to mount — an OS push
+  // tap, an in-app notification or a cold-start deep link opens it directly
+  // without the Chat tab ever mounting. The normal flow registers the shared
+  // chat socket listeners (receiveChatMessage → append + last_message preview)
+  // and loads the room list from the Chat tab. Without that initialization,
+  // `state.currentRoom` stays null (so the ADD_MESSAGE guard silently drops
+  // every new message) and the chat-list preview never advances past whatever
+  // stale snapshot was loaded. Mirror the normal flow here. `initSocket` is
+  // idempotent, so this is a no-op when the Chat tab already did it.
+  useEffect(() => {
+    if (!currentUserId) return;
+    initSocket(currentUserId).catch(() => {});
+  }, [currentUserId, initSocket]);
+
+  // Ensure this room exists in the shared room store so `currentRoom` resolves
+  // and `setCurrentRoom` runs (the ADD_MESSAGE guard requires an active room).
+  // The Chat tab loads rooms on mount; a notification-opened chat can arrive
+  // before any room list exists.
+  useEffect(() => {
+    if (!roomId || currentRoom) return;
+    fetchRooms({ silent: true }).catch(() => {});
+  }, [roomId, currentRoom, fetchRooms]);
 
   // Pull the latest room membership when a channel conversation opens, so a
   // member who already left/was removed elsewhere disappears here even if no

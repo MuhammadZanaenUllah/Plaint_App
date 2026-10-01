@@ -652,6 +652,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     Map<string, Map<number, string>>
   >(new Map());
   const socketCleanupRef = useRef<Array<() => void>>([]);
+  // The socket instance the current listeners are attached to. Used to detect
+  // a replaced/disconnected socket (logout → next login) so `initSocket` can
+  // register fresh instead of trusting stale subscriptions.
+  const registeredSocketRef = useRef<Awaited<
+    ReturnType<typeof socketService.connectSocket>
+  > | null>(null);
 
   const { addNotification } = useNotifications();
 
@@ -1884,6 +1890,31 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       userIdRef.current = userId;
       const socket = await socketService.connectSocket();
 
+      // The shared chat listeners are registered exactly once for the whole app.
+      // The Chat tab normally does this on mount, but a chat can also be the
+      // FIRST screen to mount — an OS push tap, an in-app notification or a
+      // cold-start deep link opens `conversation.tsx` directly. Re-invoking
+      // `initSocket` from that screen must not tear down and re-register the
+      // 20+ listeners (which drops events) nor double-register them; just
+      // refresh the user registration and bail out.
+      //
+      // Guarding on the socket identity (not just "have listeners") means a
+      // logout that disconnects the socket — even when the Chat tab never
+      // mounted to run its cleanup — still results in a fresh registration on
+      // the next login, because the new socket differs from the recorded one.
+      if (
+        socketCleanupRef.current.length > 0 &&
+        registeredSocketRef.current === socket
+      ) {
+        if (socket.connected) {
+          socketService.registerUser(userId);
+        }
+        return;
+      }
+      // Any prior subscriptions belong to a replaced socket — drop the stale
+      // bookkeeping before attaching to the current one.
+      socketCleanupRef.current = [];
+
       const cleanupConnect = socketService.onSocketEvent("connect", () => {
         setSocketConnected(true);
         socketService.registerUser(userId);
@@ -2479,6 +2510,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         cleanupChatRoomSettingUpdated,
         cleanupProjectUpdate,
       ];
+      registeredSocketRef.current = socket;
 
       // If already connected, register immediately
       if (socket.connected) {
@@ -2499,6 +2531,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }
     socketCleanupRef.current.forEach((cleanup) => cleanup());
     socketCleanupRef.current = [];
+    registeredSocketRef.current = null;
   }, []);
 
   const cleanupSocket = useCallback(() => {
