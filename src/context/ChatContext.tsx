@@ -252,15 +252,32 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
     case "SET_CURRENT_ROOM": {
       if (!action.room) {
+        // Closing the open conversation: drop its message list here so the next
+        // room can never briefly show it.
         return {
           ...state,
           currentRoom: null,
+          messages: [],
+          messagePage: 1,
+          hasMore: false,
         };
       }
       const isSameRoom =
         state.currentRoom &&
         (state.currentRoom._id === action.room._id || state.currentRoom.id === action.room.id);
       if (isSameRoom) {
+        return {
+          ...state,
+          currentRoom: action.room,
+        };
+      }
+      // Transitioning from "no active room" (initial mount, or a cold-start
+      // notification deep link where the room store hydrates after the screen
+      // mounts) must NOT clear the list: `fetchMessages` may already have
+      // loaded this exact room's history before the room list resolved, and
+      // clearing here wiped it. The list is cleared on close / when switching
+      // between two different open rooms instead.
+      if (!state.currentRoom) {
         return {
           ...state,
           currentRoom: action.room,
