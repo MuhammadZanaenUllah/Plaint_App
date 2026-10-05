@@ -7066,7 +7066,7 @@ export default function ConversationScreen() {
               activeOpacity={0.85}
               onPress={scrollToBottom}
             >
-              <Ionicons name="chevron-down" size={20} color="#1D1D1D" />
+              <Ionicons name="chevron-down" size={16} color="#1D1D1D" />
               {newMessageCount > 0 && (
                 <View style={styles.scrollToBottomBadge}>
                   <Text style={styles.scrollToBottomBadgeText}>
@@ -7784,9 +7784,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 14,
     bottom: 14,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 31,
+    height: 31,
+    borderRadius: 16,
     backgroundColor: "#fff",
     alignItems: "center",
     justifyContent: "center",
@@ -7801,12 +7801,12 @@ const styles = StyleSheet.create({
   },
   scrollToBottomBadge: {
     position: "absolute",
-    top: -5,
-    right: -5,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    paddingHorizontal: 4,
+    top: -4,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 3,
     backgroundColor: TEAL,
     alignItems: "center",
     justifyContent: "center",
@@ -7815,7 +7815,7 @@ const styles = StyleSheet.create({
   },
   scrollToBottomBadgeText: {
     color: "#fff",
-    fontSize: rf(9.5),
+    fontSize: rf(8.5),
     fontFamily: "SF_Pro_Semibold",
   },
   header: {
@@ -8089,8 +8089,8 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   timeMeta: {
-    fontSize: rf(9),
-    fontFamily: "SF_Pro_Regular",
+    fontSize: rf(8),
+    fontFamily: "SF_Pro_Medium",
     color: TEXT_SECONDARY,
   },
   // Temporary floating date label shown while scrolling up (hidden on stop).

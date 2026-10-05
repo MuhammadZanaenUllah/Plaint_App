@@ -1,6 +1,6 @@
 import { File } from "expo-file-system";
 import { Room, RoomType, ChatMessage, ChatPermission, NotificationItem } from "@/types/chat.types";
-import { formatClockTime, formatRelativeTime } from "@/utils/dateFormat";
+import { formatClockTime } from "@/utils/dateFormat";
 
 // ─── Room Helpers ─────────────────────────────────────────────────────────────
 
@@ -99,9 +99,16 @@ export function getMessageInitials(name?: string | null): string {
   return name.charAt(0).toUpperCase();
 }
 
-/** Format a message timestamp for display. */
+/**
+ * Format a message timestamp for display as the actual local clock time
+ * (WhatsApp-style, e.g. "3:45 PM"). The date itself is conveyed by the
+ * timeline's date separators, so only the time is shown here.
+ */
 export function formatMessageTime(dateString?: string): string {
-  return formatRelativeTime(dateString);
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return "";
+  return formatClockTime(date);
 }
 
 /**
