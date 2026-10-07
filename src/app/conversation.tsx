@@ -31,6 +31,7 @@ import {
   formatMessageTime,
   formatVoiceDuration,
   getMessagePostType,
+  getMessageTick,
   getRoomAvatar,
   getVoiceNoteSeconds,
   getVoiceNoteSecondsFromAttachment,
@@ -72,7 +73,7 @@ import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import { Directory, File as FileSystemFile, Paths } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React, {
   useCallback,
@@ -85,6 +86,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  AppState,
   Dimensions,
   FlatList,
   GestureResponderEvent,
@@ -2264,7 +2266,6 @@ const MessageBubble = React.memo(function MessageBubble({
   currentUserId,
   members,
   showSenderName = false,
-  isChannel = false,
   repliedPreview,
   highlighted = false,
   showTimestamp = true,
@@ -2279,7 +2280,6 @@ const MessageBubble = React.memo(function MessageBubble({
   currentUserId: number;
   members?: RoomMember[];
   showSenderName?: boolean;
-  isChannel?: boolean;
   repliedPreview?: {
     senderName: string;
     text: string;
@@ -2360,14 +2360,12 @@ const MessageBubble = React.memo(function MessageBubble({
       <View style={styles.quotedPreview}>{replyPreviewBody}</View>
     ) : null;
 
-  // Read receipt — only meaningful for a 1:1 direct chat's own messages
-  // (a channel/group has many readers, so a single tick pair doesn't map
-  // cleanly the way it does in WhatsApp's 1:1 view).
-  const otherMember = members?.find((m) => m.id !== currentUserId);
-  const isReadByOther =
-    !isChannel &&
-    !!otherMember &&
-    (message.is_read ?? []).includes(otherMember.id);
+  // Delivery / read tick from `delivered_to` + `is_read` (backend B5).
+  // Double tick = reached every other member's device; blue = every other
+  // member read it. Works for 1:1 and groups/channels alike.
+  const tick = getMessageTick(message, members, currentUserId);
+  const isTickDouble = tick === "delivered" || tick === "read";
+  const tickColor = tick === "read" ? "#0DDFAB" : "#9CA3AF";
 
   const likedByMe = new Set(
     (message.reactions ?? [])
@@ -2573,9 +2571,9 @@ const MessageBubble = React.memo(function MessageBubble({
               <ActivityIndicator size={9} color="#9CA3AF" />
             ) : (
               <Ionicons
-                name={isReadByOther ? "checkmark-done" : "checkmark"}
+                name={isTickDouble ? "checkmark-done" : "checkmark"}
                 size={13}
-                color={isReadByOther ? "#0DDFAB" : "#9CA3AF"}
+                color={tickColor}
               />
             )}
           </Text>
@@ -5236,6 +5234,31 @@ export default function ConversationScreen() {
     fetchPinnedMessages,
   ]);
 
+  // Mark the room read only while it is genuinely on-screen and foregrounded
+  // (B3): on returning focus to this chat, and when the app comes back to the
+  // foreground with this chat still open. Covers messages that arrived while
+  // the app was backgrounded. `markRead` short-circuits already-read rooms.
+  useFocusEffect(
+    useCallback(() => {
+      if (!roomId || !currentUserId) return;
+      const markReadAndAck = () => {
+        markRead(roomId).catch(() => {});
+        // Chain on connect so a resume before the socket is up (cold start,
+        // reconnect) doesn't silently drop the read acknowledgement.
+        socketService
+          .connectSocket()
+          .then(() => socketService.emitMessagesRead(roomId, currentUserId))
+          .catch(() => {});
+      };
+      // Re-run on refocus (navigating back to this screen).
+      markReadAndAck();
+      const subscription = AppState.addEventListener("change", (nextState) => {
+        if (nextState === "active") markReadAndAck();
+      });
+      return () => subscription.remove();
+    }, [roomId, currentUserId, markRead]),
+  );
+
   // Broadcast typing state to the room (only when the user may send).
   const handleTextChange = useCallback(
     (text: string) => {
@@ -6246,7 +6269,6 @@ export default function ConversationScreen() {
               currentUserId={currentUserId}
               members={currentRoom?.members}
               showSenderName={isChannel}
-              isChannel={isChannel}
               repliedPreview={repliedPreview}
               highlighted={highlightedMessageId === (message._id as string)}
               showTimestamp={item.showTime}

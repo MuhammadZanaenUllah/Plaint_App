@@ -12,6 +12,9 @@ export type RoomMember = {
   image: string;
   isOnline: boolean;
   email?: string;
+  /** Server marker for an account that no longer exists (bare `{ id }`). */
+  is_deleted?: boolean;
+  status?: number | string;
 };
 
 export type RoomLastMessage = {
@@ -107,6 +110,17 @@ export type ChatMessage = {
   is_pinned?: boolean;
   is_edited?: boolean;
   is_read?: number[];
+  /**
+   * Users whose app has received the message (new backend field). A user who
+   * has read the message also counts as delivered. Used for the double-tick /
+   * seen state alongside `is_read`.
+   */
+  delivered_to?: number[];
+  /**
+   * Temporary client id echoed back by the server on `messageDelivered` so a
+   * delivery confirmation can be matched to a still-sending optimistic bubble.
+   */
+  client_id?: string;
   postType?: string;
   /** Locally-added optimistic message that is still being sent. */
   is_pending?: boolean;

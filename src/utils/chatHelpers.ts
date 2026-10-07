@@ -1,5 +1,5 @@
 import { File } from "expo-file-system";
-import { Room, RoomType, ChatMessage, ChatPermission, NotificationItem } from "@/types/chat.types";
+import { Room, RoomType, ChatMessage, ChatPermission, NotificationItem, RoomMember } from "@/types/chat.types";
 import { formatClockTime } from "@/utils/dateFormat";
 
 // ─── Room Helpers ─────────────────────────────────────────────────────────────
@@ -256,6 +256,61 @@ export function isOwnMessage(
 // within this window. After it, only "delete for me" remains available.
 export const MESSAGE_ACTION_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
+// ─── Delivery / read ticks ────────────────────────────────────────────────────
+
+export type MessageTick = "failed" | "clock" | "single" | "delivered" | "read";
+
+/**
+ * A deleted account never receives or reads anything, so it must not keep a
+ * message grey. The backend returns a bare `{ id }` (no name, no email) when
+ * the user no longer exists.
+ */
+export function isDeletedUser(m: RoomMember | null | undefined): boolean {
+  if (!m || typeof m !== "object") return false;
+  if (m.is_deleted === true) return true;
+  if (m.status === 0 || m.status === "0") return true;
+  return !m.first_name && !m.last_name && !m.email;
+}
+
+/**
+ * WhatsApp-style tick for a message, derived from `delivered_to` and `is_read`
+ * (backend B5). For a 1:1 chat "everyone else" is the other person; for a
+ * group/channel the double/blue tick only appears once ALL other members have
+ * received/read it. Compare ids as strings — some fields are numbers, others
+ * strings.
+ */
+export function getMessageTick(
+  msg: ChatMessage,
+  roomMembers?: RoomMember[] | null,
+  currentUserId?: number,
+): MessageTick {
+  if ((msg as { failed?: boolean }).failed) return "failed";
+  if (msg.is_pending) return "clock";
+  const sender = String(msg.sender_id);
+  const read = new Set(
+    (msg.is_read || []).map(String).filter((id) => id !== sender),
+  );
+  const delivered = new Set(
+    [...(msg.delivered_to || []).map(String), ...read].filter(
+      (id) => id !== sender,
+    ),
+  );
+  const others = (roomMembers || [])
+    .filter((m) => !isDeletedUser(m))
+    .map((m) => String(typeof m === "object" ? m.id : m))
+    .filter((id) => id !== sender && String(id) !== String(currentUserId));
+
+  if (others.length === 0) {
+    // Member list not loaded: fall back to "anyone".
+    if (read.size) return "read";
+    if (delivered.size) return "delivered";
+    return "single";
+  }
+  if (others.every((id) => read.has(id))) return "read";
+  if (others.every((id) => delivered.has(id))) return "delivered";
+  return "single";
+}
+
 /** Whether a message is still inside the own-message action window (1h). */
 export function isWithinMessageActionWindow(
   message: Pick<ChatMessage, "createdAt"> | null | undefined,
@@ -331,12 +386,18 @@ export function buildMessageFormData(params: {
   postType?: string;
   is_forwarded?: boolean;
   forwarded_from_name?: string;
+  client_id?: string;
   attachments?: Array<{ uri: string; name: string; type: string }>;
 }): FormData {
   const formData = new FormData();
   formData.append("room_id", params.room_id);
   formData.append("text", params.text);
 
+  // Server echoes this back on `messageDelivered` so a confirmation that
+  // races the send response can still be matched to the optimistic bubble.
+  if (params.client_id) {
+    formData.append("client_id", params.client_id);
+  }
   if (params.mentions && params.mentions.length > 0) {
     formData.append("mentions", JSON.stringify(params.mentions));
   }

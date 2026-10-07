@@ -192,8 +192,18 @@ export function NotificationProvider({
         const typed = payload as {
           assigned_to?: number;
           company_id?: number;
-          data?: { assigned_to?: number; company_id?: number };
+          data?: {
+            assigned_to?: number;
+            company_id?: number;
+            mobile_visible?: boolean;
+          };
         };
+        // Chat-only build: the backend tags each notification with a category
+        // and a `mobile_visible` flag. Skip anything it marks as not-for-mobile
+        // (task, lead, etc.) so the in-app inbox matches the chat-only pushes.
+        if (typed.data?.mobile_visible === false) {
+          return;
+        }
         const assignedTo = typed.assigned_to ?? typed.data?.assigned_to;
         if (
           assignedTo !== undefined &&

@@ -36,6 +36,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { AppState } from "react-native";
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
@@ -226,6 +227,50 @@ function mergePinnedMessages(
     out.push(m);
   }
   return out;
+}
+
+/**
+ * Apply a delivery/read receipt from `userId` to the current user's own
+ * messages in `roomId`, optionally bounded by `upTo` (server `createdAt`).
+ * Backs the `messagesDelivered` / `messagesRead` socket events (B4). Never
+ * touches messages sent by other people, and never marks all messages read.
+ * Returns the same array reference when nothing changed so the caller can skip
+ * the dispatch.
+ */
+function applyReceipt(
+  messages: ChatMessage[],
+  roomId: string,
+  userId: number | string,
+  upTo: string | undefined,
+  markReadToo: boolean,
+  currentUserId: number,
+): { messages: ChatMessage[]; changed: boolean } {
+  const uid = String(userId);
+  const cutoff = upTo ? new Date(upTo).getTime() : NaN;
+  const hasCutoff = Number.isFinite(cutoff);
+  let changed = false;
+  const next = messages.map((m) => {
+    if (String(m.room_id) !== String(roomId)) return m;
+    if (String(m.sender_id) !== String(currentUserId)) return m;
+    if (hasCutoff) {
+      const t = m.createdAt ? new Date(m.createdAt).getTime() : NaN;
+      if (!Number.isFinite(t) || t > cutoff) return m;
+    }
+    const delivered = m.delivered_to || [];
+    const read = m.is_read || [];
+    const alreadyDelivered = delivered.some((id) => String(id) === uid);
+    const alreadyRead = read.some((id) => String(id) === uid);
+    if (alreadyDelivered && (!markReadToo || alreadyRead)) return m;
+    changed = true;
+    return {
+      ...m,
+      delivered_to: alreadyDelivered
+        ? delivered
+        : [...delivered, Number(userId)],
+      is_read: markReadToo && !alreadyRead ? [...read, Number(userId)] : read,
+    };
+  });
+  return { messages: changed ? next : messages, changed };
 }
 
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
@@ -1254,6 +1299,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         postType: params.postType,
         is_forwarded: params.is_forwarded,
         forwarded_from_name: params.forwarded_from_name,
+        client_id: tempId,
         is_pending: true,
         createdAt: new Date().toISOString(),
       };
@@ -1299,8 +1345,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             : rawSent.attachments;
         // Keep the post-type label locally if the API response didn't echo it,
         // so the tag shows immediately without waiting for a refetch.
+        // A `messageDelivered`/`messagesDelivered` event can arrive while this
+        // bubble is still optimistic (matched by `client_id`); carry those
+        // receipts onto the confirmed message so the tick doesn't reset.
+        const optimisticMsg = stateRef.current.messages.find(
+          (m) => String(m._id) === tempId || String(m.client_id) === tempId,
+        );
+        const mergeIds = (a?: number[], b?: number[]) =>
+          Array.from(new Set([...(a ?? []), ...(b ?? [])]));
         const sent: ChatMessage = {
           ...rawSent,
+          // Keep the temporary id so a `messageDelivered` event that arrives
+          // before/around this response can still be matched to this bubble.
+          client_id: rawSent.client_id ?? tempId,
+          delivered_to: mergeIds(optimisticMsg?.delivered_to, rawSent.delivered_to),
+          is_read: mergeIds(optimisticMsg?.is_read, rawSent.is_read),
           ...(attachments ? { attachments } : {}),
           ...(params.postType && !rawSent.postType
             ? { postType: params.postType }
@@ -1332,6 +1391,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const body: Record<string, unknown> = {
           room_id: params.room_id,
           text: params.text,
+          // Echoed back on `messageDelivered` for send/confirm race matching.
+          client_id: tempId,
         };
         if (params.mentions && params.mentions.length > 0) {
           body.mentions = params.mentions;
@@ -1369,7 +1430,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       // global-fetch `chatService.sendMessage`. Progress reporting is optional;
       // the optimistic bubble's pending spinner is the user-facing feedback.
       const { buildMessageFormData } = await import("@/utils/chatHelpers");
-      const formData = buildMessageFormData(params);
+      const formData = buildMessageFormData({ ...params, client_id: tempId });
       const { uploadWithProgress } = await import(
         "@/services/api/upload.service"
       );
@@ -2104,8 +2165,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             // "messagesRead" once, for whatever was already unread at open
             // time — a message that arrives afterward, while still on this
             // same room, needs its own re-emit or the sender's checkmark
-            // never flips from "sent" to "seen" for it.
-            if (isFromOther && isCurrentRoom) {
+            // never flips from "sent" to "seen" for it. Only do this when the
+            // app is actually in the foreground: a backgrounded app must not
+            // mark messages read (B3).
+            if (
+              isFromOther &&
+              isCurrentRoom &&
+              AppState.currentState === "active"
+            ) {
               socketService.emitMessagesRead(message.room_id, userIdRef.current);
               // Persist the read state on the backend as well. The socket
               // "messagesRead" event only flips other clients' ticks; the
@@ -2381,28 +2448,105 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         },
       );
 
+      const cleanupMessageDelivered = socketService.onSocketEvent(
+        "messageDelivered",
+        (data) => {
+          const typed = data as {
+            messageId?: string;
+            clientId?: string;
+            userId?: number | string;
+          };
+          const uid = typed.userId;
+          // Ignore own echo (same user on another device).
+          if (uid === undefined || String(uid) === String(userIdRef.current)) {
+            return;
+          }
+          const cur = stateRef.current;
+          let changed = false;
+          const messages = cur.messages.map((m) => {
+            const matchById =
+              typed.messageId !== undefined &&
+              String(m._id) === String(typed.messageId);
+            const matchByClient =
+              typed.clientId !== undefined &&
+              (String(m._id) === String(typed.clientId) ||
+                String(m.client_id) === String(typed.clientId));
+            if (!matchById && !matchByClient) return m;
+            // Only the current user's own messages carry ticks.
+            if (String(m.sender_id) !== String(userIdRef.current)) return m;
+            const delivered = m.delivered_to || [];
+            if (delivered.some((id) => String(id) === String(uid))) return m;
+            changed = true;
+            return { ...m, delivered_to: [...delivered, Number(uid)] };
+          });
+          if (changed) {
+            dispatch({
+              type: "LOAD_MESSAGES",
+              messages,
+              hasMore: cur.hasMore,
+              append: false,
+            });
+          }
+        },
+      );
+
+      const cleanupMessagesDelivered = socketService.onSocketEvent(
+        "messagesDelivered",
+        (data) => {
+          const typed = data as {
+            room_id: string;
+            user_id: number | string;
+            up_to?: string;
+          };
+          if (String(userIdRef.current) === String(typed.user_id)) return;
+          const cur = stateRef.current;
+          const res = applyReceipt(
+            cur.messages,
+            typed.room_id,
+            typed.user_id,
+            typed.up_to,
+            false,
+            userIdRef.current,
+          );
+          if (res.changed) {
+            dispatch({
+              type: "LOAD_MESSAGES",
+              messages: res.messages,
+              hasMore: cur.hasMore,
+              append: false,
+            });
+          }
+        },
+      );
+
       const cleanupMessagesRead = socketService.onSocketEvent(
         "messagesRead",
         (data) => {
-          const typed = data as { room_id: string; user_id: string };
-          if (String(userIdRef.current) === typed.user_id) return;
+          const typed = data as {
+            room_id: string;
+            user_id: number | string;
+            up_to?: string;
+          };
+          // Same person reading on another device (for example the web), not
+          // the other party — skip it.
+          if (String(userIdRef.current) === String(typed.user_id)) return;
           const cur = stateRef.current;
-          dispatch({
-            type: "LOAD_MESSAGES",
-            messages: cur.messages.map((m) =>
-              m.room_id === typed.room_id
-                ? {
-                    ...m,
-                    is_read: [
-                      ...(m.is_read || []),
-                      parseInt(typed.user_id, 10),
-                    ],
-                  }
-                : m,
-            ),
-            hasMore: cur.hasMore,
-            append: false,
-          });
+          const res = applyReceipt(
+            cur.messages,
+            typed.room_id,
+            typed.user_id,
+            typed.up_to,
+            true,
+            userIdRef.current,
+          );
+          if (res.changed) {
+            dispatch({
+              type: "LOAD_MESSAGES",
+              messages: res.messages,
+              hasMore: cur.hasMore,
+              append: false,
+            });
+          }
         },
       );
 
@@ -2569,6 +2713,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         cleanupMessageUpdated,
         cleanupMessageDeleted,
         cleanupMemberJoined,
+        cleanupMessageDelivered,
+        cleanupMessagesDelivered,
         cleanupMessagesRead,
         cleanupChatCleared,
         cleanupRoomDeleted,

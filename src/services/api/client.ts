@@ -29,6 +29,9 @@ function buildHeaders(token?: string | null, isFormData = false): HeadersInit {
   if (!isFormData) {
     headers["Content-Type"] = "application/json";
   }
+  // Tells the backend this is the mobile client so /notification/all and
+  // /notification/readall are scoped to chat-only notifications.
+  headers["x-client-platform"] = "mobile";
   if (token) {
     headers["x-access-token"] = token;
     headers["authToken"] = token;
@@ -155,6 +158,7 @@ export async function apiUpload<T>(
     headers: {
       "x-access-token": token ?? "",
       authToken: token ?? "",
+      "x-client-platform": "mobile",
     },
     body: formData,
   });

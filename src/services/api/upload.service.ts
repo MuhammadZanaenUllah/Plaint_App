@@ -75,6 +75,7 @@ export function uploadWithProgress(
       xhr.setRequestHeader("x-access-token", token);
       xhr.setRequestHeader("authToken", token);
     }
+    xhr.setRequestHeader("x-client-platform", "mobile");
     xhr.send(formData);
   });
 
