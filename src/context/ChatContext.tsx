@@ -130,6 +130,19 @@ function messageKey(message?: ChatMessage | null): string {
 }
 
 /**
+ * Union two receipt-id lists (delivered/read), preserving order and dropping
+ * duplicates. Returns `undefined` when both are empty so we don't add an empty
+ * array where the server omitted the field.
+ */
+function mergeIdLists(
+  a?: number[],
+  b?: number[],
+): number[] | undefined {
+  if (!a?.length && !b?.length) return b ?? a;
+  return Array.from(new Set([...(a ?? []), ...(b ?? [])]));
+}
+
+/**
  * Whether a message belongs to the currently active conversation.
  *
  * `state.messages` is a single list that backs the ONE open conversation. An
@@ -356,34 +369,85 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         return state;
       }
 
-      const newIdStr = String(action.message._id ?? action.message.id ?? "");
-      const existsIndex = state.messages.findIndex((m) => {
-        if (action.message._id && m._id && String(m._id) === String(action.message._id)) return true;
-        if (action.message.id && m.id && String(m.id) === String(action.message.id)) return true;
-        if (newIdStr && (String(m._id) === newIdStr || String(m.id) === newIdStr)) return true;
+      const incoming = action.message;
+      const incomingId = String(incoming._id ?? incoming.id ?? "");
+      const incomingClientId = incoming.client_id
+        ? String(incoming.client_id)
+        : "";
+
+      // Reconcile this incoming message with an existing entry. The server
+      // echoes the sender's own message back over `receiveChatMessage`; if that
+      // arrives before the REST send response, the optimistic bubble is still
+      // in the list (different `_id`). Matching by `client_id` here updates it
+      // in place instead of appending a second "pending + delivered" copy.
+      let existsIndex = state.messages.findIndex((m) => {
+        if (incoming._id && m._id && String(m._id) === String(incoming._id)) return true;
+        if (incoming.id && m.id && String(m.id) === String(incoming.id)) return true;
+        if (incomingId && (String(m._id) === incomingId || String(m.id) === incomingId)) return true;
+        if (
+          incomingClientId &&
+          (String(m._id) === incomingClientId ||
+            String(m.client_id) === incomingClientId)
+        ) {
+          return true;
+        }
         return false;
       });
 
+      // Fallback for when the echo omits `client_id`: reconcile only if there
+      // is exactly ONE in-flight optimistic message and it is unambiguously the
+      // same send (same sender, text and attachment count). Conservative so an
+      // incoming message from someone else can never be merged into ours.
+      if (existsIndex < 0) {
+        const pending = state.messages.filter((m) => m.is_pending);
+        if (pending.length === 1) {
+          const p = pending[0];
+          const sameSender =
+            String(p.sender_id) === String(incoming.sender_id);
+          const sameText = (p.text ?? "") === (incoming.text ?? "");
+          const sameAttachments =
+            (p.attachments?.length ?? 0) ===
+            (incoming.attachments?.length ?? 0);
+          if (sameSender && sameText && sameAttachments) {
+            existsIndex = state.messages.indexOf(p);
+          }
+        }
+      }
+
       if (existsIndex >= 0) {
         const updated = [...state.messages];
-        updated[existsIndex] = { ...updated[existsIndex], ...action.message };
+        const prev = updated[existsIndex];
+        updated[existsIndex] = {
+          ...prev,
+          ...incoming,
+          // A server-confirmed message is never "still sending".
+          is_pending: false,
+          // Preserve receipts we may have applied to the optimistic bubble
+          // (a `messageDelivered` can arrive before the echo/send response).
+          delivered_to: mergeIdLists(prev.delivered_to, incoming.delivered_to),
+          is_read: mergeIdLists(prev.is_read, incoming.is_read),
+        };
         return { ...state, messages: updated };
       }
 
       const normalized = {
-        ...action.message,
-        _id: String(action.message._id ?? action.message.id ?? `msg-${Date.now()}-${Math.random()}`),
+        ...incoming,
+        _id: String(incoming._id ?? incoming.id ?? `msg-${Date.now()}-${Math.random()}`),
       };
       return { ...state, messages: [...state.messages, normalized] };
     }
     case "REPLACE_MESSAGE": {
       // Swap the optimistic "sending" placeholder for the real message.
-      // Remove the placeholder first, then merge the real message (update in
-      // place if it already arrived via the socket echo, else append).
+      // Remove the placeholder first (matched by client_id / temp id too, since
+      // the pending bubble carries its temp id in both fields), then merge the
+      // real message (update in place if it already arrived via the socket
+      // echo, else append).
+      const tempKey = String(action.tempId);
       let messages = state.messages.filter(
         (m) =>
-          String(m._id) !== String(action.tempId) &&
-          String(m.id) !== String(action.tempId),
+          String(m._id) !== tempKey &&
+          String(m.id) !== tempKey &&
+          String(m.client_id) !== tempKey,
       );
       // Never surface a message for a different room in the open conversation
       // (e.g. a message forwarded to another room).
@@ -393,18 +457,38 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           : { ...state, messages };
       }
       const realId = String(action.message._id ?? action.message.id ?? "");
+      const clientId = action.message.client_id
+        ? String(action.message.client_id)
+        : "";
       const idx = messages.findIndex((m) => {
         if (action.message._id && m._id && String(m._id) === String(action.message._id)) return true;
         if (action.message.id && m.id && String(m.id) === String(action.message.id)) return true;
         if (realId && (String(m._id) === realId || String(m.id) === realId)) return true;
+        if (
+          clientId &&
+          (String(m._id) === clientId || String(m.client_id) === clientId)
+        ) {
+          return true;
+        }
         return false;
       });
       if (idx >= 0) {
         messages = messages.map((m, i) =>
-          i === idx ? { ...m, ...action.message } : m,
+          i === idx
+            ? {
+                ...m,
+                ...action.message,
+                is_pending: false,
+                delivered_to: mergeIdLists(m.delivered_to, action.message.delivered_to),
+                is_read: mergeIdLists(m.is_read, action.message.is_read),
+              }
+            : m,
         );
       } else {
-        messages = [...messages, action.message];
+        messages = [
+          ...messages,
+          { ...action.message, is_pending: false },
+        ];
       }
       return { ...state, messages };
     }
@@ -1351,15 +1435,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const optimisticMsg = stateRef.current.messages.find(
           (m) => String(m._id) === tempId || String(m.client_id) === tempId,
         );
-        const mergeIds = (a?: number[], b?: number[]) =>
-          Array.from(new Set([...(a ?? []), ...(b ?? [])]));
         const sent: ChatMessage = {
           ...rawSent,
           // Keep the temporary id so a `messageDelivered` event that arrives
           // before/around this response can still be matched to this bubble.
           client_id: rawSent.client_id ?? tempId,
-          delivered_to: mergeIds(optimisticMsg?.delivered_to, rawSent.delivered_to),
-          is_read: mergeIds(optimisticMsg?.is_read, rawSent.is_read),
+          delivered_to: mergeIdLists(optimisticMsg?.delivered_to, rawSent.delivered_to),
+          is_read: mergeIdLists(optimisticMsg?.is_read, rawSent.is_read),
           ...(attachments ? { attachments } : {}),
           ...(params.postType && !rawSent.postType
             ? { postType: params.postType }
@@ -2025,8 +2107,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }
         return;
       }
-      // Any prior subscriptions belong to a replaced socket — drop the stale
-      // bookkeeping before attaching to the current one.
+      // Any prior subscriptions belong to a replaced socket — actually RUN
+      // their cleanups (dropping the handles alone leaked listeners: with
+      // `onSocketEvent` attaching to the global socket, re-registration could
+      // land on the same instance and fire every event twice).
+      socketCleanupRef.current.forEach((cleanup) => cleanup());
       socketCleanupRef.current = [];
 
       const cleanupConnect = socketService.onSocketEvent("connect", () => {

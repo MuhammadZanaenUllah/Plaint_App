@@ -8,6 +8,13 @@ const SOCKET_URL =
 let socket: Socket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingListeners: Array<{ event: string; callback: (...args: unknown[]) => void }> = [];
+// In-flight connect attempt. `connectSocket()` is called from several places on
+// cold start (root navigator, notification provider, chat tab, a deep-linked
+// conversation). Without this guard each concurrent call — while the previous
+// socket is still connecting, so `socket?.connected` is still false — creates a
+// NEW Socket instance and overwrites the global, splitting listeners/emits
+// across orphaned sockets. Share one attempt instead.
+let connectingPromise: Promise<Socket> | null = null;
 
 // ─── Task Socket Types ───────────────────────────────────────────────────────
 
@@ -127,27 +134,45 @@ type SocketEventMap = {
 // ─── Connection ───────────────────────────────────────────────────────────────
 
 export async function connectSocket(): Promise<Socket> {
-  if (socket?.connected) return socket;
+  // Reuse the single shared instance — including while it is still connecting
+  // or auto-reconnecting. Returning early only on `socket.connected` used to
+  // create a SECOND socket during the initial connect window (called from the
+  // root navigator, notification provider, chat tab and a deep-linked
+  // conversation at once), which split listeners and made events fire twice.
+  if (socket) return socket;
+  // Reuse the in-flight attempt so concurrent callers share one Socket.
+  if (connectingPromise) return connectingPromise;
 
-  const token = await getStoredToken();
+  connectingPromise = (async () => {
+    const token = await getStoredToken();
 
-  socket = io(SOCKET_URL, {
-    transports: ["websocket", "polling"],
-    reconnection: true,
-    reconnectionDelay: 1000,
-    reconnectionAttempts: Infinity,
-    auth: token ? { token } : undefined,
-  });
+    // Another caller may have created the socket while we awaited the token.
+    if (socket) return socket;
 
-  // Apply listeners that were registered before the socket existed
-  if (pendingListeners.length > 0) {
-    pendingListeners.forEach(({ event, callback }) => {
-      socket?.on(event as never, callback as never);
+    socket = io(SOCKET_URL, {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: Infinity,
+      auth: token ? { token } : undefined,
     });
-    pendingListeners = [];
-  }
 
-  return socket;
+    // Apply listeners that were registered before the socket existed
+    if (pendingListeners.length > 0) {
+      pendingListeners.forEach(({ event, callback }) => {
+        socket?.on(event as never, callback as never);
+      });
+      pendingListeners = [];
+    }
+
+    return socket;
+  })();
+
+  try {
+    return await connectingPromise;
+  } finally {
+    connectingPromise = null;
+  }
 }
 
 export function disconnectSocket(): void {
@@ -155,6 +180,7 @@ export function disconnectSocket(): void {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  connectingPromise = null;
   if (socket) {
     socket.removeAllListeners();
     socket.disconnect();
