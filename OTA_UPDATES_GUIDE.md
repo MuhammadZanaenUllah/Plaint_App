@@ -14,6 +14,42 @@ npx eas login
 
 ---
 
+## 1b. Environment configuration (staging vs production)
+
+`EXPO_PUBLIC_*` variables are inlined into the JS bundle at export time, so the
+backend URLs are fixed per build/update. Set them explicitly per environment —
+there is **no production fallback**; the app fails fast if they are missing.
+
+| Environment | API base | Socket |
+| --- | --- | --- |
+| Local dev / Preview | `https://backend-planit.soulservices.com/api/v1` | `https://backend-planit.soulservices.com` |
+| Production | `https://backend.planit.pk/api/v1` | `https://backend.planit.pk` |
+
+- **`eas build`** reads `env` from the matching profile in `eas.json` (already configured).
+- **`eas update`** runs locally, so the URLs come from **EAS environment variables**
+  selected with `--environment`. Create them once:
+
+  ```bash
+  eas env:create --environment preview \
+    --name EXPO_PUBLIC_API_BASE_URL --value https://backend-planit.soulservices.com/api/v1
+  eas env:create --environment preview \
+    --name EXPO_PUBLIC_SOCKET_URL --value https://backend-planit.soulservices.com
+
+  eas env:create --environment production \
+    --name EXPO_PUBLIC_API_BASE_URL --value https://backend.planit.pk/api/v1
+  eas env:create --environment production \
+    --name EXPO_PUBLIC_SOCKET_URL --value https://backend.planit.pk
+  ```
+
+  The npm scripts already pass the flag:
+  `npm run update:preview` → `--channel preview --environment preview`,
+  `npm run update:production` → `--channel production --environment production`.
+
+> ⚠️ Never rely on your local `.env` for a production update — point it at staging
+> only, and always use the scripts so the `--environment` is applied.
+
+---
+
 ## 2. Publishing an Update
 
 Whenever you make changes to your React Native code, components, styles, or assets, you can push the update directly to user devices without submitting a new build to the App Store / Play Store.

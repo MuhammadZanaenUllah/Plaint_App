@@ -72,8 +72,8 @@
     "lint": "expo lint",
     "postinstall": "patch-package",
     "adb:wireless": "./scripts/connect-adb-wireless.sh",
-    "update:preview": "eas update --channel preview",
-    "update:production": "eas update --channel production"
+    "update:preview": "eas update --channel preview --environment preview",
+    "update:production": "eas update --channel production --environment production"
   },
   "private": true
 }

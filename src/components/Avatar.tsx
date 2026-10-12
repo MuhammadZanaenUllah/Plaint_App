@@ -1,3 +1,4 @@
+import { SERVER_ORIGIN } from "@/config/env";
 import { rf } from "@/utils/responsive";
 import {
   getCachedImageUri,
@@ -32,10 +33,7 @@ function getInitials(name?: string | null): string {
 }
 
 function getServerOrigin(): string {
-  const apiBase =
-    process.env.EXPO_PUBLIC_API_BASE_URL ??
-    "https://backend.planit.pk/api/v1";
-  return apiBase.replace(/\/api\/v1\/?$/, "").replace(/\/$/, "");
+  return SERVER_ORIGIN;
 }
 
 function isInvalidImagePath(path?: string | null): boolean {

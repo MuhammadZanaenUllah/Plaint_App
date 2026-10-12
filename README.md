@@ -103,12 +103,23 @@ Create a `.env` file in the root directory by copying `.env.example`:
 cp .env.example .env
 ```
 
-Configure your backend API base URL:
+Configure your local backend URLs (both required). Local development points at
+**staging** — preview/production values are set per build profile in `eas.json`
+and via EAS environment variables for OTA updates:
 
 ```env
-EXPO_PUBLIC_API_BASE_URL=https://backend.planit.pk/api/v1
-EXPO_PUBLIC_SOCKET_URL=https://backend.planit.pk
+# local dev (staging)
+EXPO_PUBLIC_API_BASE_URL=https://backend-planit.soulservices.com/api/v1
+EXPO_PUBLIC_SOCKET_URL=https://backend-planit.soulservices.com
 ```
+
+| Environment | API base | Socket |
+| --- | --- | --- |
+| Local dev / Preview | `https://backend-planit.soulservices.com/api/v1` | `https://backend-planit.soulservices.com` |
+| Production | `https://backend.planit.pk/api/v1` | `https://backend.planit.pk` |
+
+The app **fails fast** (throws at startup) if either variable is missing — there
+is no production fallback, so a misconfigured build cannot silently hit live data.
 
 ---
 

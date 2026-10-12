@@ -1,3 +1,5 @@
+import { SERVER_ORIGIN } from "@/config/env";
+
 export function getUserAvatarUrl(
   user?: {
     image?: string | null;
@@ -18,10 +20,7 @@ export function getUserAvatarUrl(
     if (/^(https?:|data:)/.test(imagePath)) {
       return imagePath;
     }
-    const apiBase =
-      process.env.EXPO_PUBLIC_API_BASE_URL ??
-      "https://backend.planit.pk/api/v1";
-    const origin = apiBase.replace(/\/api\/v1\/?$/, "").replace(/\/$/, "");
+    const origin = SERVER_ORIGIN;
     const clean = imagePath.replace(/^\/+/, "");
     const securePath = clean.startsWith("public/")
       ? clean

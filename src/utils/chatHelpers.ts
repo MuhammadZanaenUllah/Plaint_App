@@ -1,4 +1,5 @@
 import { File } from "expo-file-system";
+import { SERVER_ORIGIN } from "@/config/env";
 import { Room, RoomType, ChatMessage, ChatPermission, NotificationItem, RoomMember } from "@/types/chat.types";
 import { formatClockTime } from "@/utils/dateFormat";
 
@@ -442,10 +443,7 @@ export function resolveFileUrl(url?: string | null): string {
   ) {
     return url;
   }
-  const apiBase =
-    process.env.EXPO_PUBLIC_API_BASE_URL ??
-    "https://backend.planit.pk/api/v1";
-  const serverOrigin = apiBase.replace(/\/api\/v1\/?$/, "");
+  const serverOrigin = SERVER_ORIGIN;
   const cleanPath = url.startsWith("/") ? url : `/${url}`;
   return `${serverOrigin}${cleanPath}`;
 }
@@ -459,10 +457,7 @@ export function resolveFileUrl(url?: string | null): string {
  */
 export function resolveSecureFileUrl(url?: string | null): string {
   if (!url) return "";
-  const apiBase =
-    process.env.EXPO_PUBLIC_API_BASE_URL ??
-    "https://backend.planit.pk/api/v1";
-  const serverOrigin = apiBase.replace(/\/api\/v1\/?$/, "");
+  const serverOrigin = SERVER_ORIGIN;
   const cleanPath = url.replace(/^\/+/, "");
   return `${serverOrigin}/api/v1/secure-file?p=${encodeURIComponent(cleanPath)}`;
 }

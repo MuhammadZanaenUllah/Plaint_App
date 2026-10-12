@@ -1,8 +1,7 @@
+import { API_BASE_URL } from "@/config/env";
 import { getStoredToken } from "@/utils/token";
 
-const BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ??
-  "https://backend.planit.pk/api/v1";
+const BASE_URL = API_BASE_URL;
 
 export type UploadProgress = {
   loaded: number;
