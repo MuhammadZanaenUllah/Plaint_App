@@ -34,7 +34,7 @@ function getInitials(name?: string | null): string {
 function getServerOrigin(): string {
   const apiBase =
     process.env.EXPO_PUBLIC_API_BASE_URL ??
-    "https://backend-planit.soulservices.com/api/v1";
+    "https://backend.planit.pk/api/v1";
   return apiBase.replace(/\/api\/v1\/?$/, "").replace(/\/$/, "");
 }
 

@@ -444,7 +444,7 @@ export function resolveFileUrl(url?: string | null): string {
   }
   const apiBase =
     process.env.EXPO_PUBLIC_API_BASE_URL ??
-    "https://backend-planit.soulservices.com/api/v1";
+    "https://backend.planit.pk/api/v1";
   const serverOrigin = apiBase.replace(/\/api\/v1\/?$/, "");
   const cleanPath = url.startsWith("/") ? url : `/${url}`;
   return `${serverOrigin}${cleanPath}`;
@@ -461,7 +461,7 @@ export function resolveSecureFileUrl(url?: string | null): string {
   if (!url) return "";
   const apiBase =
     process.env.EXPO_PUBLIC_API_BASE_URL ??
-    "https://backend-planit.soulservices.com/api/v1";
+    "https://backend.planit.pk/api/v1";
   const serverOrigin = apiBase.replace(/\/api\/v1\/?$/, "");
   const cleanPath = url.replace(/^\/+/, "");
   return `${serverOrigin}/api/v1/secure-file?p=${encodeURIComponent(cleanPath)}`;

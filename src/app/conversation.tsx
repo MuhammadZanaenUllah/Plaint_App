@@ -6367,11 +6367,17 @@ export default function ConversationScreen() {
       //  - when the sender changes (e.g. the other person replies right after a
       //    burst, or you reply right after receiving one), so their first
       //    message always shows their initial/time,
-      //  - or when more than 1 minute passed since the previous message.
+      //  - or when the clock minute changes (a message at 11:32 must not join
+      //    the 11:31 group even if only seconds apart — compare the minute
+      //    bucket, not a rolling 60s window).
       const senderChanged =
         prevSenderId === null || String(m.sender_id) !== String(prevSenderId);
+      const minuteChanged =
+        prevTs !== null &&
+        ts !== null &&
+        Math.floor(ts / 60000) !== Math.floor(prevTs / 60000);
       const showTime =
-        prevTs === null || ts === null || senderChanged || ts - prevTs > 60000;
+        prevTs === null || ts === null || senderChanged || minuteChanged;
       items.push({ type: "message", message: m, showTime });
       prevTs = ts;
       prevSenderId = m.sender_id;

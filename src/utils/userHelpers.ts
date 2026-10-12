@@ -20,7 +20,7 @@ export function getUserAvatarUrl(
     }
     const apiBase =
       process.env.EXPO_PUBLIC_API_BASE_URL ??
-      "https://backend-planit.soulservices.com/api/v1";
+      "https://backend.planit.pk/api/v1";
     const origin = apiBase.replace(/\/api\/v1\/?$/, "").replace(/\/$/, "");
     const clean = imagePath.replace(/^\/+/, "");
     const securePath = clean.startsWith("public/")

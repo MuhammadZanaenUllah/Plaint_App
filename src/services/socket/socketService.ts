@@ -3,7 +3,7 @@ import { getStoredToken } from "@/utils/token";
 
 const SOCKET_URL =
   process.env.EXPO_PUBLIC_SOCKET_URL ??
-  "https://backend-planit.soulservices.com";
+  "https://backend.planit.pk";
 
 let socket: Socket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;

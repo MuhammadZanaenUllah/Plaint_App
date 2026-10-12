@@ -3,7 +3,7 @@ import { getStoredToken } from "@/utils/token";
 
 const BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ??
-  "https://backend-planit.soulservices.com/api/v1";
+  "https://backend.planit.pk/api/v1";
 
 /**
  * Pre-warms DNS resolution and TCP/TLS socket connection to the API server on app launch.

@@ -106,7 +106,8 @@ cp .env.example .env
 Configure your backend API base URL:
 
 ```env
-EXPO_PUBLIC_API_BASE_URL=https://backend-planit.soulservices.com/api/v1
+EXPO_PUBLIC_API_BASE_URL=https://backend.planit.pk/api/v1
+EXPO_PUBLIC_SOCKET_URL=https://backend.planit.pk
 ```
 
 ---
