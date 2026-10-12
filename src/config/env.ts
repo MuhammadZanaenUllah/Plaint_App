@@ -25,12 +25,12 @@ function required(name: string, value: string | undefined): string {
 
 export const API_BASE_URL = required(
   "EXPO_PUBLIC_API_BASE_URL",
-  process.env.EXPO_PUBLIC_API_BASE_URL,
+  process.env.EXPO_PUBLIC_API_BASE_URL || `https://backend.planit.pk/api/v1/`,
 );
 
 export const SOCKET_URL = required(
   "EXPO_PUBLIC_SOCKET_URL",
-  process.env.EXPO_PUBLIC_SOCKET_URL,
+  process.env.EXPO_PUBLIC_SOCKET_URL || `https://backend.planit.pk`,
 );
 
 /** API base with the trailing `/api/v1` removed, e.g. for building file URLs. */
