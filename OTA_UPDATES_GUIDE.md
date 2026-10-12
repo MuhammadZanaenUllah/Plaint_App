@@ -20,10 +20,10 @@ npx eas login
 backend URLs are fixed per build/update. Set them explicitly per environment —
 there is **no production fallback**; the app fails fast if they are missing.
 
-| Environment | API base | Socket |
-| --- | --- | --- |
-| Local dev / Preview | `https://backend-planit.soulservices.com/api/v1` | `https://backend-planit.soulservices.com` |
-| Production | `https://backend.planit.pk/api/v1` | `https://backend.planit.pk` |
+| Environment         | API base                           | Socket                      |
+| ------------------- | ---------------------------------- | --------------------------- |
+| Local dev / Preview | `https://backend.planit.pk/api/v1` | `https://backend.planit.pk` |
+| Production          | `https://backend.planit.pk/api/v1` | `https://backend.planit.pk` |
 
 - **`eas build`** reads `env` from the matching profile in `eas.json` (already configured).
 - **`eas update`** runs locally, so the URLs come from **EAS environment variables**
@@ -31,9 +31,9 @@ there is **no production fallback**; the app fails fast if they are missing.
 
   ```bash
   eas env:create --environment preview \
-    --name EXPO_PUBLIC_API_BASE_URL --value https://backend-planit.soulservices.com/api/v1
+    --name EXPO_PUBLIC_API_BASE_URL --value https://backend.planit.pk/api/v1
   eas env:create --environment preview \
-    --name EXPO_PUBLIC_SOCKET_URL --value https://backend-planit.soulservices.com
+    --name EXPO_PUBLIC_SOCKET_URL --value https://backend.planit.pk
 
   eas env:create --environment production \
     --name EXPO_PUBLIC_API_BASE_URL --value https://backend.planit.pk/api/v1
@@ -55,19 +55,25 @@ there is **no production fallback**; the app fails fast if they are missing.
 Whenever you make changes to your React Native code, components, styles, or assets, you can push the update directly to user devices without submitting a new build to the App Store / Play Store.
 
 ### 🚀 Push to Production Users
+
 ```bash
 npm run update:production
 ```
+
 Or with a custom commit message:
+
 ```bash
 npx eas update --channel production --message "Fix chat scroll and notification bugs"
 ```
 
 ### 🧪 Push to Preview / Internal Testers
+
 ```bash
 npm run update:preview
 ```
+
 Or with a custom commit message:
+
 ```bash
 npx eas update --channel preview --message "Test new channel UI"
 ```
@@ -79,9 +85,9 @@ npx eas update --channel preview --message "Test new channel UI"
 1. **Automatic Background Check**: When a user opens the app (or returns to it from the background), the app silently checks Expo servers for new updates matching their app version (`1.0.0`).
 2. **Background Download**: If an update exists, it is downloaded in the background without interrupting what the user is doing.
 3. **User Prompt / Reload**:
-   - A toast notification will appear at the bottom: 
+   - A toast notification will appear at the bottom:
      > **Update Ready 🚀**  
-     > *A new version of Plaint has been downloaded. Tap to restart.*
+     > _A new version of Plaint has been downloaded. Tap to restart._
    - If the user taps the toast, the app reloads into the updated version instantly.
    - If they ignore it, the app will automatically launch the new version the next time they open the app.
 
@@ -89,25 +95,37 @@ npx eas update --channel preview --message "Test new channel UI"
 
 ## 4. What Can Be Updated via OTA
 
-| Type of Change | Can be updated via OTA? | Action Required |
-| :--- | :---: | :--- |
-| **JS / TS Code** (UI changes, bug fixes, logic) | ✅ Yes | `npm run update:production` |
-| **Assets** (Images, icons, fonts, audio files) | ✅ Yes | `npm run update:production` |
-| **API Endpoints & State Management** | ✅ Yes | `npm run update:production` |
-| **New Native Modules** (e.g. adding camera or Bluetooth) | ❌ No | Requires new native build (`eas build`) |
-| **App Permissions / `app.json` native settings** | ❌ No | Requires new native build (`eas build`) |
+| Type of Change                                           | Can be updated via OTA? | Action Required                         |
+| :------------------------------------------------------- | :---------------------: | :-------------------------------------- |
+| **JS / TS Code** (UI changes, bug fixes, logic)          |         ✅ Yes          | `npm run update:production`             |
+| **Assets** (Images, icons, fonts, audio files)           |         ✅ Yes          | `npm run update:production`             |
+| **API Endpoints & State Management**                     |         ✅ Yes          | `npm run update:production`             |
+| **New Native Modules** (e.g. adding camera or Bluetooth) |          ❌ No          | Requires new native build (`eas build`) |
+| **App Permissions / `app.json` native settings**         |          ❌ No          | Requires new native build (`eas build`) |
 
 ---
 
 ## 5. Managing Updates & Rollbacks
 
 ### List All Published Updates
+
 ```bash
 npx eas update:list
 ```
 
 ### Roll Back to a Previous Working Update
+
 If an update accidentally introduced a bug, you can republish a previous working update group:
+
+
+```bash
+npx eas update:list
+```
+
+### Roll Back to a Previous Working Update
+
+If an update accidentally introduced a bug, you can republish a previous working update group:
+
 ```bash
 npx eas update:republish --channel production --group <UPDATE_GROUP_ID>
 ```

@@ -8,7 +8,7 @@ Plaint is a cross-platform mobile and web application built with **React Native*
 
 ## 📸 Core Highlights
 
-- **Real-Time Messaging**: WhatsApp-style long-press message context menus, quick emoji reactions, inline editing, custom delete options (*Delete for Me* / *Delete for Everyone*), voice notes, and file/image attachment support.
+- **Real-Time Messaging**: WhatsApp-style long-press message context menus, quick emoji reactions, inline editing, custom delete options (_Delete for Me_ / _Delete for Everyone_), voice notes, and file/image attachment support.
 - **Task & Project Management**: Dynamic task tables, status/priority workflow tracking, critical/delay task highlights, rich text descriptions, and customizable task filtering.
 - **Biometric Security & Authentication**: Secure token persistence via Expo SecureStore and hardware biometric sign-in (Face ID / Fingerprint).
 - **Push & Contextual Notifications**: In-app notifications inbox modal, custom audio notification chimes, push token registration, and system haptic feedback.
@@ -18,17 +18,17 @@ Plaint is a cross-platform mobile and web application built with **React Native*
 
 ## 🛠 Tech Stack
 
-| Domain | Tech / Library | Description |
-|---|---|---|
-| **Core Framework** | React Native `0.86` & Expo `~57.0` | Cross-platform framework for iOS, Android, and Web |
-| **Routing** | Expo Router `~57.0` | File-based navigation with typed routes |
-| **Language** | TypeScript `~6.0` | End-to-end type safety |
-| **Real-Time Engine** | Socket.IO Client `^4.8` | Real-time events, typing indicators, and message broadcasts |
-| **State Management** | React Context API | Context providers for Auth, Chat, Tasks, Notifications, and Search |
-| **Media & Audio** | Expo Audio `~57.0`, Expo Image | High-performance image caching, voice recording & playback |
-| **Storage & Security** | Expo SecureStore & LocalAuthentication | Encrypted keychain storage & biometric authentication |
-| **UI & Motion** | Reanimated `4.5`, Gesture Handler, Bottom Sheet | Smooth 60 FPS animations and gesture-driven UI components |
-| **Styling & Fonts** | SF Pro Fonts, Radial/Linear Gradients | Modern typography and customizable theme tokens |
+| Domain                 | Tech / Library                                  | Description                                                        |
+| ---------------------- | ----------------------------------------------- | ------------------------------------------------------------------ |
+| **Core Framework**     | React Native `0.86` & Expo `~57.0`              | Cross-platform framework for iOS, Android, and Web                 |
+| **Routing**            | Expo Router `~57.0`                             | File-based navigation with typed routes                            |
+| **Language**           | TypeScript `~6.0`                               | End-to-end type safety                                             |
+| **Real-Time Engine**   | Socket.IO Client `^4.8`                         | Real-time events, typing indicators, and message broadcasts        |
+| **State Management**   | React Context API                               | Context providers for Auth, Chat, Tasks, Notifications, and Search |
+| **Media & Audio**      | Expo Audio `~57.0`, Expo Image                  | High-performance image caching, voice recording & playback         |
+| **Storage & Security** | Expo SecureStore & LocalAuthentication          | Encrypted keychain storage & biometric authentication              |
+| **UI & Motion**        | Reanimated `4.5`, Gesture Handler, Bottom Sheet | Smooth 60 FPS animations and gesture-driven UI components          |
+| **Styling & Fonts**    | SF Pro Fonts, Radial/Linear Gradients           | Modern typography and customizable theme tokens                    |
 
 ---
 
@@ -86,10 +86,11 @@ Plaint_App/
 ### Prerequisites
 
 Ensure you have the following installed on your machine:
+
 - **Node.js**: `v18.x` or `v20.x`
 - **Package Manager**: `npm`
 - **Expo CLI**: Installed globally or executed via `npx`
-- **Mobile Environment** *(Optional for native builds)*:
+- **Mobile Environment** _(Optional for native builds)_:
   - iOS: **Xcode** & **CocoaPods** (macOS only)
   - Android: **Android Studio** & **Android SDK / Emulator**
 
@@ -109,14 +110,14 @@ and via EAS environment variables for OTA updates:
 
 ```env
 # local dev (staging)
-EXPO_PUBLIC_API_BASE_URL=https://backend-planit.soulservices.com/api/v1
-EXPO_PUBLIC_SOCKET_URL=https://backend-planit.soulservices.com
+EXPO_PUBLIC_API_BASE_URL=https://backend.planit.pk/api/v1
+EXPO_PUBLIC_SOCKET_URL=https://backend.planit.pk
 ```
 
-| Environment | API base | Socket |
-| --- | --- | --- |
-| Local dev / Preview | `https://backend-planit.soulservices.com/api/v1` | `https://backend-planit.soulservices.com` |
-| Production | `https://backend.planit.pk/api/v1` | `https://backend.planit.pk` |
+| Environment         | API base                           | Socket                      |
+| ------------------- | ---------------------------------- | --------------------------- |
+| Local dev / Preview | `https://backend.planit.pk/api/v1` | `https://backend.planit.pk` |
+| Production          | `https://backend.planit.pk/api/v1` | `https://backend.planit.pk` |
 
 The app **fails fast** (throws at startup) if either variable is missing — there
 is no production fallback, so a misconfigured build cannot silently hit live data.
@@ -126,6 +127,7 @@ is no production fallback, so a misconfigured build cannot silently hit live dat
 ### Installation
 
 1. **Clone the repository:**
+
    ```bash
    git clone https://github.com/your-org/Plaint_App.git
    cd Plaint_App
@@ -156,33 +158,42 @@ Press `a` to launch in the Android Emulator, `i` for iOS Simulator, or `w` for W
 
 ### Platform-Specific Commands
 
-| Target | Command |
-|---|---|
-| **Android Development Build** | `npm run android` *(runs `expo run:android`)* |
-| **iOS Development Build** | `npm run ios` *(runs `expo run:ios`)* |
-| **Web Browser** | `npm run web` *(runs `expo start --web`)* |
-| **TypeScript Check** | `npx tsc --noEmit` |
-| **ESLint Check** | `npm run lint` *(runs `expo lint`)* |
+| Target                        | Command                                       |
+| ----------------------------- | --------------------------------------------- |
+| **Android Development Build** | `npm run android` _(runs `expo run:android`)_ |
+| **iOS Development Build**     | `npm run ios` _(runs `expo run:ios`)_         |
+| **Web Browser**               | `npm run web` _(runs `expo start --web`)_     |
+| **TypeScript Check**          | `npx tsc --noEmit`                            |
+| **ESLint Check**              | `npm run lint` _(runs `expo lint`)_           |
 
 ---
 
 ## 📱 Feature Breakdown
 
 ### 💬 Real-Time Chat System (`src/app/conversation.tsx`)
+
 - **WhatsApp Context Overlay**: Long-press any message bubble to reveal a floating reaction pill and context menu.
 - **Inline Message Editing**: Edit messages directly from the main chat bar without intrusive popups.
-- **Delete Options Modal**: Choose between *Delete for Me* or *Delete for Everyone*.
+- **Delete Options Modal**: Choose between _Delete for Me_ or _Delete for Everyone_.
 - **Voice Notes**: Native audio recording and playback powered by `expo-audio`.
 - **Media Attachments**: Secure image rendering (`SecureImage`), document sharing, and download handlers.
 - **Member @-Mentions**: Live autocomplete suggestions triggered by typing `@`.
 
 ### 📋 Task & Workflow Dashboard (`src/app/(tabs)/tasks.tsx`)
+
 - **Interactive Tables**: Responsive data tables with swipeable action rows and inline status pickers.
 - **Rich Task Editor**: Integrated WYSIWYG editor for detailed task briefs (`react-native-pell-rich-editor`).
 - **Custom Filters**: Filter by status, priority, date range, or assigned team members.
 - **Critical & Delayed Alerts**: Visual indicators and badges for overdue or high-priority items.
 
 ### 🔒 Security & Settings (`src/app/settings.tsx`)
+th swipeable action rows and inline status pickers.
+- **Rich Task Editor**: Integrated WYSIWYG editor for detailed task briefs (`react-native-pell-rich-editor`).
+- **Custom Filters**: Filter by status, priority, date range, or assigned team members.
+- **Critical & Delayed Alerts**: Visual indicators and badges for overdue or high-priority items.
+
+### 🔒 Security & Settings (`src/app/settings.tsx`)
+
 - **Biometric Login**: Enable Face ID or Fingerprint authentication via `expo-local-authentication`.
 - **Cache Management**: Scan and clear physical disk cache storage (`FileSystem.cacheDirectory`) with live progress and feedback.
 - **Secure Storage**: Sensitive auth tokens stored in encrypted iOS Keychain / Android Keystore via `expo-secure-store`.

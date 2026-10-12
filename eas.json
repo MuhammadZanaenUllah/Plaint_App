@@ -9,8 +9,8 @@
       "distribution": "internal",
       "channel": "development",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://backend-planit.soulservices.com/api/v1",
-        "EXPO_PUBLIC_SOCKET_URL": "https://backend-planit.soulservices.com"
+        "EXPO_PUBLIC_API_BASE_URL": "https://backend.planit.pk/api/v1",
+        "EXPO_PUBLIC_SOCKET_URL": "https://backend.planit.pk"
       }
     },
     "preview": {
@@ -20,8 +20,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://backend-planit.soulservices.com/api/v1",
-        "EXPO_PUBLIC_SOCKET_URL": "https://backend-planit.soulservices.com"
+        "EXPO_PUBLIC_API_BASE_URL": "https://backend.planit.pk/api/v1",
+        "EXPO_PUBLIC_SOCKET_URL": "https://backend.planit.pk"
       }
     },
     "production": {
