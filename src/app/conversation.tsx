@@ -4683,14 +4683,7 @@ export default function ConversationScreen() {
   const handlePickGallery = useCallback(async () => {
     if (!roomId) return;
     try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (perm.status !== "granted") {
-        showInfo(
-          "Permission Required",
-          "Media library permission is required.",
-        );
-        return;
-      }
+      // System photo picker — no media permission needed (Play photo policy).
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images", "videos"],
         allowsMultipleSelection: true,

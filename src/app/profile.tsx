@@ -148,10 +148,7 @@ export default function Profile() {
   const [profileImage, setProfileImage] = useState<string | null>(null);
 
   const pickImage = useCallback(async () => {
-    // Request permission
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") return;
-
+    // System photo picker — no media permission needed (Play photo policy).
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       allowsEditing: true,
