@@ -79,8 +79,7 @@ export default function Login() {
           setLoading(true);
           await restoreSession();
           showSuccess("Authenticated successfully!");
-          // TASK MODULE DISABLED — was "/(tabs)/tasks"; Chat is the default tab now.
-          router.replace("/(tabs)/chat");
+          router.replace("/(tabs)/tasks");
         }
       } catch (err) {
         console.warn("[Login] Auto biometric error:", err);

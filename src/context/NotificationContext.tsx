@@ -3,18 +3,15 @@ import * as chatService from "@/services/api/chat.service";
 import {
   connectSocket,
   onSocketEvent,
-  // TASK MODULE DISABLED — only used by the task_update listener below.
-  // type TaskUpdatePayload,
+  type TaskUpdatePayload,
 } from "@/services/socket/socketService";
 import { NotificationItem } from "@/types/chat.types";
-// TASK MODULE DISABLED — only used by the task_update mention listener below.
-// import {
-//   extractMentionedUserIds,
-//   mentionMarkupToDisplay,
-// } from "@/utils/chatHelpers";
+import {
+  extractMentionedUserIds,
+  mentionMarkupToDisplay,
+} from "@/utils/chatHelpers";
 import { extractErrorMessage } from "@/utils/errorHandler";
-// TASK MODULE DISABLED — only used by the task_update mention listener below.
-// import { showInfo } from "@/utils/toast";
+import { showInfo } from "@/utils/toast";
 import React, {
   createContext,
   useCallback,
@@ -223,12 +220,6 @@ export function NotificationProvider({
       },
     );
 
-    /* TASK MODULE DISABLED — the task_update listener generated local
-       "task mention" notifications (and an in-app toast) from task-note
-       socket events. Task notifications are disabled for the Chat-only
-       delivery; the chat `notification` listener above is unaffected.
-       Preserved verbatim for restoration — re-enable by uncommenting this
-       block, the TaskUpdatePayload import, and the cleanup call below.
     const cleanupTaskUpdate = onSocketEvent(
       "task_update",
       (payload: unknown) => {
@@ -277,12 +268,10 @@ export function NotificationProvider({
         });
       },
     );
-    */
 
     return () => {
       cleanupNotification();
-      // TASK MODULE DISABLED
-      // cleanupTaskUpdate();
+      cleanupTaskUpdate();
     };
   }, [currentUserId, currentCompanyId, fetchNotifications, addNotification]);
 

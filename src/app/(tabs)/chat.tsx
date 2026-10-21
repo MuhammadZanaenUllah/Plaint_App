@@ -12,9 +12,7 @@ import { useChat } from "@/hooks/useChat";
 // PROJECT MODULE DISABLED
 // import { useProjects } from "@/hooks/useProjects";
 import { useSearch } from "@/context/SearchContext";
-// TASK MODULE DISABLED — Chat no longer merges task owners into its contact
-// list. Restore this import together with the loop below.
-// import { useTasks } from "@/hooks/useTasks";
+import { useTasks } from "@/hooks/useTasks";
 // PROJECT MODULE DISABLED
 // import { Project } from "@/types/project.types";
 import { Room } from "@/types/chat.types";
@@ -272,8 +270,7 @@ export default function ChatScreen() {
     // PROJECT MODULE DISABLED
     // const { state: projectState, fetchProjects } = useProjects();
     const { searchText } = useSearch();
-    // TASK MODULE DISABLED — task owners used to supplement the contact list.
-    // const { state: taskState } = useTasks();
+    const { state: taskState } = useTasks();
     const currentUserId = authState?.state?.user?.id ?? 0;
     const currentUser = authState?.state?.user ?? null;
     const companyId = authState?.state?.company?.company_id ?? 0;
@@ -432,20 +429,18 @@ export default function ChatScreen() {
                 }
             }
         }
-        // TASK MODULE DISABLED — task owners are no longer merged into the
-        // default contact list. Restore the useTasks import/state and this loop.
-        // // From task owners
-        // for (const owner of (taskState?.taskOwners ?? []) as any[]) {
-        //     if (!owner?.id) continue;
-        //     if (owner.id === currentUserId) continue;
-        //     const key = String(owner.id);
-        //     if (!memberMap.has(key)) {
-        //         const name = `${owner.first_name || ""} ${owner.last_name || ""}`.trim() || `User #${owner.id}`;
-        //         memberMap.set(key, { id: key, name, email: owner.email });
-        //     }
-        // }
+        // From task owners
+        for (const owner of (taskState?.taskOwners ?? []) as any[]) {
+            if (!owner?.id) continue;
+            if (owner.id === currentUserId) continue;
+            const key = String(owner.id);
+            if (!memberMap.has(key)) {
+                const name = `${owner.first_name || ""} ${owner.last_name || ""}`.trim() || `User #${owner.id}`;
+                memberMap.set(key, { id: key, name, email: owner.email });
+            }
+        }
         return Array.from(memberMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-    }, [companyUsers, visibleRooms, currentUserId]);
+    }, [companyUsers, visibleRooms, currentUserId, taskState?.taskOwners]);
 
     // Build the user list shown in AddPeopleModal:
     // - When query has ≥2 chars: use API search results (populated by setSearchQuery)

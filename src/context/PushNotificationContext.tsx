@@ -398,28 +398,7 @@ export function PushNotificationProvider({
       }
 
       if (!data) {
-        // TASK MODULE DISABLED — fallback was "/(tabs)/tasks"; Chat is the
-        // default tab now.
-        router.push("/(tabs)/chat");
-        return;
-      }
-
-      // TASK MODULE DISABLED — safety guard for stale/old Task push payloads.
-      // Task, Tasks and Lead push notifications used to navigate to the Tasks
-      // screen, which no longer exists in the Chat-only build. Ignoring them
-      // here prevents a navigation to a removed route. The original handlers
-      // below are preserved (and left in place) so re-enabling the Task module
-      // only requires removing this guard. Chat notification handling is not
-      // affected because none of these types carry a chat payload.
-      const TASK_PUSH_TYPES = ["task", "tasks", "lead"];
-      if (
-        TASK_PUSH_TYPES.includes(data.type) ||
-        (data as { task_id?: number }).task_id
-      ) {
-        console.warn(
-          "📲 [PushNotification] Task-related push ignored (Task module disabled):",
-          data,
-        );
+        router.push("/(tabs)/tasks");
         return;
       }
 
@@ -491,15 +470,12 @@ export function PushNotificationProvider({
         case "notification":
         default:
           if (data.task_id) {
-            // TASK MODULE DISABLED — unreachable while the guard above is in
-            // place; preserved for restoration.
             router.push({
               pathname: "/(tabs)/tasks",
               params: { taskId: data.task_id },
             });
           } else {
-            // TASK MODULE DISABLED — fallback was "/(tabs)/tasks".
-            router.push("/(tabs)/chat");
+            router.push("/(tabs)/tasks");
           }
           break;
       }

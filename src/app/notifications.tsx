@@ -5,17 +5,15 @@ import {
   getNotificationInitials,
   getNotificationName,
 } from "@/components/InboxModal";
-// TASK MODULE DISABLED — task notification taps no longer open a task detail.
-// import TaskDetailModal, {
-//   TaskDetail,
-//   buildTaskDetailFromViewTask,
-// } from "@/components/TaskDetailModal";
+import TaskDetailModal, {
+  TaskDetail,
+  buildTaskDetailFromViewTask,
+} from "@/components/TaskDetailModal";
 import Icons from "@/constants/icons";
 import { useNotifications } from "@/context/NotificationContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
-// TASK MODULE DISABLED — task notification taps no longer open a task detail.
-// import { viewTask } from "@/services/api/tasks.service";
+import { viewTask } from "@/services/api/tasks.service";
 import { NotificationItem } from "@/types/chat.types";
 import { getNotificationDisplay, isMentionNotification } from "@/utils/chatHelpers";
 import {
@@ -69,8 +67,7 @@ function formatFullDateTime(dateString: string): string {
 
 export default function NotificationsScreen() {
   const [activeTab, setActiveTab] = useState<TabType>("all");
-  // TASK MODULE DISABLED — selected task for the task-notification detail modal.
-  // const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
+  const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
   const [filterVisible, setFilterVisible] = useState(false);
   const [activeTypeFilter, setActiveTypeFilter] = useState<string | null>(null);
   const [activeStartDateFilter, setActiveStartDateFilter] = useState<Date | null>(null);
@@ -218,25 +215,19 @@ export default function NotificationsScreen() {
           isChannel: "false",
           roomType: "direct",
         });
+      } else if (item.task_id && item.task_id !== 0) {
+        try {
+          const res = await viewTask(item.task_id, companyId);
+          const detail = buildTaskDetailFromViewTask(res?.data, companyId);
+          if (detail) {
+            setSelectedTask(detail);
+          }
+        } catch {
+          // silently fail
+        }
       }
-      // TASK MODULE DISABLED — tapping a task notification used to fetch the
-      // task and open TaskDetailModal. Preserved for restoration.
-      // } else if (item.task_id && item.task_id !== 0) {
-      //   try {
-      //     const res = await viewTask(item.task_id, companyId);
-      //     const detail = buildTaskDetailFromViewTask(res?.data, companyId);
-      //     if (detail) {
-      //       setSelectedTask(detail);
-      //     }
-      //   } catch {
-      //     // silently fail
-      //   }
-      // }
     },
-    // TASK MODULE DISABLED — `companyId` was only used by the task branch above;
-    // re-add it to this dependency array when restoring the Task module.
-    // [companyId, currentUserId, markRead, chatState.rooms, getOrCreateRoom],
-    [currentUserId, markRead, chatState.rooms, getOrCreateRoom, activeTab],
+    [companyId, currentUserId, markRead, chatState.rooms, getOrCreateRoom, activeTab],
   );
 
   const filteredNotifications = notifState.notifications
@@ -509,13 +500,11 @@ export default function NotificationsScreen() {
         </ScrollView>
       </SafeAreaView>
 
-      {/* TASK MODULE DISABLED — task detail modal opened from task notifications.
       <TaskDetailModal
         visible={!!selectedTask}
         onClose={() => setSelectedTask(null)}
         task={selectedTask}
       />
-      */}
     </View>
   );
 }
