@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "545626786844",
+    "project_id": "planit-23ccf",
+    "storage_bucket": "planit-23ccf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:545626786844:android:d21ba04c2486225126e3d9",
+        "android_client_info": {
+          "package_name": "pk.planit"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAmhIiPn5mxLCKWm0ExJERlao4-zxcbYHU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
