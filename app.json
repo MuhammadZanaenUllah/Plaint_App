@@ -46,9 +46,7 @@
         "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
       ]
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/e77b3336-c148-415e-b0d0-479d536ea892",
       "enabled": true,

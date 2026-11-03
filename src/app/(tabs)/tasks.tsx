@@ -354,7 +354,7 @@ export default function TasksScreen() {
         (newStatus as string) === "In Progress"
       ) {
         const hasOtherInProgress = (taskState.assignedToMe || []).some(
-          (t) =>
+          (t: { status: string; id: number | string }) =>
             ((t.status as string) === "In Progress" ||
               (t.status as string) === "In-Progress" ||
               (t.status as string) === "in_progress") &&
@@ -562,7 +562,9 @@ export default function TasksScreen() {
     deepLinkHandledRef.current = rawId;
 
     const openDeepLinkedTask = async () => {
-      const mapped = allMappedTasks.find((t) => Number(t.id) === targetId);
+      const mapped = allMappedTasks.find(
+        (t: { id: number | string }) => Number(t.id) === targetId,
+      );
       if (mapped) {
         await handleTaskPress(mapped);
         router.setParams({ taskId: undefined });
@@ -664,37 +666,48 @@ export default function TasksScreen() {
 
       switch (tabId) {
         case "today":
-          return allMappedRows.filter((t) => {
-            if (!t._raw?.due_date) return false;
-            const ms = Date.parse(t._raw.due_date);
-            return (
-              !isNaN(ms) && ms >= todayMs && ms < tomorrowMs && ms >= nowMs
-            );
-          });
-        case "week":
-          return sortByDueDate(
-            allMappedRows.filter((t) => {
+          return allMappedRows.filter(
+            (t: { _raw: { due_date?: string }; status: string }) => {
               if (!t._raw?.due_date) return false;
               const ms = Date.parse(t._raw.due_date);
-              return !isNaN(ms) && ms >= tomorrowMs && ms < weekEndMs;
-            }),
+              return (
+                !isNaN(ms) && ms >= todayMs && ms < tomorrowMs && ms >= nowMs
+              );
+            },
+          );
+        case "week":
+          return sortByDueDate(
+            allMappedRows.filter(
+              (t: { _raw: { due_date?: string }; status: string }) => {
+                if (!t._raw?.due_date) return false;
+                const ms = Date.parse(t._raw.due_date);
+                return !isNaN(ms) && ms >= tomorrowMs && ms < weekEndMs;
+              },
+            ),
           );
         case "overdue":
-          return allMappedRows.filter((t) => {
-            if (!t._raw?.due_date || t.status === "Completed") return false;
-            const ms = Date.parse(t._raw.due_date);
-            return !isNaN(ms) && ms < nowMs;
-          });
+          return allMappedRows.filter(
+            (t: { _raw: { due_date?: string }; status: string }) => {
+              if (!t._raw?.due_date || t.status === "Completed") return false;
+              const ms = Date.parse(t._raw.due_date);
+              return !isNaN(ms) && ms < nowMs;
+            },
+          );
         case "created":
           return sortByDueDate(createdByMeRows);
         case "assigned":
           return sortByDueDate(assignedToMeRows);
         case "recurring":
           return sortByDueDate(
-            allMappedRows.filter((t) => t._raw?.is_recurring === true),
+            allMappedRows.filter(
+              (t: { _raw: { is_recurring?: boolean }; status: string }) =>
+                t._raw?.is_recurring === true,
+            ),
           );
         case "completed":
-          return allMappedRows.filter((t) => t.status === "Completed");
+          return allMappedRows.filter(
+            (t: { status: string }) => t.status === "Completed",
+          );
         case "all":
         default:
           return allMappedRows;
@@ -743,22 +756,31 @@ export default function TasksScreen() {
       if (activeStatusFilter) {
         if (activeStatusFilter === "Recurring") {
           result = result.filter(
-            (t) => t._raw?.is_recurring === true || t.status === "Recurring",
+            (t: { _raw: { is_recurring?: boolean }; status: string }) =>
+              t._raw?.is_recurring === true || t.status === "Recurring",
           );
         } else {
-          result = result.filter((t) => t.status === activeStatusFilter);
+          result = result.filter(
+            (t: { status: string }) => t.status === activeStatusFilter,
+          );
         }
       } else {
         if (tabId === "completed") {
-          result = result.filter((t) => t.status === "Completed");
+          result = result.filter(
+            (t: { status: string }) => t.status === "Completed",
+          );
         } else {
-          result = result.filter((t) => t.status !== "Completed");
+          result = result.filter(
+            (t: { status: string }) => t.status !== "Completed",
+          );
         }
       }
 
       if (activePriorityFilter) {
         const tier = activePriorityFilter.toLowerCase();
-        result = result.filter((t) => t._raw?.task_priority === tier);
+        result = result.filter(
+          (t: { _raw: { task_priority?: string } }) => t._raw?.task_priority === tier,
+        );
       }
 
       if (activeCreatedByFilter) {
@@ -766,8 +788,9 @@ export default function TasksScreen() {
           ? activeCreatedByFilter
           : [activeCreatedByFilter];
         if (ids.length > 0) {
-          result = result.filter((t) =>
-            ids.includes(Number(t._raw?.created_by)),
+          result = result.filter(
+            (t: { _raw: { created_by?: number; id: number | string } }) =>
+              ids.includes(Number(t._raw?.created_by)),
           );
         }
       }
@@ -777,8 +800,9 @@ export default function TasksScreen() {
           ? activeAssignedToFilter
           : [activeAssignedToFilter];
         if (ids.length > 0) {
-          result = result.filter((t) =>
-            ids.includes(Number(t._raw?.asigned_to)),
+          result = result.filter(
+            (t: { _raw: { assigned_to?: number; id: number | string } }) =>
+              ids.includes(Number(t._raw?.assigned_to)),
           );
         }
       }
@@ -791,32 +815,42 @@ export default function TasksScreen() {
           ? new Date(activeEndDateFilter).setHours(23, 59, 59, 999)
           : null;
 
-        result = result.filter((t) => {
-          if (!t._raw?.due_date) return false;
-          const taskMs = Date.parse(t._raw.due_date);
-          if (isNaN(taskMs)) return false;
-          if (startMs !== null && taskMs < startMs) return false;
-          if (endMs !== null && taskMs > endMs) return false;
-          return true;
-        });
+        result = result.filter(
+          (t: { _raw: { due_date?: string }; status: string }) => {
+            if (!t._raw?.due_date) return false;
+            const taskMs = Date.parse(t._raw.due_date);
+            if (isNaN(taskMs)) return false;
+            if (startMs !== null && taskMs < startMs) return false;
+            if (endMs !== null && taskMs > endMs) return false;
+            return true;
+          },
+        );
       }
 
       const query = searchText.trim().toLowerCase();
       if (query) {
-        result = result.filter((t) => {
-          const haystack = [
-            t.title,
-            t.id,
-            t.assignedTo,
-            t.status,
-            t._raw?.description,
-            t._raw?.priority_name,
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase();
-          return haystack.includes(query);
-        });
+        result = result.filter(
+          (t: {
+            title: string;
+            id: number | string;
+            assignedTo: string | number;
+            status: string;
+            _raw: { description?: string; priority_name?: string };
+          }) => {
+            const haystack = [
+              t.title,
+              String(t.id),
+              String(t.assignedTo),
+              t.status,
+              t._raw?.description,
+              t._raw?.priority_name,
+            ]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase();
+            return haystack.includes(query);
+          },
+        );
       }
 
       return result;
