@@ -1,6 +1,9 @@
 import Avatar from "@/components/Avatar";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
+import { recalculateSchedule } from "@/features/tasks/api/taskApi";
+import { useTasksStore } from "@/features/tasks/store/tasksStore";
+import { normalizeApiStatus, toApiStatus } from "@/features/tasks/utils/taskStatus";
 import {
   getSocket,
   onSocketEvent,
@@ -10,6 +13,7 @@ import {
   DependencyData,
   MentionUser,
   TaskNote,
+  TaskStatus,
   UpdateTaskRequest,
   ViewTaskData,
 } from "@/types/task.types";
@@ -23,7 +27,7 @@ import {
 } from "@/utils/dateFormat";
 import { rf } from "@/utils/responsive";
 import { apiStatusToUi } from "@/utils/statusMapper";
-import { showError } from "@/utils/toast";
+import { showError, showInfo } from "@/utils/toast";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   BottomSheetBackdrop,
@@ -109,9 +113,136 @@ const AVAILABLE_STATUSES = [
   "In-Progress",
   "On Hold",
   "Complete",
-  "Pending-Approval",
+  "Partial Complete",
   "Rejected",
 ];
+
+type PersistStatusOptions = {
+  taskId: number;
+  currentStatus: string;
+  nextStatus: string;
+  subtaskCount: number;
+  canEditStatus: boolean;
+  createdBy: number;
+  currentUserId: number;
+  isAts: boolean;
+  companyId: number;
+  companyIdentifier: string;
+  updateStatus: (
+    taskId: number,
+    data: { status: string; company_id: number; company_identifier: string },
+  ) => Promise<void>;
+  onSaved: (status: TaskStatus) => void;
+};
+
+async function persistTaskStatus({
+  taskId,
+  currentStatus,
+  nextStatus,
+  subtaskCount,
+  canEditStatus,
+  createdBy,
+  currentUserId,
+  isAts,
+  companyId,
+  companyIdentifier,
+  updateStatus,
+  onSaved,
+}: PersistStatusOptions): Promise<boolean> {
+  if (!taskId || !companyId || !canEditStatus) {
+    showError("Not Allowed", "You don't have permission to change this task's status.");
+    return false;
+  }
+
+  const current = normalizeApiStatus(currentStatus);
+  const requested = normalizeApiStatus(nextStatus);
+  if (requested === "Partial Complete" && subtaskCount === 0) {
+    showError("Status Not Allowed", "Partial Complete is only available for tasks with subtasks.");
+    return false;
+  }
+  const completionAllowedStatuses = [
+    "In-Progress",
+    "Pending-Approval",
+    "In Review",
+    "In Testing",
+  ];
+  if (
+    requested === "Complete" &&
+    !completionAllowedStatuses.includes(String(current))
+  ) {
+    showError(
+      "Status Not Allowed",
+      "Please set the task to 'In Progress' before marking it as complete.",
+    );
+    return false;
+  }
+  if (current === "Complete" && requested !== "Complete") {
+    if (requested !== "Pending" && requested !== "In-Progress") {
+      showError(
+        "Status Not Allowed",
+        "A completed task can only be reopened as Pending or In Progress.",
+      );
+      return false;
+    }
+    if (
+      !createdBy ||
+      !currentUserId ||
+      Number(createdBy) !== Number(currentUserId)
+    ) {
+      showError("Not Allowed", "Only the task creator can reopen a completed task.");
+      return false;
+    }
+    if (isAts) {
+      showInfo("ATS Reopen", "ATS task reopening requires the Phase 5 rescheduling flow.");
+      return false;
+    }
+  }
+
+  try {
+    await updateStatus(taskId, {
+      status: toApiStatus(requested),
+      company_id: companyId,
+      company_identifier: companyIdentifier,
+    });
+    const savedStatus = useTasksStore.getState().byId[taskId]?.status ?? requested;
+    onSaved(savedStatus);
+    if (savedStatus === "Pending-Approval") {
+      showInfo(
+        "Approval Required",
+        "You cannot mark the status as complete because approval is required. Please ask your team lead to mark the task as complete.",
+      );
+    } else if (
+      isAts &&
+      (requested === "Complete" ||
+        requested === "Pending" ||
+        current === "On-Hold" ||
+        current === "Partial Complete")
+    ) {
+      try {
+        const result = await recalculateSchedule(taskId, {
+          company_id: companyId,
+          company_identifier: companyIdentifier,
+          completed_at: requested === "Complete" ? new Date().toISOString() : undefined,
+        });
+        if (!result.ok) {
+          showError("Schedule Update Failed", result.message);
+        }
+      } catch (error) {
+        showError(
+          "Schedule Update Failed",
+          error instanceof Error ? error.message : "Failed to recalculate the task schedule.",
+        );
+      }
+    }
+    return true;
+  } catch (error) {
+    showError(
+      "Status Update Failed",
+      error instanceof Error ? error.message : "Failed to update task status.",
+    );
+    return false;
+  }
+}
 
 function getDependencyInitials(name: string): string {
   if (!name || name === "-") return "?";
@@ -450,6 +581,7 @@ export default function TaskDetailModal({
     getDependencies,
     fetchMentionUsers,
     updateTask: updateTaskApi,
+    updateTaskStatusApi,
   } = useTasks();
 
   const sheetRef = useRef<BottomSheetModal>(null);
@@ -2032,7 +2164,13 @@ export default function TaskDetailModal({
                 </TouchableOpacity>
               </View>
               <ScrollView style={{ maxHeight: 260 }}>
-                {AVAILABLE_STATUSES.map((st) => {
+                {AVAILABLE_STATUSES.filter(
+                  (st) =>
+                    (st !== "Partial Complete" ||
+                      (taskDetail?.task?.subtask_count ?? 0) > 0) &&
+                    (st !== "Rejected" ||
+                      taskDetail?.task?.status === "Pending-Approval"),
+                ).map((st) => {
                   const isSelected = editStatus === st;
                   return (
                     <TouchableOpacity
@@ -2043,32 +2181,76 @@ export default function TaskDetailModal({
                       ]}
                       onPress={() => {
                         if (st === "Rejected") {
+                          const detailTask = taskDetail?.task;
+                          const creatorId =
+                            typeof detailTask?.created_by === "number"
+                              ? detailTask.created_by
+                              : detailTask?.created_by?.id;
+                          const isCompanyAdmin =
+                            (authState.user?.role_title ?? "")
+                              .trim()
+                              .toLowerCase() === "company admin";
+                          if (
+                            !detailTask ||
+                            detailTask.status !== "Pending-Approval" ||
+                            (!isCompanyAdmin &&
+                              Number(creatorId) !== Number(authState.user?.id))
+                          ) {
+                            showError(
+                              "Not Allowed",
+                              "Only the task creator or company admin can reject this task.",
+                            );
+                            return;
+                          }
+                          if (authState.hasAdvancedTaskModule === true) {
+                            showInfo(
+                              "ATS Rejection",
+                              "ATS rejection options are part of the ATS task workflow.",
+                            );
+                            return;
+                          }
                           setStatusPickerVisible(false);
                           setRejectModalVisible(true);
                           return;
                         }
-                        if (st === "In-Progress" || st === "In Progress") {
-                          const hasOtherInProgress = (
-                            taskState.assignedToMe || []
-                          ).some(
-                            (t) =>
-                              ((t.status as string) === "In Progress" ||
-                                (t.status as string) === "In-Progress" ||
-                                (t.status as string) === "in_progress") &&
-                              t.id !== task.taskId,
-                          );
-                          if (hasOtherInProgress) {
-                            showError(
-                              "Action Not Allowed",
-                              "Another task is already in progress. You can only have one task in progress at a time.",
+                        const detailTask = taskDetail?.task;
+                        const createdBy =
+                          typeof detailTask?.created_by === "number"
+                            ? detailTask.created_by
+                            : (detailTask?.created_by?.id ?? 0);
+                        void persistTaskStatus({
+                          taskId: task.taskId ?? 0,
+                          currentStatus: String(detailTask?.status ?? editStatus),
+                          nextStatus: st,
+                          subtaskCount: detailTask?.subtask_count ?? 0,
+                          canEditStatus: detailTask?.can_edit_status === true,
+                          createdBy,
+                          currentUserId,
+                          isAts: authState.hasAdvancedTaskModule === true,
+                          companyId,
+                          companyIdentifier,
+                          updateStatus: updateTaskStatusApi,
+                          onSaved: (savedStatus) => {
+                            setEditStatus(String(savedStatus));
+                            setTaskDetail((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    task: {
+                                      ...current.task,
+                                      status: savedStatus,
+                                      completed_at:
+                                        savedStatus === "Complete"
+                                          ? new Date().toISOString()
+                                          : null,
+                                    },
+                                  }
+                                : current,
                             );
-                            setStatusPickerVisible(false);
-                            return;
-                          }
-                        }
-                        setEditStatus(st);
-                        setStatusPickerVisible(false);
-                        persistTaskField({ status: st });
+                          },
+                        }).then((saved) => {
+                          if (saved) setStatusPickerVisible(false);
+                        });
                       }}
                     >
                       <View

@@ -1,4 +1,4 @@
-import type { UiTaskStatus } from "@/types/task.types";
+import type { TaskListItem, UiTaskStatus } from "@/types/task.types";
 
 export type StatusType = UiTaskStatus;
 
@@ -18,6 +18,11 @@ export type TaskRowProps = {
   comment?: string;
   project?: string;
   canEditStatus?: boolean;
+  canApproveReject?: boolean;
+  canReopen?: boolean;
+  canReassign?: boolean;
+  subtaskCount?: number;
+  _raw?: TaskListItem;
   isOpen?: boolean;
   onOpenRequest?: () => void;
   onClose?: () => void;
@@ -30,6 +35,7 @@ export const STATUS_COLORS: Record<StatusType, { bg: string; text: string }> = {
   "On Hold": { bg: "#FFEDD5", text: "#C2410C" },
   Rejected: { bg: "#FEE2E2", text: "#DC2626" },
   Completed: { bg: "#D1FAE5", text: "#059669" },
+  "Partial Complete": { bg: "#E0F2FE", text: "#0369A1" },
   "Pending-Approval": { bg: "#EDE9FE", text: "#7C3AED" },
   Recurring: { bg: "#F0FDF4", text: "#16A34A" },
 };

@@ -42,6 +42,7 @@ export type UiTaskStatus =
   | "In-Progress"
   | "On Hold"
   | "Completed"
+  | "Partial Complete"
   | "Pending-Approval"
   | "Rejected"
   | "Recurring";

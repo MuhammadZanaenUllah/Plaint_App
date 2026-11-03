@@ -1,18 +1,37 @@
-// Dashboard list actions (Phase 2 keeps the legacy action behavior; Phase 3
-// rewrites this hook with the contract status/rollback rules).
-
 import { useCallback } from "react";
 import type { AssignableOwner } from "@/components/SingleTaskTable";
 import type { StatusType, TaskRowProps } from "@/components/TaskRow";
-import { reassignTask } from "@/services/api/tasks.service";
-import { uiStatusToApi } from "@/utils/statusMapper";
-import { showError } from "@/utils/toast";
-import type { TaskListItem, UpdateTaskStatusRequest } from "@/types/task.types";
+import {
+  approveTask,
+  recalculateSchedule,
+  reassignTask,
+} from "../api/taskApi";
+import {
+  canApproveReject,
+  canChangeStatus,
+  canChangeStatusTo,
+  canReassign,
+  canReopen,
+  type PermissionCompany,
+  type PermissionUser,
+} from "../permissions/taskPermissions";
+import { useTasksStore } from "../store/tasksStore";
+import type { TaskListItem, UpdateTaskStatusRequest } from "../types/task.types";
+import {
+  canTransitionStatus,
+  isCompletedStatus,
+  isInProgressStatus,
+  normalizeApiStatus,
+  toApiStatus,
+} from "../utils/taskStatus";
+import { showError, showInfo, showSuccess } from "@/utils/toast";
 
 type Options = {
   companyId: number | undefined;
   companyIdentifier: string;
-  assignedToMe: TaskListItem[];
+  company: PermissionCompany;
+  user: PermissionUser;
+  isAts: boolean;
   updateTaskStatusApi: (
     taskId: number,
     data: UpdateTaskStatusRequest,
@@ -21,79 +40,284 @@ type Options = {
   onReject: (taskId: number) => void;
 };
 
+function getTask(row: TaskRowProps): TaskListItem | undefined {
+  return row._raw;
+}
+
+function getTaskId(row: TaskRowProps): number {
+  return Number(row.id);
+}
+
+function isCompletionReady(status: string): boolean {
+  return (
+    isInProgressStatus(status) ||
+    status === "In Review" ||
+    status === "In Testing" ||
+    status === "Pending-Approval"
+  );
+}
+
 export function useTaskActions({
   companyId,
   companyIdentifier,
-  assignedToMe,
+  company,
+  user,
+  isAts,
   updateTaskStatusApi,
   refresh,
   onReject,
 }: Options) {
+  const recalculate = useCallback(
+    async (taskId: number, completedAt?: string) => {
+      if (!isAts || !companyId) return;
+      try {
+        const result = await recalculateSchedule(taskId, {
+          company_id: companyId,
+          company_identifier: companyIdentifier,
+          completed_at: completedAt,
+        });
+        if (!result.ok) {
+          showError("Schedule Update Failed", result.message);
+        }
+      } catch (error) {
+        showError(
+          "Schedule Update Failed",
+          error instanceof Error ? error.message : "Failed to recalculate the task schedule.",
+        );
+      }
+    },
+    [companyId, companyIdentifier, isAts],
+  );
+
   const handleStatusChange = useCallback(
     async (targetTask: TaskRowProps, newStatus: StatusType) => {
-      if (!targetTask.id || !companyId) return;
-
-      if (newStatus === "Rejected") {
-        onReject(Number(targetTask.id));
+      const task = getTask(targetTask);
+      const taskId = getTaskId(targetTask);
+      if (!task || !Number.isFinite(taskId) || !companyId) {
+        showError("Status Update Failed", "Task details are unavailable. Refresh and try again.");
         return;
       }
 
-      if (
-        newStatus === "In-Progress" ||
-        (newStatus as string) === "In Progress"
-      ) {
-        const hasOtherInProgress = assignedToMe.some(
-          (task) =>
-            ((task.status as string) === "In Progress" ||
-              (task.status as string) === "In-Progress" ||
-              (task.status as string) === "in_progress") &&
-            String(task.id) !== String(targetTask.id),
-        );
-        if (hasOtherInProgress) {
+      const currentStatus = normalizeApiStatus(String(task.status));
+      const requestedStatus = normalizeApiStatus(String(newStatus));
+
+      if (requestedStatus === "Rejected") {
+        if (!canApproveReject(task, user)) {
+          showInfo("Not Allowed", "Only the task creator or company admin can reject this task.");
+          return;
+        }
+        if (isAts) {
+          showInfo("ATS Rejection", "ATS rejection options are part of the ATS task workflow.");
+          return;
+        }
+        onReject(taskId);
+        return;
+      }
+
+      if (requestedStatus === "Complete" && currentStatus === "Pending-Approval") {
+        if (!canApproveReject(task, user)) {
+          showInfo("Not Allowed", "Only the task creator or company admin can approve this task.");
+          return;
+        }
+        let result: Awaited<ReturnType<typeof approveTask>>;
+        try {
+          result = await approveTask(taskId, {
+            company_id: companyId,
+            company_identifier: companyIdentifier,
+          });
+        } catch (error) {
           showError(
-            "Action Not Allowed",
-            "Another task is already in progress. You can only have one task in progress at a time.",
+            "Approval Failed",
+            error instanceof Error ? error.message : "Failed to approve task.",
           );
+          return;
+        }
+        if (!result.ok) {
+          showError("Approval Failed", result.message);
+          return;
+        }
+        useTasksStore.getState().patchTask(taskId, {
+          status: "Complete",
+          completed_at: new Date().toISOString(),
+        });
+        showSuccess("Success", result.message ?? "Task approved successfully.");
+        await recalculate(taskId, new Date().toISOString());
+        refresh();
+        return;
+      }
+
+      if (isCompletedStatus(currentStatus)) {
+        if (
+          currentStatus !== "Complete" ||
+          !canReopen(task, user, company)
+        ) {
+          showInfo("Not Allowed", "Only the task creator can reopen a completed task.");
+          return;
+        }
+        if (isAts) {
+          showInfo("ATS Reopen", "ATS task reopening requires the Phase 5 rescheduling flow.");
+          return;
+        }
+        if (requestedStatus !== "Pending" && requestedStatus !== "In-Progress") return;
+      } else {
+        if (!canChangeStatus(task, user) || !canChangeStatusTo(task, user, company, requestedStatus)) {
+          showInfo("Not Allowed", "You don't have permission to change this task's status.");
+          return;
+        }
+        const transitionAllowed = canTransitionStatus(
+          { status: currentStatus, subtask_count: task.subtask_count },
+          requestedStatus,
+          {
+            canEditStatus: task.can_edit_status === true,
+            canApproveReject: canApproveReject(task, user),
+            subtaskCount: task.subtask_count,
+            isAts,
+          },
+        );
+        const completionFromSupportedStatus =
+          requestedStatus === "Complete" && isCompletionReady(String(currentStatus));
+        if (!transitionAllowed && !completionFromSupportedStatus) {
+          showInfo("Status Not Allowed", "This task cannot be moved to that status.");
           return;
         }
       }
 
-      const apiStatus = uiStatusToApi(newStatus);
+      if (
+        requestedStatus === "Complete" &&
+        !isCompletionReady(String(currentStatus))
+      ) {
+        showInfo(
+          "Status Not Allowed",
+          "Please set the task to 'In Progress' before marking it as complete.",
+        );
+        return;
+      }
+
+      const nextStatus = toApiStatus(requestedStatus);
+      const shouldRecalculate =
+        requestedStatus === "Complete" ||
+        requestedStatus === "Pending" ||
+        currentStatus === "On-Hold" ||
+        currentStatus === "Partial Complete";
+
       try {
-        await updateTaskStatusApi(Number(targetTask.id), {
-          status: apiStatus,
+        await updateTaskStatusApi(taskId, {
+          status: nextStatus,
           company_id: companyId,
           company_identifier: companyIdentifier,
         });
+        const liveTask = useTasksStore.getState().byId[taskId];
+        if (liveTask?.status === "Pending-Approval") {
+          showInfo(
+            "Approval Required",
+            "You cannot mark the status as complete because approval is required. Please ask your team lead to mark the task as complete.",
+          );
+        } else if (shouldRecalculate) {
+          await recalculate(
+            taskId,
+            requestedStatus === "Complete" ? new Date().toISOString() : undefined,
+          );
+        }
+        refresh();
       } catch (error) {
         showError(
           "Status Update Failed",
-          error instanceof Error
-            ? error.message
-            : "Failed to update task status.",
+          error instanceof Error ? error.message : "Failed to update task status.",
         );
       }
     },
-    [assignedToMe, companyId, companyIdentifier, onReject, updateTaskStatusApi],
+    [
+      company,
+      companyId,
+      companyIdentifier,
+      isAts,
+      onReject,
+      recalculate,
+      refresh,
+      updateTaskStatusApi,
+      user,
+    ],
   );
 
   const handleAssigneeChange = useCallback(
     async (targetTask: TaskRowProps, owner: AssignableOwner) => {
-      if (!targetTask.id || !companyId) return;
+      const task = getTask(targetTask);
+      const taskId = getTaskId(targetTask);
+      if (!task || !Number.isFinite(taskId) || !companyId) return;
+      if (!canReassign(task, user, company)) {
+        showInfo("Not Allowed", "Only the task creator with task edit permission can reassign this task.");
+        return;
+      }
+
+      const current = useTasksStore.getState().byId[taskId];
+      const previous = current
+        ? {
+            asigned_to: current.asigned_to,
+            task_assigned_to: current.task_assigned_to,
+          }
+        : undefined;
+      const assignedPerson = {
+        id: owner.id,
+        first_name: owner.first_name ?? "",
+        last_name: owner.last_name ?? "",
+        image: owner.image ?? "",
+        role: 0,
+        email: undefined,
+      };
+
+      useTasksStore.getState().patchTask(taskId, {
+        asigned_to: owner.id,
+        task_assigned_to: assignedPerson,
+      });
+
+      let result: Awaited<ReturnType<typeof reassignTask>>;
       try {
-        await reassignTask(Number(targetTask.id), {
-          asigned_to: owner.id,
+        result = await reassignTask(taskId, {
           assignee: owner.id,
+          asigned_to: owner.id,
           company_id: companyId,
           company_identifier: companyIdentifier,
         });
-        refresh();
-      } catch {
-        showError("Error", "Failed to reassign task. Please try again.");
+      } catch (error) {
+        if (previous) useTasksStore.getState().patchTask(taskId, previous);
+        showError(
+          "Reassignment Failed",
+          error instanceof Error ? error.message : "Failed to reassign task.",
+        );
+        return;
       }
+      if (!result.ok) {
+        if (previous) useTasksStore.getState().patchTask(taskId, previous);
+        showError("Reassignment Failed", result.message);
+        return;
+      }
+
+      await recalculate(taskId);
+      refresh();
     },
-    [companyId, companyIdentifier, refresh],
+    [company, companyId, companyIdentifier, recalculate, refresh, user],
   );
 
-  return { handleStatusChange, handleAssigneeChange };
+  const handleRejectSuccess = useCallback(
+    async (taskId: number) => {
+      useTasksStore.getState().patchTask(taskId, { status: "Rejected" });
+      await recalculate(taskId, new Date().toISOString());
+      refresh();
+    },
+    [recalculate, refresh],
+  );
+
+  const handleReopen = useCallback(
+    async (targetTask: TaskRowProps, status: "Pending" | "In-Progress") => {
+      await handleStatusChange(targetTask, status);
+    },
+    [handleStatusChange],
+  );
+
+  return {
+    handleStatusChange,
+    handleAssigneeChange,
+    handleRejectSuccess,
+    handleReopen,
+  };
 }

@@ -3,6 +3,10 @@ import Icons from "@/constants/icons";
 import { triggerHaptic } from "@/utils/haptics";
 import { rf } from "@/utils/responsive";
 import { showInfo } from "@/utils/toast";
+import TaskAssigneeDropdown, {
+  getOwnerDisplayName,
+} from "@/features/tasks/components/list/TaskAssigneeDropdown";
+import TaskStatusDropdown from "@/features/tasks/components/list/TaskStatusDropdown";
 import { Ionicons } from "@expo/vector-icons";
 import {
   memo,
@@ -24,7 +28,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
@@ -42,7 +45,6 @@ import Animated, {
 } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
 import {
-  ALL_STATUSES,
   STATUS_COLORS,
   StatusType,
   TaskRowProps,
@@ -59,12 +61,6 @@ export type AssignableOwner = {
   full_name?: string;
   image?: string | null;
 };
-
-function getOwnerDisplayName(owner: AssignableOwner): string {
-  const full = owner.full_name?.trim();
-  if (full) return full;
-  return `${owner.first_name ?? ""} ${owner.last_name ?? ""}`.trim();
-}
 
 function getOwnerInitials(owner: AssignableOwner): string {
   if (owner.first_name || owner.last_name) {
@@ -101,8 +97,7 @@ type Props = {
   onRefresh?: () => void;
   refreshing?: boolean;
   onScrollOffsetChange?: (offsetY: number) => void;
-  // Inline reassignment from the swiped-open row — gated to users who can
-  // also create tasks (same permission, checked by the caller).
+  // Inline reassignment from the swiped-open row.
   canReassign?: boolean;
   assignableOwners?: AssignableOwner[];
   onAssigneeChange?: (task: TaskRowProps, owner: AssignableOwner) => void;
@@ -448,15 +443,17 @@ function SingleTaskTable({
 
   const handleAssigneeChange = useCallback(
     (task: TaskRowProps, rowIndex: number, owner: AssignableOwner) => {
-      const displayName = getOwnerDisplayName(owner);
-      setAssigneeOverrides((previous) => ({
-        ...previous,
-        [getTaskKey(task, rowIndex)]: {
-          name: displayName.split(/\s+/)[0] ?? displayName,
-          initials: getOwnerInitials(owner),
-          avatar: owner.image ?? undefined,
-        },
-      }));
+      if (!task._raw) {
+        const displayName = getOwnerDisplayName(owner);
+        setAssigneeOverrides((previous) => ({
+          ...previous,
+          [getTaskKey(task, rowIndex)]: {
+            name: displayName.split(/\s+/)[0] ?? displayName,
+            initials: getOwnerInitials(owner),
+            avatar: owner.image ?? undefined,
+          },
+        }));
+      }
       onAssigneeChange?.(task, owner);
     },
     [onAssigneeChange],
@@ -464,7 +461,11 @@ function SingleTaskTable({
 
   const handleStatusChange = useCallback(
     (task: TaskRowProps, rowIndex: number, nextStatus: StatusType) => {
-      if (task.canEditStatus === false) {
+      if (
+        task.canEditStatus !== true &&
+        task.canApproveReject !== true &&
+        task.canReopen !== true
+      ) {
         showInfo(
           "Not Allowed",
           "You don't have permission to change this task's status.",
@@ -472,14 +473,20 @@ function SingleTaskTable({
         return;
       }
       if (nextStatus === "Rejected") {
+        if (task.canApproveReject !== true) {
+          showInfo("Not Allowed", "Only the task creator or company admin can reject this task.");
+          return;
+        }
         onStatusChange?.(task, nextStatus);
         return;
       }
       triggerHaptic("success");
-      setStatusOverrides((previous) => ({
-        ...previous,
-        [getTaskKey(task, rowIndex)]: nextStatus,
-      }));
+      if (!task._raw) {
+        setStatusOverrides((previous) => ({
+          ...previous,
+          [getTaskKey(task, rowIndex)]: nextStatus,
+        }));
+      }
       onStatusChange?.(task, nextStatus);
     },
     [onStatusChange],
@@ -487,11 +494,9 @@ function SingleTaskTable({
 
   const handleToggleComplete = useCallback(
     (task: TaskRowProps, rowIndex: number) => {
-      handleStatusChange(
-        task,
-        rowIndex,
-        task.status === "Completed" ? "Pending" : "Completed",
-      );
+      if (task.status !== "Completed") {
+        handleStatusChange(task, rowIndex, "Completed");
+      }
     },
     [handleStatusChange],
   );
@@ -1252,7 +1257,7 @@ const LeadingCell = memo(function LeadingCell({
   onToggle: () => void;
 }) {
   const isCompleted = item.status === "Completed";
-  const canToggle = item.canEditStatus !== false;
+  const canToggle = item.canEditStatus === true;
   const priority = item.taskPriority?.toLowerCase() ?? "normal";
 
   const accentColor =
@@ -1283,6 +1288,7 @@ const LeadingCell = memo(function LeadingCell({
       ) : (
         <TouchableOpacity
           style={[styles.checkboxWrap, !canToggle && { opacity: 0.5 }]}
+          disabled={!canToggle}
           onPress={() => {
             triggerHaptic("success");
             onToggle();
@@ -1427,136 +1433,6 @@ const TaskCellContent = memo(function TaskCellContent({
   );
 });
 
-const TaskStatusDropdown = memo(function TaskStatusDropdown({
-  currentStatus,
-  onSelect,
-}: {
-  currentStatus: StatusType;
-  onSelect: (status: StatusType) => void;
-}) {
-  return (
-    <>
-      {ALL_STATUSES.filter(
-        (s) => s !== "Pending-Approval" && s !== "Recurring",
-      ).map((status) => {
-        const color = STATUS_COLORS[status]?.text ?? "#6B7280";
-        const isActive = status === currentStatus;
-
-        return (
-          <TouchableOpacity
-            key={status}
-            style={[styles.dropdownItem, isActive && styles.dropdownItemActive]}
-            onPress={() => {
-              triggerHaptic("selection");
-              onSelect(status);
-            }}
-            activeOpacity={0.8}
-          >
-            {/* <View style={[styles.dot, { backgroundColor: color }]} /> */}
-            <Text
-              style={[styles.dropdownText, { color }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-            >
-              {status}
-            </Text>
-            {isActive ? (
-              <Ionicons name="checkmark" size={13} color={color} />
-            ) : null}
-          </TouchableOpacity>
-        );
-      })}
-    </>
-  );
-});
-
-const AssigneeDropdown = memo(function AssigneeDropdown({
-  currentAssigneeName,
-  owners,
-  onSelect,
-}: {
-  currentAssigneeName: string;
-  owners: AssignableOwner[];
-  onSelect: (owner: AssignableOwner) => void;
-}) {
-  const [searchQuery, setSearchQuery] = useState("");
-
-  const filteredOwners = useMemo(() => {
-    if (!searchQuery.trim()) return owners;
-    const q = searchQuery.toLowerCase().trim();
-    return owners.filter((owner) => {
-      const name = getOwnerDisplayName(owner).toLowerCase();
-      return name.includes(q);
-    });
-  }, [owners, searchQuery]);
-
-  return (
-    <View style={styles.assigneeDropdownContainer}>
-      <View style={styles.assigneeSearchRow}>
-        <Ionicons name="search-outline" size={12} color="#9CA3AF" />
-        <TextInput
-          style={styles.assigneeSearchInput}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="Search..."
-          placeholderTextColor="#9CA3AF"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        {searchQuery ? (
-          <TouchableOpacity onPress={() => setSearchQuery("")}>
-            <Ionicons name="close-circle" size={12} color="#9CA3AF" />
-          </TouchableOpacity>
-        ) : null}
-      </View>
-
-      <ScrollView
-        style={styles.assigneeDropdownScroll}
-        nestedScrollEnabled
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {filteredOwners.length === 0 ? (
-          <View style={styles.noUserRow}>
-            <Text style={styles.noUserText}>No user found</Text>
-          </View>
-        ) : (
-          filteredOwners.map((owner) => {
-            const name = getOwnerDisplayName(owner);
-            const isActive = name.split(/\s+/)[0] === currentAssigneeName;
-
-            return (
-              <TouchableOpacity
-                key={owner.id}
-                style={[
-                  styles.dropdownItem,
-                  isActive && styles.dropdownItemActive,
-                ]}
-                onPress={() => onSelect(owner)}
-                activeOpacity={0.8}
-              >
-                <Avatar
-                  name={name}
-                  imagePath={owner.image}
-                  size={20}
-                  borderRadius={5}
-                  fontSize={9}
-                />
-                <Text style={styles.assigneeDropdownText} numberOfLines={1}>
-                  {name}
-                </Text>
-                {isActive ? (
-                  <Ionicons name="checkmark" size={12} color="#0DDFAB" />
-                ) : null}
-              </TouchableOpacity>
-            );
-          })
-        )}
-      </ScrollView>
-    </View>
-  );
-});
-
 const TaskSwipeContent = memo(function TaskSwipeContent({
   item,
   stage,
@@ -1610,7 +1486,10 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
   };
   const actionStatusLabel = item.status;
   const actionStatusColor = colors.text;
-  const canChangeStatus = item.canEditStatus !== false;
+  const canChangeStatus =
+    item.canEditStatus === true ||
+    item.canApproveReject === true ||
+    item.canReopen === true;
 
   if (stage === "actions") {
     return (
@@ -1682,7 +1561,10 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
       </View>
 
       <View style={styles.swipeValues}>
-        {canReassign && assignableOwners && assignableOwners.length > 0 ? (
+        {canReassign &&
+        item.canReassign === true &&
+        assignableOwners &&
+        assignableOwners.length > 0 ? (
           <TouchableOpacity
             style={[styles.swipeUserCell, styles.swipeAssignedColumn]}
             onPress={() => setAssigneePickerOpen((value) => !value)}
@@ -1788,7 +1670,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
           />
           <View style={styles.swipeDropdown}>
             <TaskStatusDropdown
-              currentStatus={item.status}
+              item={item}
               onSelect={(status) => {
                 onStatusSelect(status);
                 setStatusPickerOpen(false);
@@ -1805,7 +1687,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
             onPress={() => setAssigneePickerOpen(false)}
           />
           <View style={styles.assigneeDropdown}>
-            <AssigneeDropdown
+            <TaskAssigneeDropdown
               currentAssigneeName={item.assignedTo}
               owners={assignableOwners}
               onSelect={(owner) => {
@@ -2299,84 +2181,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
     overflow: "hidden",
-  },
-  assigneeDropdownContainer: {
-    paddingBottom: 2,
-  },
-  assigneeSearchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F3F4F6",
-    borderRadius: 6,
-    marginHorizontal: 6,
-    marginTop: 6,
-    marginBottom: 4,
-    paddingHorizontal: 6,
-    height: 26,
-    gap: 4,
-  },
-  assigneeSearchInput: {
-    flex: 1,
-    fontSize: rf(11),
-    fontFamily: "SF_Pro_Regular",
-    color: "#1D1D1D",
-    padding: 0,
-    height: 26,
-  },
-  noUserRow: {
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  noUserText: {
-    fontSize: rf(11),
-    color: "#9CA3AF",
-    fontFamily: "SF_Pro_Regular",
-  },
-  assigneeDropdownScroll: {
-    maxHeight: 180,
-  },
-  assigneeDropdownAvatar: {
-    width: 20,
-    height: 20,
-    borderRadius: 5,
-    backgroundColor: "#F3F4F6",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 8,
-  },
-  assigneeDropdownAvatarText: {
-    fontSize: rf(9),
-    fontFamily: "SF_Pro_Bold",
-    color: "#374151",
-  },
-  assigneeDropdownText: {
-    flex: 1,
-    marginLeft: 8,
-    fontSize: rf(11),
-    fontFamily: "SF_Pro_Regular",
-    color: "#1F2937",
-  },
-  dropdownItem: {
-    height: 32,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F9FAFB",
-  },
-  dropdownItemActive: {
-    backgroundColor: "#F0FDF9",
-  },
-  dot: {
-    width: 5,
-    height: 5,
-    borderRadius: 4,
-    marginRight: 5,
-  },
-  dropdownText: {
-    flex: 1,
-    fontSize: rf(12),
-    fontFamily: "SF_Pro_Regular",
   },
   centeredState: {
     paddingVertical: 32,

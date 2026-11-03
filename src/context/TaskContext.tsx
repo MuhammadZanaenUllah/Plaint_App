@@ -1,4 +1,5 @@
 import { resetTaskStores, useTasksStore } from "@/features/tasks/store";
+import { isApprovalRequiredMessage } from "@/features/tasks/api/taskApi";
 import { useAuth } from "@/hooks/useAuth";
 import * as tasksService from "@/services/api/tasks.service";
 import {
@@ -1041,17 +1042,44 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 
   const updateTaskStatusApi = useCallback(
     async (taskId: number, data: UpdateTaskStatusRequest) => {
+      const task = [
+        ...state.assignedToMe,
+        ...state.createdByMe,
+        ...state.allOtherTasks,
+      ].find((item) => Number(item.id) === taskId);
+      const previousStatus =
+        task?.status ?? useTasksStore.getState().byId[taskId]?.status;
       updateTaskStatusLocal(String(taskId), data.status);
-      const res = await tasksService.updateTaskStatus(taskId, data);
-      if (!res.Good) {
-        console.log(
-          typeof res.data === "string"
-            ? res.data
-            : "Failed to update task status",
-        );
+      try {
+        const res = await tasksService.updateTaskStatus(taskId, data);
+        if (!res.Good) {
+          throw new Error(
+            typeof res.data === "string"
+              ? res.data
+              : "Failed to update task status",
+          );
+        }
+        if (
+          isApprovalRequiredMessage(
+            typeof res.data === "string" ? res.data : undefined,
+          )
+        ) {
+          updateTaskStatusLocal(String(taskId), "Pending-Approval");
+        } else if (data.status === "Complete" || data.status === "Completed") {
+          useTasksStore.getState().patchTask(taskId, {
+            completed_at: new Date().toISOString(),
+          });
+        } else if (previousStatus === "Complete" || previousStatus === "Completed") {
+          useTasksStore.getState().patchTask(taskId, { completed_at: null });
+        }
+      } catch (error) {
+        if (previousStatus) {
+          updateTaskStatusLocal(String(taskId), previousStatus);
+        }
+        throw error;
       }
     },
-    [updateTaskStatusLocal],
+    [state, updateTaskStatusLocal],
   );
 
   const updateTask = useCallback(

@@ -15,14 +15,18 @@ import styles from "./TasksScreen.styles";
 import { useTaskTabs } from "@/features/tasks/hooks/useTaskTabs";
 import {
   canCreateTask,
+  hasPermission,
+  hasTasksModule,
   isCompanyAdmin,
   isHead,
+  TASK_PERMISSIONS,
 } from "@/features/tasks/permissions/taskPermissions";
 import { useTaskFiltersStore } from "@/features/tasks/store/taskFiltersStore";
 import { useSearch } from "@/context/SearchContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import { useTaskSocket } from "@/hooks/useTaskSocket";
+import { showError } from "@/utils/toast";
 import { StatusBar } from "expo-status-bar";
 import {
   useCallback,
@@ -60,7 +64,7 @@ export default function TasksScreen() {
 
   const { searchText, isHeaderCompact, setIsHeaderCompact } = useSearch();
   const filters = useTaskFilterController(searchText);
-  const dashboard = useTaskDashboard(isAts);
+  const dashboard = useTaskDashboard(isAts, authState.user, authState.company);
 
   const tabs = useTaskTabs({
     companyId,
@@ -93,6 +97,12 @@ export default function TasksScreen() {
     () => isCompanyAdmin(authState.user) || isHead(authState.user),
     [authState.user],
   );
+  const canReassign = useMemo(
+    () =>
+      hasTasksModule(authState.company) &&
+      hasPermission(authState.user, TASK_PERMISSIONS.edit),
+    [authState.company, authState.user],
+  );
 
   const handleRefresh = useCallback(async () => {
     if (!companyId) return;
@@ -120,10 +130,17 @@ export default function TasksScreen() {
   const actions = useTaskActions({
     companyId: companyId ?? undefined,
     companyIdentifier,
-    assignedToMe: taskState.assignedToMe,
+    company: authState.company,
+    user: authState.user,
+    isAts,
     updateTaskStatusApi,
     refresh: () => {
-      handleRefresh().catch(() => {});
+      handleRefresh().catch((error) =>
+        showError(
+          "Refresh Failed",
+          error instanceof Error ? error.message : "Failed to refresh tasks.",
+        ),
+      );
     },
     onReject: (taskId) => {
       setRejectTargetTaskId(taskId);
@@ -263,7 +280,7 @@ export default function TasksScreen() {
           refreshing={refreshing}
           containerStyle={styles.tableShell}
           assignableOwners={taskState.taskOwners}
-          canReassign={canCreate}
+          canReassign={canReassign}
           onRetry={handleRefresh}
           onRefresh={handleRefresh}
           onLoadMore={tabs.loadMore}
@@ -295,9 +312,9 @@ export default function TasksScreen() {
           setRejectModalVisible(false);
           setRejectTargetTaskId(null);
         }}
-        onRejectSuccess={() => {
-          handleRefresh().catch(() => {});
-        }}
+        onRejectSuccess={() =>
+          actions.handleRejectSuccess(rejectTargetTaskId ?? 0)
+        }
       />
     </View>
   );

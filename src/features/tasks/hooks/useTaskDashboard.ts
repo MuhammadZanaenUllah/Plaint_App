@@ -4,6 +4,13 @@
 import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { TaskRowProps } from "@/components/TaskRow";
+import {
+  canApproveReject,
+  canReassign as canReassignTask,
+  canReopen as canReopenTask,
+  type PermissionCompany,
+  type PermissionUser,
+} from "../permissions/taskPermissions";
 import { mapTaskListItem } from "@/utils/statusMapper";
 import { useTaskFiltersStore } from "../store/taskFiltersStore";
 import { useTasksStore } from "../store/tasksStore";
@@ -20,18 +27,33 @@ export type DashboardRow = TaskRowProps & { _raw: TaskListItem };
 const PAGE_SIZE = 20;
 const COMPLETED_PAGE_SIZE = 50;
 
-function toDashboardRow(entity: TaskEntity, owners: TaskOwner[]): DashboardRow {
+function toDashboardRow(
+  entity: TaskEntity,
+  owners: TaskOwner[],
+  user: PermissionUser,
+  company: PermissionCompany,
+  isAts: boolean,
+): DashboardRow {
   const raw = entity as unknown as TaskListItem;
   const mapped = mapTaskListItem(raw, owners);
+  const isComplete = raw.status === "Complete" || raw.status === "Completed";
   return {
     ...mapped,
     // Missing permission flags must be treated as false (contract §6).
     canEditStatus: raw.can_edit_status === true,
+    canApproveReject: canApproveReject(raw, user),
+    canReopen: !isAts && isComplete && canReopenTask(raw, user, company),
+    canReassign: canReassignTask(raw, user, company),
+    subtaskCount: raw.subtask_count ?? 0,
     _raw: raw,
   };
 }
 
-export function useTaskDashboard(isAts: boolean) {
+export function useTaskDashboard(
+  isAts: boolean,
+  user: PermissionUser,
+  company: PermissionCompany,
+) {
   const store = useTasksStore(
     useShallow((state) => ({
       byId: state.byId,
@@ -79,13 +101,16 @@ export function useTaskDashboard(isAts: boolean) {
     const scoped = selectTasksForTab(store, filters.activeTab, now, { isAts });
     const filtered = applyTaskFilters(scoped, filters);
     return (filters.activeTab === "completed" ? filtered : sortTasks(filtered)).map(
-      (entity) => toDashboardRow(entity, store.owners),
+      (entity) => toDashboardRow(entity, store.owners, user, company, isAts),
     );
-  }, [store, filters, now, isAts]);
+  }, [store, filters, now, isAts, user, company]);
 
   const allRows = useMemo(
-    () => Object.values(store.byId).map((entity) => toDashboardRow(entity, store.owners)),
-    [store.byId, store.owners],
+    () =>
+      Object.values(store.byId).map((entity) =>
+        toDashboardRow(entity, store.owners, user, company, isAts),
+      ),
+    [store.byId, store.owners, user, company, isAts],
   );
 
   const countFilters = useMemo(
