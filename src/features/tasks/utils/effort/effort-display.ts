@@ -1,35 +1,28 @@
-// Effort display utility for UI
-// Phase 1 — Foundation
+// Compatibility helpers for effort state. Canonical logic lives in ../taskEffort.ts.
+import { formatEffort, toMinutes, toEffortPayload, type EffortUnit } from "../taskEffort";
 
-import { minutesToDisplay, displayToMinutes, validateEffortInput } from "./minutes-converter";
-
-export type EffortUnit = "minutes" | "hours" | "days";
+export type { EffortUnit } from "../taskEffort";
 
 export interface EffortState {
-  minutes: number; // always stored as minutes
-  unit: EffortUnit; // UI display unit
-  display: string; // e.g. "2 hr", "30 min", "0.5 day"
+  minutes: number; // always minutes
+  unit: EffortUnit; // display unit
+  display: string;
 }
 
 export function initEffort(minutes: number, unit: EffortUnit = "hours"): EffortState {
-  const { valid, minutes: m, display: d } = validateEffortInput(minutes, unit);
-  return {
-    minutes: valid ? m : 0,
-    unit,
-    display: d,
-  };
+  const value = Math.max(0, toMinutes(minutes, "minutes"));
+  return { minutes: value, unit, display: formatEffort(value, unit) };
 }
 
 export function updateEffort(
   current: EffortState,
   deltaMinutes: number,
-  unit: EffortUnit = "hours"
+  unit: EffortUnit = current.unit,
 ): EffortState {
-  const newMinutes = current.minutes + deltaMinutes;
-  return initEffort(newMinutes, unit);
+  return initEffort(current.minutes + deltaMinutes, unit);
 }
 
+/** Always returns minutes, which is what the API expects. */
 export function formatEffortForPayload(state: EffortState): number {
-  // Always send minutes to backend
-  return state.minutes;
+  return toEffortPayload(state.minutes);
 }

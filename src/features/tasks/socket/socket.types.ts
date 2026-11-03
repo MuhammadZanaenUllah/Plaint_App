@@ -1,173 +1,139 @@
-// Socket event types aligned with TASK_MODULE_BACKEND_CONTRACT.md §5 and §13
-// Phase 1 — Foundation
+// Task socket event types (contract §5). Additive only.
+// The shared `src/services/socket/socketService.ts` stays unchanged in Phase 1.
 
-import { TaskStatus, TaskPriority } from "../types/task.types";
-import { TaskPerson } from "../types/task.types";
+import type { TaskPerson, TaskPriorityLevel, TaskStatus } from "../types/task.types";
 
-// Socket event payloads (server → client)
+export type TaskUpdateAction =
+  | "create"
+  | "create_subtask"
+  | "update"
+  | "status_update"
+  | "status_change"
+  | "critical_reorder"
+  | "sprint_assigned"
+  | "schedule_update"
+  | "delete"
+  | "add_note"
+  | "update_note"
+  | "delete_note"
+  | "update_note_pin"
+  | "update_note_reaction"
+  | "add_attachment"
+  | "delete_attachment";
 
-export interface SocketCreatePayload {
-  id: number;
+export type TaskSocketPayload = {
+  company_id: number | string;
+  action: TaskUpdateAction;
+  data: Record<string, unknown>;
+  assignee?: number;
+  asigned_to?: number;
+};
+
+export type SocketCreatePayload = {
+  id: number | string;
   title: string;
   status: TaskStatus;
   due_date: string | null;
-  priority: TaskPriority;
-  assignee?: TaskPerson;
-  asigned_to?: TaskPerson;
-  project_id?: number;
-  sprint_id?: number;
-  is_recurring: boolean;
-  recurring_config?: {
-    period: "daily" | "weekly" | "monthly" | "annually" | "semi-annually";
-    time?: string;
-    count?: number;
-    exclude_days?: number[];
-    week_day?: number;
-    month_day?: number;
-    annual_month?: number;
-    annual_day?: number;
-  };
-  depends_on?: number[];
-  created_by: number;
-  company_id: number;
-}
-
-export interface SocketUpdatePayload {
-  id: number;
-  status?: TaskStatus;
-  due_date?: string | null;
-  priority?: TaskPriority;
-  approval_required?: 0 | 1;
+  start_date?: string | null;
+  priority?: number;
+  task_priority?: TaskPriorityLevel;
+  critical_order?: number | null;
+  assignee?: number;
+  asigned_to?: number;
+  task_assignee?: TaskPerson;
+  task_assigned_to?: TaskPerson;
+  project_id?: number | null;
+  sprint_id?: number | null;
+  parent_id?: number;
   is_recurring?: boolean;
-  recurring_config?:
-    | {
-        period: "daily" | "weekly" | "monthly" | "annually" | "semi-annually";
-        time?: string;
-        count?: number;
-        exclude_days?: number[];
-        week_day?: number;
-        month_day?: number;
-        annual_month?: number;
-        annual_day?: number;
-      }
-    | null;
-  depends_on?: number[];
-  project_id?: number;
-  sprint_id?: number;
-  effort_hours?: number;
-  effort_unit?: "minutes" | "hours" | "days";
-}
+  approval_required?: 0 | 1;
+  created_by?: number;
+  company_id: number | string;
+};
 
-export interface SocketStatusUpdatePayload {
-  id: number;
+export type SocketUpdatePayload = Partial<SocketCreatePayload> & {
+  id: number | string;
+};
+
+export type SocketStatusUpdatePayload = {
+  id: number | string;
   status: TaskStatus;
-  effort_hours?: number;
-  task_priority?: TaskPriority;
   completed_at?: string;
   rejection_reason?: string;
-}
+  effort_hours?: number;
+  task_priority?: TaskPriorityLevel;
+};
 
-export interface SocketScheduleUpdatePayload {
-  id: number;
-  start_date?: string; // ISO
-  due_date?: string; // YYYY-MM-DD (normal) / ISO (ATS)
+export type SocketScheduleUpdatePayload = {
+  id: number | string;
+  start_date?: string | null;
+  due_date?: string | null;
+  effort_hours?: number;
+  remaining_effort_hours?: number;
   project_id?: number;
   parent_id?: number;
-  remaining_effort_hours?: number;
-  effort_hours?: number;
-}
+};
 
-export interface SocketCriticalReorderPayload {
-  id: number;
+export type SocketCriticalReorderPayload = {
+  id: number | string;
   critical_order: number;
-  blocked_tasks?: number;
-}
+}[];
 
-export interface SocketSprintAssignedPayload {
-  id: number;
+export type SocketSprintAssignedPayload = {
+  id: number | string;
   project_id: number;
-  sprint_id: number;
-}
+  sprint_id: number | null;
+};
 
-export interface SocketDeletePayload {
-  id: number;
+export type SocketDeletePayload = {
+  id: number | string;
   parent_id?: number;
-}
+};
 
-export interface SocketAddNotePayload {
-  task_id: string; // string from backend
-  note: {
-    id: number;
-    text: string;
-    created_at: string;
-    created_by: number;
-    mentions?: Array<{ id: number; name: string }>;
-  };
-}
+export type SocketAddNotePayload = {
+  task_id: number | string;
+  note?: unknown;
+};
 
-export interface SocketUpdateNotePayload {
-  id: number;
-  task_id: string;
-  text: string;
-}
+export type SocketUpdateNotePayload = {
+  id: number | string;
+  task_id?: number | string;
+};
 
-export interface SocketDeleteNotePayload {
-  id: number;
-  task_id: string;
-}
+export type SocketDeleteNotePayload = SocketUpdateNotePayload;
 
-export interface SocketUpdateNotePinPayload {
-  id: number;
-  task_id: string;
-  pin_top: boolean;
-}
+export type SocketNotePinPayload = SocketUpdateNotePayload & { pin_top?: number | boolean };
 
-export interface SocketUpdateNoteReactionPayload {
-  id: number;
-  task_id: string;
-  reactions: Record<string, number>; // emoji → count
-}
+export type SocketNoteReactionPayload = SocketUpdateNotePayload & {
+  reactions?: { user_id: number; user_name: string; emoji: string }[];
+};
 
-export interface SocketAddAttachmentPayload {
-  task_id: number;
-  attachment: {
-    id: number;
-    original_name: string;
-    extension: string;
-    size: number;
-    url: string;
-    uploadedAt: string;
-  };
-}
+export type SocketAttachmentPayload = {
+  id?: number | string;
+  task_id?: number | string;
+  attachment_id?: number | string;
+};
 
-export interface SocketDeleteAttachmentPayload {
-  id: number;
-  task_id: number;
-  attachment_id: number;
-}
+export type SocketProjectUpdatePayload = {
+  company_id?: number | string;
+  action: string;
+  data?: Record<string, unknown>;
+};
 
-export interface SocketProjectUpdatePayload {
-  company_id: number;
-  action: "update_permissions" | "role_update";
-  roleId?: number;
-  permissions: string[];
-}
+export type SocketPriorityUpdatePayload = {
+  company_id?: number | string;
+  action: "create" | "update" | "delete";
+  data?: Record<string, unknown>;
+};
 
-export interface SocketPriorityUpdatePayload {
-  create?: Array<{ data: { id: number; name: string; color: string; order: number } }>;
-  update?: Array<{ data: { id: number; name: string; color: string; order: number } }>;
-  delete?: Array<{ data: { id: number } }>;
-  status_update?: SocketStatusUpdatePayload;
-}
+export type SocketUserUpdatePayload = {
+  company_id?: number | string;
+  action: "create" | "update" | "delete" | string;
+  data?: Record<string, unknown>;
+};
 
-export interface SocketUserUpdatePayload {
-  company_id: number;
-  action: "update_permissions" | "role_update";
-  roleId?: number;
-  permissions: string[];
-}
-
-export interface SocketSchedulingSettingsUpdatePayload {
-  create?: Array<{ data: { id: number; [key: string]: any } }>;
-  update?: Array<{ data: { id: number; [key: string]: any } }>;
-}
+export type SocketSchedulingSettingsUpdatePayload = {
+  company_id?: number | string;
+  action: "create" | "update";
+  data?: Record<string, unknown>;
+};

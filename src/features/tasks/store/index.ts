@@ -1,17 +1,21 @@
-// Task Store — re-exports for @/features/tasks/store import
-// Phase 1 — Foundation
-// No circular dependency on TaskContext — useTasksCompatibility is exported
-// directly from TaskContext.tsx. This store provides the Zustand task state.
+// Task Module stores.
+// Phase 1 scaffolding: these stores compile and reset, but no screen consumes
+// them yet. `TaskContext` remains the Chat compatibility facade.
 
-// Re-exports from the tasksStore (the actual Zustand store)
-export { useTasks } from "./tasksStore";
-export { tasksStore } from "./tasksStore";
-// useTasksCompatibility is exported from TaskContext.tsx, not from here,
-// to avoid circular dependency: store ↔ context
-// export { useTasksCompatibility } from "../context/TaskContext";  // REMOVED
+export { useTasksStore, tasksStore } from "./tasksStore";
+export type { TasksState, TaskBucket } from "./tasksStore";
 
-export { taskLifecycle } from "./lifecycleStore";
-export { filtersStore } from "./filtersStore";
-export { uiStore } from "./uiStore";
-export { selectorsStore } from "./selectorsStore";
-export { projectsStore } from "./projectsStore";
+export { useTaskDetailStore, taskDetailStore } from "./taskDetailStore";
+export type { DetailState } from "./taskDetailStore";
+
+export { useTaskFiltersStore, filtersStore } from "./taskFiltersStore";
+export type { TaskFiltersState } from "./taskFiltersStore";
+
+export { useTaskUiStore, uiStore } from "./taskUiStore";
+export type { TaskUiState } from "./taskUiStore";
+
+export { useProjectsStore, projectsStore } from "./projectsStore";
+export type { ProjectsState } from "./projectsStore";
+
+export * from "./selectors";
+export { resetTaskStores, resetTaskModuleStores } from "./lifecycle";

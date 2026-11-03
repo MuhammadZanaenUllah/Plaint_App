@@ -1,270 +1,324 @@
-// Task normalized store
-// Phase 1 — Foundation
-// Zustand store for task entities, buckets, owners, priorities, statuses
-// Compatible with Chat: preserves useTasks().state.taskOwners shape
+// Normalized Task store (Zustand).
+// Phase 1: scaffolding only. No screen consumes it yet; TaskContext remains the
+// compatibility facade for Chat and the existing UI.
 
-import create from "zustand";
-import { TaskListItem, TaskOwner, TaskListResponse, TaskStatus, TaskPriority } from "../types/task.types";
-import { parseApiResponse, extractError } from "../api/error-extractor";
-import { TaskStatus as TaskApiStatus } from "../types/task.types";
+import { create } from "zustand";
+import { getAllTasks, getDueTodayTasks, getFilteredTasks } from "../api/taskApi";
+import type { ApiResult } from "../api/apiResult";
+import type {
+  TaskEntity,
+  TaskFilter,
+  TaskListItem,
+  TaskListResponse,
+  TaskOwner,
+  TaskPriority,
+} from "../types/task.types";
+import { normalizeApiStatus } from "../utils/taskStatus";
 
-// Store shape
-export interface TasksState {
-  // Buckets
-  assignedToMe: TaskListItem[];
-  createdByMe: TaskListItem[];
-  allOtherTasks: TaskListItem[];
+export type TaskBucket = "assignedToMe" | "createdByMe" | "allOtherTasks";
 
-  // Entity map (id → TaskListItem) for O(1) lookups
-  byId: Record<number, TaskListItem>;
+export type TasksState = {
+  // Normalized entities
+  byId: Record<number, TaskEntity>;
 
-  // Owners
+  // Bucket membership (ids only)
+  assignedToMeIds: number[];
+  createdByMeIds: number[];
+  allOtherTaskIds: number[];
+
+  // Lookup data
   owners: TaskOwner[];
-  priorities: { id: number; name: string; color: string }[];
+  priorities: TaskPriority[];
+  statusList: string[];
+  teamMemberIds: number[];
+  completeCount: number;
 
-  // State
-  statusList: TaskStatus[];
+  // Load state
   isLoading: boolean;
-  error?: string;
-  lastRefresh: number; // epoch ms
+  error: string | null;
+  lastRefresh: number;
+  stale: boolean;
+  hasMoreCompleted: boolean;
+  completedPage: number;
 
-  // ATS flag
-  hasAdvancedTaskModule: boolean;
-
-  // Pagination
-  page: number;
-  hasMore: boolean;
-
-  // Socket pending patches
-  pendingPatches: Record<number, { status?: TaskStatus; due_date?: string; effort_hours?: number }>;
-}
-
-// Initial state
-const initialState: TasksState = {
-  assignedToMe: [],
-  createdByMe: [],
-  allOtherTasks: [],
-  byId: {},
-  owners: [],
-  priorities: [],
-  statusList: ["Pending", "In-Progress", "On-Hold", "Complete", "Pending-Approval", "Rejected"],
-  isLoading: false,
-  error: undefined,
-  lastRefresh: 0,
-  hasAdvancedTaskModule: false,
-  page: 1,
-  hasMore: true,
-  pendingPatches: {},
+  // Actions
+  loadDashboard: (companyId: number, options?: { force?: boolean }) => Promise<void>;
+  loadAll: (
+    companyId: number,
+    options?: { waitFresh?: boolean; excludeComplete?: boolean },
+  ) => Promise<void>;
+  loadDueToday: (companyId: number) => Promise<void>;
+  loadFiltered: (
+    companyId: number,
+    filter: TaskFilter,
+    options?: { limit?: number; page?: number; waitFresh?: boolean },
+  ) => Promise<void>;
+  loadCompletedPage: (companyId: number, page: number) => Promise<void>;
+  upsertTask: (task: TaskListItem | TaskEntity) => void;
+  patchTask: (taskId: number, patch: Partial<TaskEntity>) => void;
+  removeTask: (taskId: number) => void;
+  reset: () => void;
 };
 
-// Create store type
-export type TasksStore = ReturnType<typeof tasksStore>;
+const initialState = {
+  byId: {} as Record<number, TaskEntity>,
+  assignedToMeIds: [] as number[],
+  createdByMeIds: [] as number[],
+  allOtherTaskIds: [] as number[],
+  owners: [] as TaskOwner[],
+  priorities: [] as TaskPriority[],
+  statusList: [] as string[],
+  teamMemberIds: [] as number[],
+  completeCount: 0,
+  isLoading: false,
+  error: null as string | null,
+  lastRefresh: 0,
+  stale: false,
+  hasMoreCompleted: false,
+  completedPage: 0,
+};
 
-// Create store
-export const tasksStore = create<TasksState>((set, get) => ({
-  // Spread initial state
+// In-flight dedupe per company+endpoint.
+const inFlight = new Map<string, Promise<unknown>>();
+
+function dedupe<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const existing = inFlight.get(key);
+  if (existing) return existing as Promise<T>;
+  const promise = run().finally(() => inFlight.delete(key));
+  inFlight.set(key, promise);
+  return promise;
+}
+
+function toEntity(row: TaskListItem | TaskEntity): TaskEntity {
+  const source = row as unknown as Record<string, unknown>;
+  return {
+    ...(row as unknown as TaskEntity),
+    id: Number(row.id),
+    status: normalizeApiStatus(String(row.status)) as TaskEntity["status"],
+    due_date: (source.due_date as string | null | undefined) ?? null,
+    start_date: (source.start_date as string | null | undefined) ?? null,
+    assignee: Number(source.assignee ?? 0),
+    asigned_to: Number(source.asigned_to ?? 0),
+    created_by: Number(source.created_by ?? 0),
+    project_id: source.project_id === undefined ? null : (source.project_id as number | null),
+    sprint_id: source.sprint_id === undefined ? null : (source.sprint_id as number | null),
+    approval_required: Number(source.approval_required ?? 0) === 1 ? 1 : 0,
+  };
+}
+
+function idsOf(rows: TaskListItem[] | undefined): number[] {
+  return (rows ?? []).map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+}
+
+function bucketIds(response: TaskListResponse) {
+  return {
+    assignedToMeIds: idsOf(response.tasks_assigned_to_me),
+    createdByMeIds: idsOf(response.tasksByme),
+    allOtherTaskIds: idsOf(response.all_other_tasks),
+  };
+}
+
+function entitiesFrom(
+  response: TaskListResponse,
+  existing: Record<number, TaskEntity> = {},
+): Record<number, TaskEntity> {
+  const next = { ...existing };
+  const rows = [
+    ...(response.tasks_assigned_to_me ?? []),
+    ...(response.tasksByme ?? []),
+    ...(response.all_other_tasks ?? []),
+  ];
+  for (const row of rows) {
+    const entity = toEntity(row);
+    if (Number.isFinite(entity.id)) next[entity.id] = entity;
+  }
+  return next;
+}
+
+async function listWithStaleRetry<T extends TaskListResponse>(
+  run: (waitFresh: boolean) => Promise<ApiResult<T>>,
+): Promise<ApiResult<T>> {
+  const first = await run(false);
+  if (!first.ok || !first.stale) return first;
+  return run(true);
+}
+
+function lookupPatch(response: TaskListResponse, state: TasksState) {
+  return {
+    ...bucketIds(response),
+    owners: response.task_owner ?? state.owners,
+    priorities: response.priority ?? state.priorities,
+    statusList: response.status ?? state.statusList,
+    teamMemberIds: (response.team_member_ids ?? []).map(Number),
+  };
+}
+
+export const useTasksStore = create<TasksState>()((set, get) => ({
   ...initialState,
 
-  // Load tasks (two-phase: duetoday + all)
-  loadTasks: async (companyId: number, force = false) => {
-    if (!force && !get().hasMore && get().page > 1) return;
-    set({ isLoading: true, error: undefined });
+  loadDashboard: async (companyId, options = {}) => {
+    if (get().isLoading && !options.force) return;
+    set({ isLoading: true, error: null });
 
-    try {
-      // Phase 1: load due today
-      const dueToday = await apiGet<TaskListResponse>(`/tasks/duetoday?company_id=${companyId}`, {});
-      // Phase 2: load all (with exclude_complete)
-      const all = await apiGet<TaskListResponse>(`/tasks/all?company_id=${companyId}&exclude_complete=true`, {});
+    const due = await dedupe(`due:${companyId}`, () =>
+      listWithStaleRetry((waitFresh) => getDueTodayTasks(companyId, { waitFresh })),
+    );
+    if (!due.ok) {
+      set({ isLoading: false, error: due.message });
+      return;
+    }
 
-      // Merge by ID to deduplicate
-      const mergeById = (arr: TaskListItem[]) => {
-        const map: Record<number, TaskListItem> = {};
-        arr.forEach((t) => { map[t.id] = t; });
-        return Object.values(map);
-      };
+    // Phase 1: show today's tasks immediately.
+    set((state) => ({
+      byId: entitiesFrom(due.data, state.byId),
+      ...lookupPatch(due.data, state),
+      lastRefresh: Date.now(),
+    }));
 
-      const merged = [...mergeById(dueToday.tasks ?? []), ...mergeById(all.tasks ?? {})];
+    const all = await dedupe(`all:${companyId}`, () =>
+      listWithStaleRetry((waitFresh) =>
+        getAllTasks(companyId, { waitFresh, excludeComplete: true }),
+      ),
+    );
+    if (!all.ok) {
+      set({ isLoading: false, error: all.message });
+      return;
+    }
 
-      // Build entity map
-      const byId: Record<number, TaskListItem> = {};
-      merged.forEach((t) => { byId[t.id] = t; });
+    set((state) => ({
+      byId: entitiesFrom(all.data, state.byId),
+      ...lookupPatch(all.data, state),
+      completeCount: all.data.complete_count ?? state.completeCount,
+      stale: !!all.data.stale,
+      isLoading: false,
+      error: null,
+      lastRefresh: Date.now(),
+    }));
+  },
 
-      // Build buckets
-      const assignedToMe = merged.filter((t) => t.asigned_to?.some((a) => a.id === companyId) || (t.assignee?.id === companyId));
-      const createdByMe = merged.filter((t) => (t.assignee?.id ?? t.created_by) === companyId);
-      const allOther = merged.filter(
-        (t) => !assignedToMe.some((a) => a.id === t.id) && !createdByMe.some((a) => a.id === t.id)
-      );
+  loadAll: async (companyId, options = {}) => {
+    set({ isLoading: true, error: null });
+    const result = await dedupe(`all:${companyId}`, () =>
+      listWithStaleRetry((waitFresh) =>
+        getAllTasks(companyId, {
+          waitFresh: waitFresh || options.waitFresh,
+          excludeComplete: options.excludeComplete ?? true,
+        }),
+      ),
+    );
+    if (!result.ok) {
+      set({ isLoading: false, error: result.message });
+      return;
+    }
+    set((state) => ({
+      byId: entitiesFrom(result.data, state.byId),
+      ...lookupPatch(result.data, state),
+      completeCount: result.data.complete_count ?? state.completeCount,
+      stale: !!result.data.stale,
+      isLoading: false,
+      error: null,
+      lastRefresh: Date.now(),
+    }));
+  },
 
-      set({
-        assignedToMe,
-        createdByMe,
-        allOtherTasks: allOther,
+  loadDueToday: async (companyId) => {
+    set({ isLoading: true, error: null });
+    const result = await dedupe(`due:${companyId}`, () =>
+      listWithStaleRetry((waitFresh) => getDueTodayTasks(companyId, { waitFresh })),
+    );
+    if (!result.ok) {
+      set({ isLoading: false, error: result.message });
+      return;
+    }
+    set((state) => ({
+      byId: entitiesFrom(result.data, state.byId),
+      ...lookupPatch(result.data, state),
+      isLoading: false,
+      error: null,
+      lastRefresh: Date.now(),
+    }));
+  },
+
+  loadFiltered: async (companyId, filter, options = {}) => {
+    set({ isLoading: true, error: null });
+    const key = `filter:${companyId}:${filter}:${options.page ?? 1}:${options.limit ?? ""}`;
+    const result = await dedupe(key, () =>
+      getFilteredTasks(companyId, filter, {
+        waitFresh: options.waitFresh,
+        limit: options.limit,
+        page: options.page,
+      }),
+    );
+    if (!result.ok) {
+      set({ isLoading: false, error: result.message });
+      return;
+    }
+    set((state) => ({
+      byId: entitiesFrom(result.data, state.byId),
+      ...lookupPatch(result.data, state),
+      isLoading: false,
+      error: null,
+      lastRefresh: Date.now(),
+    }));
+  },
+
+  loadCompletedPage: async (companyId, page) => {
+    set({ isLoading: true, error: null });
+    const result = await dedupe(`complete:${companyId}:${page}`, () =>
+      getFilteredTasks(companyId, "complete", { limit: 50, page }),
+    );
+    if (!result.ok) {
+      set({ isLoading: false, error: result.message });
+      return;
+    }
+
+    // Completed rows are stored in `byId`; the completed tab selects from all
+    // entities and re-sorts by completed_at on the device (backend bug §3.4).
+    set((state) => ({
+      byId: entitiesFrom(result.data, state.byId),
+      completedPage: page,
+      hasMoreCompleted:
+        (result.data as TaskListResponse & { has_more?: boolean }).has_more === true,
+      isLoading: false,
+      error: null,
+      lastRefresh: Date.now(),
+    }));
+  },
+
+  upsertTask: (task) => {
+    const entity = toEntity(task);
+    if (!Number.isFinite(entity.id)) return;
+    set((state) => ({ byId: { ...state.byId, [entity.id]: entity } }));
+  },
+
+  patchTask: (taskId, patch) => {
+    set((state) => {
+      const existing = state.byId[taskId];
+      if (!existing) return state;
+      return { byId: { ...state.byId, [taskId]: { ...existing, ...patch } } };
+    });
+  },
+
+  removeTask: (taskId) => {
+    set((state) => {
+      const byId = { ...state.byId };
+      delete byId[taskId];
+      const without = (ids: number[]) => ids.filter((id) => id !== taskId);
+      return {
         byId,
-        owners: all.owners ?? [],
-        priorities: all.priorities ?? [],
-        statusList: all.status_list ?? ["Pending", "In-Progress", "On-Hold", "Complete", "Pending-Approval", "Rejected"],
-        hasAdvancedTaskModule: all.has_advanced_task_module ?? false,
-        isLoading: false,
-        lastRefresh: Date.now(),
-      });
-    } catch (err: any) {
-      set({ error: extractError(err.message), isLoading: false });
-    }
-  },
-
-  // Load page of tasks (infinite scroll)
-  loadMoreTasks: async (companyId: number) => {
-    const newPage = get().page + 1;
-    set({ page: newPage });
-
-    try {
-      const res = await apiGet<TaskListResponse>(`/tasks/all?company_id=${companyId}&exclude_complete=true&page=${newPage}`, {});
-      const { body, good } = parseApiResponse(res);
-
-      if (!good) throw new Error(extractError((body as any)?.error || (body as any)?.message));
-
-      const items = body.tasks ?? [];
-      set((state) => {
-        const newById = { ...state.byId };
-        items.forEach((t) => { newById[t.id] = t; });
-
-        return {
-          byId: newById,
-          hasMore: (body.tasks ?? []).length > 0,
-          page: newPage,
-        };
-      });
-    } catch (err: any) {
-      set({ error: extractError(err.message), page: get().page - 1 });
-    }
-  },
-
-  // Select a task (move to correct bucket on open)
-  selectTask: (taskId: number) => {
-    const task = get().byId[taskId];
-    if (!task) return;
-
-    set(state => {
-      const newAssigned = [...state.assignedToMe].filter(t => t.id !== taskId);
-      const newCreated = [...state.createdByMe].filter(t => t.id !== taskId);
-      const newAllOther = [...state.allOtherTasks].filter(t => t.id !== taskId);
-
-      // Put in assigned bucket if doer matches company
-      const newAssignedBucket = [task, ...newAssigned.filter(t => /* doer matches */ true)];
-
-      return {
-        assignedToMe: newAssignedBucket,
-        createdByMe: [...newCreated],
-        allOtherTasks: [...newAllOther],
+        assignedToMeIds: without(state.assignedToMeIds),
+        createdByMeIds: without(state.createdByMeIds),
+        allOtherTaskIds: without(state.allOtherTaskIds),
       };
     });
   },
 
-  // Add task via socket create
-  addTaskViaSocket: (task: TaskListItem) => {
-    set(state => {
-      const newById = { ...state.byId, [task.id]: task };
-
-      // Add to assigned bucket if doer matches
-      const newAssigned = task.asigned_to?.some((a: { id: number }) => a.id === companyId
-        ? [task, ...state.assignedToMe.filter(t => t.id !== task.id)]
-        : state.assignedToMe.filter(t => t.id !== task.id));
-
-      // Created-by-me if assignee is current user
-      const newCreated = task.assignee?.id === companyId
-        ? [task, ...state.createdByMe.filter(t => t.id !== task.id)]
-        : state.createdByMe.filter(t => t.id !== task.id);
-
-      // All other tasks minus this one
-      const newAllOther = state.allOtherTasks.filter(t => t.id !== task.id);
-
-      return {
-        byId: newById,
-        assignedToMe: newAssigned,
-        createdByMe: newCreated,
-        allOtherTasks: newAllOther,
-      };
-    });
+  reset: () => {
+    inFlight.clear();
+    set({ ...initialState });
   },
-
-  // Patch task via socket update
-  patchTask: (taskId: number, patches: { status?: TaskStatus; due_date?: string; effort_hours?: number }) => {
-    set(state => {
-      const newById = { ...state.byId };
-      if (newById[taskId]) {
-        Object.assign(newById[taskId], patches);
-      }
-      return { byId: newById, pendingPatches: { ...state.pendingPatches, [taskId]: patches } };
-    });
-  },
-
-  // Clear pending patch after apply
-  clearPendingPatch: (taskId: number) =>
-    set(state => {
-      const pendingPatches = { ...state.pendingPatches };
-      delete pendingPatches[taskId];
-      return { pendingPatches };
-    }),
-
-  // Reset on logout/company change
-  resetOnCompanyChange: () => set(initialState),
 }));
 
-// Export memoized selectors
-export type TasksStoreState = TasksState;
-
-export const useTasks = () => {
-  const store = tasksStore.getState();
-
-  return {
-    // Buckets
-    assignedToMe,
-    createdByMe,
-    allOtherTasks,
-
-    // Entity map
-    byId,
-
-    // Owners & priorities
-    owners: store.owners,
-    priorities: store.priorities,
-    statusList: store.statusList,
-
-    // State
-    isLoading: store.isLoading,
-    error: store.error,
-    lastRefresh: store.lastRefresh,
-    hasAdvancedTaskModule: store.hasAdvancedTaskModule,
-
-    // Pagination
-    page: store.page,
-    hasMore: store.hasMore,
-
-    // Compatibility facade for Chat
-    // Must preserve this exact shape
-    taskOwners: store.owners.map((o: TaskOwner) => ({
-      id: o.id,
-      first_name: o.first_name,
-      last_name: o.last_name,
-      full_name: o.full_name,
-      email: o.email,
-      company_id: o.company_id,
-      image: o.image,
-    })),
-
-    // Internal store methods (for use within components)
-    loadTasks: store.loadTasks,
-    loadMoreTasks: store.loadMoreTasks,
-    selectTask: store.selectTask,
-    patchTask: store.patchTask,
-    clearPendingPatch: store.clearPendingPatch,
-    resetOnCompanyChange: store.resetOnCompanyChange,
-  };
-};
-
-// Initial load counter (dev)
-let initCount = 0;
-if (initCount === 0) {
-  initCount++;
-}
+/** Non-reactive access for service code (store is not consumed by UI yet). */
+export const tasksStore = useTasksStore;
+export type TasksStoreApi = typeof useTasksStore;

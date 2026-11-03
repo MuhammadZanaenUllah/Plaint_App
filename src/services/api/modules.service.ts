@@ -1,5 +1,5 @@
 import { apiGet } from "./client";
-import { ApiResponse } from "@/types/api.types";
+import type { ApiResponse } from "@/types/api.types";
 
 export type CompanyModule = {
   id: number;
@@ -7,8 +7,14 @@ export type CompanyModule = {
   status: number;
 };
 
-// Returns the modules enabled for the current logged-in user's company
-// (scoped server-side via the auth token — no company_id param needed).
-export async function getModules(): Promise<ApiResponse<{ modules: CompanyModule[] }>> {
-  return apiGet<ApiResponse<{ modules: CompanyModule[] }>>("/modules/all");
+/** Company module names (contract §8.2). Works for company users on their own company. */
+export async function getCompanyModules(
+  companyId: number,
+): Promise<ApiResponse<{ modules: string[] }>> {
+  return apiGet<ApiResponse<{ modules: string[] }>>(
+    `/companies/${companyId}/modules`,
+  );
 }
+
+/** Never call GET /modules/all from the app: it is SaaS-admin only (403). */
+export const FORBIDDEN_MODULES_ENDPOINT = "/modules/all";

@@ -1,8 +1,11 @@
-// Status transition validation
-// Phase 1 — Foundation
-
-import { TaskStatus } from "../types/task.types";
-import { isValidTransition } from "../utils/status/status-mapper";
+// Compatibility status-transition validation.
+import type { TaskStatus } from "../../types/task.types";
+import {
+  canTransitionStatus,
+  getAllowedTransitions,
+  isValidTransition,
+  type TransitionContext,
+} from "../taskStatus";
 
 export interface StatusValidationResult {
   isValid: boolean;
@@ -10,27 +13,29 @@ export interface StatusValidationResult {
   allowedTransitions: TaskStatus[];
 }
 
+const DEFAULT_CONTEXT: TransitionContext = {
+  canEditStatus: true,
+  canApproveReject: true,
+};
+
 export function validateStatusTransition(
-  from: TaskStatus,
-  to: TaskStatus
+  from: TaskStatus | string,
+  to: TaskStatus | string,
+  ctx: TransitionContext = DEFAULT_CONTEXT,
 ): StatusValidationResult {
-  const allowed = isValidTransition(from, to)
-    ? [to]
-    : Object.keys(VALID_TRANSITIONS[from] || {}).filter(
-        (s) => isValidTransition(from, s as TaskStatus)
-      ) as TaskStatus[];
-
-  if (isValidTransition(from, to)) {
-    return { isValid: true, allowedTransitions: [to] };
-  }
-
+  const isValid = canTransitionStatus({ status: from }, to, ctx);
   return {
-    isValid: false,
-    error: `Cannot transition from "${from}" to "${to}".`,
-    allowedTransitions: allowed,
+    isValid,
+    error: isValid ? undefined : `Cannot transition from "${from}" to "${to}".`,
+    allowedTransitions: getAllowedTransitions(from, ctx),
   };
 }
 
-export function getAllowedTransitions(from: TaskStatus): TaskStatus[] {
-  return isValidTransition(from, from) ? [from] : Object.keys(VALID_TRANSITIONS[from] || {}) as TaskStatus[];
+export function getAllowedTransitionsFor(
+  from: TaskStatus | string,
+  ctx: TransitionContext = DEFAULT_CONTEXT,
+): TaskStatus[] {
+  return getAllowedTransitions(from, ctx);
 }
+
+export { isValidTransition };

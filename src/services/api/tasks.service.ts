@@ -17,7 +17,6 @@ import {
   ReopenTaskRequest,
   ReorderCriticalRequest,
   ReorderCriticalResponse,
-  RescheduleReopenedRequest,
   TaskFilter,
   TaskListResponse,
   TaskNote,
@@ -200,16 +199,6 @@ export async function updateTaskProject(
   );
 }
 
-export async function updateLeadSource(
-  taskId: number,
-  data: { source: string; company_id: number; company_identifier: string },
-): Promise<ApiResponse<string>> {
-  return apiPost<ApiResponse<string>>(
-    `/tasks/updateleadsource/${taskId}`,
-    data,
-  );
-}
-
 export async function recalculateSchedule(
   taskId: number,
   data: RecalculateScheduleRequest,
@@ -248,37 +237,11 @@ export async function reorderCritical(
   );
 }
 
-export async function rescheduleReopened(
-  taskId: number,
-  data: RescheduleReopenedRequest,
-): Promise<ApiResponse<string>> {
-  return apiPost<ApiResponse<string>>(
-    `/tasks/reschedule-reopened/${taskId}`,
-    data,
-  );
-}
-
 export async function reopenTask(
   taskId: number,
   data: ReopenTaskRequest,
 ): Promise<ApiResponse<string>> {
   return apiPost<ApiResponse<string>>(`/tasks/reopen/${taskId}`, data);
-}
-
-export async function migratePriorities(
-  companyId: number,
-): Promise<ApiResponse<any>> {
-  return apiPost<ApiResponse<any>>("/tasks/migrate-priorities", {
-    company_id: companyId,
-  });
-}
-
-export async function migrateEffortToMinutes(
-  companyId: number,
-): Promise<ApiResponse<any>> {
-  return apiPost<ApiResponse<any>>("/tasks/migrate-effort-to-minutes", {
-    company_id: companyId,
-  });
 }
 
 export async function addNote(

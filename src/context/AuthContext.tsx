@@ -1,6 +1,6 @@
 import * as authService from "@/services/api/auth.service";
 import { setAuthFailureHandler } from "@/services/api/client";
-import { getModules } from "@/services/api/modules.service";
+import { getCompanyModules } from "@/services/api/modules.service";
 import { onSocketEvent } from "@/services/socket/socketService";
 import { Company, UserData } from "@/types/auth.types";
 import { invalidateAuthTokenCache } from "@/utils/secureImageFetch";
@@ -36,9 +36,9 @@ type AuthState = {
   isDefaultPassword: boolean;
   loading: boolean;
   defaultPasswordEmail: string;
-  // Whether the company's "Advanced Task" module is enabled (drives the
-  // Create Task screen's Due Date vs Hrs/duration flow). Null until the
-  // /modules/all lookup resolves.
+  // Whether the company's "Advanced Task Scheduling" module is enabled (drives
+  // the Create Task screen's Due Date vs Hrs/duration flow). Null until the
+  // company.modules lookup resolves.
   hasAdvancedTaskModule: boolean | null;
 };
 
@@ -212,51 +212,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       JSON.stringify(companyModules),
     );
 
-    // company.modules is the company's actual enabled-module list (derived
-    // from its package) — /modules/all is a GLOBAL module catalog used by
-    // the admin's package editor (verified: it returns the identical list,
-    // including status flags, for every company regardless of package), so
-    // it can never distinguish an "Advanced Task Scheduling" company from a
-    // "Standard" one on its own. It's only still fetched here to translate
-    // company.modules in case that array turns out to hold numeric module
-    // ids rather than names — matches by substring either way.
-    const isAdvancedMatch = (s: string) =>
-      /advance/i.test(s) && /task/i.test(s);
+    const isAdvanced = (names: string[]) =>
+      names.includes("Advanced Task Scheduling");
 
     (async () => {
-      try {
-        const advancedFromNames = companyModules.some((m) =>
-          isAdvancedMatch(String(m)),
-        );
-        let advanced = advancedFromNames;
+      let advanced = isAdvanced(companyModules);
 
-        const allNumericIds =
-          companyModules.length > 0 &&
-          companyModules.every((m) => /^\d+$/.test(String(m)));
-        if (allNumericIds) {
-          const res = await getModules();
+      // company.modules is normally the resolved name list. If it is empty or
+      // still holds numeric ids, refresh it from the company endpoint. Never
+      // call /modules/all: it is SaaS-admin only and returns 403.
+      const needsRefresh =
+        companyModules.length === 0 ||
+        companyModules.every((m) => /^\d+$/.test(String(m)));
+
+      if (needsRefresh) {
+        try {
+          const res = await getCompanyModules(companyId);
           if (cancelled) return;
-          const catalog = res?.data?.modules ?? [];
-          const idSet = new Set(companyModules.map((m) => String(m)));
-          advanced = catalog.some(
-            (m) => idSet.has(String(m.id)) && isAdvancedMatch(m.name),
-          );
+          advanced = isAdvanced(res?.data?.modules ?? []);
+        } catch (err) {
+          if (cancelled) return;
+          console.warn("[Auth] Failed to refresh company modules:", err);
+          advanced = false;
         }
-
-        console.log(
-          `[Auth] hasAdvancedTaskModule resolved to ${advanced} for company_id=${companyId}`,
-        );
-        dispatch({ type: "SET_ADVANCED_TASK_MODULE", enabled: advanced });
-      } catch (err) {
-        if (cancelled) return;
-        console.warn(
-          "[Auth] Failed to resolve advanced task module, defaulting to normal task flow:",
-          err,
-        );
-        dispatch({ type: "SET_ADVANCED_TASK_MODULE", enabled: false });
       }
-    })();
 
+      if (cancelled) return;
+      console.log(
+        `[Auth] hasAdvancedTaskModule resolved to ${advanced} for company_id=${companyId}`,
+      );
+      dispatch({ type: "SET_ADVANCED_TASK_MODULE", enabled: advanced });
+    })();
     return () => {
       cancelled = true;
     };

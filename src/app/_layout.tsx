@@ -7,9 +7,7 @@ import {
   PushNotificationProvider,
   usePushNotifications,
 } from "@/context/PushNotificationContext";
-// Task state is now managed by Zustand store (src/features/tasks/store)
-// TaskProvider is preserved for Chat compatibility but sourced differently
-import { useTasks } from "@/features/tasks/store";
+import { TaskProvider } from "@/context/TaskContext";
 import { useUpdates } from "@/hooks/useUpdates";
 import {
   connectSocket,
@@ -220,6 +218,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#fff" }}>
       <AuthProvider>
+        <TaskProvider>
           <NotificationProvider>
             <ChatProvider>
               {/* PROJECT MODULE DISABLED
@@ -238,6 +237,7 @@ export default function RootLayout() {
               */}
             </ChatProvider>
           </NotificationProvider>
+        </TaskProvider>
       </AuthProvider>
     </GestureHandlerRootView>
   );

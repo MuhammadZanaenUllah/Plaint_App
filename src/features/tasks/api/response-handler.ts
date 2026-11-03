@@ -1,7 +1,16 @@
-// API response handler for Task Module
-// Phase 1 — Foundation
+// Compatibility re-exports. Canonical API result contract lives in apiResult.ts.
+import { normalizeApiResponse } from "./apiResult";
 
-import { TaskListItem, TaskListResponse, ViewTaskData, CreateTaskPayload, UpdateTaskPayload } from "../types/task.types";
+export {
+  normalizeApiResponse,
+  extractApiMessage,
+  isUnauthenticated,
+  isNonJson,
+  successResult,
+  failureResult,
+  fromError,
+  type ApiResult,
+} from "./apiResult";
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -12,52 +21,29 @@ export interface ApiResponse<T> {
 
 export interface TaskApiResponse {
   success: boolean;
-  task?: TaskListItem;
-  tasks?: TaskListItem[];
+  task?: unknown;
+  tasks?: unknown[];
   total?: number;
   due_today_count?: number;
   complete_count?: number;
   error?: string;
+  data?: unknown;
 }
 
-/** Parse API response, extracting error message per contract CONV-02 */
-export function parseApiResponse(
-  res: Response
-): { body: unknown; good: boolean; error?: string } {
-  const text = res.status === 0 ? "Network error" : res.status >= 500 ? "Server error" : res.status >= 400 ? "Bad request" : "";
-
-  let body: unknown;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    body = text;
-  }
-
-  // CONV-02: Show first string in data, message, msg, or error
-  let msg = "";
-  if (typeof body === "object" && body !== null) {
-    const obj = body as Record<string, unknown>;
-    msg =
-      (obj as any).data?.trim() ||
-      (obj as any).message?.trim() ||
-      (obj as any).msg?.trim() ||
-      (obj as any).error?.trim();
-  }
-  if (typeof body === "string" && body.trim()) {
-    msg = body.trim();
-  }
-
-  const good = (body as any)?.Good === true || (body as any)?.success === true || res.ok;
-
-  return { body, good, error: msg || undefined };
+export function parseApiResponse(body: unknown, status = 0) {
+  const result = normalizeApiResponse<unknown>(body, status);
+  return {
+    body,
+    good: result.ok,
+    error: result.ok ? undefined : result.message,
+    result,
+  };
 }
 
-/** Build a standardized task API success response */
 export function successTaskResponse<T>(data: T): TaskApiResponse {
   return { success: true, data };
 }
 
-/** Build a standardized task API error response */
 export function errorTaskResponse(msg: string): TaskApiResponse {
   return { success: false, error: msg };
 }
