@@ -1,5 +1,4 @@
-// Task store lifecycle. Wire into TaskContext/Auth logout in Phase 2.
-// Phase 1 only defines the reset helper.
+// Task store lifecycle shared by TaskContext and Auth logout.
 
 import { useTaskDetailStore } from "./taskDetailStore";
 import { useTaskFiltersStore } from "./taskFiltersStore";

@@ -1,6 +1,4 @@
-// Task Module stores.
-// Phase 1 scaffolding: these stores compile and reset, but no screen consumes
-// them yet. `TaskContext` remains the Chat compatibility facade.
+// Task Module stores and selectors.
 
 export { useTasksStore, tasksStore } from "./tasksStore";
 export type { TasksState, TaskBucket } from "./tasksStore";

@@ -1,3 +1,4 @@
+import { resetTaskStores } from "@/features/tasks/store";
 import * as authService from "@/services/api/auth.service";
 import { setAuthFailureHandler } from "@/services/api/client";
 import { getCompanyModules } from "@/services/api/modules.service";
@@ -359,6 +360,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         company,
       });
     } else {
+      resetTaskStores();
       console.log(
         "No valid saved session found. Please sign in with email & password.",
       );
@@ -366,6 +368,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    resetTaskStores();
     await clearAllAuth();
     invalidateAuthTokenCache();
     dispatch({ type: "LOGOUT" });

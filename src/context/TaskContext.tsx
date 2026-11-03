@@ -1,3 +1,4 @@
+import { resetTaskStores, useTasksStore } from "@/features/tasks/store";
 import { useAuth } from "@/hooks/useAuth";
 import * as tasksService from "@/services/api/tasks.service";
 import {
@@ -22,6 +23,7 @@ import {
   ViewTaskData,
 } from "@/types/task.types";
 import { extractErrorMessage } from "@/utils/errorHandler";
+import { useShallow } from "zustand/react/shallow";
 import {
   MappedTaskRow,
   mapTaskListResponse,
@@ -31,6 +33,7 @@ import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useReducer,
   useRef,
@@ -44,6 +47,9 @@ type TaskState = {
   priorities: TaskPriority[];
   taskOwners: TaskOwner[];
   statusList: string[];
+  completeCount: number;
+  completedPage: number;
+  hasMoreCompleted: boolean;
   loading: boolean;
   error: string | null;
   activeFilter: TaskFilter | null;
@@ -106,6 +112,9 @@ const initialState: TaskState = {
   priorities: [],
   taskOwners: [],
   statusList: [],
+  completeCount: 0,
+  completedPage: 0,
+  hasMoreCompleted: false,
   loading: false,
   error: null,
   activeFilter: null,
@@ -123,6 +132,7 @@ function taskReducer(state: TaskState, action: TaskAction): TaskState {
         priorities: action.data.priority,
         taskOwners: action.data.task_owner,
         statusList: action.data.status,
+        completeCount: action.data.complete_count ?? state.completeCount,
         loading: false,
         error: null,
         isPartialLoad: action.partial ?? false,
@@ -202,7 +212,9 @@ export type TaskContextValue = {
     options?: { silent?: boolean },
   ) => Promise<void>;
   fetchDueToday: (companyId: number) => Promise<void>;
+  fetchRecurring: (companyId: number) => Promise<void>;
   fetchFiltered: (companyId: number, filter: TaskFilter) => Promise<void>;
+  fetchCompletedPage: (companyId: number, page: number) => Promise<boolean>;
   setActiveFilter: (filter: TaskFilter | null) => void;
   createTask: (data: CreateTaskRequest) => Promise<number>;
   updateTask: (taskId: number, data: UpdateTaskRequest) => Promise<any>;
@@ -301,31 +313,162 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 
   const { state: authState } = useAuth();
   const companyId = authState.company?.company_id ?? null;
+  const previousCompanyIdRef = useRef(companyId);
+
+  useEffect(() => {
+    if (
+      previousCompanyIdRef.current !== null &&
+      companyId !== previousCompanyIdRef.current
+    ) {
+      resetTaskStores();
+      dispatch({ type: "LOGOUT" });
+      setDueTodayCount(0);
+      setFilteredMappedTasks([]);
+    }
+    previousCompanyIdRef.current = companyId;
+  }, [companyId]);
+
+  const storeSnapshot = useTasksStore(
+    useShallow((store) => ({
+      byId: store.byId,
+      assignedToMeIds: store.assignedToMeIds,
+      createdByMeIds: store.createdByMeIds,
+      allOtherTaskIds: store.allOtherTaskIds,
+      completedIds: store.completedIds,
+      recurringIds: store.recurringIds,
+      owners: store.owners,
+      priorities: store.priorities,
+      statusList: store.statusList,
+      completeCount: store.completeCount,
+      dueTodayCount: store.dueTodayCount,
+      completedPage: store.completedPage,
+      hasMoreCompleted: store.hasMoreCompleted,
+      isLoading: store.isLoading,
+      isPartialLoad: store.isPartialLoad,
+      error: store.error,
+      stale: store.stale,
+    })),
+  );
+
+  const rowsFromStore = useCallback(
+    (ids: number[]): TaskListItem[] =>
+      ids.reduce<TaskListItem[]>((acc, id) => {
+        const task = storeSnapshot.byId[id];
+        if (!task) return acc;
+        acc.push({ ...task } as TaskListItem);
+        return acc;
+      }, []),
+    [storeSnapshot.byId],
+  );
+
+  const mergeRows = useCallback(
+    (legacyRows: TaskListItem[], ids: number[]) => {
+      const rows = new Map(legacyRows.map((task) => [Number(task.id), task]));
+      for (const task of rowsFromStore(ids)) {
+        if (!rows.has(Number(task.id))) rows.set(Number(task.id), task);
+      }
+      return [...rows.values()];
+    },
+    [rowsFromStore],
+  );
+
+  const effectiveState = useMemo(() => {
+    const nextAssignedToMe = mergeRows(
+      state.assignedToMe,
+      storeSnapshot.assignedToMeIds,
+    );
+    const nextCreatedByMe = mergeRows(
+      state.createdByMe,
+      storeSnapshot.createdByMeIds,
+    );
+    const nextAllOtherTasks = mergeRows(state.allOtherTasks, [
+      ...storeSnapshot.allOtherTaskIds,
+      ...storeSnapshot.recurringIds,
+      ...storeSnapshot.completedIds,
+    ]);
+
+    return {
+      ...state,
+      assignedToMe: nextAssignedToMe,
+      createdByMe: nextCreatedByMe,
+      allOtherTasks: nextAllOtherTasks,
+      taskOwners:
+        state.taskOwners.length > 0 ? state.taskOwners : storeSnapshot.owners,
+      priorities:
+        state.priorities.length > 0 ? state.priorities : storeSnapshot.priorities,
+      statusList:
+        state.statusList.length > 0 ? state.statusList : storeSnapshot.statusList,
+      completeCount: storeSnapshot.completeCount || state.completeCount,
+      completedPage: storeSnapshot.completedPage,
+      hasMoreCompleted: storeSnapshot.hasMoreCompleted,
+      loading: state.loading || storeSnapshot.isLoading,
+      error: state.error ?? storeSnapshot.error,
+      isPartialLoad:
+        state.isPartialLoad ||
+        storeSnapshot.isPartialLoad ||
+        storeSnapshot.stale,
+    };
+  }, [mergeRows, state, storeSnapshot]);
+
+  useEffect(() => {
+    if (
+      state.assignedToMe.length === 0 &&
+      state.createdByMe.length === 0 &&
+      state.allOtherTasks.length === 0 &&
+      state.taskOwners.length === 0 &&
+      state.priorities.length === 0 &&
+      state.statusList.length === 0 &&
+      state.completeCount === 0
+    ) {
+      return;
+    }
+    useTasksStore.getState().applyBuckets(
+      {
+        tasks_assigned_to_me: state.assignedToMe,
+        tasksByme: state.createdByMe,
+        all_other_tasks: state.allOtherTasks,
+        task_owner: state.taskOwners,
+        priority: state.priorities,
+        status: state.statusList,
+        complete_count: state.completeCount,
+      },
+      { merge: state.isPartialLoad },
+    );
+  }, [
+    state.assignedToMe,
+    state.createdByMe,
+    state.allOtherTasks,
+    state.taskOwners,
+    state.priorities,
+    state.statusList,
+    state.completeCount,
+    state.isPartialLoad,
+  ]);
 
   const mappedAssignedToMe = useMemo(
     () =>
       mapTaskListResponse({
-        tasks_assigned_to_me: state.assignedToMe,
+        tasks_assigned_to_me: effectiveState.assignedToMe,
         tasksByme: [],
         all_other_tasks: [],
-        task_owner: state.taskOwners,
+        task_owner: effectiveState.taskOwners,
         priority: [],
         status: [],
       }).assignedToMe,
-    [state.assignedToMe, state.taskOwners],
+    [effectiveState.assignedToMe, effectiveState.taskOwners],
   );
 
   const mappedCreatedByMe = useMemo(
     () =>
       mapTaskListResponse({
         tasks_assigned_to_me: [],
-        tasksByme: state.createdByMe,
+        tasksByme: effectiveState.createdByMe,
         all_other_tasks: [],
-        task_owner: state.taskOwners,
+        task_owner: effectiveState.taskOwners,
         priority: [],
         status: [],
       }).createdByMe,
-    [state.createdByMe, state.taskOwners],
+    [effectiveState.createdByMe, effectiveState.taskOwners],
   );
 
   const mappedAllOtherTasks = useMemo(
@@ -333,12 +476,12 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       mapTaskListResponse({
         tasks_assigned_to_me: [],
         tasksByme: [],
-        all_other_tasks: state.allOtherTasks,
-        task_owner: state.taskOwners,
+        all_other_tasks: effectiveState.allOtherTasks,
+        task_owner: effectiveState.taskOwners,
         priority: [],
         status: [],
       }).allOtherTasks,
-    [state.allOtherTasks, state.taskOwners],
+    [effectiveState.allOtherTasks, effectiveState.taskOwners],
   );
 
   // Reuses the already-mapped arrays above instead of re-running
@@ -346,181 +489,45 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   // 500+ tasks for some companies, so this used to double the per-tab-switch
   // mapping cost for no reason.
   const allMappedTasks = useMemo(
-    () => [...mappedAssignedToMe, ...mappedCreatedByMe, ...mappedAllOtherTasks],
+    () => {
+      const unique = new Map<number, MappedTaskRow>();
+      for (const task of [
+        ...mappedAssignedToMe,
+        ...mappedCreatedByMe,
+        ...mappedAllOtherTasks,
+      ]) {
+        unique.set(Number(task.id), task);
+      }
+      return [...unique.values()];
+    },
     [mappedAssignedToMe, mappedCreatedByMe, mappedAllOtherTasks],
   );
 
   const totalCount = allMappedTasks.length;
 
-  // /tasks/all + /tasks/duetoday are unpaginated (fetch the whole company's
-  // task list every call), so overlapping requests are pure waste. Dedupe
-  // concurrent calls onto a single in-flight request instead of firing one
-  // per caller (mount + a same-instant socket refetch + pull-to-refresh, etc).
-  const inFlightFetchRef = useRef<Promise<void> | null>(null);
-
   const fetchAllTasks = useCallback(
     async (companyId: number, options?: { silent?: boolean }) => {
-      if (inFlightFetchRef.current) {
-        console.log(
-          `[TaskContext] fetchAllTasks already in flight â€” awaiting existing request instead of firing a new one`,
-        );
-        return inFlightFetchRef.current;
-      }
-
-      // /tasks/all is unpaginated and returns the whole company's task list
-      // (500+ tasks for some companies), while /tasks/duetoday returns just
-      // today's slice. The web app documents this as a two-phase load:
-      // duetoday first for an almost-instant first paint, then the full list
-      // fills in behind it. Mirror that here for foreground loads so the
-      // screen isn't stuck on a spinner for the full, heavier request.
-      const mergeArrays = (a: TaskListItem[] = [], b: TaskListItem[] = []) => {
-        const map = new Map<number, TaskListItem>();
-        for (const t of a ?? []) map.set(t.id, t);
-        for (const t of b ?? []) if (!map.has(t.id)) map.set(t.id, t);
-        return [...map.values()];
-      };
-
-      const applyDueTodayCount = (data: TaskListResponse) => {
-        setDueTodayCount(
-          data.tasks_assigned_to_me.length +
-            data.tasksByme.length +
-            data.all_other_tasks.length,
-        );
-      };
-
-      const run = async () => {
-        console.log(
-          `[TaskContext] fetchAllTasks called with companyId=${companyId}, silent=${options?.silent}`,
-        );
-        if (!options?.silent) {
-          dispatch({ type: "SET_LOADING", loading: true });
-        }
-        setFilteredMappedTasks([]);
-        try {
-          if (options?.silent) {
-            // Background refresh (socket/pull-to-refresh) â€” no spinner is
-            // showing, so fetch both in parallel as before; there's nothing to
-            // paint sooner by staggering them.
-            const [res, todayRes] = await Promise.all([
-              tasksService.getAllTasks(companyId),
-              tasksService.getDueTodayTasks(companyId),
-            ]);
-
-            if (res.Good && res.data) {
-              const mergedData: TaskListResponse = {
-                ...res.data,
-                tasks_assigned_to_me: mergeArrays(
-                  res.data.tasks_assigned_to_me,
-                  todayRes.data?.tasks_assigned_to_me,
-                ),
-                tasksByme: mergeArrays(
-                  res.data.tasksByme,
-                  todayRes.data?.tasksByme,
-                ),
-                all_other_tasks: mergeArrays(
-                  res.data.all_other_tasks,
-                  todayRes.data?.all_other_tasks,
-                ),
-              };
-              dispatch({ type: "LOAD_SUCCESS", data: mergedData });
-              dispatch({ type: "SET_FILTER", filter: null });
-              if (todayRes.Good && todayRes.data)
-                applyDueTodayCount(todayRes.data);
-            } else {
-              console.error(`[TaskContext] getAllTasks failed:`, res.message);
-              dispatch({
-                type: "SET_ERROR",
-                error: res.message ?? "Failed to load tasks",
-              });
-            }
-            return;
-          }
-
-          // Foreground load â€” Phase 1: today's tasks only, paints almost
-          // instantly and turns off the loading spinner.
-          const todayRes = await tasksService.getDueTodayTasks(companyId);
-          if (todayRes.Good && todayRes.data) {
-            dispatch({
-              type: "LOAD_SUCCESS",
-              data: todayRes.data,
-              partial: true,
-            });
-            dispatch({ type: "SET_FILTER", filter: null });
-            applyDueTodayCount(todayRes.data);
-          }
-
-          // Phase 2: the full (unpaginated) company task list, merged in once
-          // it arrives â€” no spinner, the screen already has Phase 1's data.
-          const res = await tasksService.getAllTasks(companyId);
-          console.log(
-            `[TaskContext] getAllTasks response Good=${res.Good}, data keys:`,
-            res.data ? Object.keys(res.data) : "null",
-          );
-
-          if (res.Good && res.data) {
-            const mergedData: TaskListResponse = {
-              ...res.data,
-              tasks_assigned_to_me: mergeArrays(
-                res.data.tasks_assigned_to_me,
-                todayRes.data?.tasks_assigned_to_me,
-              ),
-              tasksByme: mergeArrays(
-                res.data.tasksByme,
-                todayRes.data?.tasksByme,
-              ),
-              all_other_tasks: mergeArrays(
-                res.data.all_other_tasks,
-                todayRes.data?.all_other_tasks,
-              ),
-            };
-
-            const taskCount =
-              (mergedData.tasks_assigned_to_me?.length ?? 0) +
-              (mergedData.tasksByme?.length ?? 0) +
-              (mergedData.all_other_tasks?.length ?? 0);
-            console.log(
-              `[TaskContext] Loaded ${taskCount} tasks total (assigned_to_me: ${mergedData.tasks_assigned_to_me?.length ?? 0}, by_me: ${mergedData.tasksByme?.length ?? 0}, other: ${mergedData.all_other_tasks?.length ?? 0})`,
-            );
-
-            dispatch({ type: "LOAD_SUCCESS", data: mergedData });
-            dispatch({ type: "SET_FILTER", filter: null });
-          } else if (!todayRes.Good) {
-            console.error(`[TaskContext] getAllTasks failed:`, res.message);
-            dispatch({
-              type: "SET_ERROR",
-              error: res.message ?? "Failed to load tasks",
-            });
-          }
-        } catch (error) {
-          console.error(`[TaskContext] fetchAllTasks error:`, error);
-          dispatch({ type: "SET_ERROR", error: extractErrorMessage(error) });
-        }
-      };
-
-      const promise = run().finally(() => {
-        inFlightFetchRef.current = null;
+      setFilteredMappedTasks([]);
+      dispatch({ type: "SET_FILTER", filter: null });
+      dispatch({ type: "SET_ERROR", error: null });
+      await useTasksStore.getState().loadDashboard(companyId, {
+        force: !!options?.silent,
+        silent: !!options?.silent,
       });
-      inFlightFetchRef.current = promise;
-      return promise;
     },
     [],
   );
 
-  const fetchDueToday = useCallback(async (companyId: number) => {
-    dispatch({ type: "SET_LOADING", loading: true });
-    try {
-      const res = await tasksService.getDueTodayTasks(companyId);
-      if (res.Good && res.data) {
-        dispatch({ type: "LOAD_SUCCESS", data: res.data });
-      } else {
-        dispatch({
-          type: "SET_ERROR",
-          error: res.message ?? "Failed to load due today tasks",
-        });
-      }
-    } catch (error) {
-      dispatch({ type: "SET_ERROR", error: extractErrorMessage(error) });
-    }
+  const fetchDueToday = useCallback(
+    async (companyId: number) => {
+      dispatch({ type: "SET_ERROR", error: null });
+      await useTasksStore.getState().loadDueToday(companyId);
+    },
+    [],
+  );
+
+  const fetchRecurring = useCallback(async (companyId: number) => {
+    await useTasksStore.getState().loadRecurring(companyId);
   }, []);
 
   const fetchFiltered = useCallback(
@@ -553,6 +560,13 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   const setActiveFilter = useCallback((filter: TaskFilter | null) => {
     dispatch({ type: "SET_FILTER", filter });
   }, []);
+
+  const fetchCompletedPage = useCallback(
+    async (companyId: number, page: number) => {
+      return useTasksStore.getState().loadCompletedPage(companyId, page);
+    },
+    [],
+  );
 
   const createTask = useCallback(
     async (data: CreateTaskRequest): Promise<number> => {
@@ -590,6 +604,9 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
           priority: state.priorities,
           status: state.statusList,
         },
+      });
+      useTasksStore.getState().patchTask(Number(taskId), {
+        status: status as import("@/features/tasks/types/task.types").TaskEntity["status"],
       });
     },
     [state],
@@ -887,6 +904,10 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
           remaining_effort_hours: data.remaining_effort_hours,
         },
       });
+      useTasksStore.getState().patchTask(Number(data.id), {
+        due_date: data.due_date,
+        effort_hours: data.remaining_effort_hours,
+      });
     },
     [],
   );
@@ -902,7 +923,10 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     (taskId: number, data: UpdateTaskRequest) => {
       const newOwner =
         data.assign_to != null
-          ? state.taskOwners.find((o) => o.id === data.assign_to)
+          ? state.taskOwners.find((o) => o.id === data.assign_to) ??
+            useTasksStore
+              .getState()
+              .owners.find((o) => o.id === data.assign_to)
           : undefined;
 
       const update = (items: TaskListItem[]): TaskListItem[] =>
@@ -947,6 +971,31 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
           status: state.statusList,
         },
       });
+      useTasksStore.getState().patchTask(taskId, {
+        title: data.title,
+        due_date: data.due_date,
+        priority: data.priority,
+        status: uiStatusToApi(data.status as UiTaskStatus) as import("@/features/tasks/types/task.types").TaskEntity["status"],
+        is_recurring: data.is_recurring,
+        approval_required: data.approval_required === 1 ? 1 : 0,
+        effort_hours: data.effort_hours,
+        effort_unit: data.effort_unit,
+        task_priority: data.task_priority,
+        asigned_to: data.assign_to,
+        assignee: data.assign_to,
+        ...(data.project_id != null ? { project_id: data.project_id } : {}),
+        ...(newOwner
+          ? {
+              task_assigned_to: {
+                id: newOwner.id,
+                first_name: newOwner.first_name,
+                last_name: newOwner.last_name,
+                image: newOwner.image ?? "",
+                role: 0,
+              },
+            }
+          : {}),
+      });
     },
     [state],
   );
@@ -973,6 +1022,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
           status: state.statusList,
         },
       });
+      useTasksStore.getState().patchTask(taskId, { project_id: projectId });
 
       const res = await tasksService.updateTaskProject(taskId, {
         project_id: projectId,
@@ -1019,24 +1069,27 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(() => {
+    resetTaskStores();
     setFilteredMappedTasks([]);
     dispatch({ type: "LOGOUT" });
   }, []);
 
   const value: TaskContextValue = useMemo(
     () => ({
-      state,
+      state: effectiveState,
       companyId,
       mappedAssignedToMe,
       mappedCreatedByMe,
       mappedAllOtherTasks,
       allMappedTasks,
       filteredMappedTasks,
-      dueTodayCount,
+      dueTodayCount: storeSnapshot.dueTodayCount || dueTodayCount,
       totalCount,
       fetchAllTasks,
       fetchDueToday,
+      fetchRecurring,
       fetchFiltered,
+      fetchCompletedPage,
       setActiveFilter,
       createTask,
       updateTask,
@@ -1065,7 +1118,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       logout,
     }),
     [
-      state,
+      effectiveState,
       companyId,
       mappedAssignedToMe,
       mappedCreatedByMe,
@@ -1073,10 +1126,13 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       allMappedTasks,
       filteredMappedTasks,
       dueTodayCount,
+      storeSnapshot.dueTodayCount,
       totalCount,
       fetchAllTasks,
       fetchDueToday,
+      fetchRecurring,
       fetchFiltered,
+      fetchCompletedPage,
       setActiveFilter,
       createTask,
       updateTask,
@@ -1101,6 +1157,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       reopenTaskAction,
       applyPriorityUpdate,
       applyJobStatusUpdate,
+      applyScheduleUpdate,
       logout,
     ],
   );

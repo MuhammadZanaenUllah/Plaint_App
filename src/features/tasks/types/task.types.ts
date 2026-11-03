@@ -138,6 +138,7 @@ export type TaskListItem = {
   priority_name: string;
   updatedAt: string;
   createdAt?: string;
+  completed_at?: string | null;
   effort_hours?: number; // minutes
   effort_unit?: string;
   start_date?: string;
@@ -208,6 +209,7 @@ export type TaskListResponse = {
   team_member_ids?: string[];
   complete_count?: number;
   stale?: boolean;
+  has_more?: boolean;
 };
 
 export type TaskNote = {

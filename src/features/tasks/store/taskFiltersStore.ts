@@ -1,4 +1,4 @@
-// Task dashboard filter/search/tab store. Scaffolding for Phase 2.
+// Task dashboard filter/search/tab state.
 
 import { create } from "zustand";
 import { TASK_FILTER_DEFAULTS, type EffortUnit } from "../constants/taskConstants";
@@ -15,6 +15,7 @@ export type TaskFiltersState = {
   dueFrom: string | null;
   dueTo: string | null;
   page: number;
+  filterModalVisible: boolean;
   // Future form state (kept here so modals can share it).
   effortUnit: EffortUnit;
 
@@ -26,6 +27,7 @@ export type TaskFiltersState = {
   setAssignedTo: (ids: number[]) => void;
   setDueRange: (from: string | null, to: string | null) => void;
   setPage: (page: number) => void;
+  setFilterModalVisible: (visible: boolean) => void;
   setEffortUnit: (unit: EffortUnit) => void;
   reset: () => void;
 };
@@ -40,6 +42,7 @@ const initialState = {
   dueFrom: TASK_FILTER_DEFAULTS.dueFrom,
   dueTo: TASK_FILTER_DEFAULTS.dueTo,
   page: TASK_FILTER_DEFAULTS.page,
+  filterModalVisible: false,
   effortUnit: "hours" as EffortUnit,
 };
 
@@ -54,6 +57,7 @@ export const useTaskFiltersStore = create<TaskFiltersState>()((set) => ({
   setAssignedTo: (assignedTo) => set({ assignedTo, page: 1 }),
   setDueRange: (dueFrom, dueTo) => set({ dueFrom, dueTo, page: 1 }),
   setPage: (page) => set({ page: Math.max(1, page) }),
+  setFilterModalVisible: (filterModalVisible) => set({ filterModalVisible }),
   setEffortUnit: (effortUnit) => set({ effortUnit }),
   reset: () => set({ ...initialState }),
 }));
