@@ -61,7 +61,7 @@ export type TasksState = {
     filter: TaskFilter,
     options?: { limit?: number; page?: number; waitFresh?: boolean },
   ) => Promise<void>;
-  loadRecurring: (companyId: number) => Promise<void>;
+  loadRecurring: (companyId: number, options?: { force?: boolean }) => Promise<void>;
   loadPendingApproval: (companyId: number) => Promise<void>;
   loadCompletedPage: (companyId: number, page: number) => Promise<boolean>;
   applyBuckets: (
@@ -223,7 +223,13 @@ function lookupPatch(response: TaskListResponse, state: TasksState) {
       .filter((task) => task.status === "Pending-Approval")
       .map((task) => Number(task.id)),
     owners: response.task_owner ?? state.owners,
+    ownersById: Object.fromEntries(
+      (response.task_owner ?? state.owners).map((owner) => [owner.id, owner]),
+    ),
     priorities: response.priority ?? state.priorities,
+    prioritiesById: Object.fromEntries(
+      (response.priority ?? state.priorities).map((priority) => [priority.id, priority]),
+    ),
     statusList: response.status ?? state.statusList,
     teamMemberIds: response.team_member_ids
       ? response.team_member_ids.map(Number)

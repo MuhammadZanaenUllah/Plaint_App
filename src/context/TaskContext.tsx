@@ -212,7 +212,7 @@ export type TaskContextValue = {
     options?: { silent?: boolean },
   ) => Promise<void>;
   fetchDueToday: (companyId: number) => Promise<void>;
-  fetchRecurring: (companyId: number) => Promise<void>;
+  fetchRecurring: (companyId: number, options?: { force?: boolean }) => Promise<void>;
   fetchFiltered: (companyId: number, filter: TaskFilter) => Promise<void>;
   fetchCompletedPage: (companyId: number, page: number) => Promise<boolean>;
   setActiveFilter: (filter: TaskFilter | null) => void;

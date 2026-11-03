@@ -1,0 +1,19 @@
+import { StyleSheet } from "react-native";
+
+export default StyleSheet.create({
+  root: { flex: 1, backgroundColor: "#fff", position: "relative" },
+  safe: { flex: 1 },
+  statsScroll: { flexGrow: 0 },
+  statsContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+    gap: 6,
+    alignItems: "center",
+  },
+  tableShell: {
+    flex: 1,
+    paddingLeft: 16,
+    paddingTop: 2,
+    paddingBottom: 0,
+  },
+});

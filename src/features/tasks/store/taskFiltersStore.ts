@@ -29,6 +29,7 @@ export type TaskFiltersState = {
   setPage: (page: number) => void;
   setFilterModalVisible: (visible: boolean) => void;
   setEffortUnit: (unit: EffortUnit) => void;
+  resetFilters: () => void;
   reset: () => void;
 };
 
@@ -59,6 +60,18 @@ export const useTaskFiltersStore = create<TaskFiltersState>()((set) => ({
   setPage: (page) => set({ page: Math.max(1, page) }),
   setFilterModalVisible: (filterModalVisible) => set({ filterModalVisible }),
   setEffortUnit: (effortUnit) => set({ effortUnit }),
+  resetFilters: () =>
+    set({
+      searchQuery: "",
+      status: null,
+      priority: null,
+      createdBy: [],
+      assignedTo: [],
+      dueFrom: null,
+      dueTo: null,
+      page: 1,
+      filterModalVisible: false,
+    }),
   reset: () => set({ ...initialState }),
 }));
 

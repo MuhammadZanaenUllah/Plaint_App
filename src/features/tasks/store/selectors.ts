@@ -113,6 +113,13 @@ export function selectTabCounts(
     | "completeCount"
   >,
   now: Date = new Date(),
+  options: {
+    isAts?: boolean;
+    filters?: Pick<
+      TaskFiltersState,
+      "searchQuery" | "status" | "priority" | "createdBy" | "assignedTo" | "dueFrom" | "dueTo"
+    >;
+  } = {},
 ): Record<TaskTabId, number> {
   const tabs: TaskTabId[] = [
     "all",
@@ -127,9 +134,10 @@ export function selectTabCounts(
   ];
   return tabs.reduce(
     (acc, tab) => {
-      acc[tab] = tab === "completed"
-        ? state.completeCount || selectTasksForTab(state, tab, now).length
-        : selectTasksForTab(state, tab, now).length;
+      const rows = selectTasksForTab(state, tab, now, { isAts: options.isAts });
+      acc[tab] = options.filters
+        ? applyTaskFilters(rows, options.filters).length
+        : rows.length;
       return acc;
     },
     {} as Record<TaskTabId, number>,

@@ -92,11 +92,13 @@ export function selectTabEntities(
     case "today": {
       const today = activeTasks.filter((task) => {
         if (!task.due_date) return false;
-        if (options.isAts) {
-          const due = parseTaskDate(task.due_date);
-          return !!due && due.getTime() >= now.getTime();
-        }
-        return isPktToday(task.due_date, now);
+        if (!isPktToday(task.due_date, now)) return false;
+        if (!options.isAts) return true;
+        // ATS tasks with a scheduled time stay in Due Today until that time
+        // passes (contract: due >= now). Date-only ATS tasks cover the day.
+        if (!task.due_date.includes("T")) return true;
+        const due = parseTaskDate(task.due_date);
+        return !!due && due.getTime() >= now.getTime();
       });
       return uniqueByRecurrenceOrigin(today);
     }
@@ -115,7 +117,9 @@ export function selectTabEntities(
         ) {
           return false;
         }
-        if (options.isAts) return isPktPast(task.due_date, now);
+        if (options.isAts && task.due_date.includes("T")) {
+          return isPktPast(task.due_date, now);
+        }
         return toPktDateOnly(task.due_date) < toPktDateOnly(pktTodayStart(now));
       });
     case "all":
