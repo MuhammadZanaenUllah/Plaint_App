@@ -22,6 +22,7 @@ import {
 import { buildUpdateTaskPayload } from "@/features/tasks/components/task-detail/taskUpdatePayload";
 import ReopenTaskModal from "@/features/tasks/components/task-detail/ReopenTaskModal";
 import ResumeTaskModal from "@/features/tasks/components/task-detail/ResumeTaskModal";
+import { useTaskDetailSocket } from "@/features/tasks/hooks/useTaskDetailSocket";
 import {
   hasPermission,
   TASK_PERMISSIONS,
@@ -33,11 +34,6 @@ import { normalizeApiStatus, toApiStatus } from "@/features/tasks/utils/taskStat
 import { validateAttachment } from "@/features/tasks/utils/taskValidation";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
-import {
-  getSocket,
-  onSocketEvent,
-  type TaskUpdatePayload,
-} from "@/services/socket/socketService";
 import {
   DependencyData,
   MentionUser,
@@ -1408,54 +1404,14 @@ export default function TaskDetailModal({
     }
   }, [visible, activeTab, task?.taskId, loadNotes, keepCommentBoxAboveKeyboard]);
 
-  const taskIdRef = useRef(task?.taskId);
-  taskIdRef.current = task?.taskId;
-
-  const companyIdRef = useRef(companyId);
-  companyIdRef.current = companyId;
-
-  const loadNotesRef = useRef(loadNotes);
-  loadNotesRef.current = loadNotes;
-
-  const loadTaskDetailRef = useRef(loadTaskDetail);
-  loadTaskDetailRef.current = loadTaskDetail;
-
-  useEffect(() => {
-    const socket = getSocket();
-    if (!socket || !visible) return;
-
-    const NOTE_ACTIONS = new Set([
-      "add_note",
-      "update_note",
-      "delete_note",
-      "update_note_pin",
-      "update_note_reaction",
-      "add_attachment",
-      "delete_attachment",
-    ]);
-
-    const cleanup = onSocketEvent("task_update", (payload: unknown) => {
-      const p = payload as TaskUpdatePayload;
-      if (String(p?.company_id) !== String(companyIdRef.current)) return;
-      if (!p?.action) return;
-      const eventTaskId =
-        (p.data as Record<string, unknown>)?.task_id ??
-        (p.data as Record<string, unknown>)?.id;
-      if (eventTaskId != null && Number(eventTaskId) === taskIdRef.current) {
-        if (p.action === "delete") {
-          sheetRef.current?.close();
-          return;
-        }
-        if (NOTE_ACTIONS.has(p.action)) {
-          loadNotesRef.current();
-        }
-        // Refresh task detail on any update to this task
-        loadTaskDetailRef.current();
-      }
-    });
-
-    return cleanup;
-  }, [visible]);
+  useTaskDetailSocket({
+    visible,
+    taskId: task?.taskId,
+    companyId,
+    onReloadDetail: loadTaskDetail,
+    onReloadNotes: loadNotes,
+    onClose: () => sheetRef.current?.close(),
+  });
 
   const handleCommentChange = (text: string) => {
     setCommentText(text);
@@ -4506,4 +4462,3 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
 });
-

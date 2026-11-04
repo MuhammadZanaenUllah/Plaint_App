@@ -26,7 +26,6 @@ import { useTaskFiltersStore } from "@/features/tasks/store/taskFiltersStore";
 import { useSearch } from "@/context/SearchContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
-import { useTaskSocket } from "@/hooks/useTaskSocket";
 import { showError } from "@/utils/toast";
 import { StatusBar } from "expo-status-bar";
 import {
@@ -102,8 +101,6 @@ function TasksScreenContent() {
     fetchRecurring,
     updateTaskStatusApi,
   } = useTasks();
-
-  useTaskSocket();
 
   const companyId = authState.company?.company_id ?? null;
   const companyIdentifier = authState.company?.company_identifier ?? "";

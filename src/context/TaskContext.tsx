@@ -1,4 +1,5 @@
 import { resetTaskStores, useTasksStore } from "@/features/tasks/store";
+import { useTaskSocketBridge } from "@/features/tasks/socket/taskSocketBridge";
 import { isApprovalRequiredMessage } from "@/features/tasks/api/taskApi";
 import { useAuth } from "@/hooks/useAuth";
 import * as tasksService from "@/services/api/tasks.service";
@@ -315,6 +316,12 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   const { state: authState } = useAuth();
   const companyId = authState.company?.company_id ?? null;
   const previousCompanyIdRef = useRef(companyId);
+
+  useTaskSocketBridge({
+    companyId,
+    currentUserId: authState.user?.id ?? 0,
+    isAts: authState.hasAdvancedTaskModule === true,
+  });
 
   useEffect(() => {
     if (
