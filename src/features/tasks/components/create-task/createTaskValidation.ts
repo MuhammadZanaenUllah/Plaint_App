@@ -4,7 +4,7 @@ import {
   RECURRING_PERIODS,
 } from "@/features/tasks/constants/taskConstants";
 import { toMinutes } from "@/features/tasks/utils/taskEffort";
-import { toPktDateOnly } from "@/features/tasks/utils/taskDate";
+import { toCalendarDateOnly, toPktDateOnly } from "@/features/tasks/utils/taskDate";
 import { normalizeApiStatus } from "@/features/tasks/utils/taskStatus";
 import { validateAttachment } from "@/features/tasks/utils/taskValidation";
 import type {
@@ -42,7 +42,7 @@ export function validateCreateTaskForm(
   } else if (!form.dueDate) {
     errors.dueDate = "Please select a due date.";
   } else {
-    const dueDate = toPktDateOnly(form.dueDate);
+    const dueDate = toCalendarDateOnly(form.dueDate);
     const today = toPktDateOnly(new Date());
     if (!dueDate) errors.dueDate = "Due date must be in YYYY-MM-DD format.";
     else if (dueDate < today) errors.dueDate = "Due date cannot be in the past.";

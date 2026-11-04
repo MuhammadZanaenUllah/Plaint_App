@@ -7,6 +7,7 @@
 import { apiGet, apiPost } from "@/services/api/client";
 import type {
   CreateTaskRequest,
+  CreateTaskResult,
   CriticalForUserResponse,
   DelayedPopupResponse,
   DependencyData,
@@ -27,7 +28,7 @@ import type {
   UpdateTaskStatusRequest,
   ViewTaskData,
 } from "../types/task.types";
-import { normalizeApiResponse, successResult, type ApiResult } from "./apiResult";
+import { failureResult, normalizeApiResponse, successResult, type ApiResult } from "./apiResult";
 import { toApiStatus } from "../utils/taskStatus";
 import {
   addNote,
@@ -124,11 +125,39 @@ export async function viewTask(
 }
 
 // ---- API-T-08: POST /tasks/create ----
+// The reply includes top-level `planning_hold` / `message` when the task's
+// project is still in Planning (contract §3.8). `data` is the saved task.
 export async function createTask(
   payload: CreateTaskRequest,
-): Promise<ApiResult<{ id: number }>> {
-  const body = await apiPost<unknown>("/tasks/create", payload);
-  return normalizeApiResponse<{ id: number }>(body);
+): Promise<ApiResult<CreateTaskResult>> {
+  const response = await apiPost<unknown>("/tasks/create", payload);
+  const normalized = normalizeApiResponse<unknown>(response);
+  if (!normalized.ok) return normalized;
+
+  const raw = response as Record<string, unknown> | null;
+  const data =
+    raw && typeof raw.data === "object" && raw.data !== null
+      ? (raw.data as Record<string, unknown>)
+      : null;
+  const id = Number(data?.id ?? raw?.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return failureResult(
+      "The task was created, but the server did not return its id.",
+      undefined,
+      response,
+    );
+  }
+
+  return successResult(
+    {
+      id,
+      planningHold: raw?.planning_hold === true,
+      message:
+        typeof raw?.message === "string" ? raw.message : normalized.message,
+      task: data ? (data as unknown as CreateTaskResult["task"]) : undefined,
+    },
+    response,
+  );
 }
 
 // ---- API-T-10: POST /tasks/update/:id ----

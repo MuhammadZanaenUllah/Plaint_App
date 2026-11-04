@@ -31,7 +31,16 @@ function isBetween(date: Date, start: Date, end: Date) {
   return date > start && date < end;
 }
 
-export default function CalendarPicker({ startDate, endDate, onSelectStart, onSelectEnd, onDone, compact = false }: Props) {
+export default function CalendarPicker({
+  startDate,
+  endDate,
+  minDate,
+  disablePast,
+  onSelectStart,
+  onSelectEnd,
+  onDone,
+  compact = false,
+}: Props) {
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());

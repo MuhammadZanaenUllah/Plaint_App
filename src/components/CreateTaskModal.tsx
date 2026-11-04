@@ -6,10 +6,38 @@ import {
 } from "@/components/CriticalTaskModal";
 import DependencyModal from "@/components/DependencyModal";
 import FloatingInput from "@/components/FloatingInput";
-import { ALL_STATUSES, STATUS_COLORS } from "@/components/TaskRow";
 import RichTextEditor, { RichTextEditorRef } from "@/components/texteditor";
 import DocumentPickerButton from "@/features/attachments/components/DocumentPickerButton";
 import type { SelectedFile } from "@/features/attachments/types/attachment.types";
+import { reorderCritical as reorderCriticalApi } from "@/features/tasks/api/taskApi";
+import {
+  DEFAULT_CREATE_TASK_FORM,
+  RECURRING_PERIOD_OPTIONS,
+  type CreateTaskFormState,
+} from "@/features/tasks/components/create-task/createTaskTypes";
+import {
+  validateCreateTaskAttachments,
+  validateCreateTaskForm,
+} from "@/features/tasks/components/create-task/createTaskValidation";
+import {
+  CREATE_STATUSES,
+  STATUS_COLORS,
+  STATUS_DISPLAY,
+} from "@/features/tasks/constants/taskConstants";
+import { useCreateTaskSubmit } from "@/features/tasks/hooks/useCreateTaskSubmit";
+import type {
+  RecurringPeriod,
+  TaskPriorityLevel,
+  TaskStatus,
+} from "@/features/tasks/types/task.types";
+import {
+  isCompletedStatus,
+  isInProgressStatus,
+  normalizeApiStatus,
+  statusLabel,
+} from "@/features/tasks/utils/taskStatus";
+import { toCalendarDateOnly, pktTodayStart } from "@/features/tasks/utils/taskDate";
+import { validateAttachment } from "@/features/tasks/utils/taskValidation";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import {
@@ -17,10 +45,8 @@ import {
   onSocketEvent,
   type UserUpdatePayload,
 } from "@/services/socket/socketService";
-import type { RecurringPeriod, UiTaskStatus } from "@/types/task.types";
 import { extractErrorMessage } from "@/utils/errorHandler";
 import { rf } from "@/utils/responsive";
-import { uiStatusToApi } from "@/utils/statusMapper";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -50,12 +76,6 @@ type Props = { visible: boolean; onClose: () => void; onCreated?: () => void };
 // Mirrors the previous "half"/"full" snap points from the @expo/ui sheet.
 const SNAP_POINTS = ["50%", "70%"];
 
-const TOP_CHIPS = [
-  { id: "assigned", icon: "people", label: "Assigned to" },
-  { id: "dueDate", icon: "calendar", label: "Due Date" },
-  { id: "priority", icon: "star", label: "Priority" },
-];
-
 // Advanced Task Module effort/duration unit — matches the web app's
 // Minutes/Hours/Days switcher on the "Hrs" chip.
 type EffortUnit = "minutes" | "hours" | "days";
@@ -65,18 +85,22 @@ const EFFORT_UNITS: { value: EffortUnit; label: string; abbrev: string }[] = [
   { value: "days", label: "Days", abbrev: "Days" },
 ];
 
-const PRIORITY_OPTIONS = [
-  { label: "Normal", dot: "#0DDFAB" },
-  { label: "Critical", dot: "#FF4444" },
+const PRIORITY_OPTIONS: {
+  value: TaskPriorityLevel;
+  label: string;
+  dot: string;
+}[] = [
+  { value: "normal", label: "Normal", dot: "#0DDFAB" },
+  { value: "critical", label: "Critical", dot: "#FF4444" },
 ];
 
-// "Recurring" is intentionally excluded — recurrence is modeled via the
-// separate recurring-task toggle below, not as a selectable status.
-const STATUSES = ALL_STATUSES.filter(
-  (s) => s !== "Recurring" && s !== "Pending-Approval",
-).map((s) => ({
-  label: s,
-  color: STATUS_COLORS[s]?.text ?? "#00DFAB",
+// Contract §3.8: create accepts only Pending, In-Progress, On-Hold or Complete.
+// Recurring is a template flag, not a status; Rejected/Pending-Approval are
+// server-driven transitions, not create-time choices.
+const STATUSES = CREATE_STATUSES.map((status) => ({
+  value: status,
+  label: STATUS_DISPLAY[status] ?? status,
+  color: STATUS_COLORS[status]?.fg ?? "#00DFAB",
 }));
 
 export default function CreateTaskModal({
@@ -84,61 +108,40 @@ export default function CreateTaskModal({
   onClose,
   onCreated,
 }: Props) {
-  const instanceIdRef = useRef(Math.random().toString(36).slice(2, 8));
-  useEffect(() => {
-    console.log(`[CreateTaskModal] MOUNTED instance=${instanceIdRef.current}`);
-    return () => {
-      console.log(
-        `[CreateTaskModal] UNMOUNTED instance=${instanceIdRef.current}`,
-      );
-    };
-  }, []);
-
   // Compensates KeyboardAvoidingView's padding for the home-indicator safe
   // area, otherwise that inset shows up as an empty gap above the keyboard.
   const insets = useSafeAreaInsets();
   const { state: authState } = useAuth();
-  const {
-    state: taskState,
-    createTask,
-    fetchAllTasks,
-    allMappedTasks,
-    reorderCritical,
-  } = useTasks();
+  const { state: taskState, fetchAllTasks, allMappedTasks } = useTasks();
 
-  const companyIdRef = useRef(authState.company?.company_id ?? 0);
-  companyIdRef.current = authState.company?.company_id ?? 0;
+  const companyId = authState.company?.company_id ?? 0;
+  const companyIdentifier = authState.company?.company_identifier ?? "";
+  const currentUserId = authState.user?.id ?? 0;
+  const isAdvanced = authState.hasAdvancedTaskModule === true;
 
-  const fetchRef = useRef(fetchAllTasks);
-  fetchRef.current = fetchAllTasks;
+  const { submit: submitCreateTask, submitting } = useCreateTaskSubmit({
+    companyId,
+    companyIdentifier,
+    isAts: isAdvanced,
+    currentUserId,
+  });
 
   useEffect(() => {
     const socket = getSocket();
-    if (!socket || !visible) return;
+    if (!socket || !visible || !companyId) return;
 
     const cleanup = onSocketEvent("user_update", (payload: unknown) => {
       const p = payload as UserUpdatePayload;
-      if (String(p?.company_id) !== String(companyIdRef.current)) return;
-      fetchRef.current(companyIdRef.current, { silent: true });
+      if (String(p?.company_id) !== String(companyId)) return;
+      fetchAllTasks(companyId, { silent: true });
     });
 
     return cleanup;
-  }, [visible]);
+  }, [visible, companyId, fetchAllTasks]);
 
   // Companies with the Advanced Task Module enabled schedule tasks by
   // effort/duration instead of a manually-picked due date — the backend
-  // engine computes due_date itself. Defaults to the normal (Due Date) flow
-  // until the company's module list has loaded.
-  const isAdvanced = authState.hasAdvancedTaskModule === true;
-
-  useEffect(() => {
-    if (visible) {
-      // console.log(
-      //   `[CreateTaskModal] Opened for company_id=${authState.company?.company_id}, ` +
-      //     `hasAdvancedTaskModule=${authState.hasAdvancedTaskModule}, isAdvanced=${isAdvanced}`,
-      // );
-    }
-  }, [visible, authState.company?.company_id, authState.hasAdvancedTaskModule]);
+  // engine computes due_date itself.
 
   const [activePanel, setActivePanel] = useState<
     | "assigned"
@@ -174,6 +177,34 @@ export default function CreateTaskModal({
     }
   };
 
+  // Hours use 0.5 increments; minutes use whole minutes; days keep the
+  // converted value (0.25 day = 2 h) rather than rounding to half-days.
+  const normalizeEffortValue = (value: string, unit: EffortUnit): string => {
+    const num = parseFloat(value);
+    if (!Number.isFinite(num) || num <= 0) return value;
+    if (unit === "minutes") return String(Math.round(num));
+    if (unit === "days") return String(Math.round(num * 10000) / 10000);
+    return String(Math.round(num * 2) / 2);
+  };
+
+  const handleEffortBlur = () => {
+    const num = parseFloat(effortHours);
+    if (!Number.isFinite(num)) return;
+    let normalized = num;
+    if (effortUnit === "minutes") normalized = Math.round(num);
+    else if (effortUnit === "days") normalized = Math.round(num * 10000) / 10000;
+    else normalized = Math.round(num * 2) / 2;
+    if (normalized <= 0) {
+      setEffortHours("");
+      setBaseHours(null);
+      return;
+    }
+    setEffortHours(String(normalized));
+    if (effortUnit === "minutes") setBaseHours(normalized / 60);
+    else if (effortUnit === "days") setBaseHours(normalized * 8);
+    else setBaseHours(normalized);
+  };
+
   const handleUnitChange = (newUnit: EffortUnit) => {
     setEffortUnit(newUnit);
     setEffortUnitOpen(false);
@@ -194,18 +225,17 @@ export default function CreateTaskModal({
   const [description, setDescription] = useState("");
   const [descFocused, setDescFocused] = useState(false);
   const [attachments, setAttachments] = useState<SelectedFile[]>([]);
-  const [assignOpen, setAssignOpen] = useState(false);
+
   const [assignSearch, setAssignSearch] = useState("");
   const [assignFocused, setAssignFocused] = useState(false);
   const [assignedUserId, setAssignedUserId] = useState<number | null>(null);
   const [assignedUserName, setAssignedUserName] = useState<string>("");
 
-  const [selectedPriority, setSelectedPriority] = useState<string>("Normal");
-  const [selectedPriorityId, setSelectedPriorityId] = useState<number | null>(
-    null,
-  );
+  const [selectedPriority, setSelectedPriority] =
+    useState<TaskPriorityLevel>("normal");
   const [selectedApproval, setSelectedApproval] = useState<string | null>(null);
-  const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState<TaskStatus | null>(null);
+
   // recurringOpen removed — now uses recurringModalVisible popup
   const [isRecurringEnabled, setIsRecurringEnabled] = useState(false);
   const [recurringPeriod, setRecurringPeriod] =
@@ -229,37 +259,29 @@ export default function CreateTaskModal({
     [],
   );
 
-  const [loading, setLoading] = useState(false);
-
   // ── Critical-task conflict flow ───────────────────────────────────────────
   // criticalPopupVisible: shown when assignee already has active critical tasks
   const [criticalPopupVisible, setCriticalPopupVisible] = useState(false);
   // orderModalVisible: shown after user picks "stop & start immediately"
   const [orderModalVisible, setOrderModalVisible] = useState(false);
-  // pendingPayload: the task payload waiting to be created once user resolves conflict
-  const pendingPayloadRef = useRef<Record<string, any> | null>(null);
+  // pendingForm: the validated form waiting to be created once the user
+  // resolves the critical conflict.
+  const pendingFormRef = useRef<CreateTaskFormState | null>(null);
   // existingCriticalTasks for the selected assignee
   const [assigneeCriticalTasks, setAssigneeCriticalTasks] = useState<
     CriticalTask[]
   >([]);
-  // placeholder for the new task in the order modal (actual id set after creation)
-  const PENDING_NEW_TASK_ID = -1;
+  // The created task shown in the order modal (real id after creation).
+  const [orderNewTask, setOrderNewTask] = useState<CriticalTask | null>(null);
 
-  const RECURRING_PERIODS: { value: RecurringPeriod; label: string }[] = [
-    { value: "daily", label: "Daily" },
-    { value: "weekly", label: "Weekly" },
-    { value: "monthly", label: "Monthly" },
-    { value: "annually", label: "Annually" },
-    // { value: "quarterly", label: "Quarterly" },
-    // { value: "semi-annually", label: "Semi-Annually" },
-  ];
+  const RECURRING_PERIODS = RECURRING_PERIOD_OPTIONS;
 
   const descriptionEditorRef = useRef<RichTextEditorRef>(null);
   const sheetRef = useRef<BottomSheetModal>(null);
   const scrollViewRef = useRef<any>(null);
   const effortRowRef = useRef<any>(null);
 
-  const titleFloated = titleFocused || title.length > 0;
+
 
   const filteredUsers = taskState.taskOwners.filter((u) => {
     const fullName = `${u.first_name} ${u.last_name}`.toLowerCase();
@@ -277,7 +299,21 @@ export default function CreateTaskModal({
   }, [allMappedTasks]);
 
   const handlePickFiles = (files: SelectedFile[]) => {
-    setAttachments((prev) => [...prev, ...files]);
+    const accepted: SelectedFile[] = [];
+    for (const file of files) {
+      const validation = validateAttachment(file);
+      if (!validation.valid) {
+        showError(
+          "Attachment Rejected",
+          `"${file.name}": ${Object.values(validation.errors)[0]}`,
+        );
+        continue;
+      }
+      accepted.push(file);
+    }
+    if (accepted.length > 0) {
+      setAttachments((prev) => [...prev, ...accepted]);
+    }
   };
 
   const removeAttachment = (index: number) => {
@@ -333,221 +369,219 @@ export default function CreateTaskModal({
     }
   };
 
-  /**
-   * Builds and validates the task payload, then either:
-   *   A) Shows the critical-conflict popup (if priority=critical AND assignee already has active critical tasks)
-   *   B) Directly creates the task (all other cases)
-   */
-  const handleCreateTask = async () => {
-    if (!title.trim()) {
-      showInfo("Validation", "Task title is required.");
-      return;
-    }
-    if (!assignedUserId) {
-      showInfo("Validation", "Please assign a user.");
-      return;
-    }
-    if (isAdvanced) {
-      if (!effortHours || parseFloat(effortHours) <= 0) {
-        showInfo("Validation", "Hours is required.");
-        return;
-      }
-    } else if (!selectedDueDate) {
-      showInfo("Validation", "Please select a due date.");
-      return;
-    }
-    if (!selectedPriority) {
-      showInfo("Validation", "Priority is required.");
-      return;
-    }
+  const defaultStatusForAssignee = useCallback(
+    (userId: number | null): TaskStatus => {
+      if (!userId) return "Pending";
+      const hasActive = allMappedTasks.some(
+        (task) =>
+          Number(task._raw.asigned_to) === Number(userId) &&
+          isInProgressStatus(task.status),
+      );
+      // Q-INT-06 / website behaviour: start the task immediately when the doer
+      // has no active task, otherwise queue it as Pending.
+      return hasActive ? "Pending" : "In-Progress";
+    },
+    [allMappedTasks],
+  );
 
+  // Defaults are derived so the form always shows the website-equivalent
+  // values without setState-in-effect cascades.
+  const selfOwner = taskState.taskOwners.find(
+    (owner) => Number(owner.id) === Number(currentUserId),
+  );
+  const effectiveAssigneeId =
+    assignedUserId ?? selfOwner?.id ?? (currentUserId || null);
+  const effectiveAssigneeName =
+    assignedUserName ||
+    (selfOwner
+      ? `${selfOwner.first_name} ${selfOwner.last_name}`.trim() ||
+        selfOwner.full_name
+      : authState.user
+        ? `${authState.user.first_name} ${authState.user.last_name}`.trim()
+        : "");
+  const effectiveDueDate =
+    selectedDueDate ?? (isAdvanced ? null : pktTodayStart());
+  const effectiveStatus =
+    selectedStatus ?? defaultStatusForAssignee(effectiveAssigneeId);
+  const effectivePriority = isAdvanced ? selectedPriority : "normal";
+
+  const buildForm = async (): Promise<CreateTaskFormState> => {
     const descriptionHtml =
       await descriptionEditorRef.current?.getContentHtml();
-    const companyId = authState.company?.company_id ?? 0;
-    const companyIdentifier = authState.company?.company_identifier ?? "";
-    const isRecurring = isRecurringEnabled;
-    const priority = selectedPriority.toLowerCase() as "normal" | "critical";
-
-    const totalCountNum = recurringTotalCount
-      ? parseInt(recurringTotalCount, 10)
-      : 0;
-    const monthDateNum = recurringMonthDate
-      ? parseInt(recurringMonthDate, 10)
-      : null;
-    const annualMonthNum = recurringAnnualMonth
-      ? parseInt(recurringAnnualMonth, 10)
-      : null;
-    const annualDateNum = recurringAnnualDate
-      ? parseInt(recurringAnnualDate, 10)
-      : null;
-
-    const requestPayload = {
-      title: title.trim(),
-      company_identifier: companyIdentifier,
-      company_id: companyId,
-      assign_to: assignedUserId,
-      // Advanced companies leave due_date null — the scheduling engine
-      // computes it from effort_hours/effort_unit/depends_on instead.
-      due_date: isAdvanced ? null : (selectedDueDate as Date).toISOString(),
-      task_priority: priority,
-      bump_to_front: priority === "critical", // default; overridden per popup choice
-      approval_required: selectedApproval === "Yes" ? 1 : 0,
-      status: uiStatusToApi(
-        (selectedStatus as UiTaskStatus) ??
-          (isRecurring ? "Recurring" : "Pending"),
-      ),
+    return {
+      ...DEFAULT_CREATE_TASK_FORM,
+      title,
       description: descriptionHtml ?? description,
-      project_id: null,
-      sprint_id: null,
-      parent_id: 0,
-      is_recurring: isRecurring,
-      recurring_period: isRecurring ? recurringPeriod : null,
-      recurring_time: isRecurring && recurringTime ? recurringTime : null,
-      recurring_total_count: isRecurring ? totalCountNum : 0,
-      recurring_exclude_days:
-        isRecurring && recurringPeriod === "daily" ? recurringExcludeDays : [],
-      recurring_week_day:
-        isRecurring && recurringPeriod === "weekly" ? recurringWeekDay : null,
-      recurring_month_date:
-        isRecurring && recurringPeriod === "monthly" ? monthDateNum : null,
-      recurring_annual_month:
-        isRecurring && recurringPeriod === "annually" ? annualMonthNum : null,
-      recurring_annual_date:
-        isRecurring && recurringPeriod === "annually" ? annualDateNum : null,
-      effort_hours: isAdvanced ? parseFloat(effortHours) || 0 : 0,
-      effort_unit: isAdvanced ? effortUnit : "hours",
-      depends_on: selectedDependencies,
+      assignTo: effectiveAssigneeId,
+      assignName: effectiveAssigneeName,
+      dueDate: effectiveDueDate,
+      effortValue: normalizeEffortValue(effortHours, effortUnit),
+      effortUnit,
+      taskPriority: effectivePriority,
+      status: effectiveStatus,
+      approvalRequired: selectedApproval === "Yes",
+      isRecurring: isRecurringEnabled,
+      recurringPeriod,
+      recurringTime: recurringTime || "09:00",
+      recurringTotalCount,
+      recurringExcludeDays,
+      recurringWeekDay,
+      recurringMonthDate,
+      recurringAnnualMonth,
+      recurringAnnualDate,
+      projectId: null,
+      sprintId: null,
+      parentId: 0,
+      dependsOn: isAdvanced ? selectedDependencies : [],
+      attachments,
     };
+  };
 
-    // ── Check for critical-task conflict ──────────────────────────────────────
-    if (priority === "critical") {
-      // Look for existing active critical tasks assigned to this user across all lists
-      const activeCritical = [
-        ...taskState.assignedToMe,
-        ...taskState.createdByMe,
-        ...taskState.allOtherTasks,
-      ].filter(
-        (t) =>
-          t.asigned_to === assignedUserId &&
-          t.task_priority === "critical" &&
-          t.status !== "Complete" &&
-          t.status !== "Rejected",
+  const finalizeCreate = () => {
+    resetForm();
+    onClose();
+    onCreated?.();
+  };
+
+  const createFromForm = async (
+    form: CreateTaskFormState,
+    bumpToFront: boolean,
+    showOrderAfterCreate = false,
+  ) => {
+    const result = await submitCreateTask(form, { bumpToFront });
+    if (!result) return;
+
+    showSuccess("Success", "Task created successfully.");
+    if (result.planningHold) {
+      showInfo(
+        "Planning Project",
+        result.message ??
+          "This task's project is still in Planning, so the task stays On Hold until the project starts.",
+      );
+    }
+
+    // A socket `create` event and the reply normally update the list. If the
+    // reply did not include the saved row, fall back to a silent refetch.
+    if (!result.task) {
+      fetchAllTasks(companyId, { silent: true }).catch(() => {});
+    }
+
+    if (showOrderAfterCreate && assigneeCriticalTasks.length > 0) {
+      setOrderNewTask({
+        id: result.id,
+        title: form.title,
+        assignedTo: form.assignName,
+        dueDate: form.dueDate
+          ? toCalendarDateOnly(form.dueDate)
+          : undefined,
+        status: form.status,
+      });
+      setOrderModalVisible(true);
+      return;
+    }
+
+    finalizeCreate();
+  };
+
+  /**
+   * Builds the form, validates it, and either shows the ATS critical-conflict
+   * prompt or creates immediately.
+   */
+  const handleCreateTask = async () => {
+    if (submitting) return;
+
+    const form = await buildForm();
+    const validation = validateCreateTaskForm(form, { isAts: isAdvanced });
+    if (!validation.valid) {
+      const messages = [...new Set(Object.values(validation.errors))];
+      showInfo("Validation", messages.join("\n"));
+      return;
+    }
+
+    const attachmentsValidation = validateCreateTaskAttachments(
+      form.attachments,
+    );
+    if (!attachmentsValidation.valid) {
+      showError("Attachment Rejected", attachmentsValidation.message);
+      return;
+    }
+
+    const isCritical = isAdvanced && form.taskPriority === "critical";
+    if (isCritical) {
+      // Conflict prompt is an ATS-only, critical-only rule (contract §8.5).
+      const activeCritical = allMappedTasks.filter(
+        (task) =>
+          Number(task._raw.asigned_to) === Number(form.assignTo) &&
+          task._raw.task_priority === "critical" &&
+          !isCompletedStatus(task._raw.status) &&
+          normalizeApiStatus(task._raw.status) !== "Rejected",
       );
 
       if (activeCritical.length > 0) {
-        // Stash the payload and show the conflict popup
-        pendingPayloadRef.current = requestPayload;
+        pendingFormRef.current = form;
         setAssigneeCriticalTasks(
-          activeCritical.map((t) => ({
-            id: t.id,
-            title: t.title,
-            dueDate: t.due_date ?? undefined,
-            status: t.status,
+          activeCritical.map((task) => ({
+            id: Number(task.id),
+            title: task.title,
+            dueDate: task._raw.due_date ?? undefined,
+            status: task._raw.status,
           })),
         );
         setCriticalPopupVisible(true);
-        return; // wait for user choice
+        return;
       }
     }
 
-    // ── No conflict — create directly ─────────────────────────────────────────
-    await doCreateTask(requestPayload);
-  };
-
-  /** Actually calls the API and handles success/error UI */
-  const doCreateTask = async (payload: Record<string, any>) => {
-    setLoading(true);
-    try {
-      // console.log(
-      //   `[CreateTaskModal] FULL PAYLOAD:`,
-      //   JSON.stringify(payload, null, 2),
-      // );
-      const response = await createTask(payload as any);
-      // console.log(
-      //   `[CreateTaskModal] BACKEND RESPONSE:`,
-      //   JSON.stringify(response, null, 2),
-      // );
-      showSuccess("Success", "Task created successfully.");
-      fetchAllTasks(payload.company_id as number, { silent: true }).catch(
-        (err) =>
-          console.error(
-            "[CreateTaskModal] fetchAllTasks after create failed:",
-            err,
-          ),
-      );
-      resetForm();
-      onClose();
-      onCreated?.();
-    } catch (error) {
-      const msg = extractErrorMessage(error);
-      showError("Error", msg);
-    } finally {
-      setLoading(false);
-    }
+    await createFromForm(form, isCritical);
   };
 
   // ── Critical popup handlers ───────────────────────────────────────────────
 
-  /** Option 1: Stop current task → create with bump_to_front: true */
+  /** Option 1: Stop current task → create with bump_to_front: true. */
   const handleStopAndStart = async () => {
     setCriticalPopupVisible(false);
-    if (!pendingPayloadRef.current) return;
-    const payload = { ...pendingPayloadRef.current, bump_to_front: true };
-    setLoading(true);
-    try {
-      // console.log(
-      //   `[CreateTaskModal] Critical Option 1 PAYLOAD:`,
-      //   JSON.stringify(payload, null, 2),
-      // );
-      await createTask(payload as any);
-      showSuccess(
-        "Success",
-        "Critical task created and scheduled at top priority.",
-      );
-      fetchAllTasks(authState.company?.company_id ?? 0, { silent: true }).catch(
-        () => {},
-      );
-      pendingPayloadRef.current = null;
-      resetForm();
-      onClose();
-      onCreated?.();
-    } catch (error) {
-      showError("Error", extractErrorMessage(error));
-    } finally {
-      setLoading(false);
-    }
+    const form = pendingFormRef.current;
+    pendingFormRef.current = null;
+    if (!form) return;
+    await createFromForm(form, true, true);
   };
 
-  /** Option 2: Wait → create with bump_to_front: false, close normally */
+  /** Option 2: Wait → create with bump_to_front: false, close normally. */
   const handleWaitAndSchedule = async () => {
     setCriticalPopupVisible(false);
-    if (!pendingPayloadRef.current) return;
-    const payload = { ...pendingPayloadRef.current, bump_to_front: false };
-    await doCreateTask(payload);
-    pendingPayloadRef.current = null;
+    const form = pendingFormRef.current;
+    pendingFormRef.current = null;
+    if (!form) return;
+    await createFromForm(form, false);
   };
 
-  /** Reorder modal confirmed: call POST /tasks/reorder-critical then close */
+  /** Reorder modal confirmed: call POST /tasks/reorder-critical then close. */
   const handleConfirmOrder = async (orderedIds: number[]) => {
-    const companyId = authState.company?.company_id ?? 0;
     try {
-      // Replace placeholder id -1 with the real new task id
-      const newTaskId = pendingPayloadRef.current?._newTaskId as
-        | number
-        | undefined;
-      const resolvedIds = orderedIds.map((id) =>
-        id === PENDING_NEW_TASK_ID && newTaskId ? newTaskId : id,
-      );
-      await reorderCritical({ orderedIds: resolvedIds, company_id: companyId });
+      const result = await reorderCriticalApi({
+        orderedIds,
+        company_id: companyId,
+      });
+      if (!result.ok) {
+        showError("Reorder Error", result.message);
+      } else if (result.data.blockedTasks.length > 0) {
+        const titles = result.data.blockedTasks
+          .map((task) => `"${task.title}"`)
+          .join(", ");
+        showInfo(
+          "Order Saved",
+          `Order saved. ${titles} have unfinished dependencies — they will be scheduled at the selected position once the dependencies are completed.`,
+        );
+      } else {
+        showSuccess("Success", "Critical task order updated.");
+      }
       fetchAllTasks(companyId, { silent: true }).catch(() => {});
-      onCreated?.();
     } catch (error) {
       showError("Reorder Error", extractErrorMessage(error));
     } finally {
       setOrderModalVisible(false);
-      pendingPayloadRef.current = null;
-      resetForm();
-      onClose();
+      setOrderNewTask(null);
+      finalizeCreate();
     }
   };
 
@@ -566,10 +600,10 @@ export default function CreateTaskModal({
     setAssignFocused(false);
     setAssignedUserId(null);
     setAssignedUserName("");
-    setSelectedPriority("Normal");
-    setSelectedPriorityId(null);
+    setSelectedPriority("normal");
     setSelectedApproval(null);
     setSelectedStatus(null);
+
     setAssignModalVisible(false);
     setRecurringModalVisible(false);
     setDependenciesModalVisible(false);
@@ -588,7 +622,8 @@ export default function CreateTaskModal({
     setDependenciesModalVisible(false);
     setCriticalPopupVisible(false);
     setOrderModalVisible(false);
-    pendingPayloadRef.current = null;
+    setOrderNewTask(null);
+    pendingFormRef.current = null;
     setAssigneeCriticalTasks([]);
     if (descriptionEditorRef.current) {
       descriptionEditorRef.current.setContentHtml("");
@@ -640,7 +675,7 @@ export default function CreateTaskModal({
       showSub.remove();
       hideSub.remove();
     };
-  }, []);
+  }, [topSnapIndex]);
 
   const effortPanelOpen = activePanel === "dueDate" && isAdvanced;
 
@@ -715,26 +750,9 @@ export default function CreateTaskModal({
     [],
   );
 
-  const handleSelectPriority = (label: string) => {
-    setSelectedPriority(label);
-    const priority = taskState.priorities.find(
-      (p) => p.name.toLowerCase() === label.toLowerCase(),
-    );
-    setSelectedPriorityId(priority?.id ?? null);
+  const handleSelectPriority = (value: TaskPriorityLevel) => {
+    setSelectedPriority(isAdvanced ? value : "normal");
   };
-
-  // Set Normal as default priority when modal opens
-  useEffect(() => {
-    if (visible && !selectedPriorityId) {
-      const normalPriority = taskState.priorities.find(
-        (p) => p.name.toLowerCase() === "normal",
-      );
-      if (normalPriority) {
-        setSelectedPriority("Normal");
-        setSelectedPriorityId(normalPriority.id);
-      }
-    }
-  }, [visible, taskState.priorities]);
 
   const handleToggleDependency = (taskId: number) => {
     setSelectedDependencies((prev) => {
@@ -878,7 +896,7 @@ export default function CreateTaskModal({
               <TouchableOpacity
                 style={[
                   styles.designChip,
-                  (activePanel === "assigned" || !!assignedUserName) &&
+                  (activePanel === "assigned" || !!effectiveAssigneeName) &&
                     styles.designChipDark,
                 ]}
                 onPress={() => {
@@ -890,7 +908,7 @@ export default function CreateTaskModal({
                   name="people"
                   size={16}
                   color={
-                    activePanel === "assigned" || !!assignedUserName
+                    activePanel === "assigned" || !!effectiveAssigneeName
                       ? "#FFF"
                       : "#6B7280"
                   }
@@ -899,11 +917,11 @@ export default function CreateTaskModal({
                   allowFontScaling={false}
                   style={[
                     styles.designChipText,
-                    (activePanel === "assigned" || !!assignedUserName) &&
+                    (activePanel === "assigned" || !!effectiveAssigneeName) &&
                       styles.designChipTextWhite,
                   ]}
                 >
-                  {assignedUserName ? assignedUserName : "Assigned to"}
+                  {effectiveAssigneeName ? effectiveAssigneeName : "Assigned to"}
                 </Text>
               </TouchableOpacity>
 
@@ -946,7 +964,7 @@ export default function CreateTaskModal({
                 <TouchableOpacity
                   style={[
                     styles.designChip,
-                    (activePanel === "dueDate" || !!selectedDueDate) &&
+                    (activePanel === "dueDate" || !!effectiveDueDate) &&
                       styles.designChipDark,
                   ]}
                   onPress={() => {
@@ -958,7 +976,7 @@ export default function CreateTaskModal({
                     name="calendar"
                     size={16}
                     color={
-                      activePanel === "dueDate" || !!selectedDueDate
+                      activePanel === "dueDate" || !!effectiveDueDate
                         ? "#FFF"
                         : "#6B7280"
                     }
@@ -967,12 +985,12 @@ export default function CreateTaskModal({
                     allowFontScaling={false}
                     style={[
                       styles.designChipText,
-                      (activePanel === "dueDate" || !!selectedDueDate) &&
+                      (activePanel === "dueDate" || !!effectiveDueDate) &&
                         styles.designChipTextWhite,
                     ]}
                   >
-                    {selectedDueDate
-                      ? selectedDueDate.toLocaleDateString("en-US", {
+                    {effectiveDueDate
+                      ? effectiveDueDate.toLocaleDateString("en-US", {
                           month: "short",
                           day: "numeric",
                         })
@@ -981,36 +999,21 @@ export default function CreateTaskModal({
                 </TouchableOpacity>
               )}
 
-              {/* 3. Priority */}
+              {/* 3. Priority — critical is ATS-only; normal companies show Normal */}
               <TouchableOpacity
-                style={[
-                  styles.designChip,
-                  (activePanel === "priority" || !!selectedPriority) &&
-                    styles.designChipDark,
-                ]}
+                style={[styles.designChip, styles.designChipDark]}
                 onPress={() => {
+                  if (!isAdvanced) return;
                   Keyboard.dismiss();
                   setActivePanel((p) => (p === "priority" ? null : "priority"));
                 }}
               >
-                <Ionicons
-                  name="star"
-                  size={16}
-                  color={
-                    activePanel === "priority" || !!selectedPriority
-                      ? "#FFF"
-                      : "#6B7280"
-                  }
-                />
+                <Ionicons name="star" size={16} color="#FFF" />
                 <Text
                   allowFontScaling={false}
-                  style={[
-                    styles.designChipText,
-                    (activePanel === "priority" || !!selectedPriority) &&
-                      styles.designChipTextWhite,
-                  ]}
+                  style={[styles.designChipText, styles.designChipTextWhite]}
                 >
-                  {selectedPriority ? selectedPriority : "Priority"}
+                  {effectivePriority === "critical" ? "Critical" : "Normal"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1030,48 +1033,52 @@ export default function CreateTaskModal({
                   nestedScrollEnabled
                   showsVerticalScrollIndicator={false}
                 >
-                  {filteredUsers.map((user) => {
-                    const isSelected = assignedUserId === user.id;
-                    const fullName = `${user.first_name} ${user.last_name}`;
-                    const initial = (user.first_name?.[0] || "U").toUpperCase();
-                    return (
-                      <TouchableOpacity
-                        key={user.id}
-                        style={[
-                          styles.peopleRow,
-                          isSelected && styles.peopleRowSelected,
-                        ]}
-                        onPress={() => {
-                          setAssignedUserId(user.id);
-                          setAssignedUserName(fullName);
-                          setActivePanel(null);
-                        }}
-                      >
-                        <View style={styles.peopleAvatar}>
+                  {filteredUsers.length === 0 ? (
+                    <Text style={styles.peopleName}>No members found</Text>
+                  ) : (
+                    filteredUsers.map((user) => {
+                      const isSelected = assignedUserId === user.id;
+                      const fullName = `${user.first_name} ${user.last_name}`;
+                      const initial = (user.first_name?.[0] || "U").toUpperCase();
+                      return (
+                        <TouchableOpacity
+                          key={user.id}
+                          style={[
+                            styles.peopleRow,
+                            isSelected && styles.peopleRowSelected,
+                          ]}
+                          onPress={() => {
+                            setAssignedUserId(user.id);
+                            setAssignedUserName(fullName);
+                            setActivePanel(null);
+                          }}
+                        >
+                          <View style={styles.peopleAvatar}>
+                            <Text
+                              allowFontScaling={false}
+                              style={styles.peopleAvatarText}
+                            >
+                              {initial}
+                            </Text>
+                          </View>
                           <Text
                             allowFontScaling={false}
-                            style={styles.peopleAvatarText}
+                            style={styles.peopleName}
                           >
-                            {initial}
+                            {fullName}
                           </Text>
-                        </View>
-                        <Text
-                          allowFontScaling={false}
-                          style={styles.peopleName}
-                        >
-                          {fullName}
-                        </Text>
-                        {isSelected && (
-                          <Ionicons
-                            name="checkmark"
-                            size={18}
-                            color="#00DFAB"
-                            style={{ marginLeft: "auto" }}
-                          />
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
+                          {isSelected && (
+                            <Ionicons
+                              name="checkmark"
+                              size={18}
+                              color="#00DFAB"
+                              style={{ marginLeft: "auto" }}
+                            />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })
+                  )}
                 </ScrollView>
               </View>
             )}
@@ -1086,6 +1093,7 @@ export default function CreateTaskModal({
                     }
                     value={effortHours}
                     onChangeText={handleEffortChange}
+                    onBlur={handleEffortBlur}
                     keyboardType="numeric"
                     autoFocus
                     containerStyle={styles.effortInputWrap}
@@ -1135,8 +1143,10 @@ export default function CreateTaskModal({
               <View style={styles.inlinePanelBox}>
                 <CalendarPicker
                   compact
-                  startDate={selectedDueDate}
-                  endDate={selectedDueDate}
+                  startDate={effectiveDueDate}
+                  endDate={effectiveDueDate}
+                  minDate={pktTodayStart()}
+                  disablePast
                   onSelectStart={(d) => {
                     setSelectedDueDate(d);
                     setActivePanel(null);
@@ -1151,21 +1161,24 @@ export default function CreateTaskModal({
 
             {activePanel === "priority" && (
               <View style={styles.inlineOptionsRow}>
-                {PRIORITY_OPTIONS.map((p) => {
-                  const isSelected = selectedPriority === p.label;
+                {(isAdvanced
+                  ? PRIORITY_OPTIONS
+                  : PRIORITY_OPTIONS.filter((p) => p.value === "normal")
+                ).map((p) => {
+                  const isSelected = effectivePriority === p.value;
                   return (
                     <TouchableOpacity
-                      key={p.label}
+                      key={p.value}
                       style={[
                         styles.pillBtn,
                         isSelected
-                          ? p.label === "Critical"
+                          ? p.value === "critical"
                             ? styles.pillRed
                             : styles.pillTeal
                           : styles.pillGrey,
                       ]}
                       onPress={() => {
-                        handleSelectPriority(p.label);
+                        handleSelectPriority(p.value);
                         setActivePanel(null);
                       }}
                     >
@@ -1294,7 +1307,7 @@ export default function CreateTaskModal({
               <TouchableOpacity
                 style={[
                   styles.designChip,
-                  (activePanel === "status" || !!selectedStatus) &&
+                  (activePanel === "status" || !!effectiveStatus) &&
                     styles.designChipDark,
                 ]}
                 onPress={() => {
@@ -1306,7 +1319,7 @@ export default function CreateTaskModal({
                   name="sync-circle-outline"
                   size={16}
                   color={
-                    activePanel === "status" || !!selectedStatus
+                    activePanel === "status" || !!effectiveStatus
                       ? "#FFF"
                       : "#6B7280"
                   }
@@ -1315,11 +1328,11 @@ export default function CreateTaskModal({
                   allowFontScaling={false}
                   style={[
                     styles.designChipText,
-                    (activePanel === "status" || !!selectedStatus) &&
+                    (activePanel === "status" || !!effectiveStatus) &&
                       styles.designChipTextWhite,
                   ]}
                 >
-                  {selectedStatus ? selectedStatus : "Task Status"}
+                  {statusLabel(effectiveStatus)}
                 </Text>
               </TouchableOpacity>
 
@@ -1335,10 +1348,10 @@ export default function CreateTaskModal({
                     }}
                   >
                     {STATUSES.map((s) => {
-                      const isSelected = selectedStatus === s.label;
+                      const isSelected = effectiveStatus === s.value;
                       return (
                         <TouchableOpacity
-                          key={s.label}
+                          key={s.value}
                           style={[
                             styles.pillBtn,
                             isSelected
@@ -1346,7 +1359,8 @@ export default function CreateTaskModal({
                               : styles.pillGrey,
                           ]}
                           onPress={() => {
-                            setSelectedStatus(s.label);
+
+                            setSelectedStatus(s.value);
                             setActivePanel(null);
                           }}
                         >
@@ -1406,38 +1420,40 @@ export default function CreateTaskModal({
                 </Text>
               </TouchableOpacity>
 
-              {/* 4. Dependencies Chip */}
-              <TouchableOpacity
-                style={[
-                  styles.designChip,
-                  selectedDependencies.length > 0 && styles.designChipDark,
-                ]}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setActivePanel(null);
-                  setDependenciesModalVisible(true);
-                }}
-              >
-                <Ionicons
-                  name="git-compare-outline"
-                  size={16}
-                  color={
-                    selectedDependencies.length > 0 ? "#FFF" : "#6B7280"
-                  }
-                />
-                <Text
-                  allowFontScaling={false}
+              {/* 4. Dependencies Chip — ATS-only (contract §3.8) */}
+              {isAdvanced && (
+                <TouchableOpacity
                   style={[
-                    styles.designChipText,
-                    selectedDependencies.length > 0 &&
-                      styles.designChipTextWhite,
+                    styles.designChip,
+                    selectedDependencies.length > 0 && styles.designChipDark,
                   ]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setActivePanel(null);
+                    setDependenciesModalVisible(true);
+                  }}
                 >
-                  {selectedDependencies.length > 0
-                    ? `${selectedDependencies.length} Dep${selectedDependencies.length > 1 ? "s" : ""}`
-                    : "Dependencies"}
-                </Text>
-              </TouchableOpacity>
+                  <Ionicons
+                    name="git-compare-outline"
+                    size={16}
+                    color={
+                      selectedDependencies.length > 0 ? "#FFF" : "#6B7280"
+                    }
+                  />
+                  <Text
+                    allowFontScaling={false}
+                    style={[
+                      styles.designChipText,
+                      selectedDependencies.length > 0 &&
+                        styles.designChipTextWhite,
+                    ]}
+                  >
+                    {selectedDependencies.length > 0
+                      ? `${selectedDependencies.length} Dep${selectedDependencies.length > 1 ? "s" : ""}`
+                      : "Dependencies"}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             <View style={styles.attachInlineRow}>
@@ -1487,13 +1503,13 @@ export default function CreateTaskModal({
               ]}
             >
               <TouchableOpacity
-                style={[styles.createBtn, loading && { opacity: 0.7 }]}
+                style={[styles.createBtn, submitting && { opacity: 0.7 }]}
                 activeOpacity={0.85}
                 onPress={handleCreateTask}
-                disabled={loading}
+                disabled={submitting}
               >
                 <Text style={styles.createBtnText}>
-                  {loading ? "Creating..." : "+ Create Task"}
+                  {submitting ? "Creating..." : "+ Create Task"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1967,7 +1983,7 @@ export default function CreateTaskModal({
           visible={criticalPopupVisible}
           onClose={() => {
             setCriticalPopupVisible(false);
-            pendingPayloadRef.current = null;
+            pendingFormRef.current = null;
           }}
           onStopAndStart={handleStopAndStart}
           onWaitAndSchedule={handleWaitAndSchedule}
@@ -1976,18 +1992,15 @@ export default function CreateTaskModal({
         {/* ── Critical Task: Reorder Modal ── */}
         <OrderCriticalTasksModal
           visible={orderModalVisible}
-          newTask={{
-            id: PENDING_NEW_TASK_ID,
-            title: pendingPayloadRef.current?.title ?? "New Critical Task",
-            assignedTo: assignedUserName,
-          }}
+          newTask={
+            orderNewTask ?? {
+              id: 0,
+              title: "New Critical Task",
+              assignedTo: effectiveAssigneeName,
+            }
+          }
           existingCriticalTasks={assigneeCriticalTasks}
-          onClose={() => {
-            setOrderModalVisible(false);
-            pendingPayloadRef.current = null;
-            resetForm();
-            onClose();
-          }}
+          onClose={finalizeCreate}
           onConfirm={handleConfirmOrder}
         />
       </View>

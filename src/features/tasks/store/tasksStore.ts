@@ -69,6 +69,7 @@ export type TasksState = {
     options?: { merge?: boolean },
   ) => void;
   upsertTask: (task: TaskListItem | TaskEntity) => void;
+  applyCreatedTask: (task: TaskListItem | TaskEntity, currentUserId: number) => void;
   patchTask: (taskId: number, patch: Partial<TaskEntity>) => void;
   removeTask: (taskId: number) => void;
   reset: () => void;
@@ -585,6 +586,93 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
     const entity = toEntity(task);
     if (!Number.isFinite(entity.id)) return;
     set((state) => ({ byId: { ...state.byId, [entity.id]: entity } }));
+  },
+
+  /**
+   * Insert a task returned by /tasks/create and place it in the right buckets
+   * immediately, so the dashboard shows it without a full /tasks/all refetch.
+   */
+  applyCreatedTask: (task, currentUserId) => {
+    const base = toEntity(task);
+    if (!Number.isFinite(base.id)) return;
+    set((state) => {
+      const idOf = (value: unknown): number => {
+        if (typeof value === "object" && value !== null) {
+          return Number((value as { id?: unknown }).id ?? 0);
+        }
+        return Number(value ?? 0);
+      };
+      const creatorId =
+        idOf(base.created_by) ||
+        idOf(base.assignee) ||
+        idOf(base.task_assignee?.id) ||
+        0;
+      const doerId =
+        idOf(base.asigned_to) ||
+        idOf(base.task_assigned_to?.id) ||
+        0;
+      const personFor = (id: number) => {
+        const owner = state.owners.find((entry) => Number(entry.id) === id);
+        if (!owner) return undefined;
+        return {
+          id: owner.id,
+          first_name: owner.first_name,
+          last_name: owner.last_name,
+          image: owner.image ?? "",
+          role: 0,
+          email: owner.email,
+          company_id: owner.company_id,
+        };
+      };
+
+      const entity: TaskEntity = {
+        ...base,
+        task_assignee: base.task_assignee ?? personFor(creatorId),
+        task_assigned_to: base.task_assigned_to ?? personFor(doerId),
+        can_edit: base.can_edit ?? creatorId === Number(currentUserId),
+        can_edit_status:
+          base.can_edit_status ??
+          (creatorId === Number(currentUserId) || doerId === Number(currentUserId)),
+        can_edit_subtask:
+          base.can_edit_subtask ??
+          (creatorId === Number(currentUserId) || doerId === Number(currentUserId)),
+        subtask_count: base.subtask_count ?? 0,
+        notes_count: base.notes_count ?? 0,
+      };
+
+      const withoutId = (ids: number[]) => ids.filter((id) => id !== entity.id);
+      const addId = (ids: number[]) => mergeIds(ids, [entity.id]);
+      const isDoer = doerId === Number(currentUserId);
+      const isCreator = creatorId === Number(currentUserId);
+
+      let assignedToMeIds = withoutId(state.assignedToMeIds);
+      let createdByMeIds = withoutId(state.createdByMeIds);
+      let allOtherTaskIds = withoutId(state.allOtherTaskIds);
+      if (isDoer) assignedToMeIds = addId(assignedToMeIds);
+      else if (isCreator) createdByMeIds = addId(createdByMeIds);
+      else allOtherTaskIds = addId(allOtherTaskIds);
+
+      const completed = isCompletedStatus(entity.status);
+      const pendingApproval = entity.status === "Pending-Approval";
+
+      return {
+        byId: { ...state.byId, [entity.id]: entity },
+        assignedToMeIds,
+        createdByMeIds,
+        allOtherTaskIds,
+        recurringIds: entity.is_recurring
+          ? addId(state.recurringIds)
+          : withoutId(state.recurringIds),
+        pendingApprovalIds: pendingApproval
+          ? addId(state.pendingApprovalIds)
+          : withoutId(state.pendingApprovalIds),
+        completedIds: completed ? addId(state.completedIds) : withoutId(state.completedIds),
+        completeCount: completed && !state.completedIds.includes(entity.id)
+          ? state.completeCount + 1
+          : state.completeCount,
+        lastRefresh: Date.now(),
+      };
+    });
   },
 
   patchTask: (taskId, patch) => {

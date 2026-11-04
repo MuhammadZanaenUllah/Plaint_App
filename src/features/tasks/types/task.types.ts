@@ -370,6 +370,7 @@ export type CreateTaskResult = {
   id: number;
   planningHold: boolean;
   message?: string;
+  task?: TaskListItem;
 };
 
 export type UpdateTaskRequest = {

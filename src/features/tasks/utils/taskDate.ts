@@ -59,6 +59,23 @@ export function parseTaskDate(value: TaskDateInput): Date | null {
   return isValidDate(parsed) ? parsed : null;
 }
 
+/**
+ * Format a Date's local calendar components as YYYY-MM-DD.
+ *
+ * Date pickers build Dates with `new Date(y, m, d)`, so the user's chosen day
+ * is the local calendar day. Using `toPktDateOnly` on that instant can move it
+ * a day for devices outside PKT, so form date fields use this helper instead.
+ * Strings still go through the PKT calendar parser.
+ */
+export function toCalendarDateOnly(value: TaskDateInput): string {
+  if (value === null || value === undefined || value === "") return "";
+  if (value instanceof Date) {
+    if (!isValidDate(value)) return "";
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+  }
+  return toPktDateOnly(value);
+}
+
 /** Format an instant as the PKT calendar day (YYYY-MM-DD). */
 export function toPktDateOnly(value: TaskDateInput = new Date()): string {
   const date = typeof value === "string" ? parseTaskDate(value) : value;
