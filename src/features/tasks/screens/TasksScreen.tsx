@@ -290,7 +290,8 @@ export default function TasksScreen() {
           onStatusChange={actions.handleStatusChange}
           onAssigneeChange={actions.handleAssigneeChange}
           onScrollOffsetChange={handleScrollOffset}
-        />      </Pressable>
+        />
+      </Pressable>
 
       <TaskModalsHost
         canCreate={canCreate}
