@@ -2,6 +2,7 @@ import Avatar from "@/components/Avatar";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import { approveTask, recalculateSchedule } from "@/features/tasks/api/taskApi";
+import { updateNoteReaction } from "@/features/tasks/api/taskNotesApi";
 import { useTasksStore } from "@/features/tasks/store/tasksStore";
 import { normalizeApiStatus, toApiStatus } from "@/features/tasks/utils/taskStatus";
 import {
@@ -422,12 +423,14 @@ function CommentBubble({
   currentUserId,
   onPin,
   onDelete,
+  onReactionToggle,
   index = 0,
 }: {
   comment: TaskNote;
   currentUserId: number;
   onPin?: (note: TaskNote) => void;
   onDelete?: (note: TaskNote) => void;
+  onReactionToggle?: (emoji: string, noteId: number) => void;
   index?: number;
 }) {
   const isOwn = comment.user_id === currentUserId;
@@ -477,13 +480,26 @@ function CommentBubble({
         </View>
       )}
 
+      {/* Show current user's reactions */}
+      {comment.reactions && comment.reactions.some((r) => r.user_id === currentUserId) && (
+        <View style={styles.userReactions}>
+          {comment.reactions
+            .filter((r) => r.user_id === currentUserId)
+            .map((r, i) => (
+              <View key={i} style={styles.userReactionBadge}>
+                <Text style={styles.reactionText}>{r.emoji}</Text>
+              </View>
+            ))}
+        </View>
+      )}
+
       <View style={styles.bubbleActions}>
-        <TouchableOpacity style={styles.actionBtn}>
-          <Ionicons name="thumbs-up-outline" size={15} color="#9CA3AF" />
+        <TouchableOpacity style={styles.actionBtn} onPress={() => onReactionToggle?.("thumbs-up", comment.id ?? 0)}>
+          <Ionicons name={comment.reactions?.some((r) => r.user_id === currentUserId && r.emoji === "thumbs-up") ? "thumbs-up" : "thumbs-up-outline"} size={15} color="#9CA3AF" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionBtn}>
-          <Ionicons name="happy-outline" size={15} color="#9CA3AF" />
+        <TouchableOpacity style={styles.actionBtn} onPress={() => onReactionToggle?.("happy", comment.id ?? 0)}>
+          <Ionicons name={comment.reactions?.some((r) => r.user_id === currentUserId && r.emoji === "happy") ? "happy" : "happy-outline"} size={15} color="#9CA3AF" />
         </TouchableOpacity>
 
         {/* Pin / Unpin toggle icon — green #00DEAB when pinned, default gray #9CA3AF when unpinned */}
@@ -665,6 +681,7 @@ export default function TaskDetailModal({
   const [notesLoading, setNotesLoading] = useState(false);
   const [sendingNote, setSendingNote] = useState(false);
   const [taskDetail, setTaskDetail] = useState<ViewTaskData | null>(null);
+  const [replyToNoteId, setReplyToNoteId] = useState<number | null>(null);
   const [dependencies, setDependencies] = useState<DependencyData[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
 
@@ -748,10 +765,7 @@ export default function TaskDetailModal({
     const currentApproval = apiT
       ? apiT.approval_required === 1
       : task?.approvalRequired === "Yes";
-    const currentDesc = (apiT?.description ?? task?.description ?? "").replace(
-      /<[^>]*>/g,
-      "",
-    );
+    const currentDesc = apiT?.description ?? task?.description ?? "";
 
     setEditTitle(currentTitle);
     setEditAssignToId(currentAssignId);
@@ -778,9 +792,8 @@ export default function TaskDetailModal({
   // it's assigned to, may not be who's viewing) — taskDetail.task.can_edit
   // is the live, authoritative flag once loaded; the initially-passed task
   // prop's canEdit covers the brief window before that fetch resolves.
-  // Treat unset as editable so this never locks out a task the field is
-  // simply missing on.
-  const canEdit = (taskDetail?.task?.can_edit ?? task?.canEdit) !== false;
+  // Missing flags are false per contract (INC-07, GAP-09).
+  const canEdit = taskDetail?.task?.can_edit ?? false;
 
   // Persists an edit immediately — pass just the field(s) that changed as
   // `overrides`; the rest of the payload is filled in from current edit
@@ -797,9 +810,10 @@ export default function TaskDetailModal({
       return;
     }
 
-    setSavingTask(true);
+setSavingTask(true);
     try {
       const apiT = taskDetail?.task;
+      const isAts = authState.hasAdvancedTaskModule === true;
       const payload: UpdateTaskRequest = {
         company_id: companyId,
         company_identifier: companyIdentifier,
@@ -818,17 +832,19 @@ export default function TaskDetailModal({
         recurring_time: apiT?.recurring_time ?? null,
         recurring_total_count: apiT?.recurring_total_count ?? 0,
         recurring_exclude_days: apiT?.recurring_exclude_days ?? [],
-        project_id: (apiT?.project_id as number) ?? 0,
-        sprint_id: apiT?.sprint_id ?? null,
         approval_required: editApprovalRequired ? 1 : 0,
-        effort_hours: Number(editEffortHours) || 0,
-        effort_unit: editEffortUnit || "hours",
+        ...(isAts
+          ? {
+              effort_hours: Number(editEffortHours) || 0,
+              effort_unit: editEffortUnit || "hours",
+            }
+          : {}),
         task_priority: editTaskPriority,
         bump_to_front: false,
         ...overrides,
       };
 
-      // updateTaskApi patches the task list locally (optimistic) before the
+      // updateTaskApi patches the task list locally (optimistically) before the
       // network call resolves. Deliberately NOT re-fetching the full task
       // list afterward — /tasks/all is slow and, if the backend hasn't
       // fully propagated the write yet, a refetch this soon after can
@@ -1130,11 +1146,19 @@ export default function TaskDetailModal({
         company_id: companyId,
         company_identifier: companyIdentifier,
         mentions,
+        ...(replyToNoteId !== null && {
+          reply_to: {
+            id: replyToNoteId,
+user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])?.full_name ?? "") : "",
+            content: "",
+          },
+        }),
       });
       setCommentText("");
       setMentionedUserIds([]);
       setMentionActive(false);
       setMentionQuery("");
+      setReplyToNoteId(null);
       await loadNotes();
     } catch {
       // silently fail
@@ -1144,6 +1168,11 @@ export default function TaskDetailModal({
   };
 
   const handleDeleteNote = async (note: TaskNote) => {
+    if (note.user_id !== currentUserId && !authState.user?.role_title?.includes("company admin")) {
+      showError("Not Allowed", "You can only delete your own notes.");
+      return;
+    }
+    if (!window.confirm("Are you sure you want to delete this comment?")) return;
     try {
       await deleteNote(note.id, companyId, companyIdentifier);
       await loadNotes();
@@ -1157,42 +1186,41 @@ export default function TaskDetailModal({
     const newPinnedState = isCurrentlyPinned ? 0 : 1;
     const previousNotes = [...notes];
 
-    // Find previously pinned note if pinning a new one
-    const previouslyPinnedNote =
-      newPinnedState === 1
-        ? notes.find((n) => n.pin_top === 1 && n.id !== note.id)
-        : null;
-
-    // Optimistically update local state ensuring ONLY one note is pinned
-    // and automatically unpinning any previous note (updating pin icon colors)
-    setNotes((prev) =>
-      prev.map((n) => {
-        if (n.id === note.id) {
-          return { ...n, pin_top: newPinnedState };
-        }
-        return newPinnedState === 1 ? { ...n, pin_top: 0 } : n;
-      }),
-    );
-
     try {
-      // Unpin previous note on backend if pinning a new message
-      if (previouslyPinnedNote) {
-        pinNote(
-          previouslyPinnedNote.id,
-          false,
-          companyId,
-          companyIdentifier,
-        ).catch(() => {});
-      }
       await pinNote(
         note.id,
         newPinnedState === 1,
         companyId,
         companyIdentifier,
       );
+      await loadNotes();
     } catch {
-      // Revert on error
       setNotes(previousNotes);
+    }
+  };
+
+  const handleReactionToggle = async (emoji: string, noteId: number) => {
+    if (!noteId) return;
+    const note = notes.find((n) => n.id === noteId);
+    if (!note) return;
+    const userId = authState.user?.id ?? 0;
+    const userName =
+      authState.user?.first_name && authState.user?.last_name
+        ? `${authState.user?.first_name} ${authState.user?.last_name}`.trim()
+        : "User";
+    const companyIdNum = companyId;
+    const companyIdentifier = authState.company?.company_identifier ?? "";
+
+    try {
+      await updateNoteReaction(noteId, {
+        emoji,
+        company_id: companyIdNum,
+        user_id: userId,
+        user_name: userName,
+      });
+      await loadNotes();
+    } catch {
+      // silently fail
     }
   };
 
@@ -1970,6 +1998,7 @@ export default function TaskDetailModal({
                     currentUserId={currentUserId}
                     onPin={handlePinNote}
                     onDelete={handleDeleteNote}
+                    onReactionToggle={handleReactionToggle}
                     index={i}
                   />
                 ))
@@ -2282,7 +2311,7 @@ export default function TaskDetailModal({
                                         savedStatus === "Complete"
                                           ? new Date().toISOString()
                                           : null,
-                                    },
+}
                                   }
                                 : current,
                             );
@@ -3629,4 +3658,18 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Medium",
     color: "#6B7280",
   },
+  userReactions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginLeft: 8,
+  },
+  userReactionBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: "#E5E7EB",
+    borderRadius: 4,
+  },
 });
+
+
