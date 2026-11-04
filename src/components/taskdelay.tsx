@@ -35,7 +35,7 @@ export default function TaskDelay({
     onExtend,
 }: TaskDelayProps) {
     const [effort, setEffort] = useState("");
-    const [unit, setUnit] = useState("Mins");
+    const [unit, setUnit] = useState("Hours");
     const [unitOpen, setUnitOpen] = useState(false);
     const [isFocused, setIsFocused] = useState(false);
 
@@ -71,13 +71,13 @@ export default function TaskDelay({
         if (!effort.trim()) return;
         onExtend(effort.trim(), unit);
         setEffort("");
-        setUnit("Mins");
+        setUnit("Hours");
         animateLabel(false);
     };
 
     const handleClose = () => {
         setEffort("");
-        setUnit("Mins");
+        setUnit("Hours");
         animateLabel(false);
         setUnitOpen(false);
         onClose();

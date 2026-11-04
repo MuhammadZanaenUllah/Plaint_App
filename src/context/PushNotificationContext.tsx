@@ -420,7 +420,8 @@ export function PushNotificationProvider({
           });
           break;
         case "lead":
-          router.push("/(tabs)/tasks");
+          // Leads are CRM, not tasks; mobile has no leads module.
+          router.push("/notifications");
           break;
         case "chat":
           if (data.room_id) {
@@ -475,7 +476,7 @@ export function PushNotificationProvider({
               params: { taskId: data.task_id },
             });
           } else {
-            router.push("/(tabs)/tasks");
+            router.push("/notifications");
           }
           break;
       }

@@ -11,6 +11,10 @@ import TaskDetailModal, {
 } from "@/components/TaskDetailModal";
 import Icons from "@/constants/icons";
 import { useNotifications } from "@/context/NotificationContext";
+import {
+  getTaskDigestFilter,
+  openTaskDigest,
+} from "@/features/tasks/utils/taskNotificationRouting";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { viewTask } from "@/services/api/tasks.service";
@@ -53,7 +57,7 @@ export function getNotificationTypeLabel(item: NotificationItem): string {
   const typ = (item.typ ?? "").toLowerCase();
   const hasTask = !!item.task_id && item.task_id !== 0;
   if (typ === "chat" || (typ.includes("mention") && !hasTask)) return "Chat";
-  if (hasTask) return "Task";
+  if (hasTask || typ === "task" || typ.startsWith("tasks")) return "Task";
   return "System";
 }
 
@@ -152,6 +156,12 @@ export default function NotificationsScreen() {
       } else {
         console.log(`[Inbox] id=${item.id} already read — skipping markRead`);
       }
+      const digestFilter = getTaskDigestFilter(item);
+      if (digestFilter) {
+        openTaskDigest(digestFilter);
+        return;
+      }
+
       const typ = (item.typ ?? "").toLowerCase();
       const hasTask = !!item.task_id && item.task_id !== 0;
       const isTaskMention = hasTask && typ.includes("mention");

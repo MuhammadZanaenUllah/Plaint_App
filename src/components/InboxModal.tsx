@@ -1,5 +1,9 @@
 import { rf } from "@/utils/responsive";
 import { useNotifications } from "@/context/NotificationContext";
+import {
+  getTaskDigestFilter,
+  openTaskDigest,
+} from "@/features/tasks/utils/taskNotificationRouting";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { NotificationItem } from "@/types/chat.types";
@@ -101,6 +105,12 @@ export default function InboxModal({
         console.log(`[InboxModal] id=${item.id} already read — skipping markRead`);
       }
       onClose();
+
+      const digestFilter = getTaskDigestFilter(item);
+      if (digestFilter) {
+        openTaskDigest(digestFilter);
+        return;
+      }
 
       const typ = (item.typ ?? "").toLowerCase();
       const hasTask = !!item.task_id && item.task_id !== 0;

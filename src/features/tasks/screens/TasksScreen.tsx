@@ -9,12 +9,13 @@ import { useTaskDashboard } from "@/features/tasks/hooks/useTaskDashboard";
 import { useTaskDeepLink } from "@/features/tasks/hooks/useTaskDeepLink";
 import { useTaskDetailOpener } from "@/features/tasks/hooks/useTaskDetailOpener";
 import { useTaskFilterController } from "@/features/tasks/hooks/useTaskFilterController";
-import { useTaskOverduePrompt } from "@/features/tasks/hooks/useTaskOverduePrompt";
+import { useTaskDelayedPopup } from "@/features/tasks/hooks/useTaskDelayedPopup";
 import { useTaskStats } from "@/features/tasks/hooks/useTaskStats";
 import styles from "./TasksScreen.styles";
 import { useTaskTabs } from "@/features/tasks/hooks/useTaskTabs";
 import {
   canCreateTask,
+  canViewTasks,
   hasPermission,
   hasTasksModule,
   isCompanyAdmin,
@@ -40,12 +41,59 @@ import {
   Keyboard,
   Pressable,
   ScrollView,
+  Text,
   View,
 } from "react-native";
 
 const SCROLL_COMPACT_THRESHOLD = 8;
 
 export default function TasksScreen() {
+  const { state: authState } = useAuth();
+  const canView = canViewTasks(authState.user, authState.company);
+
+  if (!canView) {
+    return (
+      <View style={styles.root}>
+        <StatusBar style="dark" />
+        <View
+          style={{
+            flex: 1,
+            alignItems: "center",
+            justifyContent: "center",
+            paddingHorizontal: 28,
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 18,
+              fontFamily: "SF_Pro_Semibold",
+              color: "#1D1D1D",
+              marginBottom: 8,
+            }}
+          >
+            Tasks unavailable
+          </Text>
+          <Text
+            style={{
+              fontSize: 13,
+              fontFamily: "SF_Pro_Regular",
+              color: "#6B7280",
+              textAlign: "center",
+              lineHeight: 19,
+            }}
+          >
+            Your account does not have the Tasks module or the tasks-list
+            permission. Please contact your company admin.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  return <TasksScreenContent />;
+}
+
+function TasksScreenContent() {
   const { state: authState } = useAuth();
   const {
     state: taskState,
@@ -59,7 +107,6 @@ export default function TasksScreen() {
 
   const companyId = authState.company?.company_id ?? null;
   const companyIdentifier = authState.company?.company_identifier ?? "";
-  const currentUserId = authState.user?.id ?? 0;
   const isAts = authState.hasAdvancedTaskModule === true;
 
   const { searchText, isHeaderCompact, setIsHeaderCompact } = useSearch();
@@ -156,12 +203,7 @@ export default function TasksScreen() {
     },
   });
 
-  const overdue = useTaskOverduePrompt({
-    rows: dashboard.allRows,
-    companyId,
-    currentUserId,
-    partial: dashboard.partial,
-  });
+  const overdue = useTaskDelayedPopup({ companyId });
 
   useTaskDeepLink({
     rows: dashboard.allRows,
