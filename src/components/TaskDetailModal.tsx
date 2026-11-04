@@ -1,10 +1,38 @@
 import Avatar from "@/components/Avatar";
+import DocumentPickerButton from "@/features/attachments/components/DocumentPickerButton";
+import type { SelectedFile } from "@/features/attachments/types/attachment.types";
+import {
+  addDependency,
+  approveTask,
+  deleteAttachment,
+  reassignTask,
+  recalculateSchedule,
+  removeDependency,
+  reorderCritical,
+  updateTaskDueDate,
+  uploadAttachment,
+} from "@/features/tasks/api/taskApi";
+import {
+  addNote as addNoteApi,
+  deleteNote as deleteNoteApi,
+  pinNote as pinNoteApi,
+  updateNote as updateNoteApi,
+  updateNoteReaction,
+} from "@/features/tasks/api/taskNotesApi";
+import { buildUpdateTaskPayload } from "@/features/tasks/components/task-detail/taskUpdatePayload";
+import ReopenTaskModal from "@/features/tasks/components/task-detail/ReopenTaskModal";
+import ResumeTaskModal from "@/features/tasks/components/task-detail/ResumeTaskModal";
+import {
+  hasPermission,
+  TASK_PERMISSIONS,
+} from "@/features/tasks/permissions/taskPermissions";
+import { useTasksStore } from "@/features/tasks/store/tasksStore";
+import { fromMinutes, toMinutes, formatEffort } from "@/features/tasks/utils/taskEffort";
+import { parseTaskDate, toCalendarDateOnly } from "@/features/tasks/utils/taskDate";
+import { normalizeApiStatus, toApiStatus } from "@/features/tasks/utils/taskStatus";
+import { validateAttachment } from "@/features/tasks/utils/taskValidation";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
-import { approveTask, recalculateSchedule } from "@/features/tasks/api/taskApi";
-import { updateNoteReaction } from "@/features/tasks/api/taskNotesApi";
-import { useTasksStore } from "@/features/tasks/store/tasksStore";
-import { normalizeApiStatus, toApiStatus } from "@/features/tasks/utils/taskStatus";
 import {
   getSocket,
   onSocketEvent,
@@ -26,6 +54,7 @@ import {
   formatFullDateTime as formatFullDateTimeShared,
   formatShortDate,
 } from "@/utils/dateFormat";
+import { openChatDocument } from "@/utils/openChatDocument";
 import { rf } from "@/utils/responsive";
 import { apiStatusToUi } from "@/utils/statusMapper";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
@@ -40,6 +69,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   Modal,
   Platform,
@@ -53,7 +83,14 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import CalendarPicker from "./CalendarPicker";
+import {
+  CriticalTaskPopUpModal,
+  OrderCriticalTasksModal,
+  type CriticalTask,
+} from "./CriticalTaskModal";
+import DependencyModal from "./DependencyModal";
 import RejectTaskModal from "./RejectTaskModal";
+import RichTextEditor, { RichTextEditorRef } from "./texteditor";
 import { STATUS_COLORS, StatusType, TaskRowProps } from "./TaskRow";
 import SingleTaskTable from "./SingleTaskTable";
 
@@ -112,7 +149,7 @@ const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
 const AVAILABLE_STATUSES = [
   "Pending",
   "In-Progress",
-  "On Hold",
+  "On-Hold",
   "Complete",
   "Partial Complete",
   "Rejected",
@@ -163,6 +200,13 @@ async function persistTaskStatus({
     (!canEditStatus && !(isApprovalAction && canApproveReject))
   ) {
     showError("Not Allowed", "You don't have permission to change this task's status.");
+    return false;
+  }
+  if (isApprovalAction && !canApproveReject) {
+    showError(
+      "Not Allowed",
+      "Only the task creator or company admin can approve a task.",
+    );
     return false;
   }
   if (requested === "Partial Complete" && subtaskCount === 0) {
@@ -424,6 +468,11 @@ function CommentBubble({
   onPin,
   onDelete,
   onReactionToggle,
+  onEdit,
+  onReply,
+  canEditOwn,
+  canDeleteOwn,
+  canPinReact,
   index = 0,
 }: {
   comment: TaskNote;
@@ -431,6 +480,11 @@ function CommentBubble({
   onPin?: (note: TaskNote) => void;
   onDelete?: (note: TaskNote) => void;
   onReactionToggle?: (emoji: string, noteId: number) => void;
+  onEdit?: (note: TaskNote) => void;
+  onReply?: (note: TaskNote) => void;
+  canEditOwn?: boolean;
+  canDeleteOwn?: boolean;
+  canPinReact?: boolean;
   index?: number;
 }) {
   const isOwn = comment.user_id === currentUserId;
@@ -463,6 +517,17 @@ function CommentBubble({
         </View>
       </View>
 
+      {comment.reply_to && (
+        <View style={styles.commentReplyQuote}>
+          <Text style={styles.commentReplyName}>
+            {comment.reply_to.user_name || "Reply"}
+          </Text>
+          <Text style={styles.commentReplyText} numberOfLines={2}>
+            {mentionMarkupToDisplay(comment.reply_to.content ?? "")}
+          </Text>
+        </View>
+      )}
+
       <Text style={styles.bubbleText}>
         {mentionMarkupToDisplay(comment.notes)}
       </Text>
@@ -480,54 +545,80 @@ function CommentBubble({
         </View>
       )}
 
-      {/* Show current user's reactions */}
-      {comment.reactions && comment.reactions.some((r) => r.user_id === currentUserId) && (
-        <View style={styles.userReactions}>
-          {comment.reactions
-            .filter((r) => r.user_id === currentUserId)
-            .map((r, i) => (
-              <View key={i} style={styles.userReactionBadge}>
-                <Text style={styles.reactionText}>{r.emoji}</Text>
-              </View>
-            ))}
-        </View>
-      )}
-
       <View style={styles.bubbleActions}>
-        <TouchableOpacity style={styles.actionBtn} onPress={() => onReactionToggle?.("thumbs-up", comment.id ?? 0)}>
-          <Ionicons name={comment.reactions?.some((r) => r.user_id === currentUserId && r.emoji === "thumbs-up") ? "thumbs-up" : "thumbs-up-outline"} size={15} color="#9CA3AF" />
-        </TouchableOpacity>
+        {canPinReact && (
+          <>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => onReactionToggle?.("👍", comment.id ?? 0)}
+            >
+              <Ionicons
+                name={
+                  comment.reactions?.some(
+                    (r) => r.user_id === currentUserId && r.emoji === "👍",
+                  )
+                    ? "thumbs-up"
+                    : "thumbs-up-outline"
+                }
+                size={15}
+                color="#9CA3AF"
+              />
+            </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionBtn} onPress={() => onReactionToggle?.("happy", comment.id ?? 0)}>
-          <Ionicons name={comment.reactions?.some((r) => r.user_id === currentUserId && r.emoji === "happy") ? "happy" : "happy-outline"} size={15} color="#9CA3AF" />
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => onReactionToggle?.("😊", comment.id ?? 0)}
+            >
+              <Ionicons
+                name={
+                  comment.reactions?.some(
+                    (r) => r.user_id === currentUserId && r.emoji === "😊",
+                  )
+                    ? "happy"
+                    : "happy-outline"
+                }
+                size={15}
+                color="#9CA3AF"
+              />
+            </TouchableOpacity>
 
-        {/* Pin / Unpin toggle icon — green #00DEAB when pinned, default gray #9CA3AF when unpinned */}
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => onPin?.(comment)}
+            >
+              <MaterialCommunityIcons
+                name={isPinned ? "pin" : "pin-outline"}
+                size={15}
+                color={isPinned ? "#00DEAB" : "#9CA3AF"}
+              />
+            </TouchableOpacity>
+          </>
+        )}
+
+        {isOwn && canEditOwn && (
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => onEdit?.(comment)}
+          >
+            <Ionicons name="pencil-outline" size={15} color="#9CA3AF" />
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity
           style={styles.actionBtn}
-          onPress={() => onPin?.(comment)}
+          onPress={() => onReply?.(comment)}
         >
-          <MaterialCommunityIcons
-            name={isPinned ? "pin" : "pin-outline"}
-            size={15}
-            color={isPinned ? "#00DEAB" : "#9CA3AF"}
-          />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionBtn}>
-          <Ionicons name="pencil-outline" size={15} color="#9CA3AF" />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionBtn}>
           <Ionicons name="arrow-undo-outline" size={15} color="#9CA3AF" />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={() => onDelete?.(comment)}
-        >
-          <Ionicons name="ellipsis-vertical" size={15} color="#9CA3AF" />
-        </TouchableOpacity>
+        {isOwn && canDeleteOwn && (
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => onDelete?.(comment)}
+          >
+            <Ionicons name="trash-outline" size={15} color="#9CA3AF" />
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -620,15 +711,13 @@ export default function TaskDetailModal({
   const { state: authState } = useAuth();
   const {
     state: taskState,
-    addNote,
     fetchNotes,
-    deleteNote,
-    pinNote,
     viewTask: viewTaskApi,
     getDependencies,
     fetchMentionUsers,
     updateTask: updateTaskApi,
     updateTaskStatusApi,
+    allMappedTasks,
   } = useTasks();
 
   const sheetRef = useRef<BottomSheetModal>(null);
@@ -681,9 +770,13 @@ export default function TaskDetailModal({
   const [notesLoading, setNotesLoading] = useState(false);
   const [sendingNote, setSendingNote] = useState(false);
   const [taskDetail, setTaskDetail] = useState<ViewTaskData | null>(null);
-  const [replyToNoteId, setReplyToNoteId] = useState<number | null>(null);
+  const [replyToNote, setReplyToNote] = useState<TaskNote | null>(null);
+  const [editingNote, setEditingNote] = useState<TaskNote | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
   const [dependencies, setDependencies] = useState<DependencyData[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [dependencyModalVisible, setDependencyModalVisible] = useState(false);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
 
   // ── Task Edit State ───────────────────────────────────────────────────
   const [savingTask, setSavingTask] = useState(false);
@@ -711,6 +804,16 @@ export default function TaskDetailModal({
   const [effortPickerVisible, setEffortPickerVisible] = useState(false);
   const [effortLogsModalVisible, setEffortLogsModalVisible] = useState(false);
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
+  const [reopenModalVisible, setReopenModalVisible] = useState(false);
+  const [resumeModalVisible, setResumeModalVisible] = useState(false);
+  const [resumeTargetStatus, setResumeTargetStatus] = useState<
+    "In-Progress" | "Pending"
+  >("In-Progress");
+  const [criticalPromptVisible, setCriticalPromptVisible] = useState(false);
+  const [detailCriticalTasks, setDetailCriticalTasks] = useState<CriticalTask[]>([]);
+  const [detailOrderModalVisible, setDetailOrderModalVisible] = useState(false);
+  const [detailOrderNewTask, setDetailOrderNewTask] = useState<CriticalTask | null>(null);
+  const descriptionEditorRef = useRef<RichTextEditorRef>(null);
 
   // Last-saved values for the free-text fields, so blurring an untouched
   // field doesn't fire a redundant save request.
@@ -728,11 +831,9 @@ export default function TaskDetailModal({
 
     let currentDueDate: Date | null = null;
     if (apiT?.due_date) {
-      const d = new Date(apiT.due_date);
-      if (!isNaN(d.getTime())) currentDueDate = d;
+      currentDueDate = parseTaskDate(apiT.due_date);
     } else if (task?.dueDate) {
-      const d = new Date(task.dueDate);
-      if (!isNaN(d.getTime())) currentDueDate = d;
+      currentDueDate = parseTaskDate(task.dueDate);
     }
 
     const currentStatus = apiT?.status ?? task?.status ?? "Pending";
@@ -758,10 +859,12 @@ export default function TaskDetailModal({
       1;
 
     const currentTaskPriority = apiT?.task_priority ?? "normal";
+    const currentEffortUnit = (apiT?.effort_unit ??
+      task?.effortUnit ??
+      "hours") as "minutes" | "hours" | "days";
     const currentEffortHours = String(
-      apiT?.effort_hours ?? task?.effortHours ?? "",
+      fromMinutes(Number(apiT?.effort_hours ?? task?.effortHours ?? 0), currentEffortUnit),
     );
-    const currentEffortUnit = apiT?.effort_unit ?? task?.effortUnit ?? "hours";
     const currentApproval = apiT
       ? apiT.approval_required === 1
       : task?.approvalRequired === "Yes";
@@ -788,20 +891,56 @@ export default function TaskDetailModal({
     }
   }, [visible, initEditFields]);
 
-  // Backend gates edit rights per task (e.g. only the creator, or whoever
-  // it's assigned to, may not be who's viewing) — taskDetail.task.can_edit
-  // is the live, authoritative flag once loaded; the initially-passed task
-  // prop's canEdit covers the brief window before that fetch resolves.
-  // Missing flags are false per contract (INC-07, GAP-09).
-  const canEdit = taskDetail?.task?.can_edit ?? false;
+  // Backend gates edit rights per task (e.g. only the creator). Missing flags
+  // are false per contract. A Complete task is read-only except the recurring
+  // template, which stays editable on the website.
+  const isAts = authState.hasAdvancedTaskModule === true;
+  const hasEditPermission = hasPermission(authState.user, TASK_PERMISSIONS.edit);
+  const currentStatus = normalizeApiStatus(
+    String(taskDetail?.task?.status ?? task?.status ?? "Pending"),
+  );
+  const isCompleteTask = currentStatus === "Complete";
+  const isRecurringTemplate = taskDetail?.task?.is_recurring === true;
+  const canEdit =
+    hasEditPermission &&
+    (taskDetail?.task?.can_edit ?? task?.canEdit === true) &&
+    (!isCompleteTask || isRecurringTemplate);
+  const canEditStatus = taskDetail?.task?.can_edit_status === true;
+  const canManageDependencies =
+    isAts && canEdit && !isCompleteTask && currentStatus !== "On-Hold";
+  const canManageAttachments =
+    hasEditPermission && !isCompleteTask && (canEdit || canEditStatus);
+  const canComment = hasPermission(authState.user, TASK_PERMISSIONS.list);
+  const canEditDeleteComments = hasEditPermission;
+  const canPinOrReactToComments = hasEditPermission;
+
+  const recalculateScheduleSafe = async (taskId: number, completedAt?: string) => {
+    if (!companyId) return;
+    const result = await recalculateSchedule(taskId, {
+      company_id: companyId,
+      company_identifier: companyIdentifier,
+      completed_at: completedAt,
+    });
+    if (!result.ok) showError("Schedule Update Failed", result.message);
+  };
+
+  const recalculateIfAts = async (taskId: number, completedAt?: string) => {
+    if (!isAts) return;
+    await recalculateScheduleSafe(taskId, completedAt);
+  };
 
   // Persists an edit immediately — pass just the field(s) that changed as
-  // `overrides`; the rest of the payload is filled in from current edit
-  // state so every save is a full, valid UpdateTaskRequest.
+  // `overrides`. Dedicated endpoints are used for assignee and due date;
+  // everything else goes through the full website-equivalent update payload.
   const persistTaskField = async (overrides: Partial<UpdateTaskRequest>) => {
     if (!task?.taskId || savingTask) return;
     if (!canEdit) {
       showError("Not Allowed", "You don't have permission to edit this task.");
+      return;
+    }
+    const apiT = taskDetail?.task;
+    if (!apiT) {
+      showError("Not Loaded", "Task details are still loading.");
       return;
     }
     const title = (overrides.title ?? editTitle).trim();
@@ -810,49 +949,81 @@ export default function TaskDetailModal({
       return;
     }
 
-setSavingTask(true);
+    setSavingTask(true);
     try {
-      const apiT = taskDetail?.task;
-      const isAts = authState.hasAdvancedTaskModule === true;
-      const payload: UpdateTaskRequest = {
-        company_id: companyId,
-        company_identifier: companyIdentifier,
-        title,
-        assign_to:
-          editAssignToId ??
-          (typeof apiT?.asigned_to === "number"
-            ? apiT.asigned_to
-            : (apiT?.asigned_to?.id ?? 0)),
-        due_date: editDueDate ? editDueDate.toISOString().split("T")[0] : null,
-        priority: editPriorityId ?? 1,
-        status: editStatus,
-        description: editDescription,
-        is_recurring: apiT?.is_recurring ?? false,
-        recurring_period: apiT?.recurring_period ?? null,
-        recurring_time: apiT?.recurring_time ?? null,
-        recurring_total_count: apiT?.recurring_total_count ?? 0,
-        recurring_exclude_days: apiT?.recurring_exclude_days ?? [],
-        approval_required: editApprovalRequired ? 1 : 0,
-        ...(isAts
-          ? {
-              effort_hours: Number(editEffortHours) || 0,
-              effort_unit: editEffortUnit || "hours",
-            }
-          : {}),
-        task_priority: editTaskPriority,
-        bump_to_front: false,
-        ...overrides,
-      };
+      const taskId = task.taskId;
 
-      // updateTaskApi patches the task list locally (optimistically) before the
-      // network call resolves. Deliberately NOT re-fetching the full task
-      // list afterward — /tasks/all is slow and, if the backend hasn't
-      // fully propagated the write yet, a refetch this soon after can
-      // overwrite the correct optimistic state with stale data. The next
-      // natural refresh (pull-to-refresh, tab switch, socket event) will
-      // reconcile any other server-side side effects.
-      await updateTaskApi(task.taskId, payload);
+      // Assignee changes use /tasks/updateasignedto (creator-only).
+      if (overrides.assign_to !== undefined) {
+        const newAssignee = Number(overrides.assign_to);
+        const result = await reassignTask(taskId, {
+          assignee: newAssignee,
+          asigned_to: newAssignee,
+          company_id: companyId,
+          company_identifier: companyIdentifier,
+        });
+        if (!result.ok) {
+          showError("Reassign Failed", result.message);
+          return;
+        }
+        useTasksStore.getState().patchTask(taskId, { asigned_to: newAssignee });
+        setTaskDetail((current) =>
+          current
+            ? { ...current, task: { ...current.task, asigned_to: newAssignee } }
+            : current,
+        );
+        await recalculateIfAts(taskId);
+        await loadTaskDetail();
+        return;
+      }
+
+      // Normal-company due-date changes use /tasks/updatetaskduedate.
+      if (overrides.due_date !== undefined) {
+        if (isAts) {
+          showError(
+            "Read-only",
+            "ATS due dates are scheduled by the engine and cannot be edited.",
+          );
+          return;
+        }
+        const dueDate = overrides.due_date;
+        if (!dueDate) {
+          showError("Validation Error", "Due date is required.");
+          return;
+        }
+        const result = await updateTaskDueDate(taskId, {
+          duedate: dueDate,
+          company_id: companyId,
+          company_identifier: companyIdentifier,
+        });
+        if (!result.ok) {
+          showError("Update Failed", result.message);
+          return;
+        }
+        useTasksStore.getState().patchTask(taskId, { due_date: dueDate });
+        setTaskDetail((current) =>
+          current ? { ...current, task: { ...current.task, due_date: dueDate } } : current,
+        );
+        await loadTaskDetail();
+        return;
+      }
+
+      const payload = buildUpdateTaskPayload(
+        apiT,
+        { ...overrides, title },
+        { companyId, companyIdentifier, isAts },
+      );
+      await updateTaskApi(taskId, payload);
       await loadTaskDetail();
+
+      if (
+        isAts &&
+        (overrides.effort_hours !== undefined ||
+          overrides.priority !== undefined ||
+          overrides.task_priority !== undefined)
+      ) {
+        await recalculateIfAts(taskId);
+      }
     } catch (err: any) {
       showError("Error", err.message || "Failed to update task.");
     } finally {
@@ -868,15 +1039,25 @@ setSavingTask(true);
   const mentionUsersLoadedRef = useRef(false);
 
   const currentUserId = authState.user?.id ?? 0;
+  const isCompanyAdminUser =
+    (authState.user?.role_title ?? "").trim().toLowerCase() === "company admin";
+  const creatorIdOfTask =
+    typeof taskDetail?.task?.created_by === "number"
+      ? taskDetail.task.created_by
+      : (taskDetail?.task?.created_by?.id ?? 0);
+  const canApproveRejectNow =
+    currentStatus === "Pending-Approval" &&
+    (isCompanyAdminUser || Number(creatorIdOfTask) === Number(currentUserId));
 
   const companyId = task?.companyId ?? authState.company?.company_id ?? 0;
   const companyIdentifier = authState.company?.company_identifier ?? "";
+  const detailTaskId = task?.taskId;
 
   const loadTaskDetail = useCallback(async () => {
-    if (!task?.taskId) return;
+    if (!detailTaskId) return;
     setDetailLoading(true);
     try {
-      const detail = await viewTaskApi(task.taskId);
+      const detail = await viewTaskApi(detailTaskId);
       if (detail) {
         setTaskDetail(detail);
       }
@@ -885,24 +1066,235 @@ setSavingTask(true);
     } finally {
       setDetailLoading(false);
     }
-  }, [task?.taskId, viewTaskApi]);
+  }, [detailTaskId, viewTaskApi]);
 
   const loadDependencies = useCallback(async () => {
-    if (!task?.taskId) return;
+    if (!detailTaskId) return;
     try {
-      const deps = await getDependencies(task.taskId, companyId);
+      const deps = await getDependencies(detailTaskId, companyId);
       setDependencies(deps);
     } catch {
       // silently fail
     }
-  }, [task?.taskId, companyId, getDependencies]);
+  }, [detailTaskId, companyId, getDependencies, task]);
+
+  const handleAddDependency = async (dependsOnId: number) => {
+    if (!task?.taskId) return;
+    const result = await addDependency({
+      task_id: task.taskId,
+      depends_on: dependsOnId,
+      company_id: companyId,
+      company_identifier: companyIdentifier,
+    });
+    if (!result.ok) {
+      showError("Dependency Failed", result.message);
+      return;
+    }
+    showSuccess("Success", "Dependency added.");
+    setDependencyModalVisible(false);
+    await loadDependencies();
+    await recalculateScheduleSafe(task.taskId);
+  };
+
+  const handleRemoveDependency = (dep: DependencyData) => {
+    const taskId = task?.taskId;
+    if (!taskId) return;
+    Alert.alert(
+      "Remove Dependency",
+      "Remove this blocking task from the dependencies?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            const result = await removeDependency({
+              task_id: taskId,
+              depends_on: Number(dep.task_id),
+              company_id: companyId,
+              company_identifier: companyIdentifier,
+            });
+            if (!result.ok) {
+              showError("Remove Failed", result.message);
+              return;
+            }
+            showSuccess("Success", "Dependency removed.");
+            await loadDependencies();
+            await recalculateScheduleSafe(taskId);
+          },
+        },
+      ],
+    );
+  };
+
+  const dependencyCandidates = useMemo(() => {
+    const existing = new Set(dependencies.map((dep) => Number(dep.task_id)));
+    return allMappedTasks.filter((row) => {
+      const rowId = Number(row.id);
+      return (
+        rowId !== Number(task?.taskId) &&
+        !existing.has(rowId) &&
+        (row._raw.status === "Pending" || row._raw.status === "In-Progress")
+      );
+    });
+  }, [allMappedTasks, dependencies, task?.taskId]);
+
+  const handlePriorityChange = async (tier: "normal" | "critical") => {
+    setEditTaskPriority(tier);
+    setPriorityPickerVisible(false);
+
+    if (tier !== "critical" || !isAts) {
+      await persistTaskField({ task_priority: tier, bump_to_front: false });
+      return;
+    }
+
+    const assigneeId =
+      editAssignToId ??
+      (typeof taskDetail?.task?.asigned_to === "number"
+        ? taskDetail.task.asigned_to
+        : (taskDetail?.task?.asigned_to?.id ?? 0));
+    const currentTaskId = Number(task?.taskId ?? 0);
+    const activeCritical = allMappedTasks.filter((row) => {
+      const raw = row._raw;
+      return (
+        Number(row.id) !== currentTaskId &&
+        Number(raw.asigned_to) === Number(assigneeId) &&
+        raw.task_priority === "critical" &&
+        normalizeApiStatus(String(raw.status)) !== "Complete" &&
+        normalizeApiStatus(String(raw.status)) !== "Rejected"
+      );
+    });
+
+    if (activeCritical.length === 0) {
+      await persistTaskField({ task_priority: "critical", bump_to_front: true });
+      return;
+    }
+
+    setDetailCriticalTasks(
+      activeCritical.map((row) => ({
+        id: Number(row.id),
+        title: row.title,
+        dueDate: row._raw.due_date ?? undefined,
+        status: row._raw.status,
+      })),
+    );
+    setCriticalPromptVisible(true);
+  };
+
+  const handleCriticalStop = async () => {
+    setCriticalPromptVisible(false);
+    await persistTaskField({ task_priority: "critical", bump_to_front: true });
+    setDetailOrderNewTask({
+      id: Number(task?.taskId ?? 0),
+      title: apiTask?.title ?? task?.title ?? "Task",
+      assignedTo: assignedToName,
+      dueDate: apiTask?.due_date ?? undefined,
+      status: apiTask?.status,
+    });
+    setDetailOrderModalVisible(true);
+  };
+
+  const handleCriticalWait = async () => {
+    setCriticalPromptVisible(false);
+    await persistTaskField({ task_priority: "critical", bump_to_front: false });
+  };
+
+  const handleDetailOrderConfirm = async (orderedIds: number[]) => {
+    const result = await reorderCritical({ orderedIds, company_id: companyId });
+    if (!result.ok) {
+      showError("Reorder Error", result.message);
+    } else if (result.data.blockedTasks.length > 0) {
+      const titles = result.data.blockedTasks
+        .map((entry) => `"${entry.title}"`)
+        .join(", ");
+      showInfo(
+        "Order Saved",
+        `Order saved. ${titles} have unfinished dependencies — they will be scheduled at the selected position once the dependencies are completed.`,
+      );
+    } else {
+      showSuccess("Success", "Critical task order updated.");
+    }
+    setDetailOrderModalVisible(false);
+    setDetailOrderNewTask(null);
+    await loadTaskDetail();
+  };
+
+  const handleOpenAttachment = async (attachment: string, name?: string) => {
+    try {
+      await openChatDocument(attachment, name || attachment);
+    } catch {
+      showError("Error", "Could not open this attachment.");
+    }
+  };
+
+  const handlePickAttachment = async (files: SelectedFile[]) => {
+    if (!task?.taskId || !canManageAttachments) return;
+    const file = files[0];
+    if (!file) return;
+    const validation = validateAttachment(file);
+    if (!validation.valid) {
+      showError(
+        "Attachment Rejected",
+        `"${file.name}": ${Object.values(validation.errors)[0]}`,
+      );
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", {
+      uri: file.uri,
+      name: file.name || "attachment",
+      type: file.mimeType || "application/octet-stream",
+    } as unknown as Blob);
+    formData.append("company_id", String(companyId));
+    formData.append("company_identifier", companyIdentifier);
+
+    setUploadingAttachment(true);
+    try {
+      const result = await uploadAttachment(task.taskId, formData);
+      if (!result.ok) {
+        showError("Upload Failed", result.message);
+        return;
+      }
+      showSuccess("Success", "Attachment uploaded.");
+      await loadTaskDetail();
+    } finally {
+      setUploadingAttachment(false);
+    }
+  };
+
+  const handleDeleteAttachment = (attachmentId: number) => {
+    Alert.alert(
+      "Remove File",
+      "This will permanently delete this attachment.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            const result = await deleteAttachment(attachmentId, {
+              company_id: companyId,
+              company_identifier: companyIdentifier,
+            });
+            if (!result.ok) {
+              showError("Delete Failed", result.message);
+              return;
+            }
+            showSuccess("Success", "Attachment removed.");
+            await loadTaskDetail();
+          },
+        },
+      ],
+    );
+  };
 
   const loadNotes = useCallback(async () => {
-    if (!task?.taskId || !companyId || !companyIdentifier) return;
+    if (!detailTaskId || !companyId || !companyIdentifier) return;
     setNotesLoading(true);
     try {
       const fetched = await fetchNotes(
-        task.taskId,
+        detailTaskId,
         companyId,
         companyIdentifier,
       );
@@ -927,7 +1319,7 @@ setSavingTask(true);
     } finally {
       setNotesLoading(false);
     }
-  }, [task?.taskId, companyId, companyIdentifier, fetchNotes]);
+  }, [detailTaskId, companyId, companyIdentifier, fetchNotes, task]);
 
   useEffect(() => {
     if (visible) {
@@ -936,6 +1328,14 @@ setSavingTask(true);
       setMentionActive(false);
       setTaskDetail(null);
       setDependencies([]);
+      setReplyToNote(null);
+      setEditingNote(null);
+      setEditingNoteText("");
+      setDependencyModalVisible(false);
+      setCriticalPromptVisible(false);
+      setDetailOrderModalVisible(false);
+      setDetailOrderNewTask(null);
+      setDetailCriticalTasks([]);
       if (task?.taskId) {
         loadTaskDetail();
         loadDependencies();
@@ -1042,6 +1442,10 @@ setSavingTask(true);
         (p.data as Record<string, unknown>)?.task_id ??
         (p.data as Record<string, unknown>)?.id;
       if (eventTaskId != null && Number(eventTaskId) === taskIdRef.current) {
+        if (p.action === "delete") {
+          sheetRef.current?.close();
+          return;
+        }
         if (NOTE_ACTIONS.has(p.action)) {
           loadNotesRef.current();
         }
@@ -1141,58 +1545,88 @@ setSavingTask(true);
     }
     setSendingNote(true);
     try {
-      await addNote(task.taskId, {
+      const result = await addNoteApi(task.taskId, {
         notes,
         company_id: companyId,
         company_identifier: companyIdentifier,
         mentions,
-        ...(replyToNoteId !== null && {
-          reply_to: {
-            id: replyToNoteId,
-user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])?.full_name ?? "") : "",
-            content: "",
-          },
-        }),
+        ...(replyToNote
+          ? {
+              reply_to: {
+                id: Number(replyToNote.id),
+                user_name: replyToNote.user_name ?? "",
+                content: mentionMarkupToDisplay(replyToNote.notes ?? "").slice(0, 100),
+              },
+            }
+          : {}),
       });
+      if (!result.ok) {
+        showError("Comment Failed", result.message);
+        return;
+      }
       setCommentText("");
       setMentionedUserIds([]);
       setMentionActive(false);
       setMentionQuery("");
-      setReplyToNoteId(null);
+      setReplyToNote(null);
       await loadNotes();
     } catch {
-      // silently fail
+      showError("Comment Failed", "Could not send this comment.");
     } finally {
       setSendingNote(false);
     }
   };
 
-  const handleDeleteNote = async (note: TaskNote) => {
-    if (note.user_id !== currentUserId && !authState.user?.role_title?.includes("company admin")) {
+  const handleDeleteNote = (note: TaskNote) => {
+    if (Number(note.user_id) !== Number(currentUserId) || !canEditDeleteComments) {
       showError("Not Allowed", "You can only delete your own notes.");
       return;
     }
-    if (!window.confirm("Are you sure you want to delete this comment?")) return;
-    try {
-      await deleteNote(note.id, companyId, companyIdentifier);
-      await loadNotes();
-    } catch {
-      // silently fail
-    }
+    Alert.alert(
+      "Delete Comment",
+      "Are you sure you want to delete this comment?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const result = await deleteNoteApi(note.id, {
+                company_id: companyId,
+                company_identifier: companyIdentifier,
+              });
+              if (!result.ok) {
+                showError("Delete Failed", result.message);
+                return;
+              }
+              await loadNotes();
+            } catch {
+              showError("Delete Failed", "Could not delete this comment.");
+            }
+          },
+        },
+      ],
+    );
   };
 
   const handlePinNote = async (note: TaskNote) => {
+    if (!canPinOrReactToComments) {
+      showError("Not Allowed", "You don't have permission to pin comments.");
+      return;
+    }
     const isCurrentlyPinned = note.pin_top === 1;
-    const newPinnedState = isCurrentlyPinned ? 0 : 1;
     const previousNotes = [...notes];
-
     try {
-      await pinNote(
-        note.id,
-        newPinnedState === 1,
-        companyId,
-        companyIdentifier,
-      );
+      const result = await pinNoteApi(note.id, {
+        pin_top: isCurrentlyPinned ? 0 : 1,
+        company_id: companyId,
+        company_identifier: companyIdentifier,
+      });
+      if (!result.ok) {
+        showError("Pin Failed", result.message);
+        return;
+      }
       await loadNotes();
     } catch {
       setNotes(previousNotes);
@@ -1201,26 +1635,66 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
 
   const handleReactionToggle = async (emoji: string, noteId: number) => {
     if (!noteId) return;
-    const note = notes.find((n) => n.id === noteId);
-    if (!note) return;
+    if (!canPinOrReactToComments) {
+      showError("Not Allowed", "You don't have permission to react to comments.");
+      return;
+    }
     const userId = authState.user?.id ?? 0;
     const userName =
-      authState.user?.first_name && authState.user?.last_name
-        ? `${authState.user?.first_name} ${authState.user?.last_name}`.trim()
-        : "User";
-    const companyIdNum = companyId;
-    const companyIdentifier = authState.company?.company_identifier ?? "";
+      `${authState.user?.first_name ?? ""} ${authState.user?.last_name ?? ""}`.trim() ||
+      "User";
 
     try {
-      await updateNoteReaction(noteId, {
+      const result = await updateNoteReaction(noteId, {
         emoji,
-        company_id: companyIdNum,
+        company_id: companyId,
         user_id: userId,
         user_name: userName,
       });
+      if (!result.ok) {
+        showError("Reaction Failed", result.message);
+        return;
+      }
       await loadNotes();
     } catch {
-      // silently fail
+      showError("Reaction Failed", "Could not update the reaction.");
+    }
+  };
+
+  const handleReply = (note: TaskNote) => {
+    setReplyToNote(note);
+  };
+
+  const handleEditNote = (note: TaskNote) => {
+    if (Number(note.user_id) !== Number(currentUserId) || !canEditDeleteComments) {
+      showError("Not Allowed", "You can only edit your own notes.");
+      return;
+    }
+    setEditingNote(note);
+    setEditingNoteText(note.notes ?? "");
+  };
+
+  const handleSaveEditedNote = async () => {
+    if (!editingNote?.id) return;
+    if (!editingNoteText.trim()) {
+      showError("Validation", "Comment cannot be empty.");
+      return;
+    }
+    try {
+      const result = await updateNoteApi(editingNote.id, {
+        notes: editingNoteText.trim(),
+        company_id: companyId,
+        company_identifier: companyIdentifier,
+      });
+      if (!result.ok) {
+        showError("Update Failed", result.message);
+        return;
+      }
+      setEditingNote(null);
+      setEditingNoteText("");
+      await loadNotes();
+    } catch {
+      showError("Update Failed", "Could not update this comment.");
     }
   };
 
@@ -1323,8 +1797,11 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
     canEditStatus: false,
   }));
 
+  const attachmentItems = apiTask?.task_attachments ?? [];
   const attachmentFiles: string[] =
-    apiTask?.task_attachments?.map((a) => a.attachment) ?? task.attachments;
+    attachmentItems.length > 0
+      ? attachmentItems.map((item) => item.original_name || item.attachment)
+      : task.attachments;
   const effortDisplay = apiTask
     ? `${apiTask.effort_hours} ${apiTask.effort_unit}`
     : task.effortHours
@@ -1357,6 +1834,12 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
 
   const priorityDisplayName = apiTask?.priority ?? task.priority;
   const taskPriorityDisplay = apiTask?.task_priority ?? null;
+  const hasTaskPriority =
+    taskPriorityDisplay === "normal" || taskPriorityDisplay === "critical";
+  const companyPriorityName =
+    taskState.priorities.find((p) => p.id === editPriorityId)?.name ??
+    (typeof priorityDisplayName === "string" ? priorityDisplayName : undefined) ??
+    "Normal";
 
   const createdAtDisplay = formatDetailDateTime(
     apiTask?.created_at ||
@@ -1374,14 +1857,11 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
       (apiTask as any)?.actual_completion ||
       (apiTask as any)?.completion_date,
   );
+  const effortHistory = apiTask?.effort_history ?? [];
   const effortLogsDisplay =
-    (apiTask as any)?.effort_logs_count !== undefined
-      ? `${(apiTask as any).effort_logs_count} change${(apiTask as any).effort_logs_count === 1 ? "" : "s"}`
-      : (apiTask as any)?.effort_logs?.length !== undefined
-        ? `${(apiTask as any).effort_logs.length} change${(apiTask as any).effort_logs.length === 1 ? "" : "s"}`
-        : apiTask?.effort_hours
-          ? "1 change"
-          : "0 changes";
+    effortHistory.length > 0
+      ? `${effortHistory.length} change${effortHistory.length === 1 ? "" : "s"}`
+      : "0 changes";
 
   return (
     <BottomSheetModal
@@ -1597,9 +2077,11 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                     <View style={styles.infoValueWrap}>
                       <TouchableOpacity
                         activeOpacity={0.7}
-                        disabled={!canEdit}
-                        style={!canEdit && { opacity: 0.7 }}
-                        onPress={() => setDatePickerVisible(true)}
+                        disabled={!canEdit || isAts}
+                        style={(!canEdit || isAts) && { opacity: 0.7 }}
+                        onPress={() => {
+                          if (!isAts) setDatePickerVisible(true);
+                        }}
                       >
                         <Text style={styles.infoValue}>
                           {estCompletionDisplay}
@@ -1640,8 +2122,12 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                     <View style={styles.infoValueWrap}>
                       <TouchableOpacity
                         activeOpacity={0.7}
-                        disabled={!canEdit}
-                        style={!canEdit && { opacity: 0.7 }}
+                        disabled={!canEdit || (hasTaskPriority && !isAts)}
+                        style={
+                          (!canEdit || (hasTaskPriority && !isAts)) && {
+                            opacity: 0.7,
+                          }
+                        }
                         onPress={() => setPriorityPickerVisible(true)}
                       >
                         <View
@@ -1674,9 +2160,11 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                               },
                             ]}
                           >
-                            {editTaskPriority === "critical"
-                              ? "Critical"
-                              : "Normal"}
+                            {hasTaskPriority
+                              ? editTaskPriority === "critical"
+                                ? "Critical"
+                                : "Normal"
+                              : companyPriorityName}
                           </Text>
                         </View>
                       </TouchableOpacity>
@@ -1697,8 +2185,12 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                     <View style={styles.infoValueWrap}>
                       <TouchableOpacity
                         activeOpacity={0.7}
-                        disabled={!canEdit}
-                        style={!canEdit && { opacity: 0.7 }}
+                        disabled={!canEditStatus && !canApproveRejectNow}
+                        style={
+                          (!canEditStatus && !canApproveRejectNow) && {
+                            opacity: 0.7,
+                          }
+                        }
                         onPress={() => setStatusPickerVisible(true)}
                       >
                         <View
@@ -1723,7 +2215,9 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                           >
                             {editStatus === "In-Progress"
                               ? "In Progress"
-                              : editStatus}
+                              : editStatus === "On-Hold"
+                                ? "On Hold"
+                                : editStatus}
                           </Text>
                         </View>
                       </TouchableOpacity>
@@ -1775,7 +2269,8 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                     </View>
                   </View>
 
-                  {/* 11. Efforts */}
+                  {/* 11. Efforts (ATS only) */}
+                  {isAts && (
                   <View style={styles.infoRow}>
                     <View style={styles.infoLabelWrap}>
                       <Ionicons
@@ -1802,8 +2297,10 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                       </TouchableOpacity>
                     </View>
                   </View>
+                  )}
 
-                  {/* 12. Effort Logs */}
+                  {/* 12. Effort Logs (ATS only) */}
+                  {isAts && (
                   <View style={styles.infoRow}>
                     <View style={styles.infoLabelWrap}>
                       <Ionicons
@@ -1831,6 +2328,7 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                       </TouchableOpacity>
                     </View>
                   </View>
+                  )}
 
                   {/* 13. Dependencies */}
                   <View style={styles.infoRow}>
@@ -1850,19 +2348,37 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                           showsHorizontalScrollIndicator={false}
                           nestedScrollEnabled
                         >
-                          {depDisplay.map((dep, idx) => (
-                            <View key={idx} style={styles.depPill}>
+                          {dependencies.map((dep, idx) => (
+                            <View key={`${dep.task_id}-${idx}`} style={styles.depPill}>
                               <Text
                                 style={styles.depPillText}
                                 numberOfLines={1}
                               >
                                 {dep.title}
                               </Text>
+                              {canManageDependencies && (
+                                <TouchableOpacity
+                                  onPress={() => handleRemoveDependency(dep)}
+                                  hitSlop={8}
+                                  style={{ marginLeft: 4 }}
+                                >
+                                  <Ionicons name="close" size={12} color="#00DEAB" />
+                                </TouchableOpacity>
+                              )}
                             </View>
                           ))}
                         </ScrollView>
                       ) : (
                         <Text style={styles.infoValue}>—</Text>
+                      )}
+                      {canManageDependencies && (
+                        <TouchableOpacity
+                          style={styles.addDependencyBtn}
+                          onPress={() => setDependencyModalVisible(true)}
+                        >
+                          <Ionicons name="add" size={13} color="#00DEAB" />
+                          <Text style={styles.addDependencyText}>Add</Text>
+                        </TouchableOpacity>
                       )}
                     </View>
                   </View>
@@ -1884,21 +2400,21 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                         +{attachmentFiles.length}
                       </Text>
                     </View>
-                    <TextInput
-                      style={styles.editableDescInput}
-                      value={editDescription}
-                      editable={canEdit}
-                      onChangeText={setEditDescription}
+                    <RichTextEditor
+                      key={`${task?.taskId ?? "task"}-${apiTask?.id ?? "pending"}`}
+                      ref={descriptionEditorRef}
+                      initialHTML={editDescription}
+                      onChangeHTML={setEditDescription}
                       onBlur={() => {
                         if (editDescription !== lastSavedDescRef.current) {
                           lastSavedDescRef.current = editDescription;
                           persistTaskField({ description: editDescription });
                         }
                       }}
-                      scrollEnabled={false}
-                      multiline
-                      placeholder="Add task description..."
-                      placeholderTextColor="#9CA3AF"
+                      disabled={!canEdit}
+                      showToolbar={canEdit}
+                      editorHeight={140}
+                      borderless
                     />
                   </View>
 
@@ -1915,17 +2431,15 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
 
                   {/* Bottom Attachments Button */}
                   <View style={styles.bottomAttachmentSection}>
-                    <TouchableOpacity style={styles.bottomAttachmentBtn}>
-                      <Ionicons
-                        name="link-outline"
-                        size={14}
-                        color="#8E8E93"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.bottomAttachmentText}>
-                        Attachments
-                      </Text>
-                    </TouchableOpacity>
+                    <Text style={styles.sectionTitle}>Attachments</Text>
+                    {canManageAttachments && (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <DocumentPickerButton onPick={handlePickAttachment} />
+                        <Text style={styles.bottomAttachmentText}>
+                          {uploadingAttachment ? "Uploading..." : "Add attachment"}
+                        </Text>
+                      </View>
+                    )}
                   </View>
 
                   {attachmentFiles.length > 0 && (
@@ -1935,16 +2449,52 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                         showsHorizontalScrollIndicator={false}
                         nestedScrollEnabled
                       >
-                        {attachmentFiles.map((a, i) => (
-                          <View key={i} style={styles.attachTag}>
-                            <Ionicons
-                              name="download-outline"
-                              size={13}
-                              color="#00DEAB"
-                            />
-                            <Text style={styles.attachTagText}>{a}</Text>
-                          </View>
-                        ))}
+                        {attachmentItems.length > 0
+                          ? attachmentItems.map((item) => (
+                              <View key={item.id} style={styles.attachTag}>
+                                <TouchableOpacity
+                                  onPress={() =>
+                                    handleOpenAttachment(
+                                      item.attachment,
+                                      item.original_name || item.attachment,
+                                    )
+                                  }
+                                  style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                                >
+                                  <Ionicons
+                                    name="download-outline"
+                                    size={13}
+                                    color="#00DEAB"
+                                  />
+                                  <Text style={styles.attachTagText} numberOfLines={1}>
+                                    {item.original_name || item.attachment}
+                                  </Text>
+                                </TouchableOpacity>
+                                {canManageAttachments && (
+                                  <TouchableOpacity
+                                    onPress={() => handleDeleteAttachment(item.id)}
+                                    hitSlop={8}
+                                    style={{ marginLeft: 6 }}
+                                  >
+                                    <Ionicons name="close" size={12} color="#EF4444" />
+                                  </TouchableOpacity>
+                                )}
+                              </View>
+                            ))
+                          : attachmentFiles.map((a, i) => (
+                              <TouchableOpacity
+                                key={i}
+                                style={styles.attachTag}
+                                onPress={() => handleOpenAttachment(a)}
+                              >
+                                <Ionicons
+                                  name="download-outline"
+                                  size={13}
+                                  color="#00DEAB"
+                                />
+                                <Text style={styles.attachTagText}>{a}</Text>
+                              </TouchableOpacity>
+                            ))}
                       </ScrollView>
                     </View>
                   )}
@@ -1999,6 +2549,11 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                     onPin={handlePinNote}
                     onDelete={handleDeleteNote}
                     onReactionToggle={handleReactionToggle}
+                    onEdit={handleEditNote}
+                    onReply={handleReply}
+                    canEditOwn={canEditDeleteComments}
+                    canDeleteOwn={canEditDeleteComments}
+                    canPinReact={canPinOrReactToComments}
                     index={i}
                   />
                 ))
@@ -2030,6 +2585,22 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
               </View>
             )}
 
+            {replyToNote && (
+              <View style={styles.replyBanner}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.replyBannerName}>
+                    Replying to {replyToNote.user_name}
+                  </Text>
+                  <Text style={styles.replyBannerText} numberOfLines={1}>
+                    {mentionMarkupToDisplay(replyToNote.notes ?? "")}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setReplyToNote(null)} hitSlop={8}>
+                  <Ionicons name="close" size={16} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
+            )}
+
             <View
               ref={commentBoxRef}
               style={[
@@ -2047,6 +2618,7 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
               <BottomSheetTextInput
                 style={styles.inputField}
                 value={commentText}
+                editable={canComment}
                 onChangeText={handleCommentChange}
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
@@ -2104,7 +2676,7 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                 <TouchableOpacity
                   style={[styles.sendBtn, sendingNote && { opacity: 0.5 }]}
                   onPress={handleSendComment}
-                  disabled={sendingNote || !commentText.trim()}
+                  disabled={sendingNote || !commentText.trim() || !canComment}
                 >
                   {sendingNote ? (
                     <ActivityIndicator size={12} color="#fff" />
@@ -2228,9 +2800,11 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                   (st) =>
                     (st !== "Partial Complete" ||
                       (taskDetail?.task?.subtask_count ?? 0) > 0) &&
-                    (st !== "Rejected" ||
-                      taskDetail?.task?.status === "Pending-Approval"),
+                    (st !== "Rejected" || canApproveRejectNow) &&
+                    (st !== "Complete" || currentStatus !== "Complete"),
                 ).map((st) => {
+                  const detailTask = taskDetail?.task;
+                  const detailStatus = normalizeApiStatus(String(detailTask?.status ?? editStatus));
                   const isSelected =
                     normalizeApiStatus(String(editStatus)) ===
                     normalizeApiStatus(st);
@@ -2243,31 +2817,10 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                       ]}
                       onPress={() => {
                         if (st === "Rejected") {
-                          const detailTask = taskDetail?.task;
-                          const creatorId =
-                            typeof detailTask?.created_by === "number"
-                              ? detailTask.created_by
-                              : detailTask?.created_by?.id;
-                          const isCompanyAdmin =
-                            (authState.user?.role_title ?? "")
-                              .trim()
-                              .toLowerCase() === "company admin";
-                          if (
-                            !detailTask ||
-                            detailTask.status !== "Pending-Approval" ||
-                            (!isCompanyAdmin &&
-                              Number(creatorId) !== Number(authState.user?.id))
-                          ) {
+                          if (!canApproveRejectNow) {
                             showError(
                               "Not Allowed",
                               "Only the task creator or company admin can reject this task.",
-                            );
-                            return;
-                          }
-                          if (authState.hasAdvancedTaskModule === true) {
-                            showInfo(
-                              "ATS Rejection",
-                              "ATS rejection options are part of the ATS task workflow.",
                             );
                             return;
                           }
@@ -2275,26 +2828,47 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                           setRejectModalVisible(true);
                           return;
                         }
-                        const detailTask = taskDetail?.task;
-                        const createdBy =
-                          typeof detailTask?.created_by === "number"
-                            ? detailTask.created_by
-                            : (detailTask?.created_by?.id ?? 0);
+
+                        // ATS reopen uses /tasks/reopen with priority + effort.
+                        if (
+                          isAts &&
+                          detailStatus === "Complete" &&
+                          st !== "Complete"
+                        ) {
+                          if (Number(creatorIdOfTask) !== Number(currentUserId)) {
+                            showError(
+                              "Not Allowed",
+                              "Only the task creator can reopen a completed task.",
+                            );
+                            return;
+                          }
+                          setStatusPickerVisible(false);
+                          setReopenModalVisible(true);
+                          return;
+                        }
+
+                        // ATS resume from Pending-Approval allows optional effort.
+                        if (
+                          isAts &&
+                          detailStatus === "Pending-Approval" &&
+                          (st === "In-Progress" || st === "Pending")
+                        ) {
+                          setStatusPickerVisible(false);
+                          setResumeTargetStatus(st);
+                          setResumeModalVisible(true);
+                          return;
+                        }
+
                         void persistTaskStatus({
                           taskId: task.taskId ?? 0,
                           currentStatus: String(detailTask?.status ?? editStatus),
                           nextStatus: st,
                           subtaskCount: detailTask?.subtask_count ?? 0,
-                          canEditStatus: detailTask?.can_edit_status === true,
-                          canApproveReject:
-                            detailTask?.status === "Pending-Approval" &&
-                            ((authState.user?.role_title ?? "")
-                              .trim()
-                              .toLowerCase() === "company admin" ||
-                              Number(createdBy) === Number(currentUserId)),
-                          createdBy,
+                          canEditStatus,
+                          canApproveReject: canApproveRejectNow,
+                          createdBy: Number(creatorIdOfTask),
                           currentUserId,
-                          isAts: authState.hasAdvancedTaskModule === true,
+                          isAts,
                           companyId,
                           companyIdentifier,
                           updateStatus: updateTaskStatusApi,
@@ -2311,7 +2885,7 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                                         savedStatus === "Complete"
                                           ? new Date().toISOString()
                                           : null,
-}
+                                    },
                                   }
                                 : current,
                             );
@@ -2339,7 +2913,11 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                             },
                           ]}
                         >
-                          {st}
+                          {st === "In-Progress"
+                            ? "In Progress"
+                            : st === "On-Hold"
+                              ? "On Hold"
+                              : st}
                         </Text>
                       </View>
                       {isSelected && (
@@ -2376,60 +2954,93 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                   <Ionicons name="close" size={20} color="#1D1D1D" />
                 </TouchableOpacity>
               </View>
-              {(["normal", "critical"] as const).map((tier) => {
-                const isSelected = editTaskPriority === tier;
-                return (
-                  <TouchableOpacity
-                    key={tier}
-                    style={[
-                      styles.popoverRow,
-                      isSelected && styles.popoverRowSelected,
-                    ]}
-                    onPress={() => {
-                      setEditTaskPriority(tier);
-                      setPriorityPickerVisible(false);
-                      persistTaskField({ task_priority: tier });
-                    }}
-                  >
-                    <View
+              {hasTaskPriority ? (
+                (isAts ? (["normal", "critical"] as const) : (["normal"] as const)).map((tier) => {
+                  const isSelected = editTaskPriority === tier;
+                  return (
+                    <TouchableOpacity
+                      key={tier}
                       style={[
-                        styles.taskPriorityBadge,
-                        tier === "critical"
-                          ? styles.taskPriorityBadgeCritical
-                          : styles.taskPriorityBadgeNormal,
+                        styles.popoverRow,
+                        isSelected && styles.popoverRowSelected,
                       ]}
+                      onPress={() => {
+                        void handlePriorityChange(tier);
+                      }}
                     >
                       <View
                         style={[
-                          styles.taskPriorityDot,
-                          {
-                            backgroundColor:
-                              tier === "critical" ? "#EF4444" : "#00A876",
-                          },
+                          styles.taskPriorityBadge,
+                          tier === "critical"
+                            ? styles.taskPriorityBadgeCritical
+                            : styles.taskPriorityBadgeNormal,
                         ]}
-                      />
+                      >
+                        <View
+                          style={[
+                            styles.taskPriorityDot,
+                            {
+                              backgroundColor:
+                                tier === "critical" ? "#EF4444" : "#00A876",
+                            },
+                          ]}
+                        />
+                        <Text
+                          style={[
+                            styles.taskPriorityBadgeText,
+                            {
+                              color: tier === "critical" ? "#EF4444" : "#00A876",
+                            },
+                          ]}
+                        >
+                          {tier === "critical" ? "Critical" : "Normal"}
+                        </Text>
+                      </View>
+                      {isSelected && (
+                        <Ionicons
+                          name="checkmark"
+                          size={16}
+                          color="#00DEAB"
+                          style={{ marginLeft: "auto" }}
+                        />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
+              ) : (
+                (taskState.priorities ?? []).map((priority) => {
+                  const isSelected = editPriorityId === priority.id;
+                  return (
+                    <TouchableOpacity
+                      key={priority.id}
+                      style={[
+                        styles.popoverRow,
+                        isSelected && styles.popoverRowSelected,
+                      ]}
+                      onPress={() => {
+                        setEditPriorityId(priority.id);
+                        setPriorityPickerVisible(false);
+                        persistTaskField({ priority: priority.id });
+                      }}
+                    >
                       <Text
                         style={[
-                          styles.taskPriorityBadgeText,
-                          {
-                            color: tier === "critical" ? "#EF4444" : "#00A876",
+                          styles.popoverRowText,
+                          isSelected && {
+                            fontFamily: "SF_Pro_Semibold",
+                            color: "#00DEAB",
                           },
                         ]}
                       >
-                        {tier === "critical" ? "Critical" : "Normal"}
+                        {priority.name}
                       </Text>
-                    </View>
-                    {isSelected && (
-                      <Ionicons
-                        name="checkmark"
-                        size={16}
-                        color="#00DEAB"
-                        style={{ marginLeft: "auto" }}
-                      />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
+                      {isSelected && (
+                        <Ionicons name="checkmark" size={16} color="#00DEAB" />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
             </Pressable>
           </Pressable>
         )}
@@ -2523,7 +3134,11 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                     if (editEffortHours !== lastSavedEffortHoursRef.current) {
                       lastSavedEffortHoursRef.current = editEffortHours;
                       persistTaskField({
-                        effort_hours: Number(editEffortHours) || 0,
+                        effort_hours: toMinutes(
+                          editEffortHours,
+                          editEffortUnit as "minutes" | "hours" | "days",
+                        ),
+                        effort_unit: editEffortUnit,
                       });
                     }
                   }}
@@ -2540,8 +3155,19 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                         editEffortUnit === unit && styles.inlineUnitChipActive,
                       ]}
                       onPress={() => {
-                        setEditEffortUnit(unit);
-                        persistTaskField({ effort_unit: unit });
+                        const nextUnit = unit as "minutes" | "hours" | "days";
+                        const minutes = toMinutes(
+                          editEffortHours,
+                          editEffortUnit as "minutes" | "hours" | "days",
+                        );
+                        const converted = String(fromMinutes(minutes, nextUnit));
+                        setEditEffortUnit(nextUnit);
+                        setEditEffortHours(converted);
+                        lastSavedEffortHoursRef.current = converted;
+                        persistTaskField({
+                          effort_hours: minutes,
+                          effort_unit: nextUnit,
+                        });
                       }}
                     >
                       <Text
@@ -2581,11 +3207,11 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                 endDate={editDueDate}
                 onSelectStart={(d) => {
                   setEditDueDate(d);
-                  persistTaskField({ due_date: d.toISOString().split("T")[0] });
+                  persistTaskField({ due_date: toCalendarDateOnly(d) });
                 }}
                 onSelectEnd={(d) => {
                   setEditDueDate(d);
-                  persistTaskField({ due_date: d.toISOString().split("T")[0] });
+                  persistTaskField({ due_date: toCalendarDateOnly(d) });
                 }}
                 onDone={() => setDatePickerVisible(false)}
                 compact
@@ -2634,34 +3260,31 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={{ paddingVertical: 8, gap: 10 }}
                 >
-                  {Array.isArray((apiTask as any)?.effort_logs) &&
-                  (apiTask as any).effort_logs.length > 0 ? (
-                    (apiTask as any).effort_logs.map(
-                      (log: any, idx: number) => (
-                        <View key={idx} style={styles.logCard}>
-                          <View style={styles.logHeader}>
-                            <Text style={styles.logUser}>
-                              {log.user_name ||
-                                log.userName ||
-                                log.created_by_name ||
-                                "User"}
-                            </Text>
-                            <Text style={styles.logDate}>
-                              {log.created_at
-                                ? formatDetailDateTime(log.created_at)
-                                : "-"}
-                            </Text>
-                          </View>
-                          <Text style={styles.logChange}>
-                            {log.change ||
-                              log.message ||
-                              log.description ||
-                              log.effort_hours ||
-                              JSON.stringify(log)}
+                  {effortHistory.length > 0 ? (
+                    effortHistory.map((log, idx) => (
+                      <View key={idx} style={styles.logCard}>
+                        <View style={styles.logHeader}>
+                          <Text style={styles.logUser}>
+                            {log.changed_by_name || "User"}
+                          </Text>
+                          <Text style={styles.logDate}>
+                            {log.changed_at
+                              ? formatDetailDateTime(log.changed_at)
+                              : "-"}
                           </Text>
                         </View>
-                      ),
-                    )
+                        <Text style={styles.logChange}>
+                          {log.action.replace(/_/g, " ")} ·{" "}
+                          {formatEffort(
+                            Number(log.value ?? 0),
+                            (log.unit as "minutes" | "hours" | "days") || "hours",
+                          )}
+                          {log.from_status || log.to_status
+                            ? ` · ${log.from_status || "—"} → ${log.to_status || "—"}`
+                            : ""}
+                        </Text>
+                      </View>
+                    ))
                   ) : (
                     <View style={{ paddingVertical: 24, alignItems: "center" }}>
                       <Ionicons
@@ -2698,15 +3321,144 @@ user_name: mentions.length > 0 ? (mentionUsers.find((m) => m.id === mentions[0])
             </Pressable>
           </Modal>
         )}
+        <CriticalTaskPopUpModal
+          visible={criticalPromptVisible}
+          onClose={() => {
+            setCriticalPromptVisible(false);
+            setEditTaskPriority(
+              taskDetail?.task?.task_priority === "critical" ? "critical" : "normal",
+            );
+          }}
+          onStopAndStart={handleCriticalStop}
+          onWaitAndSchedule={handleCriticalWait}
+        />
+        <OrderCriticalTasksModal
+          visible={detailOrderModalVisible}
+          newTask={
+            detailOrderNewTask ?? {
+              id: Number(task.taskId ?? 0),
+              title: apiTask?.title ?? task.title,
+              assignedTo: assignedToName,
+            }
+          }
+          existingCriticalTasks={detailCriticalTasks}
+          onClose={() => {
+            setDetailOrderModalVisible(false);
+            setDetailOrderNewTask(null);
+          }}
+          onConfirm={handleDetailOrderConfirm}
+        />
       </View>
+      {editingNote && (        <Modal
+          transparent
+          animationType="fade"
+          visible
+          onRequestClose={() => setEditingNote(null)}
+        >
+          <View style={styles.popoverOverlay}>
+            <View style={styles.popoverCard}>
+              <View style={styles.popoverHeader}>
+                <Text style={styles.popoverTitle}>Edit Comment</Text>
+                <TouchableOpacity onPress={() => setEditingNote(null)} hitSlop={8}>
+                  <Ionicons name="close" size={20} color="#1D1D1D" />
+                </TouchableOpacity>
+              </View>
+              <TextInput
+                style={styles.editCommentInput}
+                value={editingNoteText}
+                onChangeText={setEditingNoteText}
+                multiline
+                textAlignVertical="top"
+                placeholder="Comment"
+                placeholderTextColor="#9CA3AF"
+              />
+              <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 10 }}>
+                <TouchableOpacity
+                  style={styles.editCommentCancel}
+                  onPress={() => setEditingNote(null)}
+                >
+                  <Text style={styles.editCommentCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.editCommentSave}
+                  onPress={handleSaveEditedNote}
+                >
+                  <Text style={styles.editCommentSaveText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      <DependencyModal
+        visible={dependencyModalVisible}
+        onClose={() => setDependencyModalVisible(false)}
+        availableTasks={dependencyCandidates}
+        selectedIds={[]}
+        onToggle={(id) => {
+          void handleAddDependency(id);
+        }}
+      />
       <RejectTaskModal
         visible={rejectModalVisible}
         onClose={() => setRejectModalVisible(false)}
         taskId={task.taskId ?? 0}
         companyId={companyId}
         companyIdentifier={companyIdentifier}
+        onSuccess={(newStatus) => {
+          const nextStatus = newStatus ?? "Rejected";
+          setEditStatus(nextStatus);
+          const taskId = task.taskId ?? 0;
+          if (taskId) {
+            useTasksStore.getState().patchTask(taskId, {
+              status: normalizeApiStatus(nextStatus) as never,
+            });
+            void recalculateIfAts(taskId);
+          }
+          loadTaskDetail();
+        }}
+      />
+      <ReopenTaskModal
+        key={`reopen-${task.taskId ?? "task"}-${reopenModalVisible ? "open" : "closed"}`}
+        visible={reopenModalVisible}
+        onClose={() => setReopenModalVisible(false)}
+        taskId={task.taskId ?? 0}
+        companyId={companyId}
+        companyIdentifier={companyIdentifier}
+        isAts={isAts}
+        initialPriority={editTaskPriority}
+        initialEffortMinutes={toMinutes(
+          editEffortHours,
+          editEffortUnit as "minutes" | "hours" | "days",
+        )}
+        initialEffortUnit={editEffortUnit}
+        onSuccess={(status) => {
+          const taskId = task.taskId ?? 0;
+          if (taskId) {
+            useTasksStore.getState().patchTask(taskId, {
+              status: normalizeApiStatus(status) as never,
+            });
+          }
+          void recalculateIfAts(taskId);
+          loadTaskDetail();
+        }}
+      />
+      <ResumeTaskModal
+        key={`resume-${task.taskId ?? "task"}-${resumeModalVisible ? "open" : "closed"}`}
+        visible={resumeModalVisible}
+        onClose={() => setResumeModalVisible(false)}
+        taskId={task.taskId ?? 0}
+        companyId={companyId}
+        companyIdentifier={companyIdentifier}
+        targetStatus={resumeTargetStatus}
         onSuccess={() => {
-          setEditStatus("Rejected");
+          const taskId = task.taskId ?? 0;
+          if (taskId) {
+            useTasksStore.getState().patchTask(taskId, {
+              status: normalizeApiStatus(resumeTargetStatus) as never,
+            });
+          }
           loadTaskDetail();
         }}
       />
@@ -3039,6 +3791,17 @@ const styles = StyleSheet.create({
     color: "#00DEAB",
     fontFamily: "SF_Pro_Regular",
   },
+  addDependencyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    marginTop: 4,
+  },
+  addDependencyText: {
+    fontSize: rf(11),
+    color: "#00DEAB",
+    fontFamily: "SF_Pro_Medium",
+  },
   section: { marginTop: 16 },
   sectionTitle: {
     fontSize: rf(15),
@@ -3192,6 +3955,78 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Regular",
   },
   actionBtn: { padding: 2 },
+  commentReplyQuote: {
+    backgroundColor: "#F3F4F6",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    marginBottom: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: "#00DEAB",
+  },
+  commentReplyName: {
+    fontSize: rf(10),
+    color: "#00A876",
+    fontFamily: "SF_Pro_Semibold",
+    marginBottom: 1,
+  },
+  commentReplyText: {
+    fontSize: rf(10.5),
+    color: "#6B7280",
+    fontFamily: "SF_Pro_Regular",
+  },
+  replyBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#F0FDF8",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 8,
+  },
+  replyBannerName: {
+    fontSize: rf(11),
+    color: "#00A876",
+    fontFamily: "SF_Pro_Semibold",
+  },
+  replyBannerText: {
+    fontSize: rf(11),
+    color: "#6B7280",
+    fontFamily: "SF_Pro_Regular",
+  },
+  editCommentInput: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 8,
+    minHeight: 90,
+    padding: 10,
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Regular",
+    marginBottom: 12,
+  },
+  editCommentCancel: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: "#F3F4F6",
+  },
+  editCommentCancelText: {
+    color: "#374151",
+    fontSize: rf(13),
+    fontFamily: "SF_Pro_Medium",
+  },
+  editCommentSave: {
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: "#00DEAB",
+  },
+  editCommentSaveText: {
+    color: "#fff",
+    fontSize: rf(13),
+    fontFamily: "SF_Pro_Semibold",
+  },
   inputBox: {
     borderWidth: 1,
     borderRadius: 10,
@@ -3671,5 +4506,4 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
 });
-
 

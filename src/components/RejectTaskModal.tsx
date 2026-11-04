@@ -1,7 +1,8 @@
-import * as tasksService from "@/services/api/tasks.service";
+import { rejectTask } from "@/features/tasks/api/taskApi";
 import { rf } from "@/utils/responsive";
 import { showError, showSuccess } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -22,10 +23,11 @@ export type RejectTaskModalProps = {
   taskId: number;
   companyId: number;
   companyIdentifier: string;
-  onSuccess?: () => void;
+  onSuccess?: (newStatus?: string) => void;
 };
 
 type RejectUnit = "Hrs" | "Days" | "Min";
+type RejectType = "requirement_changed" | "not_completed";
 
 const REJECT_UNITS: RejectUnit[] = ["Hrs", "Days", "Min"];
 
@@ -37,9 +39,12 @@ export default function RejectTaskModal({
   companyIdentifier,
   onSuccess,
 }: RejectTaskModalProps) {
+  const { state: authState } = useAuth();
+  const isAts = authState.hasAdvancedTaskModule === true;
   const [reason, setReason] = useState("");
   const [effort, setEffort] = useState("");
   const [selectedUnit, setSelectedUnit] = useState<RejectUnit>("Hrs");
+  const [rejectType, setRejectType] = useState<RejectType | null>(null);
   const [unitDropdownOpen, setUnitDropdownOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [reasonFocused, setReasonFocused] = useState(false);
@@ -49,6 +54,7 @@ export default function RejectTaskModal({
       setReason("");
       setEffort("");
       setSelectedUnit("Hrs");
+      setRejectType(null);
       setUnitDropdownOpen(false);
       setLoading(false);
       setReasonFocused(false);
@@ -63,6 +69,10 @@ export default function RejectTaskModal({
       showError("Validation Error", "Please provide a reason for rejection.");
       return;
     }
+    if (isAts && !rejectType) {
+      showError("Validation Error", "Choose a rejection type.");
+      return;
+    }
 
     const numEffort = parseFloat(effort) || 0;
     let additionalHoursInMinutes = 0;
@@ -75,26 +85,37 @@ export default function RejectTaskModal({
         additionalHoursInMinutes = numEffort;
       }
     }
+    if (isAts) {
+      if (rejectType === "requirement_changed" && additionalHoursInMinutes <= 0) {
+        showError("Validation Error", "Please enter the effort to add.");
+        return;
+      }
+      if (rejectType === "not_completed") {
+        additionalHoursInMinutes = 0;
+      }
+    }
 
     setLoading(true);
     try {
-      const res = await tasksService.rejectTask(taskId, {
+      const result = await rejectTask(taskId, {
         company_id: companyId,
         company_identifier: companyIdentifier,
         reason: trimmedReason,
         additional_hours: additionalHoursInMinutes,
+        ...(isAts && rejectType ? { reject_type: rejectType } : {}),
       });
 
-      if (res.Good) {
-        showSuccess("Success", "Task rejected successfully.");
-        onSuccess?.();
+      if (result.ok) {
+        showSuccess(
+          "Success",
+          result.data.status
+            ? `Task rejected and moved to ${result.data.status}.`
+            : "Task has been rejected.",
+        );
+        onSuccess?.(result.data.status);
         onClose();
       } else {
-        const errorMsg =
-          typeof res.data === "string" && res.data
-            ? res.data
-            : "Failed to reject task.";
-        showError("Rejection Failed", errorMsg);
+        showError("Rejection Failed", result.message);
       }
     } catch (err: any) {
       showError("Error", err.message || "Failed to reject task.");
@@ -168,7 +189,45 @@ export default function RejectTaskModal({
             />
           </View>
 
+          {isAts && (
+            <View style={styles.rejectTypeRow}>
+              <TouchableOpacity
+                style={[
+                  styles.rejectTypeBtn,
+                  rejectType === "requirement_changed" && styles.rejectTypeBtnActive,
+                ]}
+                onPress={() => setRejectType("requirement_changed")}
+              >
+                <Text
+                  style={[
+                    styles.rejectTypeText,
+                    rejectType === "requirement_changed" && styles.rejectTypeTextActive,
+                  ]}
+                >
+                  Requirement Changed
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.rejectTypeBtn,
+                  rejectType === "not_completed" && styles.rejectTypeBtnActive,
+                ]}
+                onPress={() => setRejectType("not_completed")}
+              >
+                <Text
+                  style={[
+                    styles.rejectTypeText,
+                    rejectType === "not_completed" && styles.rejectTypeTextActive,
+                  ]}
+                >
+                  Task Not Completed
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* Effort row: Unit dropdown + New Estimated Effort */}
+          {(!isAts || rejectType === "requirement_changed") && (
           <View style={styles.effortRow}>
             {/* Unit Dropdown */}
             <View style={styles.unitPickerWrap}>
@@ -226,6 +285,7 @@ export default function RejectTaskModal({
               />
             </View>
           </View>
+          )}
 
           {/* Actions: Confirm Reject button */}
           <View style={styles.actionRow}>
@@ -328,6 +388,32 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 20,
     zIndex: 20,
+  },
+  rejectTypeRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 16,
+  },
+  rejectTypeBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  rejectTypeBtnActive: {
+    backgroundColor: "#F87171",
+    borderColor: "#F87171",
+  },
+  rejectTypeText: {
+    fontSize: rf(13),
+    fontFamily: "SF_Pro_Medium",
+    color: "#374151",
+  },
+  rejectTypeTextActive: {
+    color: "#FFFFFF",
   },
   unitPickerWrap: {
     position: "relative",
