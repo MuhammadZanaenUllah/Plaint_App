@@ -361,9 +361,15 @@ export type CreateTaskRequest = {
   project_id: number | null;
   sprint_id: number | null;
   parent_id: number;
-  effort_hours: number; // minutes; omit/0 for normal companies
-  effort_unit: string;
-  depends_on: number[];
+  effort_hours?: number; // minutes; ATS only
+  effort_unit?: string;
+  depends_on?: number[];
+};
+
+export type CreateTaskResult = {
+  id: number;
+  planningHold: boolean;
+  message?: string;
 };
 
 export type UpdateTaskRequest = {

@@ -9,6 +9,8 @@ const DAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 type Props = {
   startDate: Date | null;
   endDate: Date | null;
+  minDate?: Date | null;
+  disablePast?: boolean;
   onSelectStart: (d: Date) => void;
   onSelectEnd: (d: Date) => void;
   onDone?: () => void;
@@ -58,6 +60,20 @@ export default function CalendarPicker({ startDate, endDate, onSelectStart, onSe
 
   const handleDayPress = (day: number) => {
     const selected = new Date(viewYear, viewMonth, day);
+    if (disablePast) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (selected < today) {
+        return;
+      }
+    }
+    if (minDate) {
+      const min = new Date(minDate);
+      min.setHours(0, 0, 0, 0);
+      if (selected < min) {
+        return;
+      }
+    }
     if (picking === "start") {
       onSelectStart(selected);
       setPicking("end");
