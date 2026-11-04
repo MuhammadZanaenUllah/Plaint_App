@@ -12,24 +12,39 @@ type Props = {
 
 function getOptions(item: TaskRowProps): { label: string; value: StatusType }[] {
   if (item.status === "Pending-Approval") {
-    return [
-      { label: "Approve", value: "Completed" },
-      { label: "Reject", value: "Rejected" },
-    ];
+    return item.canApproveReject === true
+      ? [
+          { label: "Approve", value: "Completed" },
+          { label: "Reject", value: "Rejected" },
+        ]
+      : [];
   }
   if (item.status === "Completed") {
-    return [
-      { label: "Reopen as Pending", value: "Pending" },
-      { label: "Reopen as In Progress", value: "In-Progress" },
-    ];
+    return item.canReopen === true
+      ? [
+          { label: "Reopen as Pending", value: "Pending" },
+          { label: "Reopen as In Progress", value: "In-Progress" },
+        ]
+      : [];
   }
+  if (item.canEditStatus !== true) return [];
+
+  // Completing is only offered once the task is active (contract §3.12).
+  const statusName = String(item.status);
+  const canComplete =
+    statusName === "In-Progress" ||
+    statusName === "In Review" ||
+    statusName === "In Testing";
 
   const statuses = ALL_STATUSES.filter(
     (status) =>
       status !== "Pending-Approval" &&
       status !== "Recurring" &&
-      status !== "Rejected",
+      status !== "Rejected" &&
+      (status !== "Completed" || canComplete) &&
+      status !== item.status,
   ).map((status) => ({ label: status, value: status }));
+
   if ((item.subtaskCount ?? 0) > 0) {
     statuses.push({ label: "Partial Complete", value: "Partial Complete" });
   }

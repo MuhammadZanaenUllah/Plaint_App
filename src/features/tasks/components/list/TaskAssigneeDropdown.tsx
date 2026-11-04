@@ -20,7 +20,8 @@ type Props = {
 
 export function getOwnerDisplayName(owner: AssignableOwner): string {
   const fullName = owner.full_name?.trim();
-  return fullName ?? `${owner.first_name ?? ""} ${owner.last_name ?? ""}`.trim();
+  if (fullName) return fullName;
+  return `${owner.first_name ?? ""} ${owner.last_name ?? ""}`.trim();
 }
 
 const TaskAssigneeDropdown = memo(function TaskAssigneeDropdown({

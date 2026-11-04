@@ -1,7 +1,7 @@
 import Avatar from "@/components/Avatar";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
-import { recalculateSchedule } from "@/features/tasks/api/taskApi";
+import { approveTask, recalculateSchedule } from "@/features/tasks/api/taskApi";
 import { useTasksStore } from "@/features/tasks/store/tasksStore";
 import { normalizeApiStatus, toApiStatus } from "@/features/tasks/utils/taskStatus";
 import {
@@ -27,7 +27,7 @@ import {
 } from "@/utils/dateFormat";
 import { rf } from "@/utils/responsive";
 import { apiStatusToUi } from "@/utils/statusMapper";
-import { showError, showInfo } from "@/utils/toast";
+import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   BottomSheetBackdrop,
@@ -123,6 +123,7 @@ type PersistStatusOptions = {
   nextStatus: string;
   subtaskCount: number;
   canEditStatus: boolean;
+  canApproveReject: boolean;
   createdBy: number;
   currentUserId: number;
   isAts: boolean;
@@ -141,6 +142,7 @@ async function persistTaskStatus({
   nextStatus,
   subtaskCount,
   canEditStatus,
+  canApproveReject,
   createdBy,
   currentUserId,
   isAts,
@@ -149,13 +151,19 @@ async function persistTaskStatus({
   updateStatus,
   onSaved,
 }: PersistStatusOptions): Promise<boolean> {
-  if (!taskId || !companyId || !canEditStatus) {
+  const current = normalizeApiStatus(currentStatus);
+  const requested = normalizeApiStatus(nextStatus);
+  const isApprovalAction =
+    current === "Pending-Approval" && requested === "Complete";
+
+  if (
+    !taskId ||
+    !companyId ||
+    (!canEditStatus && !(isApprovalAction && canApproveReject))
+  ) {
     showError("Not Allowed", "You don't have permission to change this task's status.");
     return false;
   }
-
-  const current = normalizeApiStatus(currentStatus);
-  const requested = normalizeApiStatus(nextStatus);
   if (requested === "Partial Complete" && subtaskCount === 0) {
     showError("Status Not Allowed", "Partial Complete is only available for tasks with subtasks.");
     return false;
@@ -199,12 +207,35 @@ async function persistTaskStatus({
   }
 
   try {
-    await updateStatus(taskId, {
-      status: toApiStatus(requested),
-      company_id: companyId,
-      company_identifier: companyIdentifier,
-    });
-    const savedStatus = useTasksStore.getState().byId[taskId]?.status ?? requested;
+    let savedStatus: TaskStatus;
+    const completedAt = new Date().toISOString();
+
+    if (isApprovalAction) {
+      // Approval has its own endpoint: it allows the creator AND Company Admins,
+      // while /updatetaskstatus only allows can_edit_status users.
+      const result = await approveTask(taskId, {
+        company_id: companyId,
+        company_identifier: companyIdentifier,
+      });
+      if (!result.ok) {
+        showError("Approval Failed", result.message);
+        return false;
+      }
+      useTasksStore.getState().patchTask(taskId, {
+        status: "Complete",
+        completed_at: completedAt,
+      });
+      savedStatus = "Complete";
+      showSuccess("Success", result.message ?? "Task approved successfully.");
+    } else {
+      await updateStatus(taskId, {
+        status: toApiStatus(requested),
+        company_id: companyId,
+        company_identifier: companyIdentifier,
+      });
+      savedStatus = useTasksStore.getState().byId[taskId]?.status ?? requested;
+    }
+
     onSaved(savedStatus);
     if (savedStatus === "Pending-Approval") {
       showInfo(
@@ -222,7 +253,7 @@ async function persistTaskStatus({
         const result = await recalculateSchedule(taskId, {
           company_id: companyId,
           company_identifier: companyIdentifier,
-          completed_at: requested === "Complete" ? new Date().toISOString() : undefined,
+          completed_at: requested === "Complete" ? completedAt : undefined,
         });
         if (!result.ok) {
           showError("Schedule Update Failed", result.message);
@@ -2171,7 +2202,9 @@ export default function TaskDetailModal({
                     (st !== "Rejected" ||
                       taskDetail?.task?.status === "Pending-Approval"),
                 ).map((st) => {
-                  const isSelected = editStatus === st;
+                  const isSelected =
+                    normalizeApiStatus(String(editStatus)) ===
+                    normalizeApiStatus(st);
                   return (
                     <TouchableOpacity
                       key={st}
@@ -2224,6 +2257,12 @@ export default function TaskDetailModal({
                           nextStatus: st,
                           subtaskCount: detailTask?.subtask_count ?? 0,
                           canEditStatus: detailTask?.can_edit_status === true,
+                          canApproveReject:
+                            detailTask?.status === "Pending-Approval" &&
+                            ((authState.user?.role_title ?? "")
+                              .trim()
+                              .toLowerCase() === "company admin" ||
+                              Number(createdBy) === Number(currentUserId)),
                           createdBy,
                           currentUserId,
                           isAts: authState.hasAdvancedTaskModule === true,
