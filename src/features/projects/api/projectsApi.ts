@@ -41,17 +41,22 @@ async function postResult<T>(path: string, body?: unknown): Promise<ApiResult<T>
 
 export async function getAllProjects(
   companyId: number,
-  options: { lite?: boolean; scope?: "all" } = {},
+  options: { lite?: boolean; scope?: "all"; waitFresh?: boolean } = {},
 ): Promise<ApiResult<ProjectEntity[]>> {
   const params: Record<string, string | number> = { company_id: companyId };
   if (options.lite) params.lite = "true";
   if (options.scope) params.scope = options.scope;
+  if (options.waitFresh) params.wait_fresh = "1";
 
   const normalized = await measureApi("getAllProjects", () =>
     getResult<ProjectListPayload>("/projects", params),
   );
   if (!normalized.ok) return normalized;
-  return successResult(normalized.data?.projects ?? [], normalized.raw);
+  // Preserve the top-level `stale` flag for the project-list retry/badge.
+  return {
+    ...normalized,
+    data: normalized.data?.projects ?? [],
+  } as ApiResult<ProjectEntity[]>;
 }
 
 export async function getProjectDetail(projectId: number): Promise<

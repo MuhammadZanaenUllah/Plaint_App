@@ -186,6 +186,16 @@ export function useTaskSocketBridge({
     }, REFETCH_DEBOUNCE_MS);
   };
 
+  const scheduleProjectDetailForTask = (taskId: number) => {
+    if (!Number.isFinite(taskId) || taskId <= 0) return;
+    const detail = useProjectsStore.getState().projectDetail;
+    if (!detail) return;
+    const containsTask = (detail.tasks ?? []).some(
+      (task) => Number(task.id) === taskId,
+    );
+    if (containsTask) scheduleProjectRefetch();
+  };
+
   const rememberNoteEvent = (key: string): boolean => {
     if (noteEventsRef.current.has(key)) return false;
     noteEventsRef.current.add(key);
@@ -353,6 +363,7 @@ export function useTaskSocketBridge({
 
           case "update":
             applyUpdate(data);
+            scheduleProjectDetailForTask(numeric(data.id));
             break;
 
           case "status_update":
@@ -377,7 +388,10 @@ export function useTaskSocketBridge({
                 : {}),
             };
             const taskId = numeric(data.id);
-            if (taskId) useTasksStore.getState().patchTask(taskId, patch);
+            if (taskId) {
+              useTasksStore.getState().patchTask(taskId, patch);
+              scheduleProjectDetailForTask(taskId);
+            }
             break;
           }
 
@@ -386,6 +400,7 @@ export function useTaskSocketBridge({
             const taskId = numeric(schedule.id);
             // Only keys that are actually present may overwrite the batch.
             enqueueScheduleUpdate(taskId, buildSchedulePatch(data));
+            scheduleProjectDetailForTask(taskId);
             break;
           }
 
@@ -406,6 +421,9 @@ export function useTaskSocketBridge({
                 sprint_id:
                   sprint.sprint_id === null ? null : numeric(sprint.sprint_id),
               });
+              // Keep an open project detail in sync with sprint assignment
+              // (AUD-055).
+              scheduleProjectRefetch();
             }
             break;
           }
@@ -413,6 +431,7 @@ export function useTaskSocketBridge({
           case "delete": {
             const taskId = numeric((data as SocketDeletePayload).id);
             if (taskId) {
+              scheduleProjectDetailForTask(taskId);
               useTasksStore.getState().removeTask(taskId);
               const detail = useTaskDetailStore.getState();
               if (Number(detail.taskId) === taskId) detail.clear();

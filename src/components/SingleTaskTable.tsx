@@ -1602,7 +1602,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
     item.canApproveReject === true ||
     item.canReopen === true;
   const canChangeProject =
-    canAssignProject === true && item._raw?.can_edit !== false;
+    canAssignProject === true && item._raw?.can_edit === true;
   const showProject = canChangeProject || !!item.project?.trim();
 
   if (stage === "actions") {

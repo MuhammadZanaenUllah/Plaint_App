@@ -54,15 +54,16 @@ export default function ProjectsScreen() {
   const {
     projects,
     projectUsers,
-    isLoading,
-    error,
+    projectsLoading,
+    projectsError,
+    projectsStale,
     loadProjects,
     loadProjectUsers,
   } = useProjectsStore();
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
-  const [ownerFilter, setOwnerFilter] = useState<number | null>(null);
+  const [ownerFilter, setOwnerFilter] = useState<number[]>([]);
   const [ownerFilterOpen, setOwnerFilterOpen] = useState(false);
   const [createVisible, setCreateVisible] = useState(false);
 
@@ -108,14 +109,23 @@ export default function ProjectsScreen() {
     const query = search.trim().toLowerCase();
     return projects.filter((project) => {
       if (statusFilter !== "All" && project.status !== statusFilter) return false;
-      if (ownerFilter !== null && Number(project.owner) !== ownerFilter) return false;
+      if (
+        ownerFilter.length > 0 &&
+        !ownerFilter.includes(Number(project.owner))
+      ) {
+        return false;
+      }
       if (query && !project.name.toLowerCase().includes(query)) return false;
       return true;
     });
   }, [ownerFilter, projects, search, statusFilter]);
 
   const ownerLabel =
-    ownerFilter === null ? "All owners" : ownerNames.get(ownerFilter) ?? "Owner";
+    ownerFilter.length === 0
+      ? "All owners"
+      : ownerFilter.length === 1
+        ? ownerNames.get(ownerFilter[0]) ?? "Owner"
+        : `${ownerFilter.length} owners`;
 
   const renderProject = useCallback(
     ({ item }: { item: ProjectEntity }) => {
@@ -125,6 +135,11 @@ export default function ProjectsScreen() {
         item.owner !== undefined && item.owner !== null
           ? ownerNames.get(Number(item.owner)) ?? `User #${item.owner}`
           : "Unassigned";
+      const createdBy =
+        item.created_by !== undefined && item.created_by !== null
+          ? ownerNames.get(Number(item.created_by)) ??
+            `User #${item.created_by}`
+          : "Unknown";
       const taskCount = projectTaskCount(item);
       return (
         <Pressable
@@ -155,6 +170,12 @@ export default function ProjectsScreen() {
             <View style={styles.metaItem}>
               <Ionicons name="calendar-outline" size={13} color="#9CA3AF" />
               <Text style={styles.metaText}>{due}</Text>
+            </View>
+            <View style={styles.metaItem}>
+              <Ionicons name="person-add-outline" size={13} color="#9CA3AF" />
+              <Text style={styles.metaText} numberOfLines={1}>
+                By {createdBy}
+              </Text>
             </View>
           </View>
         </Pressable>
@@ -223,27 +244,38 @@ export default function ProjectsScreen() {
             <TouchableOpacity
               style={styles.ownerOption}
               onPress={() => {
-                setOwnerFilter(null);
+                setOwnerFilter([]);
                 setOwnerFilterOpen(false);
               }}
             >
               <Text style={styles.ownerOptionText}>All owners</Text>
             </TouchableOpacity>
-            {projectUsers.map((owner) => (
-              <TouchableOpacity
-                key={owner.id}
-                style={styles.ownerOption}
-                onPress={() => {
-                  setOwnerFilter(owner.id);
-                  setOwnerFilterOpen(false);
-                }}
-              >
-                <Text style={styles.ownerOptionText}>
-                  {`${owner.first_name ?? ""} ${owner.last_name ?? ""}`.trim() ||
-                    `User #${owner.id}`}
-                </Text>
-              </TouchableOpacity>
-            ))}
+            {projectUsers.map((owner) => {
+              const selected = ownerFilter.includes(owner.id);
+              return (
+                <TouchableOpacity
+                  key={owner.id}
+                  style={styles.ownerOption}
+                  onPress={() => {
+                    setOwnerFilter((current) =>
+                      current.includes(owner.id)
+                        ? current.filter((id) => id !== owner.id)
+                        : [...current, owner.id],
+                    );
+                  }}
+                >
+                  <View style={styles.ownerOptionRow}>
+                    <Text style={styles.ownerOptionText}>
+                      {`${owner.first_name ?? ""} ${owner.last_name ?? ""}`.trim() ||
+                        `User #${owner.id}`}
+                    </Text>
+                    {selected ? (
+                      <Ionicons name="checkmark" size={15} color="#00A876" />
+                    ) : null}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
 
@@ -274,25 +306,27 @@ export default function ProjectsScreen() {
           }}
         />
 
-        {error && projects.length > 0 ? (
+        {projectsStale && projects.length > 0 ? (
+          <Text style={styles.inlineError}>Showing cached projects…</Text>
+        ) : projectsError && projects.length > 0 ? (
           <Text style={styles.inlineError}>
-            {isNetworkErrorMessage(error)
+            {isNetworkErrorMessage(projectsError)
               ? "You appear to be offline. Showing cached projects."
-              : error}
+              : projectsError}
           </Text>
         ) : null}
 
-        {isLoading && projects.length === 0 ? (
+        {projectsLoading && projects.length === 0 ? (
           <View style={styles.center}>
             <ActivityIndicator color="#00DEAB" />
           </View>
-        ) : error && projects.length === 0 ? (
+        ) : projectsError && projects.length === 0 ? (
           <View style={styles.center}>
             <Text style={styles.emptyTitle}>Could not load projects</Text>
             <Text style={styles.emptyText}>
-              {isNetworkErrorMessage(error)
+              {isNetworkErrorMessage(projectsError)
                 ? "You appear to be offline. Check your connection and retry."
-                : error}
+                : projectsError}
             </Text>
             <TouchableOpacity
               style={styles.retryBtn}
@@ -388,6 +422,12 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   ownerOption: { paddingHorizontal: 12, paddingVertical: 10 },
+  ownerOptionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
   ownerOptionText: {
     fontSize: rf(13),
     color: "#1D1D1D",

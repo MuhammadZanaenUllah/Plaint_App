@@ -1,6 +1,5 @@
-// Project/Sprint store scaffolding. This lives under features/tasks/store for
-// now because the plan lists it as a shared Task Module store; Phase 8 can move
-// or re-export it from features/projects/store.
+// Project/Sprint store. Each loader owns its own loading/error slice so the
+// project detail, sprint section and owner picker cannot overwrite each other.
 
 import { create } from "zustand";
 import {
@@ -19,6 +18,7 @@ import {
   updateSprint as updateSprintApi,
 } from "@/features/projects/api/sprintsApi";
 import { fromError, type ApiResult } from "@/features/tasks/api/apiResult";
+import { listWithStaleRetry } from "@/features/tasks/utils/staleRetry";
 import type {
   CreateProjectPayload,
   ProjectDetailData,
@@ -45,10 +45,21 @@ export type ProjectsState = {
   assignmentSprintsProjectId: number | null;
   assignmentSprintsLoading: boolean;
   assignmentSprintsError: string | null;
-  isLoading: boolean;
-  error: string | null;
 
-  loadProjects: (companyId: number, options?: { scope?: "all"; lite?: boolean }) => Promise<void>;
+  projectsLoading: boolean;
+  projectsError: string | null;
+  projectsStale: boolean;
+  detailLoading: boolean;
+  detailError: string | null;
+  sprintsLoading: boolean;
+  sprintsError: string | null;
+  usersLoading: boolean;
+  usersError: string | null;
+
+  loadProjects: (
+    companyId: number,
+    options?: { scope?: "all"; lite?: boolean },
+  ) => Promise<void>;
   loadProjectDetail: (projectId: number) => Promise<void>;
   loadSprints: (companyId: number, projectId: number) => Promise<void>;
   loadProjectUsers: (companyId: number) => Promise<void>;
@@ -93,8 +104,15 @@ const initialState = {
   assignmentSprintsProjectId: null as number | null,
   assignmentSprintsLoading: false,
   assignmentSprintsError: null as string | null,
-  isLoading: false,
-  error: null as string | null,
+  projectsLoading: false,
+  projectsError: null as string | null,
+  projectsStale: false,
+  detailLoading: false,
+  detailError: null as string | null,
+  sprintsLoading: false,
+  sprintsError: null as string | null,
+  usersLoading: false,
+  usersError: null as string | null,
 };
 
 async function safeApi<T>(run: () => Promise<ApiResult<T>>): Promise<ApiResult<T>> {
@@ -109,42 +127,59 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
   ...initialState,
 
   loadProjects: async (companyId, options = {}) => {
-    set({ isLoading: true, error: null });
-    const result = await safeApi(() => getAllProjects(companyId, options));
+    set({ projectsLoading: true, projectsError: null });
+    const result = await listWithStaleRetry((waitFresh) =>
+      safeApi(() => getAllProjects(companyId, { ...options, waitFresh })),
+    );
     if (!result.ok) {
-      set({ isLoading: false, error: result.message });
+      set({ projectsLoading: false, projectsError: result.message });
       return;
     }
-    set({ projects: result.data, isLoading: false });
+    set({
+      projects: result.data,
+      projectsLoading: false,
+      projectsError: null,
+      projectsStale: !!result.stale,
+    });
   },
 
   loadProjectDetail: async (projectId) => {
-    set({ isLoading: true, error: null });
+    set({ detailLoading: true, detailError: null });
     const result = await safeApi(() => getProjectDetail(projectId));
     if (!result.ok) {
-      set({ isLoading: false, error: result.message });
+      set({ detailLoading: false, detailError: result.message });
       return;
     }
-    set({ projectDetail: result.data.project, isLoading: false });
+    set({
+      projectDetail: result.data.project,
+      detailLoading: false,
+      detailError: null,
+    });
   },
 
   loadSprints: async (companyId, projectId) => {
-    set({ isLoading: true, error: null });
+    set({ sprintsLoading: true, sprintsError: null });
     const result = await safeApi(() => getSprints(companyId, projectId));
     if (!result.ok) {
-      set({ isLoading: false, error: result.message });
+      set({ sprintsLoading: false, sprintsError: result.message });
       return;
     }
-    set({ sprints: result.data, sprintsProjectId: projectId, isLoading: false });
+    set({
+      sprints: result.data,
+      sprintsProjectId: projectId,
+      sprintsLoading: false,
+      sprintsError: null,
+    });
   },
 
   loadProjectUsers: async (companyId) => {
+    set({ usersLoading: true, usersError: null });
     const result = await safeApi(() => getProjectUsers(companyId));
     if (!result.ok) {
-      set({ error: result.message });
+      set({ usersLoading: false, usersError: result.message });
       return;
     }
-    set({ projectUsers: result.data });
+    set({ projectUsers: result.data, usersLoading: false, usersError: null });
   },
 
   loadAssignableProjects: async (companyId) => {
@@ -242,7 +277,15 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
   },
 
   clearDetail: () =>
-    set({ projectDetail: null, sprints: [], sprintsProjectId: null }),
+    set({
+      projectDetail: null,
+      sprints: [],
+      sprintsProjectId: null,
+      detailLoading: false,
+      detailError: null,
+      sprintsLoading: false,
+      sprintsError: null,
+    }),
   reset: () => set({ ...initialState }),
 }));
 

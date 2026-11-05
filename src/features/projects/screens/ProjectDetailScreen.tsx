@@ -6,6 +6,8 @@ import TaskDetailModal, {
   buildTaskDetailFromViewTask,
   type TaskDetail,
 } from "@/components/TaskDetailModal";
+import RejectTaskModal from "@/components/RejectTaskModal";
+import ReopenTaskModal from "@/features/tasks/components/task-detail/ReopenTaskModal";
 import SingleTaskTable, {
   type AssignableOwner,
   type SingleTaskTableColumn,
@@ -19,6 +21,7 @@ import {
   viewTask,
 } from "@/features/tasks/api/taskApi";
 import {
+  canReopen as canReopenTask,
   hasPermission,
   TASK_PERMISSIONS,
 } from "@/features/tasks/permissions/taskPermissions";
@@ -38,7 +41,10 @@ import {
   attachmentDisplayName,
   buildProjectAttachmentPath,
 } from "@/features/tasks/utils/taskAttachmentPath";
-import { formatTaskDueDatePkt } from "@/features/tasks/utils/taskDate";
+import {
+  formatTaskDueDatePkt,
+  parseTaskDate,
+} from "@/features/tasks/utils/taskDate";
 import {
   isNetworkErrorMessage,
   reportTaskError,
@@ -62,13 +68,17 @@ import type {
 } from "@/features/projects/types/project.types";
 import {
   PROJECT_STATUSES,
-  PROJECT_STATUS_COLORS,
   isOpenProjectTask,
+  projectStatusStyle,
 } from "@/features/projects/utils/projectStatus";
 import {
   canMarkProjectCompleted,
+  latestProjectDependencyDate,
+  requiresInProgressBeforeCompleted,
+  shouldWarnProjectStatusCascade,
   validateProject,
 } from "@/features/projects/utils/projectValidation";
+import { sortProjectTasks } from "@/features/projects/utils/projectTaskSort";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import { openChatDocument } from "@/utils/openChatDocument";
@@ -107,8 +117,10 @@ export default function ProjectDetailScreen() {
     projectUsers,
     sprints,
     sprintsProjectId,
-    isLoading,
-    error,
+    detailLoading,
+    detailError,
+    sprintsLoading,
+    sprintsError,
     loadProjectDetail,
     loadSprints,
     loadProjectUsers,
@@ -132,6 +144,10 @@ export default function ProjectDetailScreen() {
   const uploadingRef = useRef(false);
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
   const [initialTab, setInitialTab] = useState<"details" | "comments">("details");
+  const [rejectModalVisible, setRejectModalVisible] = useState(false);
+  const [rejectTargetTaskId, setRejectTargetTaskId] = useState<number | null>(null);
+  const [reopenModalVisible, setReopenModalVisible] = useState(false);
+  const [reopenTargetTaskId, setReopenTargetTaskId] = useState<number | null>(null);
 
   const refresh = useCallback(() => {
     if (projectId) {
@@ -216,7 +232,7 @@ export default function ProjectDetailScreen() {
     Number(projectDetail?.owner) === Number(authState.user?.id);
 
   const projectTasks = useMemo(
-    () => projectDetail?.tasks ?? [],
+    () => sortProjectTasks(projectDetail?.tasks ?? []),
     [projectDetail?.tasks],
   );
   const openTaskCount = projectTasks.filter(isOpenProjectTask).length;
@@ -244,6 +260,21 @@ export default function ProjectDetailScreen() {
     [projectSprints],
   );
 
+  const canEditProjectDueDate = canEditNow && !isAts;
+  const projectDueMinDate = useMemo(() => {
+    const latest = latestProjectDependencyDate(
+      projectSprints.map((sprint) => ({
+        name: sprint.name,
+        due_date: sprint.due_date,
+      })),
+      projectTasks.map((task) => ({
+        title: task.title,
+        due_date: task.due_date,
+      })),
+    );
+    return latest ? parseTaskDate(latest) : null;
+  }, [projectSprints, projectTasks]);
+
   const assignment = useTaskProjectAssignment({
     companyId,
     companyIdentifier,
@@ -270,6 +301,7 @@ export default function ProjectDetailScreen() {
         canEditSprint: task.can_edit === true && canAssignProject,
         canEditStatus: task.can_edit_status === true,
         canReassign: task.can_edit === true && hasEditPermission,
+        canReopen: canReopenTask(task, authState.user, authState.company),
         canApproveReject:
           task.status === "Pending-Approval" &&
           (Number(task.created_by) === Number(authState.user?.id) ||
@@ -344,11 +376,13 @@ export default function ProjectDetailScreen() {
     const creator =
       Number(raw.created_by ?? 0) === Number(authState.user?.id ?? 0);
     const isApproval = current === "Pending-Approval" && requested === "Complete";
-    const canApprove = isApproval && (admin || creator);
+    const canApproveReject =
+      current === "Pending-Approval" && (admin || creator);
+    const canApprove = isApproval && canApproveReject;
 
-    // A Company Admin can approve a Pending-Approval task even when the row
-    // does not grant can_edit_status (AUD-034).
-    if (raw.can_edit_status !== true && !canApprove) {
+    // A Company Admin can approve/reject a Pending-Approval task even when the
+    // row does not grant can_edit_status (AUD-034).
+    if (raw.can_edit_status !== true && !canApproveReject) {
       showError("Not Allowed", "You cannot change this task's status.");
       return;
     }
@@ -364,14 +398,24 @@ export default function ProjectDetailScreen() {
       return;
     }
     if (shouldRouteAtsReopen(current, requested, isAts)) {
-      showInfo(
-        "ATS Reopen",
-        "Open the task detail to reopen this ATS task with a new priority and effort.",
-      );
+      if (!canReopenTask(raw, authState.user, authState.company)) {
+        showError("Not Allowed", "Only the task creator can reopen this task.");
+        return;
+      }
+      setReopenTargetTaskId(taskId);
+      setReopenModalVisible(true);
       return;
     }
     if (requested === "Rejected") {
-      showInfo("Reject Task", "Open the task detail to reject a pending-approval task.");
+      if (!canApproveReject) {
+        showError(
+          "Not Allowed",
+          "Only the task creator or company admin can reject a task.",
+        );
+        return;
+      }
+      setRejectTargetTaskId(taskId);
+      setRejectModalVisible(true);
       return;
     }
 
@@ -452,21 +496,36 @@ export default function ProjectDetailScreen() {
   const handleSave = async () => {
     if (!projectId || !canEditNow || saving) return;
     const dueDateValue = dueDate ? dueDate.toISOString() : "";
-    const validation = validateProject({ name, dueDate: dueDateValue, status });
+    const currentStatus = projectDetail?.status ?? "Planning";
+
+    const validation = validateProject({
+      name,
+      dueDate: dueDateValue,
+      status,
+      sprints: projectSprints.map((sprint) => ({
+        name: sprint.name,
+        due_date: sprint.due_date,
+      })),
+      tasks: projectTasks.map((task) => ({
+        title: task.title,
+        due_date: task.due_date,
+      })),
+    });
     if (!validation.valid) {
       showError("Validation", Object.values(validation.errors).join("\n"));
       return;
     }
 
-    if (status === "Completed") {
-      const currentStatus = projectDetail?.status ?? "Planning";
-      if (currentStatus !== "In Progress") {
-        showError(
-          "Status Not Allowed",
-          "Please set the project to In Progress before marking it Completed.",
-        );
-        return;
-      }
+    // Block only the transition INTO Completed, never edits to a project
+    // that is already Completed (AUD-051).
+    if (requiresInProgressBeforeCompleted(currentStatus, status)) {
+      showError(
+        "Status Not Allowed",
+        "Please set the project to In Progress before marking it Completed.",
+      );
+      return;
+    }
+    if (status === "Completed" && currentStatus !== "Completed") {
       const completion = canMarkProjectCompleted(openTaskCount);
       if (!completion.valid) {
         showError("Status Not Allowed", completion.errors.status);
@@ -474,14 +533,30 @@ export default function ProjectDetailScreen() {
       }
     }
 
+    if (shouldWarnProjectStatusCascade(currentStatus, status)) {
+      const proceed = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          "Update Project Status",
+          `Moving this project to "${status}" will update its open tasks. Continue?`,
+          [
+            { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+            { text: "Continue", onPress: () => resolve(true) },
+          ],
+          { cancelable: true, onDismiss: () => resolve(false) },
+        );
+      });
+      if (!proceed) return;
+    }
+
     setSaving(true);
     try {
       const result = await updateProject(projectId, {
         name: name.trim(),
-        owner: ownerId ?? undefined,
+        // Send null so "Unassigned" actually clears the owner (AUD-054).
+        owner: ownerId ?? null,
         status,
         description,
-        due_date: dueDateValue,
+        ...(canEditProjectDueDate ? { due_date: dueDateValue } : {}),
         company_id: companyId,
         company_identifier: companyIdentifier,
       });
@@ -489,8 +564,8 @@ export default function ProjectDetailScreen() {
         showError("Update Failed", result.message);
         return;
       }
-      showSuccess("Success", "Project updated successfully.");
-      refresh();
+      showSuccess("Success", "Project updated successfully!");
+      router.back();
     } finally {
       setSaving(false);
     }
@@ -593,17 +668,17 @@ export default function ProjectDetailScreen() {
         subtitle={projectDetail?.status}
         onBack={() => router.back()}
       />
-      {isLoading && !projectDetail ? (
+      {detailLoading && !projectDetail ? (
         <View style={styles.center}>
           <ActivityIndicator color="#00DEAB" />
         </View>
-      ) : error && !projectDetail ? (
+      ) : detailError && !projectDetail ? (
         <View style={styles.center}>
           <Text style={styles.emptyTitle}>Could not load project</Text>
           <Text style={styles.emptyText}>
-            {isNetworkErrorMessage(error)
+            {isNetworkErrorMessage(detailError)
               ? "You appear to be offline. Check your connection and retry."
-              : error}
+              : detailError}
           </Text>
           <TouchableOpacity style={styles.retryBtn} onPress={refresh}>
             <Text style={styles.retryText}>Retry</Text>
@@ -618,11 +693,11 @@ export default function ProjectDetailScreen() {
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
           >
-            {error ? (
+            {detailError ? (
               <Text style={styles.inlineError}>
-                {isNetworkErrorMessage(error)
+                {isNetworkErrorMessage(detailError)
                   ? "You appear to be offline. Changes may not save until you reconnect."
-                  : error}
+                  : detailError}
               </Text>
             ) : null}
             <View style={styles.field}>
@@ -648,13 +723,13 @@ export default function ProjectDetailScreen() {
                 <View
                   style={[
                     styles.statusBadge,
-                    { backgroundColor: PROJECT_STATUS_COLORS[status].bg },
+                    { backgroundColor: projectStatusStyle(status).bg },
                   ]}
                 >
                   <Text
                     style={[
                       styles.statusText,
-                      { color: PROJECT_STATUS_COLORS[status].text },
+                      { color: projectStatusStyle(status).text },
                     ]}
                   >
                     {status}
@@ -670,8 +745,8 @@ export default function ProjectDetailScreen() {
                     style={[
                       styles.chip,
                       status === entry && {
-                        backgroundColor: PROJECT_STATUS_COLORS[entry].text,
-                        borderColor: PROJECT_STATUS_COLORS[entry].text,
+                        backgroundColor: projectStatusStyle(entry).text,
+                        borderColor: projectStatusStyle(entry).text,
                       },
                     ]}
                     onPress={() => {
@@ -734,20 +809,26 @@ export default function ProjectDetailScreen() {
               <Text style={styles.infoLabel}>Due Date</Text>
               <TouchableOpacity
                 style={styles.infoValueBtn}
-                disabled={!canEditNow}
+                disabled={!canEditProjectDueDate}
                 onPress={() => setDateOpen((prev) => !prev)}
               >
                 <Text style={styles.infoValue}>
-                  {dueDate ? formatTaskDueDatePkt(dueDate) : "—"}
+                  {dueDate ? formatTaskDueDatePkt(dueDate) : "�?"}
                 </Text>
               </TouchableOpacity>
             </View>
-            {dateOpen && canEditNow && (
+            {isAts ? (
+              <Text style={styles.muted}>
+                Due date is scheduled by the ATS engine and is read-only.
+              </Text>
+            ) : null}
+            {dateOpen && canEditProjectDueDate && (
               <View style={styles.calendarWrap}>
                 <CalendarPicker
                   compact
                   startDate={dueDate}
                   endDate={dueDate}
+                  minDate={projectDueMinDate}
                   onSelectStart={(date) => setDueDate(date)}
                   onSelectEnd={(date) => setDueDate(date)}
                   onDone={() => setDateOpen(false)}
@@ -783,7 +864,8 @@ export default function ProjectDetailScreen() {
 
             <ProjectSprintsSection
               sprints={projectSprints}
-              loading={isLoading}
+              loading={sprintsLoading}
+              error={sprintsError}
               canManage={canManageSprints}
               onCreate={sprintController.openCreate}
               onEditDate={sprintController.openDate}
@@ -803,7 +885,10 @@ export default function ProjectDetailScreen() {
                 >
                   <Ionicons name="download-outline" size={15} color="#00DEAB" />
                   <Text style={styles.attachText} numberOfLines={1}>
-                    {attachment.original_name || attachment.attachment}
+                    {attachmentDisplayName(
+                      attachment.original_name,
+                      attachment.attachment,
+                    )}
                   </Text>
                 </TouchableOpacity>
                 {canEditNow && (
@@ -864,6 +949,57 @@ export default function ProjectDetailScreen() {
         }}
         task={selectedTask}
         initialTab={initialTab}
+      />
+
+      <RejectTaskModal
+        visible={rejectModalVisible}
+        onClose={() => {
+          setRejectModalVisible(false);
+          setRejectTargetTaskId(null);
+        }}
+        taskId={rejectTargetTaskId ?? 0}
+        companyId={companyId}
+        companyIdentifier={companyIdentifier}
+        onSuccess={(newStatus) => {
+          const taskId = rejectTargetTaskId ?? 0;
+          const status = normalizeApiStatus(newStatus ?? "Rejected");
+          if (taskId) {
+            useTasksStore.getState().patchTask(taskId, {
+              status: status as never,
+              completed_at: status === "Complete" ? new Date().toISOString() : null,
+            });
+            void recalculateIfAts(taskId, new Date().toISOString());
+          }
+          setRejectModalVisible(false);
+          setRejectTargetTaskId(null);
+          refresh();
+        }}
+      />
+
+      <ReopenTaskModal
+        key={`project-reopen-${reopenTargetTaskId ?? 0}-${reopenModalVisible ? "open" : "closed"}`}
+        visible={reopenModalVisible}
+        onClose={() => {
+          setReopenModalVisible(false);
+          setReopenTargetTaskId(null);
+        }}
+        taskId={reopenTargetTaskId ?? 0}
+        companyId={companyId}
+        companyIdentifier={companyIdentifier}
+        isAts={isAts}
+        onSuccess={(status) => {
+          const taskId = reopenTargetTaskId ?? 0;
+          if (taskId) {
+            useTasksStore.getState().patchTask(taskId, {
+              status: normalizeApiStatus(status) as never,
+              completed_at: null,
+            });
+            void recalculateIfAts(taskId);
+          }
+          setReopenModalVisible(false);
+          setReopenTargetTaskId(null);
+          refresh();
+        }}
       />
 
       <TaskProjectAssignmentHost
