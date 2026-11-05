@@ -7,10 +7,10 @@ import type {
   CreateTaskPayloadContext,
 } from "./createTaskTypes";
 
+/** The website only exposes these four periods (AUD-084). */
 export function normalizeRecurringPeriod(
   period: RecurringPeriod | null,
 ): RecurringPeriod | null {
-  if (period === "semi-annually") return "semiannually";
   return period;
 }
 
@@ -45,10 +45,10 @@ function integerOrZero(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function nullableInteger(value: string): number | null {
-  if (!value.trim()) return null;
+function nullableInteger(value: string): number | "" {
+  if (!value.trim()) return "";
   const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : null;
+  return Number.isFinite(parsed) ? parsed : "";
 }
 
 export function buildCreateTaskPayload(
@@ -58,9 +58,8 @@ export function buildCreateTaskPayload(
 ): CreateTaskRequest {
   const priority =
     ctx.isAts && form.taskPriority === "critical" ? "critical" : "normal";
-  const bumpToFront =
-    options?.bumpToFront ??
-    (ctx.isAts && priority === "critical");
+  const wantsBump =
+    options?.bumpToFront ?? (ctx.isAts && priority === "critical");
   const period = normalizeRecurringPeriod(form.recurringPeriod);
   const isRecurring = form.isRecurring && !!period;
 
@@ -73,12 +72,12 @@ export function buildCreateTaskPayload(
     // scheduling engine derives it from effort.
     due_date: ctx.isAts ? null : toCalendarDateOnly(form.dueDate),
     task_priority: priority,
-    bump_to_front: ctx.isAts && priority === "critical" ? bumpToFront : false,
     status: toApiStatus(form.status),
     description: form.description,
     is_recurring: isRecurring,
-    recurring_period: isRecurring ? period : null,
-    recurring_time: isRecurring ? form.recurringTime || "09:00" : null,
+    // Contract §3.10 example: non-recurring sends "" / "09:00" / 0 / [].
+    recurring_period: isRecurring ? period : "",
+    recurring_time: isRecurring ? form.recurringTime || "09:00" : "09:00",
     recurring_total_count: isRecurring
       ? integerOrZero(form.recurringTotalCount)
       : 0,
@@ -88,26 +87,31 @@ export function buildCreateTaskPayload(
         : [],
     recurring_week_day:
       isRecurring && period === "weekly"
-        ? toBackendDayName(form.recurringWeekDay)
-        : null,
+        ? (toBackendDayName(form.recurringWeekDay) ?? "")
+        : "",
     recurring_month_date:
       isRecurring && period === "monthly"
         ? nullableInteger(form.recurringMonthDate)
-        : null,
+        : "",
     recurring_annual_month:
       isRecurring && period === "annually"
         ? nullableInteger(form.recurringAnnualMonth)
-        : null,
+        : "",
     recurring_annual_date:
       isRecurring && period === "annually"
         ? nullableInteger(form.recurringAnnualDate)
-        : null,
+        : "",
     approval_required: form.approvalRequired ? 1 : 0,
     // The website sends 0 when no project is selected; null is also accepted.
     project_id: form.projectId ?? 0,
     sprint_id: form.sprintId ?? null,
     parent_id: form.parentId ?? 0,
   };
+
+  // bump_to_front is only meaningful for an ATS critical task (AUD-017).
+  if (ctx.isAts && priority === "critical" && wantsBump) {
+    payload.bump_to_front = true;
+  }
 
   if (ctx.isAts) {
     payload.effort_hours = toMinutes(form.effortValue, form.effortUnit);

@@ -1,6 +1,10 @@
 // Sprint REST API services (contract §4.3).
 
-import { apiDelete, apiGet, apiPost } from "@/services/api/client";
+import {
+  apiDeleteWithStatus,
+  apiGetWithStatus,
+  apiPostWithStatus,
+} from "@/services/api/client";
 import type {
   Sprint,
   SprintCreatePayload,
@@ -8,20 +12,35 @@ import type {
 } from "../types/project.types";
 import { normalizeApiResponse, successResult, type ApiResult } from "@/features/tasks/api/apiResult";
 import { measureApi } from "@/features/tasks/dev/counters";
+import { TASK_REQUEST_TIMEOUT_MS } from "@/features/tasks/constants/taskConstants";
 
 type SprintListRow = Sprint & { attachments?: unknown[] };
+
+async function postResult<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
+  const response = await apiPostWithStatus<T>(path, body, false, {
+    timeoutMs: TASK_REQUEST_TIMEOUT_MS,
+  });
+  return normalizeApiResponse<T>(response.body, response.status);
+}
 
 export async function getSprints(
   companyId: number,
   projectId: number,
 ): Promise<ApiResult<Sprint[]>> {
-  const body = await measureApi("getSprints", () =>
-    apiGet<unknown>("/sprints", {
-      company_id: companyId,
-      project_id: projectId,
-    }),
+  const response = await measureApi("getSprints", () =>
+    apiGetWithStatus<unknown>(
+      "/sprints",
+      {
+        company_id: companyId,
+        project_id: projectId,
+      },
+      { timeoutMs: TASK_REQUEST_TIMEOUT_MS },
+    ),
   );
-  const normalized = normalizeApiResponse<SprintListRow[]>(body);
+  const normalized = normalizeApiResponse<SprintListRow[]>(
+    response.body,
+    response.status,
+  );
   if (!normalized.ok) return normalized;
 
   const rows = Array.isArray(normalized.data) ? normalized.data : [];
@@ -32,25 +51,25 @@ export async function getSprints(
 }
 
 export async function createSprint(payload: SprintCreatePayload): Promise<ApiResult<Sprint>> {
-  const body = await measureApi("createSprint", () =>
-    apiPost<unknown>("/sprints/create", payload),
+  return measureApi("createSprint", () =>
+    postResult<Sprint>("/sprints/create", payload),
   );
-  return normalizeApiResponse<Sprint>(body);
 }
 
 export async function updateSprint(
   sprintId: number,
   payload: SprintUpdatePayload,
 ): Promise<ApiResult<Sprint>> {
-  const body = await measureApi("updateSprint", () =>
-    apiPost<unknown>(`/sprints/update/${sprintId}`, payload),
+  return measureApi("updateSprint", () =>
+    postResult<Sprint>(`/sprints/update/${sprintId}`, payload),
   );
-  return normalizeApiResponse<Sprint>(body);
 }
 
 export async function deleteSprint(sprintId: number): Promise<ApiResult<string>> {
-  const body = await measureApi("deleteSprint", () =>
-    apiDelete<unknown>(`/sprints/delete/${sprintId}`),
+  const response = await measureApi("deleteSprint", () =>
+    apiDeleteWithStatus<unknown>(`/sprints/delete/${sprintId}`, {
+      timeoutMs: TASK_REQUEST_TIMEOUT_MS,
+    }),
   );
-  return normalizeApiResponse<string>(body);
+  return normalizeApiResponse<string>(response.body, response.status);
 }

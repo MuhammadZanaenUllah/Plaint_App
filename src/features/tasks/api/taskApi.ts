@@ -4,7 +4,11 @@
 //   /tasks/statusupdate, GET /tasks/:id, /tasks/updateleadsource,
 //   /tasks/reschedule-reopened, /tasks/migrate-*.
 
-import { apiGet, apiPost } from "@/services/api/client";
+import {
+  apiGetWithStatus,
+  apiPostWithStatus,
+  type ApiHttpResponse,
+} from "@/services/api/client";
 import type {
   CreateTaskRequest,
   CreateTaskResult,
@@ -30,6 +34,7 @@ import type {
 } from "../types/task.types";
 import { failureResult, normalizeApiResponse, successResult, type ApiResult } from "./apiResult";
 import { measureApi } from "../dev/counters";
+import { TASK_REQUEST_TIMEOUT_MS } from "../constants/taskConstants";
 import { toApiStatus } from "../utils/taskStatus";
 import {
   addNote,
@@ -66,15 +71,40 @@ function listParams(companyId: number, options: ListOptions = {}) {
   return params;
 }
 
+async function getResult<T>(
+  path: string,
+  params?: Record<string, string | number>,
+): Promise<ApiResult<T>> {
+  const response = await apiGetWithStatus<T>(path, params, {
+    timeoutMs: TASK_REQUEST_TIMEOUT_MS,
+  });
+  return normalizeApiResponse<T>(response.body, response.status);
+}
+
+async function postResult<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
+  const response = await apiPostWithStatus<T>(path, body, false, {
+    timeoutMs: TASK_REQUEST_TIMEOUT_MS,
+  });
+  return normalizeApiResponse<T>(response.body, response.status);
+}
+
+async function postRaw(
+  path: string,
+  body?: unknown,
+): Promise<ApiHttpResponse<unknown>> {
+  return apiPostWithStatus<unknown>(path, body, false, {
+    timeoutMs: TASK_REQUEST_TIMEOUT_MS,
+  });
+}
+
 // ---- API-T-01: GET /tasks/all ----
 export async function getAllTasks(
   companyId: number,
   options: ListOptions = {},
 ): Promise<ApiResult<TaskListResponse>> {
-  const body = await measureApi("getAllTasks", () =>
-    apiGet<unknown>("/tasks/all", listParams(companyId, options)),
+  return measureApi("getAllTasks", () =>
+    getResult<TaskListResponse>("/tasks/all", listParams(companyId, options)),
   );
-  return normalizeApiResponse<TaskListResponse>(body);
 }
 
 // ---- API-T-02: GET /tasks/duetoday ----
@@ -82,10 +112,9 @@ export async function getDueTodayTasks(
   companyId: number,
   options: Omit<ListOptions, "excludeComplete"> = {},
 ): Promise<ApiResult<TaskListResponse>> {
-  const body = await measureApi("getDueTodayTasks", () =>
-    apiGet<unknown>("/tasks/duetoday", listParams(companyId, options)),
+  return measureApi("getDueTodayTasks", () =>
+    getResult<TaskListResponse>("/tasks/duetoday", listParams(companyId, options)),
   );
-  return normalizeApiResponse<TaskListResponse>(body);
 }
 
 // ---- API-T-04: GET /tasks/filter ----
@@ -96,18 +125,18 @@ export async function getFilteredTasks(
 ): Promise<ApiResult<TaskListResponse>> {
   const params = listParams(companyId, options);
   params.filter = filter;
-  const body = await measureApi("getFilteredTasks", () =>
-    apiGet<unknown>("/tasks/filter", params),
+  return measureApi("getFilteredTasks", () =>
+    getResult<TaskListResponse>("/tasks/filter", params),
   );
-  return normalizeApiResponse<TaskListResponse>(body);
 }
 
 // ---- API-T-05: GET /tasks/delayed-popup ----
 export async function getDelayedPopup(companyId: number): Promise<ApiResult<DelayedPopupResponse>> {
-  const body = await measureApi("getDelayedPopup", () =>
-    apiGet<unknown>("/tasks/delayed-popup", { company_id: companyId }),
+  return measureApi("getDelayedPopup", () =>
+    getResult<DelayedPopupResponse>("/tasks/delayed-popup", {
+      company_id: companyId,
+    }),
   );
-  return normalizeApiResponse<DelayedPopupResponse>(body);
 }
 
 // ---- API-T-03: GET /tasks/critical-for-user ----
@@ -115,13 +144,12 @@ export async function getCriticalForUser(
   companyId: number,
   userId: number,
 ): Promise<ApiResult<CriticalForUserResponse>> {
-  const body = await measureApi("getCriticalForUser", () =>
-    apiGet<unknown>("/tasks/critical-for-user", {
+  return measureApi("getCriticalForUser", () =>
+    getResult<CriticalForUserResponse>("/tasks/critical-for-user", {
       company_id: companyId,
       user_id: userId,
     }),
   );
-  return normalizeApiResponse<CriticalForUserResponse>(body);
 }
 
 // ---- API-T-06: POST /tasks/view/:id ----
@@ -129,12 +157,11 @@ export async function viewTask(
   taskId: number,
   companyId?: number,
 ): Promise<ApiResult<ViewTaskData>> {
-  const body = await measureApi("viewTask", () =>
-    apiPost<unknown>(`/tasks/view/${taskId}`, {
+  return measureApi("viewTask", () =>
+    postResult<ViewTaskData>(`/tasks/view/${taskId}`, {
       company_id: companyId,
     }),
   );
-  return normalizeApiResponse<ViewTaskData>(body);
 }
 
 // ---- API-T-08: POST /tasks/create ----
@@ -144,12 +171,12 @@ export async function createTask(
   payload: CreateTaskRequest,
 ): Promise<ApiResult<CreateTaskResult>> {
   const response = await measureApi("createTask", () =>
-    apiPost<unknown>("/tasks/create", payload),
+    postRaw("/tasks/create", payload),
   );
-  const normalized = normalizeApiResponse<unknown>(response);
+  const normalized = normalizeApiResponse<unknown>(response.body, response.status);
   if (!normalized.ok) return normalized;
 
-  const raw = response as Record<string, unknown> | null;
+  const raw = response.body as Record<string, unknown> | null;
   const data =
     raw && typeof raw.data === "object" && raw.data !== null
       ? (raw.data as Record<string, unknown>)
@@ -158,8 +185,8 @@ export async function createTask(
   if (!Number.isFinite(id) || id <= 0) {
     return failureResult(
       "The task was created, but the server did not return its id.",
-      undefined,
-      response,
+      response.status,
+      response.body,
     );
   }
 
@@ -171,7 +198,7 @@ export async function createTask(
         typeof raw?.message === "string" ? raw.message : normalized.message,
       task: data ? (data as unknown as CreateTaskResult["task"]) : undefined,
     },
-    response,
+    response.body,
   );
 }
 
@@ -196,9 +223,9 @@ export async function updateTask(
   if (effort_unit !== undefined) body.effort_unit = effort_unit;
 
   const response = await measureApi("updateTask", () =>
-    apiPost<unknown>(`/tasks/update/${taskId}`, body),
+    postRaw(`/tasks/update/${taskId}`, body),
   );
-  const normalized = normalizeApiResponse<unknown>(response);
+  const normalized = normalizeApiResponse<unknown>(response.body, response.status);
   if (!normalized.ok) return normalized;
   return successResult(
     { message: normalized.message ?? "Record has Been Updated" },
@@ -211,13 +238,12 @@ export async function updateTaskStatus(
   taskId: number,
   payload: UpdateTaskStatusRequest,
 ): Promise<ApiResult<string>> {
-  const body = await measureApi("updateTaskStatus", () =>
-    apiPost<unknown>(`/tasks/updatetaskstatus/${taskId}`, {
+  return measureApi("updateTaskStatus", () =>
+    postResult<string>(`/tasks/updatetaskstatus/${taskId}`, {
       ...payload,
       status: toApiStatus(payload.status),
     }),
   );
-  return normalizeApiResponse<string>(body);
 }
 
 // ---- API-T-13: POST /tasks/updateasignedto/:id ----
@@ -225,15 +251,14 @@ export async function reassignTask(
   taskId: number,
   payload: UpdateAssigneeRequest,
 ): Promise<ApiResult<string>> {
-  const body = await measureApi("reassignTask", () =>
-    apiPost<unknown>(`/tasks/updateasignedto/${taskId}`, {
+  return measureApi("reassignTask", () =>
+    postResult<string>(`/tasks/updateasignedto/${taskId}`, {
       assignee: payload.assignee,
       asigned_to: payload.asigned_to,
       company_id: payload.company_id,
       company_identifier: payload.company_identifier,
     }),
   );
-  return normalizeApiResponse<string>(body);
 }
 
 // ---- API-T-14: POST /tasks/updatetaskduedate/:id ----
@@ -241,10 +266,9 @@ export async function updateTaskDueDate(
   taskId: number,
   payload: UpdateDueDateRequest,
 ): Promise<ApiResult<string>> {
-  const body = await measureApi("updateTaskDueDate", () =>
-    apiPost<unknown>(`/tasks/updatetaskduedate/${taskId}`, payload),
+  return measureApi("updateTaskDueDate", () =>
+    postResult<string>(`/tasks/updatetaskduedate/${taskId}`, payload),
   );
-  return normalizeApiResponse<string>(body);
 }
 
 // ---- API-T-17: POST /tasks/approve/:id ----
@@ -252,10 +276,9 @@ export async function approveTask(
   taskId: number,
   company: { company_id: number; company_identifier: string },
 ): Promise<ApiResult<string>> {
-  const body = await measureApi("approveTask", () =>
-    apiPost<unknown>(`/tasks/approve/${taskId}`, company),
+  return measureApi("approveTask", () =>
+    postResult<string>(`/tasks/approve/${taskId}`, company),
   );
-  return normalizeApiResponse<string>(body);
 }
 
 // ---- API-T-18: POST /tasks/reject/:id ----
@@ -264,17 +287,17 @@ export async function rejectTask(
   payload: RejectTaskRequest,
 ): Promise<ApiResult<{ message: string; status?: string }>> {
   const response = await measureApi("rejectTask", () =>
-    apiPost<unknown>(`/tasks/reject/${taskId}`, payload),
+    postRaw(`/tasks/reject/${taskId}`, payload),
   );
-  const normalized = normalizeApiResponse<string>(response);
+  const normalized = normalizeApiResponse<string>(response.body, response.status);
   if (!normalized.ok) return normalized;
-  const raw = response as Record<string, unknown> | null;
+  const raw = response.body as Record<string, unknown> | null;
   return successResult(
     {
       message: normalized.data ?? "Task has been rejected.",
       status: typeof raw?.status === "string" ? raw.status : undefined,
     },
-    response,
+    response.body,
   );
 }
 
@@ -283,13 +306,12 @@ export async function reopenTask(
   taskId: number,
   payload: ReopenTaskRequest,
 ): Promise<ApiResult<string>> {
-  const body = await measureApi("reopenTask", () =>
-    apiPost<unknown>(`/tasks/reopen/${taskId}`, {
+  return measureApi("reopenTask", () =>
+    postResult<string>(`/tasks/reopen/${taskId}`, {
       ...payload,
       status: toApiStatus(payload.status),
     }),
   );
-  return normalizeApiResponse<string>(body);
 }
 
 // ---- API-T-21: POST /tasks/recalculate/:id ----
@@ -297,10 +319,9 @@ export async function recalculateSchedule(
   taskId: number,
   payload: RecalculateScheduleRequest,
 ): Promise<ApiResult<unknown>> {
-  const body = await measureApi("recalculateSchedule", () =>
-    apiPost<unknown>(`/tasks/recalculate/${taskId}`, payload),
+  return measureApi("recalculateSchedule", () =>
+    postResult<unknown>(`/tasks/recalculate/${taskId}`, payload),
   );
-  return normalizeApiResponse<unknown>(body);
 }
 
 // ---- API-T-22: POST /tasks/extend-delayed/:id ----
@@ -309,10 +330,12 @@ export async function extendDelayedTask(
   taskId: number,
   payload: ExtendDelayedRequest,
 ): Promise<ApiResult<{ id?: number; start_date?: string; due_date?: string; effort_hours?: number }>> {
-  const body = await measureApi("extendDelayed", () =>
-    apiPost<unknown>(`/tasks/extend-delayed/${taskId}`, payload),
+  return measureApi("extendDelayed", () =>
+    postResult<{ id?: number; start_date?: string; due_date?: string; effort_hours?: number }>(
+      `/tasks/extend-delayed/${taskId}`,
+      payload,
+    ),
   );
-  return normalizeApiResponse(body);
 }
 
 // ---- API-T-23: POST /tasks/updatetaskproject/:id ----
@@ -320,10 +343,9 @@ export async function updateTaskProject(
   taskId: number,
   payload: UpdateProjectRequest,
 ): Promise<ApiResult<string>> {
-  const body = await measureApi("updateTaskProject", () =>
-    apiPost<unknown>(`/tasks/updatetaskproject/${taskId}`, payload),
+  return measureApi("updateTaskProject", () =>
+    postResult<string>(`/tasks/updatetaskproject/${taskId}`, payload),
   );
-  return normalizeApiResponse<string>(body);
 }
 
 // ---- API-T-29: POST /tasks/reorder-critical ----
@@ -331,13 +353,13 @@ export async function reorderCritical(
   payload: ReorderCriticalRequest,
 ): Promise<ApiResult<{ blockedTasks: { id: number; title: string }[] }>> {
   const response = await measureApi("reorderCritical", () =>
-    apiPost<unknown>("/tasks/reorder-critical", payload),
+    postRaw("/tasks/reorder-critical", payload),
   );
-  const normalized = normalizeApiResponse<unknown>(response);
+  const normalized = normalizeApiResponse<unknown>(response.body, response.status);
   if (!normalized.ok) return normalized;
-  const raw = response as Record<string, unknown> | null;
+  const raw = response.body as Record<string, unknown> | null;
   const blocked = Array.isArray(raw?.blockedTasks) ? raw.blockedTasks : [];
-  return successResult({ blockedTasks: blocked as { id: number; title: string }[] }, response);
+  return successResult({ blockedTasks: blocked as { id: number; title: string }[] }, response.body);
 }
 
 // ---- Notes / mentions ----

@@ -122,7 +122,7 @@ export type SocketProjectUpdatePayload = {
 
 export type SocketPriorityUpdatePayload = {
   company_id?: number | string;
-  action: "create" | "update" | "delete";
+  action: "create" | "update" | "delete" | "status_update";
   data?: Record<string, unknown>;
 };
 

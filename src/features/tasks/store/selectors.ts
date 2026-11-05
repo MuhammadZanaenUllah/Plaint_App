@@ -8,6 +8,7 @@ import { isCompletedStatus, normalizeApiStatus } from "../utils/taskStatus";
 import {
   activeTasksFromBuckets,
   createActiveTabContext,
+  isActiveForTabs,
   matchesActiveTab,
   selectTabEntities,
   uniqueByRecurrenceOrigin,
@@ -157,8 +158,8 @@ export function selectTabCounts(
   const filters = options.filters;
   const uniqueTasks = uniqueTasksFromBuckets(state);
   const activeTasks = activeTasksFromBuckets(state);
-  const createdTasks = byBucket(state, state.createdByMeIds);
-  const assignedTasks = byBucket(state, state.assignedToMeIds);
+  const createdTasks = byBucket(state, state.createdByMeIds).filter(isActiveForTabs);
+  const assignedTasks = byBucket(state, state.assignedToMeIds).filter(isActiveForTabs);
   const completedTasks = state.completedIds.length
     ? byBucket(state, state.completedIds)
     : Object.values(state.byId).filter((task) =>

@@ -73,15 +73,17 @@ export const LIST_FILTER_STATUSES: TaskStatus[] = [
 
 export const PRIORITY_VALUES: TaskPriorityLevel[] = ["normal", "critical"];
 
-// "semiannually" is the backend spelling. Do not send "semi-annually".
+// Aligned with the website picker (AUD-084): the backend accepts more values,
+// but the mobile UI must not offer values the website does not expose.
 export const RECURRING_PERIODS: RecurringPeriod[] = [
   "daily",
   "weekly",
   "monthly",
   "annually",
-  "quarterly",
-  "semiannually",
 ];
+
+export const TASK_REQUEST_TIMEOUT_MS = 30_000;
+export const TASK_UPLOAD_TIMEOUT_MS = 120_000;
 
 export const EFFORT_UNITS = ["minutes", "hours", "days"] as const;
 export type EffortUnit = (typeof EFFORT_UNITS)[number];

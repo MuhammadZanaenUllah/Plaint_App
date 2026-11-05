@@ -1,6 +1,7 @@
 import { resetTaskStores, useTasksStore } from "@/features/tasks/store";
 import { useTaskSocketBridge } from "@/features/tasks/socket/taskSocketBridge";
 import { isApprovalRequiredMessage } from "@/features/tasks/api/taskApi";
+import { applyLocalTaskUpdate } from "@/features/tasks/utils/taskLocalPatch";
 import { useAuth } from "@/hooks/useAuth";
 import * as tasksService from "@/services/api/tasks.service";
 import {
@@ -19,7 +20,6 @@ import {
   TaskNote,
   TaskOwner,
   TaskPriority,
-  UiTaskStatus,
   UpdateTaskRequest,
   UpdateTaskStatusRequest,
   ViewTaskData,
@@ -29,7 +29,6 @@ import { useShallow } from "zustand/react/shallow";
 import {
   MappedTaskRow,
   mapTaskListResponse,
-  uiStatusToApi,
 } from "@/utils/statusMapper";
 import React, {
   createContext,
@@ -322,6 +321,10 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     currentUserId: authState.user?.id ?? 0,
     isAts: authState.hasAdvancedTaskModule === true,
   });
+
+  useEffect(() => {
+    useTasksStore.getState().setCurrentUserId(authState.user?.id ?? 0);
+  }, [authState.user?.id]);
 
   useEffect(() => {
     if (
@@ -940,23 +943,22 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       const update = (items: TaskListItem[]): TaskListItem[] =>
         items.map((t) => {
           if (t.id !== taskId) return t;
-          const patched: TaskListItem = {
-            ...t,
+          // `assign_to` is the DOER. Never write it into `assignee` (CREATOR).
+          const patched = applyLocalTaskUpdate(t, {
             title: data.title,
-            due_date: data.due_date ?? t.due_date,
+            due_date: data.due_date,
             priority: data.priority,
-            status: uiStatusToApi(data.status as UiTaskStatus),
+            status: data.status,
             description: data.description,
             is_recurring: data.is_recurring,
             approval_required: data.approval_required,
             effort_hours: data.effort_hours,
             effort_unit: data.effort_unit,
             task_priority: data.task_priority,
-            asigned_to: data.assign_to,
-            assignee: data.assign_to,
-            project_id: data.project_id != null ? data.project_id : t.project_id,
-          };
-          if (newOwner && data.assign_to !== t.asigned_to) {
+            assign_to: data.assign_to,
+            project_id: data.project_id,
+          });
+          if (newOwner && data.assign_to != null && data.assign_to !== t.asigned_to) {
             patched.task_assigned_to = {
               id: newOwner.id,
               first_name: newOwner.first_name,
@@ -979,31 +981,38 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
           status: state.statusList,
         },
       });
-      useTasksStore.getState().patchTask(taskId, {
-        title: data.title,
-        due_date: data.due_date,
-        priority: data.priority,
-        status: uiStatusToApi(data.status as UiTaskStatus) as import("@/features/tasks/types/task.types").TaskEntity["status"],
-        is_recurring: data.is_recurring,
-        approval_required: data.approval_required === 1 ? 1 : 0,
-        effort_hours: data.effort_hours,
-        effort_unit: data.effort_unit,
-        task_priority: data.task_priority,
-        asigned_to: data.assign_to,
-        assignee: data.assign_to,
-        ...(data.project_id != null ? { project_id: data.project_id } : {}),
-        ...(newOwner
-          ? {
-              task_assigned_to: {
-                id: newOwner.id,
-                first_name: newOwner.first_name,
-                last_name: newOwner.last_name,
-                image: newOwner.image ?? "",
-                role: 0,
-              },
-            }
-          : {}),
-      });
+
+      const store = useTasksStore.getState();
+      const existing = store.byId[taskId];
+      if (existing) {
+        const next = applyLocalTaskUpdate(existing, {
+          title: data.title,
+          due_date: data.due_date,
+          priority: data.priority,
+          status: data.status,
+          description: data.description,
+          is_recurring: data.is_recurring,
+          approval_required: data.approval_required === 1 ? 1 : 0,
+          effort_hours: data.effort_hours,
+          effort_unit: data.effort_unit,
+          task_priority: data.task_priority,
+          assign_to: data.assign_to,
+          project_id: data.project_id,
+        });
+        const { search_haystack: _haystack, ...patch } = next;
+        store.patchTask(taskId, patch);
+        if (newOwner && data.assign_to != null) {
+          store.patchTask(taskId, {
+            task_assigned_to: {
+              id: newOwner.id,
+              first_name: newOwner.first_name,
+              last_name: newOwner.last_name,
+              image: newOwner.image ?? "",
+              role: 0,
+            },
+          });
+        }
+      }
     },
     [state],
   );
@@ -1091,16 +1100,56 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 
   const updateTask = useCallback(
     async (taskId: number, data: UpdateTaskRequest) => {
+      const previousStore = useTasksStore.getState();
+      const storeSnapshot = {
+        byId: previousStore.byId,
+        assignedToMeIds: [...previousStore.assignedToMeIds],
+        createdByMeIds: [...previousStore.createdByMeIds],
+        allOtherTaskIds: [...previousStore.allOtherTaskIds],
+        recurringIds: [...previousStore.recurringIds],
+        pendingApprovalIds: [...previousStore.pendingApprovalIds],
+        completedIds: [...previousStore.completedIds],
+        completeCount: previousStore.completeCount,
+      };
+      const legacySnapshot = {
+        assignedToMe: state.assignedToMe,
+        createdByMe: state.createdByMe,
+        allOtherTasks: state.allOtherTasks,
+        taskOwners: state.taskOwners,
+        priorities: state.priorities,
+        statusList: state.statusList,
+        completeCount: state.completeCount,
+      };
+
       updateTaskLocal(taskId, data);
-      const res = await tasksService.updateTask(taskId, data);
-      if (!res.Good) {
-        throw new Error(
-          typeof res.data === "string" ? res.data : "Failed to update task",
-        );
+      try {
+        const res = await tasksService.updateTask(taskId, data);
+        if (!res.Good) {
+          throw new Error(
+            typeof res.data === "string" ? res.data : "Failed to update task",
+          );
+        }
+        return res;
+      } catch (error) {
+        // Roll the optimistic local update back so a rejected save cannot
+        // leave server-rejected values on screen (AUD-001).
+        useTasksStore.setState(storeSnapshot);
+        dispatch({
+          type: "LOAD_SUCCESS",
+          data: {
+            tasks_assigned_to_me: legacySnapshot.assignedToMe,
+            tasksByme: legacySnapshot.createdByMe,
+            all_other_tasks: legacySnapshot.allOtherTasks,
+            task_owner: legacySnapshot.taskOwners,
+            priority: legacySnapshot.priorities,
+            status: legacySnapshot.statusList,
+            complete_count: legacySnapshot.completeCount,
+          },
+        });
+        throw error;
       }
-      return res;
     },
-    [updateTaskLocal],
+    [state, updateTaskLocal],
   );
 
   const logout = useCallback(() => {

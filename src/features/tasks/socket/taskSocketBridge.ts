@@ -39,6 +39,7 @@ import {
   flushScheduleForTask,
   resetScheduleBatcher,
 } from "./scheduleBatcher";
+import { buildSchedulePatch } from "./schedulePatch";
 
 type TaskSocketEnvelope = {
   company_id?: number | string;
@@ -144,8 +145,8 @@ export function useTaskSocketBridge({
       const state = useTasksStore.getState();
       if (Object.keys(state.byId).length === 0) return;
       state
-        .loadAll(companyId, { excludeComplete: true })
-        .catch((error) => reportTaskError("Task socket background refresh failed", error));
+        .refreshLookups(companyId)
+        .catch((error) => reportTaskError("Task socket owner refresh failed", error));
     }, REFETCH_DEBOUNCE_MS);
   };
 
@@ -233,9 +234,33 @@ export function useTaskSocketBridge({
     if (data.status !== undefined) {
       patch.status = normalizeApiStatus(String(data.status)) as TaskEntity["status"];
     }
-    if (data.asigned_to !== undefined) patch.asigned_to = numeric(data.asigned_to);
+    if (data.asigned_to !== undefined) {
+      patch.asigned_to = numeric(data.asigned_to);
+      if (data.task_assigned_to !== undefined) {
+        patch.task_assigned_to =
+          (data.task_assigned_to as TaskEntity["task_assigned_to"]) ?? null;
+      } else {
+        const owner = useTasksStore
+          .getState()
+          .owners.find((entry) => Number(entry.id) === patch.asigned_to);
+        patch.task_assigned_to = owner
+          ? {
+              id: owner.id,
+              first_name: owner.first_name,
+              last_name: owner.last_name,
+              image: owner.image ?? "",
+              role: 0,
+              email: owner.email,
+            }
+          : null;
+      }
+    }
     if (data.assignee !== undefined) patch.assignee = numeric(data.assignee);
     if (data.created_by !== undefined) patch.created_by = numeric(data.created_by);
+    if (data.task_assignee !== undefined) {
+      patch.task_assignee =
+        (data.task_assignee as TaskEntity["task_assignee"]) ?? null;
+    }
     if (data.due_date !== undefined) {
       patch.due_date = (data.due_date as string | null) ?? null;
     }
@@ -312,11 +337,15 @@ export function useTaskSocketBridge({
             }
             if (action === "create_subtask") {
               const parentId = numeric(data.parent_id);
-              const parent = useTasksStore.getState().byId[parentId];
-              if (parent) {
-                useTasksStore.getState().patchTask(parentId, {
-                  subtask_count: Number(parent.subtask_count ?? 0) + 1,
-                });
+              // Idempotent: a duplicate event must not inflate the count
+              // (AUD-010).
+              if (rememberNoteEvent(`subtask:${parentId}:${id}`)) {
+                const parent = useTasksStore.getState().byId[parentId];
+                if (parent) {
+                  useTasksStore.getState().patchTask(parentId, {
+                    subtask_count: Number(parent.subtask_count ?? 0) + 1,
+                  });
+                }
               }
             }
             break;
@@ -355,12 +384,8 @@ export function useTaskSocketBridge({
           case "schedule_update": {
             const schedule = data as SocketScheduleUpdatePayload;
             const taskId = numeric(schedule.id);
-            enqueueScheduleUpdate(taskId, {
-              start_date: schedule.start_date,
-              due_date: schedule.due_date,
-              effort_hours: schedule.effort_hours,
-              remaining_effort_hours: schedule.remaining_effort_hours,
-            });
+            // Only keys that are actually present may overwrite the batch.
+            enqueueScheduleUpdate(taskId, buildSchedulePatch(data));
             break;
           }
 
@@ -457,6 +482,8 @@ export function useTaskSocketBridge({
           return;
         }
 
+        // `status_update` carries {id, status}; treat it as a safe update so
+        // unknown fields never clear the existing priority (AUD-020).
         const next: TaskPriority = {
           id,
           name:

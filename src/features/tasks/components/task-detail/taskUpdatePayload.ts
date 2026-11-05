@@ -18,10 +18,10 @@ function numericId(value: unknown): number {
   return Number(value ?? 0);
 }
 
-function nullableInt(value: string | number | null | undefined): number | null {
-  if (value === null || value === undefined || value === "") return null;
+function nullableInt(value: string | number | null | undefined): number | "" {
+  if (value === null || value === undefined || value === "") return "";
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return Number.isFinite(parsed) ? parsed : "";
 }
 
 /** Convert a /view due date (YYYY-MM-DD or YYYY-MM-DDTHH:mm) to YYYY-MM-DD. */
@@ -37,6 +37,8 @@ function toDateOnly(value: string | null | undefined): string | null {
  * - project_id / sprint_id are omitted (the endpoint would detach the task).
  * - effort is sent only for ATS, in minutes; `effort_unit` is display-only.
  * - status is sent as the current canonical status.
+ * - priority is omitted rather than invented when /view has no id (AUD-015).
+ * - bump_to_front is only sent for an ATS critical edit (AUD-017).
  */
 export function buildUpdateTaskPayload(
   task: TaskDetail,
@@ -55,7 +57,9 @@ export function buildUpdateTaskPayload(
   const rawPriority = overrides.priority ?? task.priority;
   const priority = Number(rawPriority);
 
-  return {
+  const isRecurring = task.is_recurring ?? false;
+
+  const payload: UpdateTaskRequest = {
     company_id: ctx.companyId,
     company_identifier: ctx.companyIdentifier,
     title: overrides.title ?? task.title ?? "",
@@ -66,18 +70,24 @@ export function buildUpdateTaskPayload(
     due_date: ctx.isAts
       ? null
       : (overrides.due_date ?? toDateOnly(task.due_date)),
-    priority: Number.isFinite(priority) && priority > 0 ? priority : 1,
     status: toApiStatus(String(overrides.status ?? task.status ?? "Pending")),
     description: overrides.description ?? task.description ?? "",
-    is_recurring: task.is_recurring ?? false,
-    recurring_period: task.recurring_period ?? null,
-    recurring_time: task.recurring_time ?? null,
-    recurring_total_count: task.recurring_total_count ?? 0,
-    recurring_exclude_days: task.recurring_exclude_days ?? [],
-    recurring_week_day: task.recurring_week_day ?? null,
-    recurring_month_date: nullableInt(task.recurring_month_date),
-    recurring_annual_month: nullableInt(task.recurring_annual_month),
-    recurring_annual_date: nullableInt(task.recurring_annual_date),
+    is_recurring: isRecurring,
+    // Contract §3.10 example: non-recurring sends "" / "09:00" / 0 / [].
+    recurring_period: isRecurring ? (task.recurring_period ?? "") : "",
+    recurring_time: isRecurring ? (task.recurring_time ?? "09:00") : "09:00",
+    recurring_total_count: isRecurring ? (task.recurring_total_count ?? 0) : 0,
+    recurring_exclude_days: isRecurring ? (task.recurring_exclude_days ?? []) : [],
+    recurring_week_day: isRecurring ? (task.recurring_week_day ?? "") : "",
+    recurring_month_date: isRecurring
+      ? nullableInt(task.recurring_month_date)
+      : "",
+    recurring_annual_month: isRecurring
+      ? nullableInt(task.recurring_annual_month)
+      : "",
+    recurring_annual_date: isRecurring
+      ? nullableInt(task.recurring_annual_date)
+      : "",
     approval_required:
       overrides.approval_required ?? task.approval_required ?? 0,
     ...(ctx.isAts
@@ -89,6 +99,15 @@ export function buildUpdateTaskPayload(
     task_priority:
       overrides.task_priority ??
       (task.task_priority === "critical" ? "critical" : "normal"),
-    bump_to_front: overrides.bump_to_front ?? false,
   };
+
+  if (Number.isFinite(priority) && priority > 0) {
+    payload.priority = priority;
+  }
+
+  if (ctx.isAts && overrides.bump_to_front === true) {
+    payload.bump_to_front = true;
+  }
+
+  return payload;
 }

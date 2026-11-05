@@ -49,15 +49,12 @@ export type UiTaskStatus =
 
 export type TaskPriorityLevel = "normal" | "critical";
 
-export type RecurringPeriod =
-  | "daily"
-  | "weekly"
-  | "monthly"
-  | "annually"
-  | "quarterly"
-  | "semiannually"
-  // Legacy spelling kept for old UI code; new code must send "semiannually".
-  | "semi-annually";
+/**
+ * Periods offered by the website picker. The backend also accepts
+ * "quarterly"/"semiannually", but the website UI does not expose them, so the
+ * mobile type/validation stay aligned with the website (AUD-084).
+ */
+export type RecurringPeriod = "daily" | "weekly" | "monthly" | "annually";
 
 export type TaskFilter =
   | "delayed"
@@ -349,18 +346,18 @@ export type CreateTaskRequest = {
   assign_to: number;
   due_date: string | null; // YYYY-MM-DD or null for ATS
   task_priority: TaskPriorityLevel;
-  bump_to_front: boolean;
+  bump_to_front?: boolean; // ATS critical only
   status: string;
   description: string; // HTML
   is_recurring: boolean;
-  recurring_period: RecurringPeriod | null;
-  recurring_time: string | null;
+  recurring_period: RecurringPeriod | "" | null;
+  recurring_time: string;
   recurring_total_count: number;
   recurring_exclude_days: string[];
-  recurring_week_day: string | null;
-  recurring_month_date: number | null;
-  recurring_annual_month: number | null;
-  recurring_annual_date: number | null;
+  recurring_week_day: string;
+  recurring_month_date: number | "" | null;
+  recurring_annual_month: number | "" | null;
+  recurring_annual_date: number | "" | null;
   approval_required: number;
   project_id: number | null;
   sprint_id: number | null;
@@ -383,15 +380,15 @@ export type UpdateTaskRequest = {
   title: string;
   assign_to: number;
   due_date: string | null;
-  priority: number;
+  priority?: number; // omit when unknown; never invent a company priority
   status: string;
   description: string; // HTML
   is_recurring: boolean;
-  recurring_period: RecurringPeriod | null;
-  recurring_time: string | null;
+  recurring_period: RecurringPeriod | "" | null;
+  recurring_time: string;
   recurring_total_count: number;
   recurring_exclude_days: string[];
-  recurring_week_day?: string | null;
+  recurring_week_day?: string;
   recurring_month_date?: number | string | null;
   recurring_annual_month?: number | string | null;
   recurring_annual_date?: number | string | null;
@@ -399,7 +396,7 @@ export type UpdateTaskRequest = {
   effort_hours?: number; // minutes; ATS only
   effort_unit?: string;
   task_priority: TaskPriorityLevel;
-  bump_to_front?: boolean;
+  bump_to_front?: boolean; // ATS critical only
   // Legacy-only fields. New Task API code must NOT send these.
   project_id?: number;
   sprint_id?: number | null;

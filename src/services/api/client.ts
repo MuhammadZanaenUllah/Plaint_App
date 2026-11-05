@@ -41,7 +41,19 @@ function buildHeaders(token?: string | null, isFormData = false): HeadersInit {
   return headers;
 }
 
-async function handleResponse<T>(res: Response): Promise<T> {
+export type ApiHttpResponse<T> = {
+  body: T;
+  status: number;
+};
+
+export type ApiRequestOptions = {
+  /** Abort the request after this many milliseconds. Omit for no timeout. */
+  timeoutMs?: number;
+  /** Optional caller-owned abort signal. */
+  signal?: AbortSignal;
+};
+
+async function readResponse<T>(res: Response): Promise<T> {
   const text = await res.text();
   let body: unknown;
   try {
@@ -86,10 +98,46 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export async function apiGet<T>(
+async function handleResponseWithStatus<T>(
+  res: Response,
+): Promise<ApiHttpResponse<T>> {
+  return { body: await readResponse<T>(res), status: res.status };
+}
+
+/**
+ * Add timeout/abort support without changing any existing caller's behavior:
+ * callers that do not pass options keep the original no-timeout request.
+ */
+async function fetchWithOptions(
+  url: string,
+  init: RequestInit,
+  options: ApiRequestOptions = {},
+): Promise<Response> {
+  // Preserve the exact legacy request shape for callers with no timeout/signal
+  // (Chat and every other pre-existing consumer).
+  if (!options.timeoutMs && !options.signal) {
+    return fetch(url, init);
+  }
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  options.signal?.addEventListener("abort", abort);
+  const timer = options.timeoutMs
+    ? setTimeout(abort, options.timeoutMs)
+    : null;
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    if (timer) clearTimeout(timer);
+    options.signal?.removeEventListener("abort", abort);
+  }
+}
+
+export async function apiGetWithStatus<T>(
   path: string,
   params?: Record<string, string | number>,
-): Promise<T> {
+  options?: ApiRequestOptions,
+): Promise<ApiHttpResponse<T>> {
   const token = await getStoredToken();
   const url = new URL(`${BASE_URL}${path}`);
   if (params) {
@@ -98,18 +146,23 @@ export async function apiGet<T>(
     );
   }
 
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: buildHeaders(token),
-  });
-  return handleResponse<T>(res);
+  const res = await fetchWithOptions(
+    url.toString(),
+    {
+      method: "GET",
+      headers: buildHeaders(token),
+    },
+    options,
+  );
+  return handleResponseWithStatus<T>(res);
 }
 
-export async function apiPost<T>(
+export async function apiPostWithStatus<T>(
   path: string,
   body?: unknown,
   isFormData = false,
-): Promise<T> {
+  options?: ApiRequestOptions,
+): Promise<ApiHttpResponse<T>> {
   const token = await getStoredToken();
   const url = `${BASE_URL}${path}`;
   // JSON.stringify(undefined) returns undefined (not a string), so calling
@@ -122,46 +175,88 @@ export async function apiPost<T>(
       : JSON.stringify(body).slice(0, 500);
   console.log("[API] POST:", path, "body:", bodyPreview);
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: buildHeaders(token, isFormData),
-    body: isFormData
-      ? (body as FormData)
-      : body
-        ? JSON.stringify(body)
-        : undefined,
-  });
-  return handleResponse<T>(res);
+  const res = await fetchWithOptions(
+    url,
+    {
+      method: "POST",
+      headers: buildHeaders(token, isFormData),
+      body: isFormData
+        ? (body as FormData)
+        : body
+          ? JSON.stringify(body)
+          : undefined,
+    },
+    options,
+  );
+  return handleResponseWithStatus<T>(res);
 }
 
-export async function apiDelete<T>(path: string): Promise<T> {
+export async function apiDeleteWithStatus<T>(
+  path: string,
+  options?: ApiRequestOptions,
+): Promise<ApiHttpResponse<T>> {
   const token = await getStoredToken();
   const url = `${BASE_URL}${path}`;
 
-  const res = await fetch(url, {
-    method: "DELETE",
-    headers: buildHeaders(token),
-  });
-  return handleResponse<T>(res);
+  const res = await fetchWithOptions(
+    url,
+    {
+      method: "DELETE",
+      headers: buildHeaders(token),
+    },
+    options,
+  );
+  return handleResponseWithStatus<T>(res);
+}
+
+export async function apiUploadWithStatus<T>(
+  path: string,
+  formData: FormData,
+  options?: ApiRequestOptions,
+): Promise<ApiHttpResponse<T>> {
+  const token = await getStoredToken();
+  const url = `${BASE_URL}${path}`;
+
+  const res = await fetchWithOptions(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "x-access-token": token ?? "",
+        authToken: token ?? "",
+        "x-client-platform": "mobile",
+      },
+      body: formData,
+    },
+    options,
+  );
+  return handleResponseWithStatus<T>(res);
+}
+
+export async function apiGet<T>(
+  path: string,
+  params?: Record<string, string | number>,
+): Promise<T> {
+  return (await apiGetWithStatus<T>(path, params)).body;
+}
+
+export async function apiPost<T>(
+  path: string,
+  body?: unknown,
+  isFormData = false,
+): Promise<T> {
+  return (await apiPostWithStatus<T>(path, body, isFormData)).body;
+}
+
+export async function apiDelete<T>(path: string): Promise<T> {
+  return (await apiDeleteWithStatus<T>(path)).body;
 }
 
 export async function apiUpload<T>(
   path: string,
   formData: FormData,
 ): Promise<T> {
-  const token = await getStoredToken();
-  const url = `${BASE_URL}${path}`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "x-access-token": token ?? "",
-      authToken: token ?? "",
-      "x-client-platform": "mobile",
-    },
-    body: formData,
-  });
-  return handleResponse<T>(res);
+  return (await apiUploadWithStatus<T>(path, formData)).body;
 }
 
 /**

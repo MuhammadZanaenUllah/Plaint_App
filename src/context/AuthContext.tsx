@@ -50,6 +50,7 @@ type AuthAction =
   | { type: "LOGOUT" }
   | { type: "SET_LOADING"; loading: boolean }
   | { type: "SET_ADVANCED_TASK_MODULE"; enabled: boolean }
+  | { type: "SET_COMPANY_MODULES"; modules: string[] }
   | { type: "SET_USER_PERMISSIONS"; permissions: string[] };
 
 const initialState: AuthState = {
@@ -97,6 +98,12 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
       return { ...state, loading: action.loading };
     case "SET_ADVANCED_TASK_MODULE":
       return { ...state, hasAdvancedTaskModule: action.enabled };
+    case "SET_COMPANY_MODULES":
+      if (!state.company) return state;
+      return {
+        ...state,
+        company: { ...state.company, modules: action.modules },
+      };
     case "SET_USER_PERMISSIONS":
       // Live permission refresh (socket `role_update`). Permissions drive all
       // Chat/Task UI gating, so update the user object in place.
@@ -167,87 +174,100 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: "LOGOUT" });
     });
   }, []);
-
-  // Live permission refresh (website App.js): the backend emits `role_update`
-  // with action "update_permissions" when a role's permissions change. If it
-  // targets the current user's company + role, replace `user_permissions` so
-  // every permission-gated Chat/Task control re-evaluates immediately. The
-  // socket service queues this listener until the shared socket connects.
-  useEffect(() => {
-    const cleanup = onSocketEvent("role_update", (data) => {
-      const typed = data as {
-        company_id?: number;
-        roleId?: number;
-        action?: string;
-        permissions?: string[];
-      };
-      if (typed.action !== "update_permissions") return;
-      if (!Array.isArray(typed.permissions)) return;
+  const refreshCompanyModules = useCallback(async (companyId: number) => {
+    try {
+      const res = await getCompanyModules(companyId);
+      const modules = res?.data?.modules;
+      if (!Array.isArray(modules)) return;
+      dispatch({ type: "SET_COMPANY_MODULES", modules });
+      dispatch({
+        type: "SET_ADVANCED_TASK_MODULE",
+        enabled: modules.includes("Advanced Task Scheduling"),
+      });
       const current = stateRef.current;
-      if (!current.user) return;
-      const sameCompany =
-        typed.company_id === undefined ||
-        typed.company_id === current.company?.company_id;
-      const sameRole =
-        typed.roleId === undefined || typed.roleId === current.user.role;
-      if (!sameCompany || !sameRole) return;
-      dispatch({ type: "SET_USER_PERMISSIONS", permissions: typed.permissions });
-      setStoredUser({
-        ...current.user,
-        user_permissions: typed.permissions,
-      }).catch(() => {});
-    });
-    return cleanup;
+      if (current.company) {
+        await setStoredCompany({ ...current.company, modules }).catch(() => {});
+      }
+    } catch (err) {
+      if (__DEV__) {
+        console.warn("[Auth] Failed to refresh company modules:", err);
+      }
+    }
   }, []);
+
+  // Live permission/module refresh (website App.js + contract §5.3). This
+  // effect re-registers after logout -> login (AUD-011) and also listens for
+  // modules/packages/company updates (AUD-012).
+  useEffect(() => {
+    if (!state.isAuthenticated) return;
+
+    const sameCompany = (value: unknown) => {
+      const current = stateRef.current;
+      if (value === undefined || value === null) return true;
+      return Number(value) === Number(current.company?.company_id);
+    };
+
+    const refreshModulesForEvent = (payload: unknown) => {
+      const typed = payload as { company_id?: number | string };
+      if (!sameCompany(typed.company_id)) return;
+      const companyId = stateRef.current.company?.company_id;
+      if (companyId) void refreshCompanyModules(companyId);
+    };
+
+    const cleanups = [
+      onSocketEvent("role_update", (payload) => {
+        const typed = payload as {
+          company_id?: number | string;
+          roleId?: number | string;
+          action?: string;
+          permissions?: string[];
+        };
+        if (typed.action !== "update_permissions") return;
+        if (!Array.isArray(typed.permissions)) return;
+        const current = stateRef.current;
+        if (!current.user) return;
+        const sameCompanyId =
+          typed.company_id === undefined ||
+          Number(typed.company_id) === Number(current.company?.company_id);
+        const sameRole =
+          typed.roleId === undefined ||
+          Number(typed.roleId) === Number(current.user.role);
+        if (!sameCompanyId || !sameRole) return;
+        dispatch({ type: "SET_USER_PERMISSIONS", permissions: typed.permissions });
+        setStoredUser({
+          ...current.user,
+          user_permissions: typed.permissions,
+        }).catch(() => {});
+      }),
+      onSocketEvent("modules_update", refreshModulesForEvent),
+      onSocketEvent("packages_update", refreshModulesForEvent),
+      onSocketEvent("companies_update", refreshModulesForEvent),
+    ];
+
+    return () => cleanups.forEach((cleanup) => cleanup());
+  }, [state.isAuthenticated, refreshCompanyModules]);
 
   // Look up the company's own module list (from its package) once a session
   // is established, so the Create Task screen knows whether to show the
   // Advanced ("Hrs"/effort) flow or the normal (Due Date) flow.
   useEffect(() => {
     if (!state.isAuthenticated || !state.company) return;
-    let cancelled = false;
     const companyId = state.company.company_id;
     const companyModules = state.company.modules ?? [];
-    console.log(
-      `[Auth] company.modules for company_id=${companyId}:`,
-      JSON.stringify(companyModules),
-    );
-
     const isAdvanced = (names: string[]) =>
       names.includes("Advanced Task Scheduling");
+    const needsRefresh =
+      companyModules.length === 0 ||
+      companyModules.every((m) => /^\d+$/.test(String(m)));
 
-    (async () => {
-      let advanced = isAdvanced(companyModules);
+    dispatch({
+      type: "SET_ADVANCED_TASK_MODULE",
+      enabled: isAdvanced(companyModules),
+    });
 
-      // company.modules is normally the resolved name list. If it is empty or
-      // still holds numeric ids, refresh it from the company endpoint. Never
-      // call /modules/all: it is SaaS-admin only and returns 403.
-      const needsRefresh =
-        companyModules.length === 0 ||
-        companyModules.every((m) => /^\d+$/.test(String(m)));
-
-      if (needsRefresh) {
-        try {
-          const res = await getCompanyModules(companyId);
-          if (cancelled) return;
-          advanced = isAdvanced(res?.data?.modules ?? []);
-        } catch (err) {
-          if (cancelled) return;
-          console.warn("[Auth] Failed to refresh company modules:", err);
-          advanced = false;
-        }
-      }
-
-      if (cancelled) return;
-      console.log(
-        `[Auth] hasAdvancedTaskModule resolved to ${advanced} for company_id=${companyId}`,
-      );
-      dispatch({ type: "SET_ADVANCED_TASK_MODULE", enabled: advanced });
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [state.isAuthenticated, state.company]);
+    // Never call /modules/all: it is SaaS-admin only and returns 403.
+    if (needsRefresh) void refreshCompanyModules(companyId);
+  }, [state.isAuthenticated, state.company, refreshCompanyModules]);
 
   const login = useCallback(async (email: string, password: string) => {
     try {

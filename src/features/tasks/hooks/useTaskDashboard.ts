@@ -1,7 +1,7 @@
 // Dashboard data hook. Reads the normalized Zustand store and applies the
 // active tab/search/filter rules. The screen only renders what this returns.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { TaskRowProps } from "@/components/TaskRow";
 import {
@@ -93,10 +93,14 @@ export function useTaskDashboard(
     })),
   );
 
-  // Tab boundaries are evaluated against the session clock. Refreshing the
-  // dashboard keeps the data current; recomputing `now` per render would make
-  // the memoized tab rules unstable.
-  const [now] = useState(() => new Date());
+  // ATS Due Today/Delayed compare against "now". Refresh it every 30 seconds
+  // so a task leaves Due Today when its scheduled time passes (contract §8.4,
+  // VAL-41/42).
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const rows = useMemo(() => {
     const scoped = selectTasksForTab(store, filters.activeTab, now, { isAts });

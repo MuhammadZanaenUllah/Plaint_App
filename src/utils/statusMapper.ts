@@ -46,8 +46,16 @@ export function apiStatusToUi(status: TaskStatus | string): UiTaskStatus {
 }
 
 export function uiStatusToApi(status: UiTaskStatus): TaskStatus {
-  if (status === "Completed") return "Complete";
-  return status as TaskStatus;
+  switch (status) {
+    case "Completed":
+      return "Complete";
+    case "On Hold":
+      return "On-Hold";
+    case "Recurring":
+      return "Pending";
+    default:
+      return status as TaskStatus;
+  }
 }
 
 function getInitials(firstName: string, lastName: string): string {

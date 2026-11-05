@@ -3,13 +3,9 @@
 
 import { useTasksStore } from "../store/tasksStore";
 import type { TaskEntity } from "../types/task.types";
+import { mergeSchedulePatch, type SchedulePatch } from "./schedulePatch";
 
-export type SchedulePatch = {
-  start_date?: string | null;
-  due_date?: string | null;
-  effort_hours?: number;
-  remaining_effort_hours?: number;
-};
+export type { SchedulePatch } from "./schedulePatch";
 
 const BATCH_DELAY_MS = 350;
 const UNKNOWN_HOLD_MS = 5_000;
@@ -19,10 +15,6 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 const pendingCritical = new Map<number, number>();
 let criticalTimer: ReturnType<typeof setTimeout> | null = null;
 const heldTimers = new Set<ReturnType<typeof setTimeout>>();
-
-function mergePatch(current: SchedulePatch | undefined, next: SchedulePatch): SchedulePatch {
-  return { ...current, ...next };
-}
 
 function applyPatch(taskId: number, patch: SchedulePatch): boolean {
   const state = useTasksStore.getState();
@@ -85,7 +77,7 @@ export function enqueueCriticalReorder(
 
 export function enqueueScheduleUpdate(taskId: number, patch: SchedulePatch): void {
   if (!Number.isFinite(taskId) || taskId <= 0) return;
-  pending.set(taskId, mergePatch(pending.get(taskId), patch));
+  pending.set(taskId, mergeSchedulePatch(pending.get(taskId), patch));
   if (timer) return;
   timer = setTimeout(flush, BATCH_DELAY_MS);
 }

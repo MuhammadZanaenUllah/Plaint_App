@@ -58,10 +58,12 @@
     "zustand": "^5.0.16"
   },
   "devDependencies": {
+    "@types/node": "^24.19.2",
     "@types/react": "~19.2.2",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.2",
     "patch-package": "^8.0.0",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -71,6 +73,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "test:tasks": "tsx --test tests/task-logic/*.test.ts",
     "postinstall": "patch-package",
     "adb:wireless": "./scripts/connect-adb-wireless.sh",
     "update:preview": "eas update --channel preview --environment preview",

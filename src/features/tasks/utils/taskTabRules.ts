@@ -50,12 +50,12 @@ export function uniqueTasksFromBuckets(state: TaskBuckets): TaskEntity[] {
   return [...new Map(allTasks.map((task) => [task.id, task])).values()];
 }
 
+export function isActiveForTabs(task: TaskEntity): boolean {
+  return !isCompletedStatus(task.status) && task.status !== "Pending-Approval";
+}
+
 export function activeTasksFromBuckets(state: TaskBuckets): TaskEntity[] {
-  return uniqueTasksFromBuckets(state).filter(
-    (task) =>
-      !isCompletedStatus(task.status) &&
-      task.status !== "Pending-Approval",
-  );
+  return uniqueTasksFromBuckets(state).filter(isActiveForTabs);
 }
 
 export type ActiveTabContext = {
@@ -130,9 +130,9 @@ export function selectTabEntities(
 
   switch (tab) {
     case "created":
-      return fromIds(state, state.createdByMeIds);
+      return fromIds(state, state.createdByMeIds).filter(isActiveForTabs);
     case "assigned":
-      return fromIds(state, state.assignedToMeIds);
+      return fromIds(state, state.assignedToMeIds).filter(isActiveForTabs);
     case "completed": {
       const completed = state.completedIds.length
         ? fromIds(state, state.completedIds)

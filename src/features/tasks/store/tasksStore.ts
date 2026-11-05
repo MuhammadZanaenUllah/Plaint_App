@@ -14,6 +14,15 @@ import type {
 } from "../types/task.types";
 import { isCompletedStatus, normalizeApiStatus } from "../utils/taskStatus";
 import { buildTaskSearchHaystack } from "../utils/taskSearch";
+import { createRequestTracker } from "../utils/requestGeneration";
+import { listWithStaleRetry } from "../utils/staleRetry";
+import {
+  mergeIds,
+  moveTaskToBucket,
+  resolveTaskBucket,
+  retainRecentIds,
+  withoutId,
+} from "../utils/taskBuckets";
 
 export type TaskBucket = "assignedToMe" | "createdByMe" | "allOtherTasks";
 
@@ -36,6 +45,7 @@ export type TasksState = {
   teamMemberIds: number[];
   completeCount: number;
   dueTodayCount: number;
+  currentUserId: number;
 
   // Load state
   isLoading: boolean;
@@ -48,6 +58,7 @@ export type TasksState = {
   queryIds: Partial<Record<TaskFilter, number[]>>;
 
   // Actions
+  setCurrentUserId: (userId: number) => void;
   loadDashboard: (
     companyId: number,
     options?: { force?: boolean; silent?: boolean },
@@ -60,11 +71,18 @@ export type TasksState = {
   loadFiltered: (
     companyId: number,
     filter: TaskFilter,
-    options?: { limit?: number; page?: number; waitFresh?: boolean },
+    options?: {
+      limit?: number;
+      page?: number;
+      waitFresh?: boolean;
+      force?: boolean;
+      silent?: boolean;
+    },
   ) => Promise<void>;
   loadRecurring: (companyId: number, options?: { force?: boolean }) => Promise<void>;
   loadPendingApproval: (companyId: number) => Promise<void>;
   loadCompletedPage: (companyId: number, page: number) => Promise<boolean>;
+  refreshLookups: (companyId: number) => Promise<void>;
   applyBuckets: (
     response: TaskListResponse,
     options?: { merge?: boolean },
@@ -75,6 +93,8 @@ export type TasksState = {
   removeTask: (taskId: number) => void;
   reset: () => void;
 };
+
+const MAX_COMPLETED_ROWS = 200;
 
 const initialState = {
   byId: {} as Record<number, TaskEntity>,
@@ -90,6 +110,7 @@ const initialState = {
   teamMemberIds: [] as number[],
   completeCount: 0,
   dueTodayCount: 0,
+  currentUserId: 0,
   isLoading: false,
   isPartialLoad: false,
   error: null as string | null,
@@ -102,6 +123,7 @@ const initialState = {
 
 // In-flight dedupe per company+endpoint.
 const inFlight = new Map<string, Promise<unknown>>();
+const requestTracker = createRequestTracker();
 let storeEpoch = 0;
 
 function dedupe<T>(key: string, run: () => Promise<T>): Promise<T> {
@@ -167,18 +189,6 @@ function entitiesFrom(
   return next;
 }
 
-async function listWithStaleRetry<T extends TaskListResponse>(
-  run: (waitFresh: boolean) => Promise<ApiResult<T>>,
-): Promise<ApiResult<T>> {
-  const first = await run(false);
-  if (!first.ok || !first.stale) return first;
-  return run(true);
-}
-
-function mergeIds(first: number[], second: number[]): number[] {
-  return [...new Set([...first, ...second])];
-}
-
 function mergeResponses(
   first: TaskListResponse,
   second: TaskListResponse,
@@ -240,30 +250,94 @@ function lookupPatch(response: TaskListResponse, state: TasksState) {
   };
 }
 
+/** Merge bucket membership without dropping due-today/standalone buckets. */
+function mergeBucketState(
+  state: TasksState,
+  ids: ReturnType<typeof bucketIds>,
+): {
+  assignedToMeIds: number[];
+  createdByMeIds: number[];
+  allOtherTaskIds: number[];
+} {
+  return {
+    assignedToMeIds: mergeIds(state.assignedToMeIds, ids.assignedToMeIds),
+    createdByMeIds: mergeIds(state.createdByMeIds, ids.createdByMeIds),
+    allOtherTaskIds: mergeIds(state.allOtherTaskIds, ids.allOtherTaskIds),
+  };
+}
+
 export const useTasksStore = create<TasksState>()((set, get) => ({
   ...initialState,
+
+  setCurrentUserId: (userId) => {
+    set({ currentUserId: Number.isFinite(Number(userId)) ? Number(userId) : 0 });
+  },
 
   loadDashboard: async (companyId, options = {}) => {
     if (get().isLoading && !options.force) return;
     const epoch = storeEpoch;
+    const token = requestTracker.begin(`dashboard:${companyId}`);
     set({ isLoading: !options.silent, error: null });
     try {
+      const runList = <T,>(
+        key: string,
+        run: () => Promise<T>,
+        force: boolean,
+      ) => (force ? run() : dedupe(key, run));
+
       const loadDue = () =>
-        dedupe(`due:${companyId}`, () =>
+        runList(`due:${companyId}`, () =>
           listWithStaleRetry((waitFresh) =>
             getDueTodayTasks(companyId, { waitFresh }),
           ),
-        );
+        options.force === true);
       const loadAll = () =>
-        dedupe(`all:${companyId}`, () =>
+        runList(`all:${companyId}`, () =>
           listWithStaleRetry((waitFresh) =>
             getAllTasks(companyId, { waitFresh, excludeComplete: true }),
           ),
-        );
+        options.force === true);
+
+      const applyDashboard = (
+        due: TaskListResponse,
+        all: TaskListResponse,
+        stale: boolean,
+        partial: boolean,
+      ) => {
+        const merged = mergeResponses(all, due);
+        set((state) => {
+          const ids = bucketIds(merged);
+          return {
+            byId: entitiesFrom(merged, state.byId),
+            ...lookupPatch(merged, state),
+            ...mergeBucketState(state, ids),
+            recurringIds: mergeIds(
+              state.recurringIds,
+              lookupPatch(merged, state).recurringIds,
+            ),
+            pendingApprovalIds: mergeIds(
+              state.pendingApprovalIds,
+              lookupPatch(merged, state).pendingApprovalIds,
+            ),
+            completeCount: merged.complete_count ?? state.completeCount,
+            dueTodayCount:
+              idsOf([
+                ...(due.tasks_assigned_to_me ?? []),
+                ...(due.tasksByme ?? []),
+                ...(due.all_other_tasks ?? []),
+              ]).length,
+            stale,
+            isPartialLoad: partial,
+            isLoading: false,
+            error: null,
+            lastRefresh: Date.now(),
+          };
+        });
+      };
 
       if (options.force) {
         const [due, all] = await Promise.all([loadDue(), loadAll()]);
-        if (epoch !== storeEpoch) return;
+        if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
         if (!due.ok || !all.ok) {
           set({
             isLoading: false,
@@ -271,28 +345,15 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
           });
           return;
         }
-        const merged = mergeResponses(all.data, due.data);
-        set((state) => ({
-          byId: entitiesFrom(merged, state.byId),
-          ...lookupPatch(merged, state),
-          completeCount: merged.complete_count ?? state.completeCount,
-          dueTodayCount:
-            idsOf([
-              ...(due.data.tasks_assigned_to_me ?? []),
-              ...(due.data.tasksByme ?? []),
-              ...(due.data.all_other_tasks ?? []),
-            ]).length,
-          stale: !!due.stale || !!all.stale,
-          isPartialLoad: false,
-          isLoading: false,
-          error: null,
-          lastRefresh: Date.now(),
-        }));
+        applyDashboard(due.data, all.data, !!due.stale || !!all.stale, false);
+        void get()
+          .loadRecurring(companyId, { force: true })
+          .catch(() => undefined);
         return;
       }
 
       const due = await loadDue();
-      if (epoch !== storeEpoch) return;
+      if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
       if (!due.ok) {
         set({ isLoading: false, error: due.message });
         return;
@@ -300,6 +361,15 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
       set((state) => ({
         byId: entitiesFrom(due.data, state.byId),
         ...lookupPatch(due.data, state),
+        ...mergeBucketState(state, bucketIds(due.data)),
+        recurringIds: mergeIds(
+          state.recurringIds,
+          lookupPatch(due.data, state).recurringIds,
+        ),
+        pendingApprovalIds: mergeIds(
+          state.pendingApprovalIds,
+          lookupPatch(due.data, state).pendingApprovalIds,
+        ),
         dueTodayCount:
           idsOf([
             ...(due.data.tasks_assigned_to_me ?? []),
@@ -313,30 +383,17 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
       }));
 
       const all = await loadAll();
-      if (epoch !== storeEpoch) return;
+      if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
       if (!all.ok) {
         set({ isLoading: false, error: all.message });
         return;
       }
-      const merged = mergeResponses(all.data, due.data);
-      set((state) => ({
-        byId: entitiesFrom(merged, state.byId),
-        ...lookupPatch(merged, state),
-        completeCount: merged.complete_count ?? state.completeCount,
-        dueTodayCount:
-          idsOf([
-            ...(due.data.tasks_assigned_to_me ?? []),
-            ...(due.data.tasksByme ?? []),
-            ...(due.data.all_other_tasks ?? []),
-          ]).length,
-        stale: !!due.stale || !!all.stale,
-        isPartialLoad: false,
-        isLoading: false,
-        error: null,
-        lastRefresh: Date.now(),
-      }));
+      applyDashboard(due.data, all.data, !!due.stale || !!all.stale, false);
+      void get()
+        .loadRecurring(companyId)
+        .catch(() => undefined);
     } catch (error) {
-      if (epoch !== storeEpoch) return;
+      if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
       set({
         isLoading: false,
         error: error instanceof Error ? error.message : "Failed to load tasks.",
@@ -346,6 +403,7 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
 
   loadAll: async (companyId, options = {}) => {
     const epoch = storeEpoch;
+    const token = requestTracker.begin(`all:${companyId}`);
     set({ isLoading: true, error: null });
     let result: ApiResult<TaskListResponse>;
     try {
@@ -358,32 +416,43 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
         ),
       );
     } catch (error) {
-      if (epoch !== storeEpoch) return;
+      if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
       set({
         isLoading: false,
         error: error instanceof Error ? error.message : "Failed to load tasks.",
       });
       return;
     }
-    if (epoch !== storeEpoch) return;
+    if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
     if (!result.ok) {
       set({ isLoading: false, error: result.message });
       return;
     }
-    set((state) => ({
-      byId: entitiesFrom(result.data, state.byId),
-      ...lookupPatch(result.data, state),
-      completeCount: result.data.complete_count ?? state.completeCount,
-      isPartialLoad: false,
-      stale: !!result.stale || !!result.data.stale,
-      isLoading: false,
-      error: null,
-      lastRefresh: Date.now(),
-    }));
+    set((state) => {
+      const ids = bucketIds(result.data);
+      const lookup = lookupPatch(result.data, state);
+      return {
+        byId: entitiesFrom(result.data, state.byId),
+        ...lookup,
+        ...mergeBucketState(state, ids),
+        recurringIds: mergeIds(state.recurringIds, lookup.recurringIds),
+        pendingApprovalIds: mergeIds(
+          state.pendingApprovalIds,
+          lookup.pendingApprovalIds,
+        ),
+        completeCount: result.data.complete_count ?? state.completeCount,
+        isPartialLoad: false,
+        stale: !!result.stale || !!result.data.stale,
+        isLoading: false,
+        error: null,
+        lastRefresh: Date.now(),
+      };
+    });
   },
 
   loadDueToday: async (companyId) => {
     const epoch = storeEpoch;
+    const token = requestTracker.begin(`due:${companyId}`);
     set({ isLoading: true, error: null });
     let result: ApiResult<TaskListResponse>;
     try {
@@ -393,66 +462,83 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
         ),
       );
     } catch (error) {
-      if (epoch !== storeEpoch) return;
+      if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
       set({
         isLoading: false,
         error: error instanceof Error ? error.message : "Failed to load tasks.",
       });
       return;
     }
-    if (epoch !== storeEpoch) return;
+    if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
     if (!result.ok) {
       set({ isLoading: false, error: result.message });
       return;
     }
-    set((state) => ({
-      byId: entitiesFrom(result.data, state.byId),
-      ...lookupPatch(result.data, state),
-      dueTodayCount: idsOf([
-        ...(result.data.tasks_assigned_to_me ?? []),
-        ...(result.data.tasksByme ?? []),
-        ...(result.data.all_other_tasks ?? []),
-      ]).length,
-      isPartialLoad: true,
-      isLoading: false,
-      error: null,
-      lastRefresh: Date.now(),
-    }));
+    set((state) => {
+      const ids = bucketIds(result.data);
+      const lookup = lookupPatch(result.data, state);
+      return {
+        byId: entitiesFrom(result.data, state.byId),
+        ...lookup,
+        ...mergeBucketState(state, ids),
+        recurringIds: mergeIds(state.recurringIds, lookup.recurringIds),
+        pendingApprovalIds: mergeIds(
+          state.pendingApprovalIds,
+          lookup.pendingApprovalIds,
+        ),
+        dueTodayCount: idsOf([
+          ...(result.data.tasks_assigned_to_me ?? []),
+          ...(result.data.tasksByme ?? []),
+          ...(result.data.all_other_tasks ?? []),
+        ]).length,
+        isPartialLoad: true,
+        isLoading: false,
+        error: null,
+        lastRefresh: Date.now(),
+      };
+    });
   },
 
   loadFiltered: async (companyId, filter, options = {}) => {
     const epoch = storeEpoch;
-    set({ isLoading: true, error: null });
     const key = `filter:${companyId}:${filter}:${options.page ?? 1}:${options.limit ?? ""}`;
+    // Generation is per logical endpoint, so an older page/longer filter reply
+    // cannot overwrite a newer reply for the same filter (AUD-006).
+    const token = requestTracker.begin(`filter:${companyId}:${filter}`);
+    const silent = options.silent === true;
+    if (!silent) set({ isLoading: true, error: null });
     let result: ApiResult<TaskListResponse>;
-    try {
-      result = await dedupe(key, () =>
-        listWithStaleRetry((waitFresh) =>
-          getFilteredTasks(companyId, filter, {
-            waitFresh: waitFresh || options.waitFresh,
-            limit: options.limit,
-            page: options.page,
-          }),
-        ),
+    const run = () =>
+      listWithStaleRetry((waitFresh) =>
+        getFilteredTasks(companyId, filter, {
+          waitFresh: waitFresh || options.waitFresh,
+          limit: options.limit,
+          page: options.page,
+        }),
       );
+    try {
+      result = options.force ? await run() : await dedupe(key, run);
     } catch (error) {
-      if (epoch !== storeEpoch) return;
+      if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
+      if (silent) return;
       set({
         isLoading: false,
         error: error instanceof Error ? error.message : "Failed to load tasks.",
       });
       return;
     }
-    if (epoch !== storeEpoch) return;
+    if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
     if (!result.ok) {
+      if (silent) return;
       set({ isLoading: false, error: result.message });
       return;
     }
-    const ids = idsOf([
+    const rows = [
       ...(result.data.tasks_assigned_to_me ?? []),
       ...(result.data.tasksByme ?? []),
       ...(result.data.all_other_tasks ?? []),
-    ]);
+    ];
+    const ids = idsOf(rows);
     set((state) => ({
       byId: entitiesFrom(result.data, state.byId),
       owners: result.data.task_owner ?? state.owners,
@@ -460,28 +546,137 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
       statusList: result.data.status ?? state.statusList,
       queryIds: { ...state.queryIds, [filter]: ids },
       recurringIds: filter === "recurring" ? ids : state.recurringIds,
+      pendingApprovalIds:
+        filter === "pending_approval"
+          ? rows
+              .filter((task) => task.status === "Pending-Approval")
+              .map((task) => Number(task.id))
+          : state.pendingApprovalIds,
       completedIds:
         filter === "complete" && !options.page ? ids : state.completedIds,
       completeCount: result.data.complete_count ?? state.completeCount,
       stale: !!result.stale || !!result.data.stale,
       isLoading: false,
-      error: null,
+      error: silent ? state.error : null,
       lastRefresh: Date.now(),
     }));
   },
 
-  loadRecurring: async (companyId) => {
-    if (get().queryIds.recurring) return;
-    await get().loadFiltered(companyId, "recurring");
+  loadRecurring: async (companyId, options = {}) => {
+    if (!options.force && get().queryIds.recurring) return;
+    await get().loadFiltered(companyId, "recurring", {
+      waitFresh: options.force === true,
+      force: options.force === true,
+      silent: true,
+    });
   },
 
   loadPendingApproval: async (companyId) => {
-    await get().loadAll(companyId, { excludeComplete: false });
-    set((state) => ({
-      pendingApprovalIds: Object.values(state.byId)
-        .filter((task) => task.status === "Pending-Approval")
-        .map((task) => task.id),
-    }));
+    await get().loadFiltered(companyId, "pending_approval", {
+      waitFresh: true,
+    });
+  },
+
+  loadCompletedPage: async (companyId, page) => {
+    const epoch = storeEpoch;
+    const key = `complete:${companyId}:${page}`;
+    // One generation for the completed pager, not one per page number.
+    const token = requestTracker.begin(`complete:${companyId}`);
+    set({ isLoading: true, error: null });
+    let result: ApiResult<TaskListResponse>;
+    try {
+      result = await dedupe(key, () =>
+        listWithStaleRetry((waitFresh) =>
+          getFilteredTasks(companyId, "complete", {
+            limit: 50,
+            page,
+            waitFresh,
+          }),
+        ),
+      );
+    } catch (error) {
+      if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return false;
+      set({
+        isLoading: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to load completed tasks.",
+      });
+      return false;
+    }
+    if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return false;
+    if (!result.ok) {
+      set({ isLoading: false, error: result.message });
+      return false;
+    }
+
+    const pageIds = idsOf([
+      ...(result.data.tasks_assigned_to_me ?? []),
+      ...(result.data.tasksByme ?? []),
+      ...(result.data.all_other_tasks ?? []),
+    ]);
+
+    set((state) => {
+      const merged = page === 1 ? pageIds : mergeIds(state.completedIds, pageIds);
+      // Bound completed-page retention so long paging sessions do not grow
+      // `byId` without limit (AUD-018).
+      const retained = retainRecentIds(merged, MAX_COMPLETED_ROWS);
+      const retainedSet = new Set(retained);
+      const keep = new Set([
+        ...state.assignedToMeIds,
+        ...state.createdByMeIds,
+        ...state.allOtherTaskIds,
+        ...state.recurringIds,
+        ...state.pendingApprovalIds,
+        ...retained,
+      ]);
+      const byId = entitiesFrom(result.data, state.byId);
+      for (const id of state.completedIds) {
+        if (!retainedSet.has(id) && !keep.has(id)) delete byId[id];
+      }
+      return {
+        byId,
+        completedIds: retained,
+        completedPage: page,
+        hasMoreCompleted: result.data.has_more ?? pageIds.length === 50,
+        completeCount: result.data.complete_count ?? state.completeCount,
+        isLoading: false,
+        error: null,
+        stale: !!result.stale || !!result.data.stale,
+        lastRefresh: Date.now(),
+      };
+    });
+    return true;
+  },
+
+  refreshLookups: async (companyId) => {
+    const epoch = storeEpoch;
+    const token = requestTracker.begin(`lookup:${companyId}`);
+    let result: ApiResult<TaskListResponse>;
+    try {
+      result = await dedupe(`all:${companyId}`, () =>
+        listWithStaleRetry((waitFresh) =>
+          getAllTasks(companyId, { waitFresh, excludeComplete: true }),
+        ),
+      );
+    } catch {
+      return;
+    }
+    if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
+    if (!result.ok) return;
+    set((state) => {
+      const lookup = lookupPatch(result.data, state);
+      return {
+        byId: entitiesFrom(result.data, state.byId),
+        owners: lookup.owners,
+        priorities: lookup.priorities,
+        statusList: lookup.statusList,
+        teamMemberIds: lookup.teamMemberIds,
+        stale: !!result.stale || !!result.data.stale,
+        lastRefresh: Date.now(),
+      };
+    });
   },
 
   applyBuckets: (response, options = {}) => {
@@ -516,72 +711,6 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
           .map((task) => task.id),
       };
     });
-  },
-
-  loadCompletedPage: async (companyId, page) => {
-    const epoch = storeEpoch;
-    set({ isLoading: true, error: null });
-    let result: ApiResult<TaskListResponse>;
-    try {
-      result = await dedupe(`complete:${companyId}:${page}`, () =>
-        listWithStaleRetry((waitFresh) =>
-          getFilteredTasks(companyId, "complete", {
-            limit: 50,
-            page,
-            waitFresh,
-          }),
-        ),
-      );
-    } catch (error) {
-      if (epoch !== storeEpoch) return false;
-      set({
-        isLoading: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to load completed tasks.",
-      });
-      return false;
-    }
-    if (epoch !== storeEpoch) return false;
-    if (!result.ok) {
-      set({ isLoading: false, error: result.message });
-      return false;
-    }
-
-    // Completed rows are stored in `byId`; the completed tab selects from all
-    // entities and re-sorts by completed_at on the device (backend bug §3.4).
-    set((state) => ({
-      byId: entitiesFrom(result.data, state.byId),
-      completedIds: page === 1
-        ? idsOf([
-            ...(result.data.tasks_assigned_to_me ?? []),
-            ...(result.data.tasksByme ?? []),
-            ...(result.data.all_other_tasks ?? []),
-          ])
-        : mergeIds(
-            state.completedIds,
-            idsOf([
-              ...(result.data.tasks_assigned_to_me ?? []),
-              ...(result.data.tasksByme ?? []),
-              ...(result.data.all_other_tasks ?? []),
-            ]),
-          ),
-      completedPage: page,
-      hasMoreCompleted:
-        result.data.has_more ??
-        idsOf([
-          ...(result.data.tasks_assigned_to_me ?? []),
-          ...(result.data.tasksByme ?? []),
-          ...(result.data.all_other_tasks ?? []),
-        ]).length === 50,
-      completeCount: result.data.complete_count ?? state.completeCount,
-      isLoading: false,
-      error: null,
-      stale: !!result.stale || !!result.data.stale,
-      lastRefresh: Date.now(),
-    }));
-    return true;
   },
 
   upsertTask: (task) => {
@@ -642,17 +771,16 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
         notes_count: base.notes_count ?? 0,
       };
 
-      const withoutId = (ids: number[]) => ids.filter((id) => id !== entity.id);
-      const addId = (ids: number[]) => mergeIds(ids, [entity.id]);
-      const isDoer = doerId === Number(currentUserId);
-      const isCreator = creatorId === Number(currentUserId);
+      const without = (ids: number[]) => ids.filter((id) => id !== entity.id);
+      const add = (ids: number[]) => mergeIds(ids, [entity.id]);
+      const bucket = resolveTaskBucket(entity, currentUserId);
 
-      let assignedToMeIds = withoutId(state.assignedToMeIds);
-      let createdByMeIds = withoutId(state.createdByMeIds);
-      let allOtherTaskIds = withoutId(state.allOtherTaskIds);
-      if (isDoer) assignedToMeIds = addId(assignedToMeIds);
-      else if (isCreator) createdByMeIds = addId(createdByMeIds);
-      else allOtherTaskIds = addId(allOtherTaskIds);
+      let assignedToMeIds = without(state.assignedToMeIds);
+      let createdByMeIds = without(state.createdByMeIds);
+      let allOtherTaskIds = without(state.allOtherTaskIds);
+      if (bucket === "assignedToMe") assignedToMeIds = add(assignedToMeIds);
+      else if (bucket === "createdByMe") createdByMeIds = add(createdByMeIds);
+      else allOtherTaskIds = add(allOtherTaskIds);
 
       const completed = isCompletedStatus(entity.status);
       const pendingApproval = entity.status === "Pending-Approval";
@@ -663,12 +791,12 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
         createdByMeIds,
         allOtherTaskIds,
         recurringIds: entity.is_recurring
-          ? addId(state.recurringIds)
-          : withoutId(state.recurringIds),
+          ? add(state.recurringIds)
+          : without(state.recurringIds),
         pendingApprovalIds: pendingApproval
-          ? addId(state.pendingApprovalIds)
-          : withoutId(state.pendingApprovalIds),
-        completedIds: completed ? addId(state.completedIds) : withoutId(state.completedIds),
+          ? add(state.pendingApprovalIds)
+          : without(state.pendingApprovalIds),
+        completedIds: completed ? add(state.completedIds) : without(state.completedIds),
         completeCount: completed && !state.completedIds.includes(entity.id)
           ? state.completeCount + 1
           : state.completeCount,
@@ -711,8 +839,29 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
             ? mergeIds(state.recurringIds, [taskId])
             : state.recurringIds.filter((id) => id !== taskId);
 
+      const creatorChanged =
+        patch.assignee !== undefined || patch.created_by !== undefined;
+      const doerChanged = patch.asigned_to !== undefined;
+      const buckets =
+        (creatorChanged || doerChanged) && state.currentUserId > 0
+          ? moveTaskToBucket(
+              {
+                assignedToMeIds: state.assignedToMeIds,
+                createdByMeIds: state.createdByMeIds,
+                allOtherTaskIds: state.allOtherTaskIds,
+              },
+              taskId,
+              resolveTaskBucket(updated, state.currentUserId),
+            )
+          : {
+              assignedToMeIds: state.assignedToMeIds,
+              createdByMeIds: state.createdByMeIds,
+              allOtherTaskIds: state.allOtherTaskIds,
+            };
+
       return {
         byId: { ...state.byId, [taskId]: updated },
+        ...buckets,
         completedIds,
         completeCount: Math.max(
           0,
@@ -726,14 +875,21 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
 
   removeTask: (taskId) => {
     set((state) => {
+      const existing = state.byId[taskId];
       const byId = { ...state.byId };
       delete byId[taskId];
-      const without = (ids: number[]) => ids.filter((id) => id !== taskId);
       return {
         byId,
-        assignedToMeIds: without(state.assignedToMeIds),
-        createdByMeIds: without(state.createdByMeIds),
-        allOtherTaskIds: without(state.allOtherTaskIds),
+        assignedToMeIds: withoutId(state.assignedToMeIds, taskId),
+        createdByMeIds: withoutId(state.createdByMeIds, taskId),
+        allOtherTaskIds: withoutId(state.allOtherTaskIds, taskId),
+        recurringIds: withoutId(state.recurringIds, taskId),
+        pendingApprovalIds: withoutId(state.pendingApprovalIds, taskId),
+        completedIds: withoutId(state.completedIds, taskId),
+        completeCount: Math.max(
+          0,
+          state.completeCount - (existing && isCompletedStatus(existing.status) ? 1 : 0),
+        ),
       };
     });
   },
@@ -741,6 +897,7 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
   reset: () => {
     storeEpoch += 1;
     inFlight.clear();
+    requestTracker.clear();
     set({ ...initialState });
   },
 }));

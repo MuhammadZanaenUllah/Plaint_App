@@ -1,6 +1,10 @@
 // Project REST API services (contract §4).
 
-import { apiGet, apiPost, apiUpload } from "@/services/api/client";
+import {
+  apiGetWithStatus,
+  apiPostWithStatus,
+  apiUploadWithStatus,
+} from "@/services/api/client";
 import type {
   CreateProjectPayload,
   ProjectAttachment,
@@ -11,8 +15,29 @@ import type {
 } from "../types/project.types";
 import { normalizeApiResponse, successResult, type ApiResult } from "@/features/tasks/api/apiResult";
 import { measureApi } from "@/features/tasks/dev/counters";
+import {
+  TASK_REQUEST_TIMEOUT_MS,
+  TASK_UPLOAD_TIMEOUT_MS,
+} from "@/features/tasks/constants/taskConstants";
 
 type ProjectListPayload = { projects?: ProjectEntity[] };
+
+async function getResult<T>(
+  path: string,
+  params?: Record<string, string | number>,
+): Promise<ApiResult<T>> {
+  const response = await apiGetWithStatus<T>(path, params, {
+    timeoutMs: TASK_REQUEST_TIMEOUT_MS,
+  });
+  return normalizeApiResponse<T>(response.body, response.status);
+}
+
+async function postResult<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
+  const response = await apiPostWithStatus<T>(path, body, false, {
+    timeoutMs: TASK_REQUEST_TIMEOUT_MS,
+  });
+  return normalizeApiResponse<T>(response.body, response.status);
+}
 
 export async function getAllProjects(
   companyId: number,
@@ -22,10 +47,9 @@ export async function getAllProjects(
   if (options.lite) params.lite = "true";
   if (options.scope) params.scope = options.scope;
 
-  const body = await measureApi("getAllProjects", () =>
-    apiGet<unknown>("/projects", params),
+  const normalized = await measureApi("getAllProjects", () =>
+    getResult<ProjectListPayload>("/projects", params),
   );
-  const normalized = normalizeApiResponse<ProjectListPayload>(body);
   if (!normalized.ok) return normalized;
   return successResult(normalized.data?.projects ?? [], normalized.raw);
 }
@@ -37,13 +61,18 @@ export async function getProjectDetail(projectId: number): Promise<
     priority: { id: number; name: string }[];
   }>
 > {
-  const body = await measureApi("getProjectDetail", () =>
-    apiGet<unknown>(`/projects/detail/${projectId}`),
+  const response = await measureApi("getProjectDetail", () =>
+    apiGetWithStatus<unknown>(`/projects/detail/${projectId}`, undefined, {
+      timeoutMs: TASK_REQUEST_TIMEOUT_MS,
+    }),
   );
-  const normalized = normalizeApiResponse<ProjectDetailData>(body);
+  const normalized = normalizeApiResponse<ProjectDetailData>(
+    response.body,
+    response.status,
+  );
   if (!normalized.ok) return normalized;
 
-  const raw = body as Record<string, unknown> | null;
+  const raw = response.body as Record<string, unknown> | null;
   return successResult(
     {
       project: normalized.data,
@@ -52,55 +81,55 @@ export async function getProjectDetail(projectId: number): Promise<
         ? (raw.priority as { id: number; name: string }[])
         : [],
     },
-    body,
+    response.body,
   );
 }
 
 export async function createProject(
   payload: CreateProjectPayload,
 ): Promise<ApiResult<{ id: number }>> {
-  const body = await measureApi("createProject", () =>
-    apiPost<unknown>("/projects/create", payload),
+  return measureApi("createProject", () =>
+    postResult<{ id: number }>("/projects/create", payload),
   );
-  return normalizeApiResponse<{ id: number }>(body);
 }
 
 export async function updateProject(
   projectId: number,
   payload: UpdateProjectRequest,
 ): Promise<ApiResult<string>> {
-  const body = await measureApi("updateProject", () =>
-    apiPost<unknown>(`/projects/update/${projectId}`, payload),
+  return measureApi("updateProject", () =>
+    postResult<string>(`/projects/update/${projectId}`, payload),
   );
-  return normalizeApiResponse<string>(body);
 }
 
 export async function uploadProjectAttachment(
   projectId: number,
   formData: FormData,
 ): Promise<ApiResult<{ id?: number; attachment?: string }>> {
-  const body = await measureApi("uploadProjectAttachment", () =>
-    apiUpload<unknown>(`/projects/attachments/${projectId}`, formData),
+  const response = await measureApi("uploadProjectAttachment", () =>
+    apiUploadWithStatus<unknown>(`/projects/attachments/${projectId}`, formData, {
+      timeoutMs: TASK_UPLOAD_TIMEOUT_MS,
+    }),
   );
-  return normalizeApiResponse(body);
+  return normalizeApiResponse(response.body, response.status);
 }
 
 export async function deleteProjectAttachment(
   attachmentId: number,
 ): Promise<ApiResult<string>> {
-  const body = await measureApi("deleteProjectAttachment", () =>
-    apiPost<unknown>(`/projects/attachmentdelete/${attachmentId}`, {}),
+  return measureApi("deleteProjectAttachment", () =>
+    postResult<string>(`/projects/attachmentdelete/${attachmentId}`, {}),
   );
-  return normalizeApiResponse<string>(body);
 }
 
 export async function getProjectUsers(
   companyId: number,
 ): Promise<ApiResult<ProjectUser[]>> {
-  const body = await measureApi("getProjectUsers", () =>
-    apiGet<unknown>("/username/project-users", { company_id: companyId }),
+  const normalized = await measureApi("getProjectUsers", () =>
+    getResult<{ user?: ProjectUser[] }>("/username/project-users", {
+      company_id: companyId,
+    }),
   );
-  const normalized = normalizeApiResponse<{ user?: ProjectUser[] }>(body);
   if (!normalized.ok) return normalized;
   return successResult(normalized.data?.user ?? [], normalized.raw);
 }

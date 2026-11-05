@@ -2,7 +2,11 @@
 // Every function returns ApiResult<T>.
 
 import { File } from "expo-file-system";
-import { apiGet, apiPost, apiUpload } from "@/services/api/client";
+import {
+  apiGetWithStatus,
+  apiPostWithStatus,
+  apiUploadWithStatus,
+} from "@/services/api/client";
 import type {
   AddNoteRequest,
   DeleteNoteRequest,
@@ -12,7 +16,28 @@ import type {
   TaskNote,
   UpdateNoteRequest,
 } from "../types/task.types";
+import {
+  TASK_REQUEST_TIMEOUT_MS,
+  TASK_UPLOAD_TIMEOUT_MS,
+} from "../constants/taskConstants";
 import { normalizeApiResponse, successResult, type ApiResult } from "./apiResult";
+
+async function getResult<T>(
+  path: string,
+  params?: Record<string, string | number>,
+): Promise<ApiResult<T>> {
+  const response = await apiGetWithStatus<T>(path, params, {
+    timeoutMs: TASK_REQUEST_TIMEOUT_MS,
+  });
+  return normalizeApiResponse<T>(response.body, response.status);
+}
+
+async function postResult<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
+  const response = await apiPostWithStatus<T>(path, body, false, {
+    timeoutMs: TASK_REQUEST_TIMEOUT_MS,
+  });
+  return normalizeApiResponse<T>(response.body, response.status);
+}
 
 export async function addNote(
   taskId: number,
@@ -27,8 +52,12 @@ export async function addNote(
   if (data.mentions?.length) formData.append("mentions", JSON.stringify(data.mentions));
   if (file) formData.append("file", file instanceof File ? file : new File(file.uri));
 
-  const body = await apiUpload<unknown>(`/tasks/addnote/${taskId}`, formData);
-  return normalizeApiResponse<string>(body);
+  const response = await apiUploadWithStatus<unknown>(
+    `/tasks/addnote/${taskId}`,
+    formData,
+    { timeoutMs: TASK_UPLOAD_TIMEOUT_MS },
+  );
+  return normalizeApiResponse<string>(response.body, response.status);
 }
 
 export async function getTaskNotes(
@@ -40,16 +69,14 @@ export async function getTaskNotes(
   if (companyId !== undefined) body.company_id = companyId;
   if (companyIdentifier !== undefined) body.company_identifier = companyIdentifier;
 
-  const response = await apiPost<unknown>(`/tasks/showtasknote/${taskId}`, body);
-  return normalizeApiResponse<TaskNote[]>(response);
+  return postResult<TaskNote[]>(`/tasks/showtasknote/${taskId}`, body);
 }
 
 export async function updateNote(
   noteId: number,
   data: UpdateNoteRequest,
 ): Promise<ApiResult<string>> {
-  const body = await apiPost<unknown>(`/tasks/updatenote/${noteId}`, data);
-  return normalizeApiResponse<string>(body);
+  return postResult<string>(`/tasks/updatenote/${noteId}`, data);
 }
 
 /** The backend treats this as a toggle; callers must pass the intended value. */
@@ -57,16 +84,14 @@ export async function pinNote(
   noteId: number,
   data: PinNoteRequest,
 ): Promise<ApiResult<string>> {
-  const body = await apiPost<unknown>(`/tasks/updatenotepin/${noteId}`, data);
-  return normalizeApiResponse<string>(body);
+  return postResult<string>(`/tasks/updatenotepin/${noteId}`, data);
 }
 
 export async function deleteNote(
   noteId: number,
   data: DeleteNoteRequest,
 ): Promise<ApiResult<string>> {
-  const body = await apiPost<unknown>(`/tasks/deletenote/${noteId}`, data);
-  return normalizeApiResponse<string>(body);
+  return postResult<string>(`/tasks/deletenote/${noteId}`, data);
 }
 
 export async function updateNoteReaction(
@@ -78,11 +103,16 @@ export async function updateNoteReaction(
     reactions: { user_id: number; user_name: string; emoji: string }[];
   }>
 > {
-  const response = await apiPost<unknown>(`/tasks/updatenotereaction/${noteId}`, data);
-  const normalized = normalizeApiResponse<string>(response);
+  const response = await apiPostWithStatus<unknown>(
+    `/tasks/updatenotereaction/${noteId}`,
+    data,
+    false,
+    { timeoutMs: TASK_REQUEST_TIMEOUT_MS },
+  );
+  const normalized = normalizeApiResponse<string>(response.body, response.status);
   if (!normalized.ok) return normalized;
 
-  const raw = response as Record<string, unknown> | null;
+  const raw = response.body as Record<string, unknown> | null;
   return successResult(
     {
       message: normalized.data ?? "Reaction updated",
@@ -90,11 +120,12 @@ export async function updateNoteReaction(
         ? (raw.reactions as { user_id: number; user_name: string; emoji: string }[])
         : [],
     },
-    response,
+    response.body,
   );
 }
 
 export async function getMentionUsers(companyId: number): Promise<ApiResult<{ user: MentionUser[] }>> {
-  const body = await apiGet<unknown>("/user/note-mentions", { company_id: companyId });
-  return normalizeApiResponse<{ user: MentionUser[] }>(body);
+  return getResult<{ user: MentionUser[] }>("/user/note-mentions", {
+    company_id: companyId,
+  });
 }
