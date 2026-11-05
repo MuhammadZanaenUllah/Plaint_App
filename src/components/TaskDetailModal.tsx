@@ -47,6 +47,7 @@ import {
 } from "@/features/tasks/utils/taskAttachmentPath";
 import { selectAttachmentChips } from "@/features/tasks/utils/attachmentDisplay";
 import { buildEffortHistoryRows } from "@/features/tasks/utils/effortHistory";
+import { needsTaskLookupRefresh } from "@/features/tasks/utils/realtime";
 import { reportTaskError } from "@/features/tasks/utils/taskError";
 import {
   validateAttachment,
@@ -1031,6 +1032,28 @@ export default function TaskDetailModal({
   const companyId = task?.companyId ?? authState.company?.company_id ?? 0;
   const companyIdentifier = authState.company?.company_identifier ?? "";
   const detailTaskId = task?.taskId;
+
+  // Detail can be opened from a notification/deep link before the Tasks
+  // dashboard has hydrated owners/priorities/task rows. Load them so the
+  // assignee, priority and dependency controls are usable (AUD-073).
+  useEffect(() => {
+    if (!visible || !companyId) return;
+    const store = useTasksStore.getState();
+    if (needsTaskLookupRefresh(store.owners, store.priorities)) {
+      store
+        .refreshLookups(companyId)
+        .catch((error) =>
+          reportTaskError("Task detail lookup refresh failed", error),
+        );
+    }
+    if (Object.keys(store.byId).length === 0) {
+      store
+        .loadDashboard(companyId, { silent: true, force: true })
+        .catch((error) =>
+          reportTaskError("Task detail task refresh failed", error),
+        );
+    }
+  }, [visible, companyId]);
 
   const loadTaskDetail = useCallback(async () => {
     if (!detailTaskId) return;

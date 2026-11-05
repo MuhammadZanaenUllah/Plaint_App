@@ -2,6 +2,8 @@
 
 import { onSocketEvent } from "@/services/socket/socketService";
 import { useEffect, useRef } from "react";
+import { AppState } from "react-native";
+import { sameNumericId } from "../utils/realtime";
 
 type Options = {
   visible: boolean;
@@ -53,16 +55,14 @@ export function useTaskDetailSocket({
   useEffect(() => {
     if (!visible || !taskId || !companyId) return;
 
-    return onSocketEvent("task_update", (payload: unknown) => {
+    const cleanupTask = onSocketEvent("task_update", (payload: unknown) => {
       const p = payload as Envelope;
-      if (Number(p.company_id) !== Number(companyId)) return;
+      if (!sameNumericId(p.company_id, companyId)) return;
       if (!p.action) return;
 
       const data = p.data ?? {};
       const eventTaskId = Number(data.task_id ?? data.id);
-      if (!Number.isFinite(eventTaskId) || eventTaskId !== Number(taskId)) {
-        return;
-      }
+      if (!sameNumericId(eventTaskId, taskId)) return;
 
       if (p.action === "delete") {
         closeRef.current();
@@ -74,5 +74,27 @@ export function useTaskDetailSocket({
       }
       detailRef.current();
     });
+
+    // Socket.IO reconnects on the same instance, so the task listener stays
+    // registered; resync the open detail explicitly after reconnect.
+    const cleanupConnect = onSocketEvent("connect", () => {
+      detailRef.current();
+    });
+
+    let appState = AppState.currentState;
+    const appStateSubscription = AppState.addEventListener("change", (next) => {
+      const wasBackgrounded =
+        appState === "background" || appState === "inactive";
+      appState = next;
+      if (next === "active" && wasBackgrounded) {
+        detailRef.current();
+      }
+    });
+
+    return () => {
+      cleanupTask();
+      cleanupConnect();
+      appStateSubscription.remove();
+    };
   }, [companyId, taskId, visible]);
 }
