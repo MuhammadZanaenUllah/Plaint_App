@@ -26,7 +26,9 @@ import { useTaskFiltersStore } from "@/features/tasks/store/taskFiltersStore";
 import { useSearch } from "@/context/SearchContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
+import { canViewProjects } from "@/features/projects/permissions/projectPermissions";
 import { showError } from "@/utils/toast";
+import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import {
   useCallback,
@@ -145,6 +147,10 @@ function TasksScreenContent() {
     () =>
       hasTasksModule(authState.company) &&
       hasPermission(authState.user, TASK_PERMISSIONS.edit),
+    [authState.company, authState.user],
+  );
+  const canOpenProjects = useMemo(
+    () => canViewProjects(authState.user, authState.company),
     [authState.company, authState.user],
   );
 
@@ -305,6 +311,44 @@ function TasksScreenContent() {
             cardLayoutsRef.current[id] = { x, width };
           }}
         />
+
+        {canOpenProjects && (
+          <Pressable
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingHorizontal: 18,
+              paddingVertical: 9,
+              marginHorizontal: 16,
+              marginBottom: 6,
+              borderWidth: 1,
+              borderColor: "#E5E7EB",
+              borderRadius: 10,
+              backgroundColor: "#FFFFFF",
+            }}
+            onPress={() => router.push("/projects" as never)}
+          >
+            <Text
+              style={{
+                fontSize: 13,
+                fontFamily: "SF_Pro_Semibold",
+                color: "#1D1D1D",
+              }}
+            >
+              Projects
+            </Text>
+            <Text
+              style={{
+                fontSize: 12,
+                fontFamily: "SF_Pro_Medium",
+                color: "#00A876",
+              }}
+            >
+              View all ›
+            </Text>
+          </Pressable>
+        )}
 
         <TaskList
           sectionTitle={sectionTitle}

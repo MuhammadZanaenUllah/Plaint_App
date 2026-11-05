@@ -167,6 +167,7 @@ function RootNavigator() {
       "profile",
       "notifications",
       "settings",
+      "projects",
     ].includes(segments[0] as string);
 
     if (isFirstRoute || isOnboarding) return;

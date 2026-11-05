@@ -39,8 +39,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const PROJECT_STATUSES: ProjectStatus[] = [
   "Planning",
   "In Progress",
-  "Pending",
+  "On Hold",
   "Completed",
+  "Abandoned",
 ];
 
 const PAGE_SIZE = 20;
@@ -49,8 +50,9 @@ const STATUS_PILL_COLORS: Record<ProjectStatus, { bg: string; text: string }> =
   {
     Planning: { bg: "#EFF6FF", text: "#3B82F6" },
     "In Progress": { bg: "#FEF3C7", text: "#D97706" },
-    Pending: { bg: "#F3F4F6", text: "#4B5563" },
+    "On Hold": { bg: "#FFEDD5", text: "#C2410C" },
     Completed: { bg: "#ECFDF5", text: "#059669" },
+    Abandoned: { bg: "#E5E7EB", text: "#4B5563" },
   };
 
 type Props = {

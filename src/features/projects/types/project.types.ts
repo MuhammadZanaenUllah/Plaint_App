@@ -2,17 +2,20 @@
 //
 // `src/types/project.types.ts` re-exports this file for backwards compatibility.
 //
-// Compatibility note: `ProjectStatus` keeps the legacy "Pending" value so the
-// pre-Phase-8 UI compiles. New code must use `CanonicalProjectStatus`; "Pending"
-// does not exist on the backend and causes a 500.
+// Phase 8 removed the invalid "Pending" value. `ProjectStatus` is now a
+// backwards-compatible alias of `CanonicalProjectStatus`.
 
 import { TaskListItem } from "@/features/tasks/types/task.types";
 
-// Legacy project status union kept for the pre-Phase-8 UI.
-// New code must use CanonicalProjectStatus; "Pending" causes a 500.
-export type ProjectStatus = "Planning" | "In Progress" | "Pending" | "Completed";
+export type CanonicalProjectStatus =
+  | "Planning"
+  | "In Progress"
+  | "On Hold"
+  | "Completed"
+  | "Abandoned";
 
-export type CanonicalProjectStatus = "Planning" | "In Progress" | "On Hold" | "Completed" | "Abandoned";
+/** Legacy alias. Phase 8 removed the invalid "Pending" value. */
+export type ProjectStatus = CanonicalProjectStatus;
 
 export type Project = {
   id: number;

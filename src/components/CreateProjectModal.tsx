@@ -24,8 +24,9 @@ import {
 const PROJECT_STATUSES: ProjectStatus[] = [
   "Planning",
   "In Progress",
-  "Pending",
+  "On Hold",
   "Completed",
+  "Abandoned",
 ];
 
 interface CreateProjectModalProps {

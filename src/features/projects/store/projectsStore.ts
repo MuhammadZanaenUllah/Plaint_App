@@ -4,16 +4,23 @@
 
 import { create } from "zustand";
 import {
+  createProject as createProjectApi,
+  deleteProjectAttachment as deleteProjectAttachmentApi,
   getAllProjects,
   getProjectDetail,
   getProjectUsers,
+  updateProject as updateProjectApi,
+  uploadProjectAttachment as uploadProjectAttachmentApi,
 } from "@/features/projects/api/projectsApi";
 import { getSprints } from "@/features/projects/api/sprintsApi";
+import type { ApiResult } from "@/features/tasks/api/apiResult";
 import type {
+  CreateProjectPayload,
   ProjectDetailData,
   ProjectEntity,
   ProjectUser,
   Sprint,
+  UpdateProjectRequest,
 } from "@/features/projects/types/project.types";
 
 export type ProjectsState = {
@@ -28,6 +35,18 @@ export type ProjectsState = {
   loadProjectDetail: (projectId: number) => Promise<void>;
   loadSprints: (companyId: number, projectId: number) => Promise<void>;
   loadProjectUsers: (companyId: number) => Promise<void>;
+  createProject: (
+    payload: CreateProjectPayload,
+  ) => Promise<ApiResult<{ id: number }>>;
+  updateProject: (
+    projectId: number,
+    payload: UpdateProjectRequest,
+  ) => Promise<ApiResult<string>>;
+  uploadAttachment: (
+    projectId: number,
+    formData: FormData,
+  ) => Promise<ApiResult<{ id?: number; attachment?: string }>>;
+  deleteAttachment: (attachmentId: number) => Promise<ApiResult<string>>;
   clearDetail: () => void;
   reset: () => void;
 };
@@ -41,7 +60,7 @@ const initialState = {
   error: null as string | null,
 };
 
-export const useProjectsStore = create<ProjectsState>()((set) => ({
+export const useProjectsStore = create<ProjectsState>()((set, get) => ({
   ...initialState,
 
   loadProjects: async (companyId, options = {}) => {
@@ -81,6 +100,33 @@ export const useProjectsStore = create<ProjectsState>()((set) => ({
       return;
     }
     set({ projectUsers: result.data });
+  },
+
+  createProject: async (payload) => {
+    const result = await createProjectApi(payload);
+    if (result.ok) {
+      await get().loadProjects(payload.company_id);
+    }
+    return result;
+  },
+
+  updateProject: async (projectId, payload) => {
+    const result = await updateProjectApi(projectId, payload);
+    if (result.ok) {
+      if (payload.company_id) await get().loadProjects(payload.company_id);
+      await get().loadProjectDetail(projectId);
+    }
+    return result;
+  },
+
+  uploadAttachment: async (projectId, formData) => {
+    const result = await uploadProjectAttachmentApi(projectId, formData);
+    if (result.ok) await get().loadProjectDetail(projectId);
+    return result;
+  },
+
+  deleteAttachment: async (attachmentId) => {
+    return deleteProjectAttachmentApi(attachmentId);
   },
 
   clearDetail: () => set({ projectDetail: null, sprints: [] }),
