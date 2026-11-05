@@ -79,6 +79,13 @@ export function shouldRecalculateAfterReassign(isAts: boolean): boolean {
   return isAts;
 }
 
+export function dependencyErrorMessage(message?: string | null): string {
+  if (/circular/i.test(message ?? "")) {
+    return "Circular dependency: this would create a dependency loop";
+  }
+  return (message ?? "").trim() || "Could not add dependency";
+}
+
 export function isNewCriticalFirst(
   orderedIds: (number | string)[],
   newTaskId: number | string,

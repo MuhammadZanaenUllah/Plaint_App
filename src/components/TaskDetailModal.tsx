@@ -34,12 +34,19 @@ import { fromMinutes, toMinutes, formatEffort } from "@/features/tasks/utils/tas
 import { parseTaskDate, toCalendarDateOnly } from "@/features/tasks/utils/taskDate";
 import { normalizeApiStatus, toApiStatus } from "@/features/tasks/utils/taskStatus";
 import {
+  dependencyErrorMessage,
   isDependencyCandidateStatus,
   isNewCriticalFirst,
   shouldRecalculateAfterStatus,
   shouldRouteAtsReopen,
   shouldRouteAtsResume,
 } from "@/features/tasks/utils/taskActionRules";
+import {
+  attachmentDisplayName,
+  buildTaskAttachmentPath,
+} from "@/features/tasks/utils/taskAttachmentPath";
+import { selectAttachmentChips } from "@/features/tasks/utils/attachmentDisplay";
+import { buildEffortHistoryRows } from "@/features/tasks/utils/effortHistory";
 import { reportTaskError } from "@/features/tasks/utils/taskError";
 import {
   validateAttachment,
@@ -106,6 +113,7 @@ import SingleTaskTable from "./SingleTaskTable";
 const SNAP_POINTS = ["94%"];
 
 export type DependencyDisplay = {
+  taskId?: number;
   title: string;
   assignedTo: string;
   createdBy: string;
@@ -163,6 +171,9 @@ const AVAILABLE_STATUSES = [
   "Partial Complete",
   "Rejected",
 ];
+
+// Contract §11.1 website reaction set.
+const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"] as const;
 
 type PersistStatusOptions = {
   taskId: number;
@@ -332,103 +343,15 @@ function getDependencyInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function formatNoteDate(dateInput?: any): string {
-  if (!dateInput) {
-    const now = new Date();
-    const day = now.getDate();
-    const month = now.toLocaleDateString("en-US", { month: "long" });
-    const year = now.getFullYear();
-    let hours = now.getHours();
-    const minutes = now.getMinutes().toString().padStart(2, "0");
-    const ampm = hours >= 12 ? "PM" : "AM";
-    hours = hours % 12 || 12;
-    return `${day}, ${month}, ${year} | ${hours}.${minutes}${ampm}`;
-  }
-
-  const dateStr = String(dateInput).trim();
-
-  if (dateStr.includes("|")) {
-    return dateStr;
-  }
-
-  let d: Date | null = null;
-
-  const normalizedStr =
-    dateStr.includes(" ") && !dateStr.includes("T")
-      ? dateStr.replace(" ", "T")
-      : dateStr;
-  const directDate = new Date(normalizedStr);
-
-  if (!isNaN(directDate.getTime())) {
-    d = directDate;
-  } else {
-    let match = dateStr.match(
-      /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/,
-    );
-    if (match) {
-      const [, year, month, day, hour = "0", minute = "0", second = "0"] =
-        match;
-      d = new Date(
-        Number(year),
-        Number(month) - 1,
-        Number(day),
-        Number(hour),
-        Number(minute),
-        Number(second),
-      );
-    } else {
-      match = dateStr.match(
-        /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/,
-      );
-      if (match) {
-        const [, day, month, year, hour = "0", minute = "0", second = "0"] =
-          match;
-        d = new Date(
-          Number(year),
-          Number(month) - 1,
-          Number(day),
-          Number(hour),
-          Number(minute),
-          Number(second),
-        );
-      }
-    }
-  }
-
-  if (!d || isNaN(d.getTime())) {
-    return dateStr;
-  }
-
-  const day = d.getDate();
-  const month = d.toLocaleDateString("en-US", { month: "long" });
-  const year = d.getFullYear();
-
-  let hours = d.getHours();
-  const minutes = d.getMinutes().toString().padStart(2, "0");
-  const ampm = hours >= 12 ? "PM" : "AM";
-  hours = hours % 12 || 12;
-
-  const formattedTime = `${hours}.${minutes}${ampm}`;
-
-  return `${day}, ${month}, ${year} | ${formattedTime}`;
-}
-
 function PinnedCommentCard({
   comment,
   onUnpin,
+  onOpenAttachment,
 }: {
   comment: TaskNote;
   onUnpin: (note: TaskNote) => void;
+  onOpenAttachment?: (path: string, name?: string) => void;
 }) {
-  const initials = (comment.user_name ?? "U")
-    .trim()
-    .split(/\s+/)
-    .map((w: string) => w[0])
-    .filter(Boolean)
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
-
   const rawDate =
     comment.created_at ||
     (comment as any).createdAt ||
@@ -439,12 +362,16 @@ function PinnedCommentCard({
   return (
     <View style={styles.pinnedCard}>
       <View style={styles.bubbleHeader}>
-        <View style={styles.bubbleAvatar}>
-          <Text style={styles.bubbleAvatarText}>{initials || "MJ"}</Text>
-        </View>
+        <Avatar
+          name={comment.user_name}
+          imagePath={comment.user_image}
+          size={20}
+          borderRadius={5}
+          fontSize={9}
+        />
         <View style={styles.bubbleNameRow}>
           <Text style={styles.bubbleName}>{comment.user_name}</Text>
-          <Text style={styles.bubbleTime}>{formatNoteDate(rawDate)}</Text>
+          <Text style={styles.bubbleTime}>{formatApiDateTime(rawDate)}</Text>
         </View>
         <TouchableOpacity
           onPress={() => onUnpin(comment)}
@@ -462,6 +389,22 @@ function PinnedCommentCard({
       <Text style={styles.bubbleText}>
         {mentionMarkupToDisplay(comment.notes)}
       </Text>
+      {comment.attachment_file ? (
+        <TouchableOpacity
+          style={styles.noteAttachmentChip}
+          onPress={() =>
+            onOpenAttachment?.(
+              comment.attachment_file ?? "",
+              attachmentDisplayName(undefined, comment.attachment_file ?? ""),
+            )
+          }
+        >
+          <Ionicons name="attach" size={13} color="#00A876" />
+          <Text style={styles.noteAttachmentText} numberOfLines={1}>
+            {attachmentDisplayName(undefined, comment.attachment_file)}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -478,6 +421,7 @@ function CommentBubble({
   canDeleteOwn,
   canPinReact,
   index = 0,
+  onOpenAttachment,
 }: {
   comment: TaskNote;
   currentUserId: number;
@@ -490,17 +434,10 @@ function CommentBubble({
   canDeleteOwn?: boolean;
   canPinReact?: boolean;
   index?: number;
+  onOpenAttachment?: (path: string, name?: string) => void;
 }) {
   const isOwn = comment.user_id === currentUserId;
   const isPinned = comment.pin_top === 1;
-  const initials = (comment.user_name ?? "U")
-    .trim()
-    .split(/\s+/)
-    .map((w: string) => w[0])
-    .filter(Boolean)
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
 
   const rawDate =
     comment.created_at ||
@@ -512,12 +449,16 @@ function CommentBubble({
   return (
     <View style={styles.bubble}>
       <View style={styles.bubbleHeader}>
-        <View style={styles.bubbleAvatar}>
-          <Text style={styles.bubbleAvatarText}>{initials || "U"}</Text>
-        </View>
+        <Avatar
+          name={comment.user_name}
+          imagePath={comment.user_image}
+          size={20}
+          borderRadius={5}
+          fontSize={9}
+        />
         <View style={styles.bubbleNameRow}>
           <Text style={styles.bubbleName}>{comment.user_name}</Text>
-          <Text style={styles.bubbleTime}>{formatNoteDate(rawDate)}</Text>
+          <Text style={styles.bubbleTime}>{formatApiDateTime(rawDate)}</Text>
         </View>
       </View>
 
@@ -536,6 +477,23 @@ function CommentBubble({
         {mentionMarkupToDisplay(comment.notes)}
       </Text>
 
+      {comment.attachment_file ? (
+        <TouchableOpacity
+          style={styles.noteAttachmentChip}
+          onPress={() =>
+            onOpenAttachment?.(
+              comment.attachment_file ?? "",
+              attachmentDisplayName(undefined, comment.attachment_file ?? ""),
+            )
+          }
+        >
+          <Ionicons name="attach" size={13} color="#00A876" />
+          <Text style={styles.noteAttachmentText} numberOfLines={1}>
+            {attachmentDisplayName(undefined, comment.attachment_file)}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+
       {comment.reactions && comment.reactions.length > 0 && (
         <View style={styles.reactionsRow}>
           {comment.reactions.map((r, i) => (
@@ -552,39 +510,23 @@ function CommentBubble({
       <View style={styles.bubbleActions}>
         {canPinReact && (
           <>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={() => onReactionToggle?.("👍", comment.id ?? 0)}
-            >
-              <Ionicons
-                name={
-                  comment.reactions?.some(
-                    (r) => r.user_id === currentUserId && r.emoji === "👍",
-                  )
-                    ? "thumbs-up"
-                    : "thumbs-up-outline"
-                }
-                size={15}
-                color="#9CA3AF"
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={() => onReactionToggle?.("😊", comment.id ?? 0)}
-            >
-              <Ionicons
-                name={
-                  comment.reactions?.some(
-                    (r) => r.user_id === currentUserId && r.emoji === "😊",
-                  )
-                    ? "happy"
-                    : "happy-outline"
-                }
-                size={15}
-                color="#9CA3AF"
-              />
-            </TouchableOpacity>
+            {REACTION_EMOJIS.map((emoji) => {
+              const active = comment.reactions?.some(
+                (r) => r.user_id === currentUserId && r.emoji === emoji,
+              );
+              return (
+                <TouchableOpacity
+                  key={emoji}
+                  style={[
+                    styles.actionBtn,
+                    active && styles.reactionActionActive,
+                  ]}
+                  onPress={() => onReactionToggle?.(emoji, comment.id ?? 0)}
+                >
+                  <Text style={styles.reactionActionEmoji}>{emoji}</Text>
+                </TouchableOpacity>
+              );
+            })}
 
             <TouchableOpacity
               style={styles.actionBtn}
@@ -776,6 +718,7 @@ export default function TaskDetailModal({
   const [taskDetail, setTaskDetail] = useState<ViewTaskData | null>(null);
   const detailRequestRef = useRef(0);
   const notesRequestRef = useRef(0);
+  const lastPinnedNoteIdRef = useRef<number | null>(null);
   const [replyToNote, setReplyToNote] = useState<TaskNote | null>(null);
   const [editingNote, setEditingNote] = useState<TaskNote | null>(null);
   const [editingNoteText, setEditingNoteText] = useState("");
@@ -783,6 +726,7 @@ export default function TaskDetailModal({
   const [detailLoading, setDetailLoading] = useState(false);
   const [dependencyModalVisible, setDependencyModalVisible] = useState(false);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [showAllAttachments, setShowAllAttachments] = useState(false);
   const [dueBounds, setDueBounds] = useState<{
     sprintDueDate: string | null;
     projectDueDate: string | null;
@@ -1193,7 +1137,7 @@ export default function TaskDetailModal({
       company_identifier: companyIdentifier,
     });
     if (!result.ok) {
-      showError("Dependency Failed", result.message);
+      showError("Dependency Failed", dependencyErrorMessage(result.message));
       return;
     }
     showSuccess("Success", "Dependency added.");
@@ -1345,7 +1289,8 @@ export default function TaskDetailModal({
 
   const handleOpenAttachment = async (attachment: string, name?: string) => {
     try {
-      await openChatDocument(attachment, name || attachment);
+      const path = buildTaskAttachmentPath(attachment);
+      await openChatDocument(path, name || attachmentDisplayName(undefined, attachment));
     } catch {
       showError("Error", "Could not open this attachment.");
     }
@@ -1434,8 +1379,17 @@ export default function TaskDetailModal({
             "System User",
         }));
 
-        const pinned = sanitized.filter((n) => n.pin_top === 1);
-        const unpinned = sanitized.filter((n) => n.pin_top !== 1);
+        const serverPinned = sanitized.filter((n) => n.pin_top === 1);
+        const preferredPinnedId =
+          lastPinnedNoteIdRef.current ??
+          serverPinned[0]?.id ??
+          null;
+        const normalized = sanitized.map((note) => ({
+          ...note,
+          pin_top: note.id === preferredPinnedId ? 1 : 0,
+        }));
+        const pinned = normalized.filter((n) => n.pin_top === 1);
+        const unpinned = normalized.filter((n) => n.pin_top !== 1);
         const originalOrdered = [...pinned, ...unpinned];
 
         setNotes(originalOrdered);
@@ -1453,6 +1407,7 @@ export default function TaskDetailModal({
 
   useEffect(() => {
     if (visible) {
+      lastPinnedNoteIdRef.current = null;
       setActiveTab(initialTab);
       setCommentText("");
       setMentionActive(false);
@@ -1682,6 +1637,11 @@ export default function TaskDetailModal({
     }
   };
 
+  const handleCommentSubmit = () => {
+    if (mentionActive) return;
+    void handleSendComment();
+  };
+
   const handleDeleteNote = (note: TaskNote) => {
     if (Number(note.user_id) !== Number(currentUserId) || !canEditDeleteComments) {
       showError("Not Allowed", "You can only delete your own notes.");
@@ -1689,7 +1649,7 @@ export default function TaskDetailModal({
     }
     Alert.alert(
       "Delete Comment",
-      "Are you sure you want to delete this comment?",
+      "Are you sure you want to delete this comment? This action cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -1705,6 +1665,7 @@ export default function TaskDetailModal({
                 showError("Delete Failed", result.message);
                 return;
               }
+              showSuccess("Success", "Comment deleted.");
               await loadNotes();
             } catch {
               showError("Delete Failed", "Could not delete this comment.");
@@ -1732,7 +1693,25 @@ export default function TaskDetailModal({
         showError("Pin Failed", result.message);
         return;
       }
-      await loadNotes();
+      if (isCurrentlyPinned) {
+        if (lastPinnedNoteIdRef.current === note.id) {
+          lastPinnedNoteIdRef.current = null;
+        }
+        await loadNotes();
+      } else {
+        lastPinnedNoteIdRef.current = note.id;
+        // Website behaviour: only one note is shown pinned. Unpin the others
+        // locally and keep this note at the top (server may keep several).
+        setNotes((current) => {
+          const target = current.find((entry) => entry.id === note.id);
+          const others = current
+            .filter((entry) => entry.id !== note.id)
+            .map((entry) => ({ ...entry, pin_top: 0 }));
+          return target
+            ? [{ ...target, pin_top: 1 }, ...others]
+            : current;
+        });
+      }
     } catch {
       setNotes(previousNotes);
     }
@@ -1873,6 +1852,7 @@ export default function TaskDetailModal({
   const depDisplay: DependencyDisplay[] =
     dependencies.length > 0
       ? dependencies.map((d) => ({
+          taskId: Number(d.task_id),
           title: d.title,
           assignedTo: d.assigned_to?.full_name ?? "-",
           createdBy: d.created_by?.full_name ?? "-",
@@ -1886,7 +1866,7 @@ export default function TaskDetailModal({
       : task.dependencies;
 
   const depRows: TaskRowProps[] = depDisplay.map((d, idx) => ({
-    id: `dep-${idx}`,
+    id: d.taskId ? String(d.taskId) : `dep-${idx}`,
     title: d.title,
     createdBy: d.createdBy,
     createdByInitials: getDependencyInitials(d.createdBy),
@@ -1907,8 +1887,12 @@ export default function TaskDetailModal({
     attachmentItems.length > 0
       ? attachmentItems.map((item) => item.original_name || item.attachment)
       : task.attachments;
-  const projectDisplay = apiTask?.project_name ?? task.projectName ?? "-";
-
+  const taskAttachmentSelection = selectAttachmentChips(attachmentItems, {
+    expanded: showAllAttachments,
+  });
+  const fileAttachmentSelection = selectAttachmentChips(attachmentFiles, {
+    expanded: showAllAttachments,
+  });
   // Recurring detail string from API
   const recurringDetail = apiTask
     ? apiTask.is_recurring
@@ -1958,6 +1942,7 @@ export default function TaskDetailModal({
       (apiTask as any)?.completion_date,
   );
   const effortHistory = apiTask?.effort_history ?? [];
+  const effortHistoryRows = buildEffortHistoryRows(effortHistory);
   const effortLogsDisplay =
     effortHistory.length > 0
       ? `${effortHistory.length} change${effortHistory.length === 1 ? "" : "s"}`
@@ -2529,7 +2514,16 @@ export default function TaskDetailModal({
                         sectionTitle="Dependencies"
                         tasks={depRows}
                         contained
+                        readOnly
                         canReassign={false}
+                        columns={["title", "assignedTo", "status", "remove"]}
+                        columnHeadings={{ remove: "" }}
+                        onRemoveTask={(row) => {
+                          const dep = dependencies.find(
+                            (entry) => Number(entry.task_id) === Number(row.id),
+                          );
+                          if (dep) handleRemoveDependency(dep);
+                        }}
                       />
                     </View>
                   )}
@@ -2555,13 +2549,16 @@ export default function TaskDetailModal({
                         nestedScrollEnabled
                       >
                         {attachmentItems.length > 0
-                          ? attachmentItems.map((item) => (
+                          ? taskAttachmentSelection.visible.map((item) => (
                               <View key={item.id} style={styles.attachTag}>
                                 <TouchableOpacity
                                   onPress={() =>
                                     handleOpenAttachment(
                                       item.attachment,
-                                      item.original_name || item.attachment,
+                                      attachmentDisplayName(
+                                        item.original_name,
+                                        item.attachment,
+                                      ),
                                     )
                                   }
                                   style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
@@ -2572,7 +2569,10 @@ export default function TaskDetailModal({
                                     color="#00DEAB"
                                   />
                                   <Text style={styles.attachTagText} numberOfLines={1}>
-                                    {item.original_name || item.attachment}
+                                    {attachmentDisplayName(
+                                      item.original_name,
+                                      item.attachment,
+                                    )}
                                   </Text>
                                 </TouchableOpacity>
                                 {canManageAttachments && (
@@ -2586,7 +2586,7 @@ export default function TaskDetailModal({
                                 )}
                               </View>
                             ))
-                          : attachmentFiles.map((a, i) => (
+                          : fileAttachmentSelection.visible.map((a, i) => (
                               <TouchableOpacity
                                 key={i}
                                 style={styles.attachTag}
@@ -2600,6 +2600,28 @@ export default function TaskDetailModal({
                                 <Text style={styles.attachTagText}>{a}</Text>
                               </TouchableOpacity>
                             ))}
+                        {(attachmentItems.length > 0
+                          ? taskAttachmentSelection.hiddenCount
+                          : fileAttachmentSelection.hiddenCount) > 0 ? (
+                          <TouchableOpacity
+                            style={styles.attachTag}
+                            onPress={() => setShowAllAttachments(true)}
+                          >
+                            <Text style={styles.attachTagText}>
+                              +{attachmentItems.length > 0
+                                ? taskAttachmentSelection.hiddenCount
+                                : fileAttachmentSelection.hiddenCount}{" "}
+                              more
+                            </Text>
+                          </TouchableOpacity>
+                        ) : showAllAttachments && attachmentFiles.length > 3 ? (
+                          <TouchableOpacity
+                            style={styles.attachTag}
+                            onPress={() => setShowAllAttachments(false)}
+                          >
+                            <Text style={styles.attachTagText}>Show less</Text>
+                          </TouchableOpacity>
+                        ) : null}
                       </ScrollView>
                     </View>
                   )}
@@ -2622,6 +2644,7 @@ export default function TaskDetailModal({
               <PinnedCommentCard
                 comment={pinnedNotes[0]}
                 onUnpin={handlePinNote}
+                onOpenAttachment={handleOpenAttachment}
               />
             )}
 
@@ -2660,6 +2683,7 @@ export default function TaskDetailModal({
                     canDeleteOwn={canEditDeleteComments}
                     canPinReact={canPinOrReactToComments}
                     index={i}
+                    onOpenAttachment={handleOpenAttachment}
                   />
                 ))
               )}
@@ -2727,6 +2751,16 @@ export default function TaskDetailModal({
                 onChangeText={handleCommentChange}
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
+                onKeyPress={(event) => {
+                  const native = event.nativeEvent as typeof event.nativeEvent & {
+                    shiftKey?: boolean;
+                  };
+                  if (native.key === "Enter" && !native.shiftKey) {
+                    (event as unknown as { preventDefault?: () => void })
+                      .preventDefault?.();
+                    handleCommentSubmit();
+                  }
+                }}
                 multiline
                 placeholder={
                   !isFocused && commentText.length === 0 ? "Comment" : ""
@@ -2736,9 +2770,6 @@ export default function TaskDetailModal({
               />
               <View style={styles.inputToolbar}>
                 <View style={styles.toolbarLeft}>
-                  <TouchableOpacity style={styles.toolBtn}>
-                    <Ionicons name="add" size={16} color="#374151" />
-                  </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.toolBtn}
                     onPress={() => {
@@ -2757,9 +2788,6 @@ export default function TaskDetailModal({
                     }}
                   >
                     <Ionicons name="at" size={16} color="#374151" />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.toolBtn}>
-                    <Ionicons name="happy-outline" size={16} color="#374151" />
                   </TouchableOpacity>
                   {/* Voice recorder — hidden/disabled */}
                   {/* <TouchableOpacity style={styles.toolBtn}>
@@ -3365,30 +3393,37 @@ export default function TaskDetailModal({
                   contentContainerStyle={{ paddingVertical: 8, gap: 10 }}
                 >
                   {effortHistory.length > 0 ? (
-                    effortHistory.map((log, idx) => (
-                      <View key={idx} style={styles.logCard}>
-                        <View style={styles.logHeader}>
-                          <Text style={styles.logUser}>
-                            {log.changed_by_name || "User"}
+                    effortHistory.map((log, idx) => {
+                      const row = effortHistoryRows[idx];
+                      const unit =
+                        (row?.unit as "minutes" | "hours" | "days") || "hours";
+                      const direction = (row?.delta ?? 0) >= 0 ? "+" : "-";
+                      return (
+                        <View key={idx} style={styles.logCard}>
+                          <View style={styles.logHeader}>
+                            <Text style={styles.logUser}>
+                              {log.changed_by_name || "User"}
+                            </Text>
+                            <Text style={styles.logDate}>
+                              {log.changed_at
+                                ? formatDetailDateTime(log.changed_at)
+                                : "-"}
+                            </Text>
+                          </View>
+                          <Text style={styles.logChange}>
+                            {formatEffort(row?.before ?? 0, unit)} {direction}{" "}
+                            {formatEffort(Math.abs(row?.delta ?? 0), unit)} ={" "}
+                            {formatEffort(row?.after ?? 0, unit)}
                           </Text>
-                          <Text style={styles.logDate}>
-                            {log.changed_at
-                              ? formatDetailDateTime(log.changed_at)
-                              : "-"}
+                          <Text style={styles.logMeta}>
+                            {(row?.action || "update").replace(/_/g, " ")}
+                            {row?.fromStatus || row?.toStatus
+                              ? ` | ${row.fromStatus || "-"} -> ${row.toStatus || "-"}`
+                              : ""}
                           </Text>
                         </View>
-                        <Text style={styles.logChange}>
-                          {log.action.replace(/_/g, " ")} ·{" "}
-                          {formatEffort(
-                            Number(log.value ?? 0),
-                            (log.unit as "minutes" | "hours" | "days") || "hours",
-                          )}
-                          {log.from_status || log.to_status
-                            ? ` · ${log.from_status || "—"} → ${log.to_status || "—"}`
-                            : ""}
-                        </Text>
-                      </View>
-                    ))
+                      );
+                    })
                   ) : (
                     <View style={{ paddingVertical: 24, alignItems: "center" }}>
                       <Ionicons
@@ -3793,6 +3828,12 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Regular",
     marginTop: 2,
   },
+  logMeta: {
+    fontSize: rf(10.5),
+    color: "#9CA3AF",
+    fontFamily: "SF_Pro_Regular",
+    marginTop: 2,
+  },
   descHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -4067,6 +4108,33 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Regular",
   },
   actionBtn: { padding: 2 },
+  reactionActionActive: {
+    backgroundColor: "#E6FBF6",
+    borderRadius: 6,
+  },
+  reactionActionEmoji: {
+    fontSize: rf(14),
+  },
+  noteAttachmentChip: {
+    marginTop: 8,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderWidth: 1,
+    borderColor: "#D1FAE5",
+    backgroundColor: "#F0FDF9",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    maxWidth: "100%",
+  },
+  noteAttachmentText: {
+    fontSize: rf(11),
+    color: "#047857",
+    fontFamily: "SF_Pro_Medium",
+    maxWidth: 220,
+  },
   commentReplyQuote: {
     backgroundColor: "#F3F4F6",
     borderRadius: 6,

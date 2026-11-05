@@ -81,7 +81,9 @@ export type SingleTaskTableColumn =
   | "assignedTo"
   | "dueDate"
   | "sprint"
-  | "status";
+  | "project"
+  | "status"
+  | "remove";
 
 type Props = {
   sectionTitle: string;
@@ -106,6 +108,8 @@ type Props = {
   canAssignProject?: boolean;
   onAddToProjectPress?: (task: TaskRowProps) => void;
   onSprintPress?: (task: TaskRowProps) => void;
+  /** Read-only dependency tables render a remove action cell. */
+  onRemoveTask?: (task: TaskRowProps) => void;
   // Optional column configuration. When omitted, the classic task layout is
   // used (Title / Created By / Due Date, fitted to the window without
   // horizontal scrolling). When provided, only the listed columns render —
@@ -156,7 +160,9 @@ const DEFAULT_COLUMN_HEADINGS: Record<SingleTaskTableColumn, string> = {
   assignedTo: "Assigned To",
   dueDate: "Due Date",
   sprint: "Sprint",
+  project: "Project",
   status: "Status",
+  remove: "",
 };
 
 function getTaskKey(task: TaskRowProps, index: number) {
@@ -217,7 +223,9 @@ function getTableMetrics(
     assignedTo: 1.1,
     dueDate: 0.8,
     sprint: 0.9,
+    project: 1.1,
     status: 0.8,
+    remove: 0.4,
   };
   const COL_MIN: Record<SingleTaskTableColumn, number> = {
     title: 85,
@@ -225,7 +233,9 @@ function getTableMetrics(
     assignedTo: 90,
     dueDate: 95,
     sprint: 90,
+    project: 90,
     status: 80,
+    remove: 44,
   };
   const FIXED_COL_WIDTHS: Record<SingleTaskTableColumn, number> = {
     title: 220,
@@ -233,7 +243,9 @@ function getTableMetrics(
     assignedTo: 160,
     dueDate: 150,
     sprint: 150,
+    project: 160,
     status: 130,
+    remove: 52,
   };
 
   const dataWidth = insetTableWidth - innerPadding * 2 - leadingWidth - actionWidth;
@@ -370,6 +382,7 @@ function SingleTaskTable({
   canAssignProject = false,
   onAddToProjectPress,
   onSprintPress,
+  onRemoveTask,
   columns,
   columnHeadings,
   readOnly = false,
@@ -699,6 +712,7 @@ function SingleTaskTable({
                   leadingWidth={metrics.leadingWidth}
                   innerPadding={metrics.innerPadding}
                   onTaskPress={onTaskPress}
+                  onRemoveTask={onRemoveTask}
                 />
               ))
             )}
@@ -1231,6 +1245,7 @@ const ReadOnlyRow = memo(function ReadOnlyRow({
   leadingWidth,
   innerPadding,
   onTaskPress,
+  onRemoveTask,
 }: {
   item: TaskRowProps;
   columns: SingleTaskTableColumn[];
@@ -1238,6 +1253,7 @@ const ReadOnlyRow = memo(function ReadOnlyRow({
   leadingWidth: number;
   innerPadding: number;
   onTaskPress?: (task: TaskRowProps) => void;
+  onRemoveTask?: (task: TaskRowProps) => void;
 }) {
   renderCounters.row(item.id ?? item.title);
   return (
@@ -1257,6 +1273,7 @@ const ReadOnlyRow = memo(function ReadOnlyRow({
           columnKey={key}
           width={columnWidths[key]!}
           onPress={key === "title" ? () => onTaskPress?.(item) : undefined}
+          onRemove={key === "remove" ? () => onRemoveTask?.(item) : undefined}
         />
       ))}
     </View>
@@ -1332,12 +1349,14 @@ const TaskCellContent = memo(function TaskCellContent({
   width,
   onPress,
   onSprintPress,
+  onRemove,
 }: {
   item: TaskRowProps;
   columnKey: SingleTaskTableColumn;
   width: number;
   onPress?: () => void;
   onSprintPress?: () => void;
+  onRemove?: () => void;
 }) {
   const isCompleted = item.status === "Completed";
 
@@ -1473,6 +1492,39 @@ const TaskCellContent = memo(function TaskCellContent({
     );
   }
 
+  if (columnKey === "project") {
+    return (
+      <View style={[styles.dateCell, { width }]}>
+        <Ionicons
+          name="folder-outline"
+          size={15}
+          color={item.project ? "#00DEAB" : "#9CA3AF"}
+          style={styles.dateIcon}
+        />
+        <Text
+          style={[styles.cellText, !item.project && styles.mutedCellText]}
+          numberOfLines={1}
+        >
+          {item.project?.trim() || "—"}
+        </Text>
+      </View>
+    );
+  }
+
+  if (columnKey === "remove") {
+    return (
+      <TouchableOpacity
+        style={[styles.removeCell, { width }]}
+        onPress={onRemove}
+        disabled={!onRemove}
+        activeOpacity={0.7}
+        accessibilityLabel="Remove dependency"
+      >
+        <Ionicons name="trash-outline" size={17} color="#DC2626" />
+      </TouchableOpacity>
+    );
+  }
+
   const statusColor = STATUS_COLORS[item.status] ?? {
     bg: "#F3F4F6",
     text: "#4B5563",
@@ -1551,6 +1603,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
     item.canReopen === true;
   const canChangeProject =
     canAssignProject === true && item._raw?.can_edit !== false;
+  const showProject = canChangeProject || !!item.project?.trim();
 
   if (stage === "actions") {
     return (
@@ -1613,7 +1666,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
           <Text style={[styles.swipeHeaderText, styles.swipeCommentColumn]}>
             Comment
           </Text>
-          {canChangeProject ? (
+          {showProject ? (
             <Text style={[styles.swipeHeaderText, styles.swipeProjectColumn]}>
               Project
             </Text>
@@ -1708,18 +1761,35 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <Ionicons name="chatbox-outline" size={18} color="#00DEAB" />
+          {item.comment ? (
+            <Text style={styles.swipeCommentCount}>{item.comment}</Text>
+          ) : null}
         </TouchableOpacity>
 
-        {canChangeProject ? (
-          <TouchableOpacity
-            style={[styles.swipeProjectCell, styles.swipeProjectColumn]}
-            onPress={() => onAddToProjectPress?.(item)}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityLabel="Add to project"
-          >
-            <Ionicons name="folder-outline" size={18} color="#00DEAB" />
-          </TouchableOpacity>
+        {showProject ? (
+          canChangeProject ? (
+            <TouchableOpacity
+              style={[styles.swipeProjectCell, styles.swipeProjectColumn]}
+              onPress={() => onAddToProjectPress?.(item)}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Add to project"
+            >
+              <Ionicons name="folder-outline" size={18} color="#00DEAB" />
+              {item.project?.trim() ? (
+                <Text style={styles.swipeProjectName} numberOfLines={1}>
+                  {item.project}
+                </Text>
+              ) : null}
+            </TouchableOpacity>
+          ) : (
+            <View style={[styles.swipeProjectCell, styles.swipeProjectColumn]}>
+              <Ionicons name="folder-outline" size={15} color="#00A876" />
+              <Text style={styles.swipeProjectName} numberOfLines={1}>
+                {item.project}
+              </Text>
+            </View>
+          )
         ) : null}
       </View>
 
@@ -2008,6 +2078,10 @@ const styles = StyleSheet.create({
   dateIcon: {
     marginRight: 5,
   },
+  removeCell: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
   statusCell: {
     flexDirection: "row",
     alignItems: "center",
@@ -2198,10 +2272,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingLeft: 8,
   },
+  swipeCommentCount: {
+    marginLeft: 3,
+    fontSize: rf(9.5),
+    color: "#00A876",
+    fontFamily: "SF_Pro_Medium",
+  },
   swipeProjectCell: {
     flexDirection: "row",
     alignItems: "center",
     paddingLeft: 8,
+  },
+  swipeProjectName: {
+    marginLeft: 4,
+    flexShrink: 1,
+    fontSize: rf(9.5),
+    color: "#00A876",
+    fontFamily: "SF_Pro_Medium",
   },
   dropdownBackdrop: {
     position: "absolute",

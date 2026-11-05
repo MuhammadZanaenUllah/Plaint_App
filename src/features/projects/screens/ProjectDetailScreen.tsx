@@ -34,6 +34,10 @@ import {
   shouldRouteAtsReopen,
 } from "@/features/tasks/utils/taskActionRules";
 import { validateAttachment } from "@/features/tasks/utils/taskValidation";
+import {
+  attachmentDisplayName,
+  buildProjectAttachmentPath,
+} from "@/features/tasks/utils/taskAttachmentPath";
 import { formatTaskDueDatePkt } from "@/features/tasks/utils/taskDate";
 import {
   isNetworkErrorMessage,
@@ -527,12 +531,11 @@ export default function ProjectDetailScreen() {
   };
 
   const handleOpenAttachment = (attachment: ProjectAttachment) => {
-    const path = attachment.attachment.startsWith("public/")
-      ? attachment.attachment
-      : `public/uploads/projects/${attachment.attachment}`;
-    openChatDocument(path, attachment.original_name || attachment.attachment).catch(
-      () => showError("Error", "Could not open this attachment."),
-    );
+    const path = buildProjectAttachmentPath(attachment.attachment);
+    openChatDocument(
+      path,
+      attachmentDisplayName(attachment.original_name, attachment.attachment),
+    ).catch(() => showError("Error", "Could not open this attachment."));
   };
 
   const handleDeleteAttachment = (attachment: ProjectAttachment) => {
