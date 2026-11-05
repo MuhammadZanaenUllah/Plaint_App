@@ -1,6 +1,6 @@
 import type { TaskEntity } from "../types/task.types";
 
-export function taskSearchHaystack(task: TaskEntity): string {
+export function buildTaskSearchHaystack(task: TaskEntity): string {
   return [
     task.title,
     String(task.id),
@@ -12,6 +12,10 @@ export function taskSearchHaystack(task: TaskEntity): string {
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+}
+
+export function taskSearchHaystack(task: TaskEntity): string {
+  return task.search_haystack ?? buildTaskSearchHaystack(task);
 }
 
 export function matchesTaskSearch(task: TaskEntity, query: string): boolean {

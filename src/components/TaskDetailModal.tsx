@@ -1336,6 +1336,14 @@ export default function TaskDetailModal({
         loadTaskDetail();
         loadDependencies();
       }
+    } else {
+      // Do not retain detail/dependency payloads after the sheet closes.
+      setTaskDetail(null);
+      setDependencies([]);
+      setCommentText("");
+      setReplyToNote(null);
+      setEditingNote(null);
+      setEditingNoteText("");
     }
   }, [visible, initialTab, task?.taskId, loadTaskDetail, loadDependencies]);
 

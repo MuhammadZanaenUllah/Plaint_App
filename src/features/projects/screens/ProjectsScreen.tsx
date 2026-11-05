@@ -286,6 +286,10 @@ export default function ProjectsScreen() {
             data={filtered}
             keyExtractor={(item) => String(item.id)}
             renderItem={renderProject}
+            initialNumToRender={10}
+            maxToRenderPerBatch={8}
+            windowSize={7}
+            removeClippedSubviews
             contentContainerStyle={{ paddingBottom: 32, gap: 10 }}
             ListEmptyComponent={
               <View style={styles.center}>

@@ -13,6 +13,7 @@ import type {
   TaskPriority,
 } from "../types/task.types";
 import { isCompletedStatus, normalizeApiStatus } from "../utils/taskStatus";
+import { buildTaskSearchHaystack } from "../utils/taskSearch";
 
 export type TaskBucket = "assignedToMe" | "createdByMe" | "allOtherTasks";
 
@@ -115,7 +116,7 @@ function dedupe<T>(key: string, run: () => Promise<T>): Promise<T> {
 
 function toEntity(row: TaskListItem | TaskEntity): TaskEntity {
   const source = row as unknown as Record<string, unknown>;
-  return {
+  const entity: TaskEntity = {
     ...(row as unknown as TaskEntity),
     id: Number(row.id),
     status: normalizeApiStatus(String(row.status)) as TaskEntity["status"],
@@ -128,6 +129,7 @@ function toEntity(row: TaskListItem | TaskEntity): TaskEntity {
     sprint_id: source.sprint_id === undefined ? null : (source.sprint_id as number | null),
     approval_required: Number(source.approval_required ?? 0) === 1 ? 1 : 0,
   };
+  return { ...entity, search_haystack: buildTaskSearchHaystack(entity) };
 }
 
 function idsOf(rows: TaskListItem[] | undefined): number[] {
@@ -679,7 +681,11 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
     set((state) => {
       const existing = state.byId[taskId];
       if (!existing) return state;
-      const updated = { ...existing, ...patch };
+      const merged = { ...existing, ...patch };
+      const updated = {
+        ...merged,
+        search_haystack: buildTaskSearchHaystack(merged),
+      };
       const wasCompleted = isCompletedStatus(existing.status);
       const isCompleted = isCompletedStatus(updated.status);
       const completedIds =

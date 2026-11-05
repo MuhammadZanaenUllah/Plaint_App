@@ -3,7 +3,6 @@ import type { TaskTabId } from "../constants/taskTabs";
 import {
   getWeekRange,
   isPktPast,
-  isPktToday,
   parseTaskDate,
   pktTodayStart,
   toPktDateOnly,
@@ -30,7 +29,7 @@ function fromIds(state: TaskBuckets, ids: number[]): TaskEntity[] {
     .filter((task): task is TaskEntity => Boolean(task));
 }
 
-function uniqueByRecurrenceOrigin(tasks: TaskEntity[]): TaskEntity[] {
+export function uniqueByRecurrenceOrigin(tasks: TaskEntity[]): TaskEntity[] {
   const seen = new Set<number>();
   return tasks.filter((task) => {
     const originId =
@@ -42,26 +41,92 @@ function uniqueByRecurrenceOrigin(tasks: TaskEntity[]): TaskEntity[] {
   });
 }
 
+export function uniqueTasksFromBuckets(state: TaskBuckets): TaskEntity[] {
+  const allTasks = [
+    ...fromIds(state, state.assignedToMeIds),
+    ...fromIds(state, state.createdByMeIds),
+    ...fromIds(state, state.allOtherTaskIds),
+  ];
+  return [...new Map(allTasks.map((task) => [task.id, task])).values()];
+}
+
+export function activeTasksFromBuckets(state: TaskBuckets): TaskEntity[] {
+  return uniqueTasksFromBuckets(state).filter(
+    (task) =>
+      !isCompletedStatus(task.status) &&
+      task.status !== "Pending-Approval",
+  );
+}
+
+export type ActiveTabContext = {
+  now: Date;
+  todayDay: string;
+  todayStartDay: string;
+  week: { from: string; to: string };
+  isAts: boolean;
+};
+
+export function createActiveTabContext(
+  now: Date = new Date(),
+  options: { isAts?: boolean } = {},
+): ActiveTabContext {
+  return {
+    now,
+    todayDay: toPktDateOnly(now),
+    todayStartDay: toPktDateOnly(pktTodayStart(now)),
+    week: getWeekRange(now),
+    isAts: options.isAts === true,
+  };
+}
+
+/** Tab membership for an already-active task (today/week/overdue/all). */
+export function matchesActiveTab(
+  task: TaskEntity,
+  tab: TaskTabId,
+  context: ActiveTabContext,
+): boolean {
+  if (!task.due_date) return tab === "all";
+  switch (tab) {
+    case "today": {
+      if (toPktDateOnly(task.due_date) !== context.todayDay) return false;
+      if (!context.isAts) return true;
+      // ATS tasks with a scheduled time stay in Due Today until that time
+      // passes (contract: due >= now). Date-only ATS tasks cover the day.
+      if (!task.due_date.includes("T")) return true;
+      const due = parseTaskDate(task.due_date);
+      return !!due && due.getTime() >= context.now.getTime();
+    }
+    case "week": {
+      const dueDate = toPktDateOnly(task.due_date);
+      return dueDate >= context.week.from && dueDate < context.week.to;
+    }
+    case "overdue": {
+      if (
+        task.status === "Partial Complete" ||
+        isOnHoldStatus(task.status)
+      ) {
+        return false;
+      }
+      if (context.isAts && task.due_date.includes("T")) {
+        return isPktPast(task.due_date, context.now);
+      }
+      return toPktDateOnly(task.due_date) < context.todayStartDay;
+    }
+    case "all":
+    default:
+      return true;
+  }
+}
+
 export function selectTabEntities(
   state: TaskBuckets,
   tab: TaskTabId,
   now: Date = new Date(),
   options: { isAts?: boolean } = {},
 ): TaskEntity[] {
-  const allTasks = [
-    ...fromIds(state, state.assignedToMeIds),
-    ...fromIds(state, state.createdByMeIds),
-    ...fromIds(state, state.allOtherTaskIds),
-  ];
-  const uniqueTasks = [
-    ...new Map(allTasks.map((task) => [task.id, task])).values(),
-  ];
-  const activeTasks = uniqueTasks.filter(
-    (task) =>
-      !isCompletedStatus(task.status) &&
-      task.status !== "Pending-Approval",
-  );
-  const week = getWeekRange(now);
+  const uniqueTasks = uniqueTasksFromBuckets(state);
+  const activeTasks = activeTasksFromBuckets(state);
+  const activeContext = createActiveTabContext(now, options);
 
   switch (tab) {
     case "created":
@@ -89,41 +154,17 @@ export function selectTabEntities(
       return state.recurringIds.length
         ? fromIds(state, state.recurringIds)
         : Object.values(state.byId).filter((task) => task.is_recurring);
-    case "today": {
-      const today = activeTasks.filter((task) => {
-        if (!task.due_date) return false;
-        if (!isPktToday(task.due_date, now)) return false;
-        if (!options.isAts) return true;
-        // ATS tasks with a scheduled time stay in Due Today until that time
-        // passes (contract: due >= now). Date-only ATS tasks cover the day.
-        if (!task.due_date.includes("T")) return true;
-        const due = parseTaskDate(task.due_date);
-        return !!due && due.getTime() >= now.getTime();
-      });
-      return uniqueByRecurrenceOrigin(today);
-    }
+    case "today":
+      return uniqueByRecurrenceOrigin(
+        activeTasks.filter((task) => matchesActiveTab(task, tab, activeContext)),
+      );
     case "week":
-      return activeTasks.filter((task) => {
-        if (!task.due_date) return false;
-        const dueDate = toPktDateOnly(task.due_date);
-        return dueDate >= week.from && dueDate < week.to;
-      });
     case "overdue":
-      return activeTasks.filter((task) => {
-        if (
-          !task.due_date ||
-          task.status === "Partial Complete" ||
-          isOnHoldStatus(task.status)
-        ) {
-          return false;
-        }
-        if (options.isAts && task.due_date.includes("T")) {
-          return isPktPast(task.due_date, now);
-        }
-        return toPktDateOnly(task.due_date) < toPktDateOnly(pktTodayStart(now));
-      });
+      return activeTasks.filter((task) =>
+        matchesActiveTab(task, tab, activeContext),
+      );
     case "all":
     default:
-      return activeTasks.filter((task) => task.status !== "Pending-Approval");
+      return activeTasks;
   }
 }

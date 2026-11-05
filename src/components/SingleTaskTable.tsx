@@ -7,6 +7,7 @@ import TaskAssigneeDropdown, {
   getOwnerDisplayName,
 } from "@/features/tasks/components/list/TaskAssigneeDropdown";
 import TaskStatusDropdown from "@/features/tasks/components/list/TaskStatusDropdown";
+import { renderCounters } from "@/features/tasks/dev/counters";
 import { Ionicons } from "@expo/vector-icons";
 import {
   memo,
@@ -375,6 +376,7 @@ function SingleTaskTable({
   contained = false,
   virtualized = false,
 }: Props) {
+  renderCounters.table();
   const { width: windowWidth } = useWindowDimensions();
   const effectiveColumns = useMemo(
     () => columns ?? DEFAULT_COLUMNS,
@@ -1001,6 +1003,7 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
   columns: SingleTaskTableColumn[];
   readOnly?: boolean;
 }) {
+  renderCounters.row(item.id ?? item.title);
   const translateX = useSharedValue(0);
   const gestureStartX = useSharedValue(0);
   const wrapHeight = useSharedValue(ROW_HEIGHT);
@@ -1236,6 +1239,7 @@ const ReadOnlyRow = memo(function ReadOnlyRow({
   innerPadding: number;
   onTaskPress?: (task: TaskRowProps) => void;
 }) {
+  renderCounters.row(item.id ?? item.title);
   return (
     <View
       style={[styles.row, { minHeight: ROW_HEIGHT, paddingLeft: innerPadding }]}

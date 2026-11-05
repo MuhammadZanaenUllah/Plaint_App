@@ -29,6 +29,7 @@ import type {
   ViewTaskData,
 } from "../types/task.types";
 import { failureResult, normalizeApiResponse, successResult, type ApiResult } from "./apiResult";
+import { measureApi } from "../dev/counters";
 import { toApiStatus } from "../utils/taskStatus";
 import {
   addNote,
@@ -70,7 +71,9 @@ export async function getAllTasks(
   companyId: number,
   options: ListOptions = {},
 ): Promise<ApiResult<TaskListResponse>> {
-  const body = await apiGet<unknown>("/tasks/all", listParams(companyId, options));
+  const body = await measureApi("getAllTasks", () =>
+    apiGet<unknown>("/tasks/all", listParams(companyId, options)),
+  );
   return normalizeApiResponse<TaskListResponse>(body);
 }
 
@@ -79,7 +82,9 @@ export async function getDueTodayTasks(
   companyId: number,
   options: Omit<ListOptions, "excludeComplete"> = {},
 ): Promise<ApiResult<TaskListResponse>> {
-  const body = await apiGet<unknown>("/tasks/duetoday", listParams(companyId, options));
+  const body = await measureApi("getDueTodayTasks", () =>
+    apiGet<unknown>("/tasks/duetoday", listParams(companyId, options)),
+  );
   return normalizeApiResponse<TaskListResponse>(body);
 }
 
@@ -91,13 +96,17 @@ export async function getFilteredTasks(
 ): Promise<ApiResult<TaskListResponse>> {
   const params = listParams(companyId, options);
   params.filter = filter;
-  const body = await apiGet<unknown>("/tasks/filter", params);
+  const body = await measureApi("getFilteredTasks", () =>
+    apiGet<unknown>("/tasks/filter", params),
+  );
   return normalizeApiResponse<TaskListResponse>(body);
 }
 
 // ---- API-T-05: GET /tasks/delayed-popup ----
 export async function getDelayedPopup(companyId: number): Promise<ApiResult<DelayedPopupResponse>> {
-  const body = await apiGet<unknown>("/tasks/delayed-popup", { company_id: companyId });
+  const body = await measureApi("getDelayedPopup", () =>
+    apiGet<unknown>("/tasks/delayed-popup", { company_id: companyId }),
+  );
   return normalizeApiResponse<DelayedPopupResponse>(body);
 }
 
@@ -106,10 +115,12 @@ export async function getCriticalForUser(
   companyId: number,
   userId: number,
 ): Promise<ApiResult<CriticalForUserResponse>> {
-  const body = await apiGet<unknown>("/tasks/critical-for-user", {
-    company_id: companyId,
-    user_id: userId,
-  });
+  const body = await measureApi("getCriticalForUser", () =>
+    apiGet<unknown>("/tasks/critical-for-user", {
+      company_id: companyId,
+      user_id: userId,
+    }),
+  );
   return normalizeApiResponse<CriticalForUserResponse>(body);
 }
 
@@ -118,9 +129,11 @@ export async function viewTask(
   taskId: number,
   companyId?: number,
 ): Promise<ApiResult<ViewTaskData>> {
-  const body = await apiPost<unknown>(`/tasks/view/${taskId}`, {
-    company_id: companyId,
-  });
+  const body = await measureApi("viewTask", () =>
+    apiPost<unknown>(`/tasks/view/${taskId}`, {
+      company_id: companyId,
+    }),
+  );
   return normalizeApiResponse<ViewTaskData>(body);
 }
 
@@ -130,7 +143,9 @@ export async function viewTask(
 export async function createTask(
   payload: CreateTaskRequest,
 ): Promise<ApiResult<CreateTaskResult>> {
-  const response = await apiPost<unknown>("/tasks/create", payload);
+  const response = await measureApi("createTask", () =>
+    apiPost<unknown>("/tasks/create", payload),
+  );
   const normalized = normalizeApiResponse<unknown>(response);
   if (!normalized.ok) return normalized;
 
@@ -180,7 +195,9 @@ export async function updateTask(
   if (effort_hours !== undefined) body.effort_hours = effort_hours;
   if (effort_unit !== undefined) body.effort_unit = effort_unit;
 
-  const response = await apiPost<unknown>(`/tasks/update/${taskId}`, body);
+  const response = await measureApi("updateTask", () =>
+    apiPost<unknown>(`/tasks/update/${taskId}`, body),
+  );
   const normalized = normalizeApiResponse<unknown>(response);
   if (!normalized.ok) return normalized;
   return successResult(
@@ -194,10 +211,12 @@ export async function updateTaskStatus(
   taskId: number,
   payload: UpdateTaskStatusRequest,
 ): Promise<ApiResult<string>> {
-  const body = await apiPost<unknown>(`/tasks/updatetaskstatus/${taskId}`, {
-    ...payload,
-    status: toApiStatus(payload.status),
-  });
+  const body = await measureApi("updateTaskStatus", () =>
+    apiPost<unknown>(`/tasks/updatetaskstatus/${taskId}`, {
+      ...payload,
+      status: toApiStatus(payload.status),
+    }),
+  );
   return normalizeApiResponse<string>(body);
 }
 
@@ -206,12 +225,14 @@ export async function reassignTask(
   taskId: number,
   payload: UpdateAssigneeRequest,
 ): Promise<ApiResult<string>> {
-  const body = await apiPost<unknown>(`/tasks/updateasignedto/${taskId}`, {
-    assignee: payload.assignee,
-    asigned_to: payload.asigned_to,
-    company_id: payload.company_id,
-    company_identifier: payload.company_identifier,
-  });
+  const body = await measureApi("reassignTask", () =>
+    apiPost<unknown>(`/tasks/updateasignedto/${taskId}`, {
+      assignee: payload.assignee,
+      asigned_to: payload.asigned_to,
+      company_id: payload.company_id,
+      company_identifier: payload.company_identifier,
+    }),
+  );
   return normalizeApiResponse<string>(body);
 }
 
@@ -220,7 +241,9 @@ export async function updateTaskDueDate(
   taskId: number,
   payload: UpdateDueDateRequest,
 ): Promise<ApiResult<string>> {
-  const body = await apiPost<unknown>(`/tasks/updatetaskduedate/${taskId}`, payload);
+  const body = await measureApi("updateTaskDueDate", () =>
+    apiPost<unknown>(`/tasks/updatetaskduedate/${taskId}`, payload),
+  );
   return normalizeApiResponse<string>(body);
 }
 
@@ -229,7 +252,9 @@ export async function approveTask(
   taskId: number,
   company: { company_id: number; company_identifier: string },
 ): Promise<ApiResult<string>> {
-  const body = await apiPost<unknown>(`/tasks/approve/${taskId}`, company);
+  const body = await measureApi("approveTask", () =>
+    apiPost<unknown>(`/tasks/approve/${taskId}`, company),
+  );
   return normalizeApiResponse<string>(body);
 }
 
@@ -238,7 +263,9 @@ export async function rejectTask(
   taskId: number,
   payload: RejectTaskRequest,
 ): Promise<ApiResult<{ message: string; status?: string }>> {
-  const response = await apiPost<unknown>(`/tasks/reject/${taskId}`, payload);
+  const response = await measureApi("rejectTask", () =>
+    apiPost<unknown>(`/tasks/reject/${taskId}`, payload),
+  );
   const normalized = normalizeApiResponse<string>(response);
   if (!normalized.ok) return normalized;
   const raw = response as Record<string, unknown> | null;
@@ -256,10 +283,12 @@ export async function reopenTask(
   taskId: number,
   payload: ReopenTaskRequest,
 ): Promise<ApiResult<string>> {
-  const body = await apiPost<unknown>(`/tasks/reopen/${taskId}`, {
-    ...payload,
-    status: toApiStatus(payload.status),
-  });
+  const body = await measureApi("reopenTask", () =>
+    apiPost<unknown>(`/tasks/reopen/${taskId}`, {
+      ...payload,
+      status: toApiStatus(payload.status),
+    }),
+  );
   return normalizeApiResponse<string>(body);
 }
 
@@ -268,7 +297,9 @@ export async function recalculateSchedule(
   taskId: number,
   payload: RecalculateScheduleRequest,
 ): Promise<ApiResult<unknown>> {
-  const body = await apiPost<unknown>(`/tasks/recalculate/${taskId}`, payload);
+  const body = await measureApi("recalculateSchedule", () =>
+    apiPost<unknown>(`/tasks/recalculate/${taskId}`, payload),
+  );
   return normalizeApiResponse<unknown>(body);
 }
 
@@ -278,7 +309,9 @@ export async function extendDelayedTask(
   taskId: number,
   payload: ExtendDelayedRequest,
 ): Promise<ApiResult<{ id?: number; start_date?: string; due_date?: string; effort_hours?: number }>> {
-  const body = await apiPost<unknown>(`/tasks/extend-delayed/${taskId}`, payload);
+  const body = await measureApi("extendDelayed", () =>
+    apiPost<unknown>(`/tasks/extend-delayed/${taskId}`, payload),
+  );
   return normalizeApiResponse(body);
 }
 
@@ -287,7 +320,9 @@ export async function updateTaskProject(
   taskId: number,
   payload: UpdateProjectRequest,
 ): Promise<ApiResult<string>> {
-  const body = await apiPost<unknown>(`/tasks/updatetaskproject/${taskId}`, payload);
+  const body = await measureApi("updateTaskProject", () =>
+    apiPost<unknown>(`/tasks/updatetaskproject/${taskId}`, payload),
+  );
   return normalizeApiResponse<string>(body);
 }
 
@@ -295,7 +330,9 @@ export async function updateTaskProject(
 export async function reorderCritical(
   payload: ReorderCriticalRequest,
 ): Promise<ApiResult<{ blockedTasks: { id: number; title: string }[] }>> {
-  const response = await apiPost<unknown>("/tasks/reorder-critical", payload);
+  const response = await measureApi("reorderCritical", () =>
+    apiPost<unknown>("/tasks/reorder-critical", payload),
+  );
   const normalized = normalizeApiResponse<unknown>(response);
   if (!normalized.ok) return normalized;
   const raw = response as Record<string, unknown> | null;

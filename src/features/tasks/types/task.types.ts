@@ -198,6 +198,8 @@ export type TaskEntity = {
   effort_unit?: string;
   updatedAt?: string;
   completed_at?: string | null;
+  /** Dev/derived only: precomputed lowercase search haystack (Phase 10). */
+  search_haystack?: string;
 };
 
 /** List response from `/tasks/all`, `/tasks/duetoday` and `/tasks/filter`. */

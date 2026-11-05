@@ -99,6 +99,7 @@ export default function ProjectDetailScreen() {
     updateProject,
     uploadAttachment,
     deleteAttachment,
+    clearDetail,
   } = useProjectsStore();
   const { state: taskState } = useTasks();
 
@@ -132,6 +133,12 @@ export default function ProjectDetailScreen() {
     loadSprints,
     projectId,
   ]);
+
+  useEffect(() => {
+    return () => {
+      clearDetail();
+    };
+  }, [clearDetail]);
 
   useEffect(() => {
     const detail = projectDetail;

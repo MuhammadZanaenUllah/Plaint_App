@@ -11,7 +11,9 @@ export type ApiCounterName =
   | "createTask"
   | "updateTask"
   | "updateTaskStatus"
+  | "updateTaskDueDate"
   | "reassignTask"
+  | "recalculateSchedule"
   | "approveTask"
   | "rejectTask"
   | "reopenTask"
@@ -21,12 +23,17 @@ export type ApiCounterName =
   | "addDependency"
   | "removeDependency"
   | "reorderCritical"
+  | "getAllProjects"
   | "getProjectDetail"
   | "createProject"
   | "updateProject"
   | "getProjectUsers"
+  | "uploadProjectAttachment"
+  | "deleteProjectAttachment"
   | "getSprints"
-  | "createSprint";
+  | "createSprint"
+  | "updateSprint"
+  | "deleteSprint";
 
 const apiCalls: Record<ApiCounterName, number> = {
   getAllTasks: 0,
@@ -38,7 +45,9 @@ const apiCalls: Record<ApiCounterName, number> = {
   createTask: 0,
   updateTask: 0,
   updateTaskStatus: 0,
+  updateTaskDueDate: 0,
   reassignTask: 0,
+  recalculateSchedule: 0,
   approveTask: 0,
   rejectTask: 0,
   reopenTask: 0,
@@ -48,25 +57,68 @@ const apiCalls: Record<ApiCounterName, number> = {
   addDependency: 0,
   removeDependency: 0,
   reorderCritical: 0,
+  getAllProjects: 0,
   getProjectDetail: 0,
   createProject: 0,
   updateProject: 0,
   getProjectUsers: 0,
+  uploadProjectAttachment: 0,
+  deleteProjectAttachment: 0,
   getSprints: 0,
   createSprint: 0,
+  updateSprint: 0,
+  deleteSprint: 0,
 };
+
+type DurationMetric = { count: number; totalMs: number; maxMs: number; lastMs: number };
+
+const durations: Partial<Record<ApiCounterName, DurationMetric>> = {};
 
 export const apiCounters = {
   calls: apiCalls,
+  durations,
   increment(name: ApiCounterName): void {
     if (__DEV__) apiCalls[name] += 1;
+  },
+  recordDuration(name: ApiCounterName, ms: number): void {
+    if (!__DEV__) return;
+    const current = durations[name] ?? {
+      count: 0,
+      totalMs: 0,
+      maxMs: 0,
+      lastMs: 0,
+    };
+    durations[name] = {
+      count: current.count + 1,
+      totalMs: current.totalMs + ms,
+      maxMs: Math.max(current.maxMs, ms),
+      lastMs: ms,
+    };
   },
   reset(): void {
     (Object.keys(apiCalls) as ApiCounterName[]).forEach((key) => {
       apiCalls[key] = 0;
     });
+    (Object.keys(durations) as ApiCounterName[]).forEach((key) => {
+      delete durations[key];
+    });
   },
 };
+
+/** Times and counts one API call in development without changing production behavior. */
+export async function measureApi<T>(
+  name: ApiCounterName,
+  run: () => Promise<T>,
+): Promise<T> {
+  if (!__DEV__) return run();
+  const start = Date.now();
+  apiCalls[name] += 1;
+  try {
+    return await run();
+  } finally {
+    apiCounters.recordDuration(name, Date.now() - start);
+  }
+}
 
 export type SocketCounterName =
   | "create"
@@ -125,12 +177,52 @@ export const socketCounters = {
   },
 };
 
+const rowRenderCounts = new Map<number, number>();
+let tableRenderCount = 0;
+
+export const renderCounters = {
+  row(taskId: number | string): void {
+    if (!__DEV__) return;
+    const id = Number(taskId);
+    if (!Number.isFinite(id)) return;
+    rowRenderCounts.set(id, (rowRenderCounts.get(id) ?? 0) + 1);
+  },
+  table(): void {
+    if (__DEV__) tableRenderCount += 1;
+  },
+  reset(): void {
+    rowRenderCounts.clear();
+    tableRenderCount = 0;
+  },
+  snapshot(): { table: number; rows: number; topRows: [number, number][] } {
+    return {
+      table: tableRenderCount,
+      rows: [...rowRenderCounts.values()].reduce((total, value) => total + value, 0),
+      topRows: [...rowRenderCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10),
+    };
+  },
+};
+
+export function resetDevMetrics(): void {
+  if (!__DEV__) return;
+  apiCounters.reset();
+  socketCounters.reset();
+  renderCounters.reset();
+}
+
 export function logCounters(label = ""): void {
   if (!__DEV__) return;
   const totalApi = Object.values(apiCalls).reduce((total, value) => total + value, 0);
   const totalSocket = Object.values(socketEvents).reduce((total, value) => total + value, 0);
   console.log(
     `[Dev Counters${label ? ` ${label}` : ""}] API calls: ${totalApi}, Socket events: ${totalSocket}`,
-    { api: apiCalls, socket: socketEvents },
+    {
+      api: apiCalls,
+      apiDurations: durations,
+      socket: socketEvents,
+      renders: renderCounters.snapshot(),
+    },
   );
 }

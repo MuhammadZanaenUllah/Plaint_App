@@ -10,6 +10,7 @@ import {
   onSocketEvent,
 } from "@/services/socket/socketService";
 import { useEffect, useRef } from "react";
+import { AppState } from "react-native";
 import type {
   SocketAddNotePayload,
   SocketAttachmentPayload,
@@ -30,7 +31,9 @@ import { useTaskDetailStore } from "../store/taskDetailStore";
 import { useTasksStore } from "../store/tasksStore";
 import { useProjectsStore } from "../store/projectsStore";
 import { isCompanyAdmin, isHead } from "../permissions/taskPermissions";
+import { socketCounters, type SocketCounterName } from "../dev/counters";
 import {
+  enqueueCriticalReorder,
   enqueueScheduleUpdate,
   flushScheduleForTask,
   resetScheduleBatcher,
@@ -255,12 +258,28 @@ export function useTaskSocketBridge({
 
     const cleanups: (() => void)[] = [];
 
+    let appState = AppState.currentState;
+    const appStateSubscription = AppState.addEventListener("change", (next) => {
+      const wasBackgrounded =
+        appState === "background" || appState === "inactive";
+      appState = next;
+      if (next === "active" && wasBackgrounded) {
+        scheduleTaskRefetch();
+        scheduleProjectRefetch();
+      }
+    });
+    cleanups.push(() => appStateSubscription.remove());
+
     cleanups.push(
       onSocketEvent("task_update", (payload: unknown) => {
         const envelope = payload as TaskSocketEnvelope;
         if (!isOurCompany(envelope.company_id)) return;
         const action = envelope.action;
         if (!action) return;
+        const counterName = action === "create_subtask" ? "create" : action;
+        if (counterName in socketCounters.events) {
+          socketCounters.increment(counterName as SocketCounterName);
+        }
         const data = objectData(envelope.data);
 
         switch (action) {
@@ -344,14 +363,7 @@ export function useTaskSocketBridge({
             const rows = Array.isArray(envelope.data)
               ? (envelope.data as SocketCriticalReorderPayload)
               : [];
-            for (const row of rows) {
-              const taskId = numeric(row.id);
-              if (taskId) {
-                useTasksStore.getState().patchTask(taskId, {
-                  critical_order: Number(row.critical_order),
-                });
-              }
-            }
+            enqueueCriticalReorder(rows);
             break;
           }
 
@@ -425,6 +437,7 @@ export function useTaskSocketBridge({
       onSocketEvent("priority_update", (payload: unknown) => {
         const p = payload as SocketPriorityUpdatePayload;
         if (p.company_id !== undefined && !isOurCompany(p.company_id)) return;
+        socketCounters.increment("priority_update");
         if (!p.action || !p.data) return;
         const data = p.data;
         const id = numeric(data.id);
@@ -478,6 +491,7 @@ export function useTaskSocketBridge({
           project_id?: number | string;
         };
         if (p.company_id !== undefined && !isOurCompany(p.company_id)) return;
+        socketCounters.increment("project_update");
 
         const projectId = numeric(p.project_id ?? p.data?.id);
         const projects = useProjectsStore.getState();
@@ -510,6 +524,7 @@ export function useTaskSocketBridge({
       onSocketEvent("user_update", (payload: unknown) => {
         const p = payload as { company_id?: number | string };
         if (p.company_id !== undefined && !isOurCompany(p.company_id)) return;
+        socketCounters.increment("user_update");
         scheduleOwnerRefetch();
       }),
     );
@@ -518,6 +533,7 @@ export function useTaskSocketBridge({
       onSocketEvent("task_scheduling_settings_update", (payload: unknown) => {
         const p = payload as { company_id?: number | string };
         if (p.company_id !== undefined && !isOurCompany(p.company_id)) return;
+        socketCounters.increment("task_scheduling_settings_update");
         if (isAts) scheduleSettingsRefetch();
       }),
     );

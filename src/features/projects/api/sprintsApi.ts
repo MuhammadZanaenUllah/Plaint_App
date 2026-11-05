@@ -7,6 +7,7 @@ import type {
   SprintUpdatePayload,
 } from "../types/project.types";
 import { normalizeApiResponse, successResult, type ApiResult } from "@/features/tasks/api/apiResult";
+import { measureApi } from "@/features/tasks/dev/counters";
 
 type SprintListRow = Sprint & { attachments?: unknown[] };
 
@@ -14,10 +15,12 @@ export async function getSprints(
   companyId: number,
   projectId: number,
 ): Promise<ApiResult<Sprint[]>> {
-  const body = await apiGet<unknown>("/sprints", {
-    company_id: companyId,
-    project_id: projectId,
-  });
+  const body = await measureApi("getSprints", () =>
+    apiGet<unknown>("/sprints", {
+      company_id: companyId,
+      project_id: projectId,
+    }),
+  );
   const normalized = normalizeApiResponse<SprintListRow[]>(body);
   if (!normalized.ok) return normalized;
 
@@ -29,7 +32,9 @@ export async function getSprints(
 }
 
 export async function createSprint(payload: SprintCreatePayload): Promise<ApiResult<Sprint>> {
-  const body = await apiPost<unknown>("/sprints/create", payload);
+  const body = await measureApi("createSprint", () =>
+    apiPost<unknown>("/sprints/create", payload),
+  );
   return normalizeApiResponse<Sprint>(body);
 }
 
@@ -37,11 +42,15 @@ export async function updateSprint(
   sprintId: number,
   payload: SprintUpdatePayload,
 ): Promise<ApiResult<Sprint>> {
-  const body = await apiPost<unknown>(`/sprints/update/${sprintId}`, payload);
+  const body = await measureApi("updateSprint", () =>
+    apiPost<unknown>(`/sprints/update/${sprintId}`, payload),
+  );
   return normalizeApiResponse<Sprint>(body);
 }
 
 export async function deleteSprint(sprintId: number): Promise<ApiResult<string>> {
-  const body = await apiDelete<unknown>(`/sprints/delete/${sprintId}`);
+  const body = await measureApi("deleteSprint", () =>
+    apiDelete<unknown>(`/sprints/delete/${sprintId}`),
+  );
   return normalizeApiResponse<string>(body);
 }

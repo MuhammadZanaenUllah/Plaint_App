@@ -4,8 +4,15 @@ import type { TaskTabId } from "../constants/taskTabs";
 import type { TaskEntity } from "../types/task.types";
 import type { TasksState } from "./tasksStore";
 import type { TaskFiltersState } from "./taskFiltersStore";
-import { normalizeApiStatus } from "../utils/taskStatus";
-import { selectTabEntities } from "../utils/taskTabRules";
+import { isCompletedStatus, normalizeApiStatus } from "../utils/taskStatus";
+import {
+  activeTasksFromBuckets,
+  createActiveTabContext,
+  matchesActiveTab,
+  selectTabEntities,
+  uniqueByRecurrenceOrigin,
+  uniqueTasksFromBuckets,
+} from "../utils/taskTabRules";
 import { matchesTaskSearch } from "../utils/taskSearch";
 import { sortTasksByDueDate } from "../utils/taskSort";
 
@@ -56,44 +63,70 @@ export function selectTasksForTab(
   return selectTabEntities(state, tab, now, options);
 }
 
+type TaskFilterValues = Pick<
+  TaskFiltersState,
+  "searchQuery" | "status" | "priority" | "createdBy" | "assignedTo" | "dueFrom" | "dueTo"
+>;
+
+export function matchesTaskFilters(
+  task: TaskEntity,
+  filters: TaskFilterValues,
+): boolean {
+  if (
+    filters.status &&
+    normalizeApiStatus(String(task.status)) !==
+      normalizeApiStatus(String(filters.status))
+  ) {
+    return false;
+  }
+  if (filters.priority && task.task_priority !== filters.priority) return false;
+  if (
+    filters.createdBy?.length &&
+    !filters.createdBy.map(Number).includes(Number(task.created_by))
+  ) {
+    return false;
+  }
+  if (
+    filters.assignedTo?.length &&
+    !filters.assignedTo.map(Number).includes(Number(task.asigned_to))
+  ) {
+    return false;
+  }
+  if (
+    filters.dueFrom &&
+    (task.due_date ?? "").slice(0, 10) < filters.dueFrom
+  ) {
+    return false;
+  }
+  if (filters.dueTo && (task.due_date ?? "").slice(0, 10) > filters.dueTo) {
+    return false;
+  }
+  if (
+    filters.searchQuery?.trim() &&
+    !matchesTaskSearch(task, filters.searchQuery)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function applyTaskFilters(
   tasks: TaskEntity[],
-  filters: Pick<
-    TaskFiltersState,
-    "searchQuery" | "status" | "priority" | "createdBy" | "assignedTo" | "dueFrom" | "dueTo"
-  >,
+  filters: TaskFilterValues,
 ): TaskEntity[] {
-  let result = tasks;
+  return tasks.filter((task) => matchesTaskFilters(task, filters));
+}
 
-  if (filters.status) {
-    result = result.filter(
-      (task) => normalizeApiStatus(String(task.status)) === normalizeApiStatus(String(filters.status)),
-    );
+function countMatching(
+  tasks: TaskEntity[],
+  filters: TaskFilterValues | undefined,
+): number {
+  if (!filters) return tasks.length;
+  let total = 0;
+  for (const task of tasks) {
+    if (matchesTaskFilters(task, filters)) total += 1;
   }
-  if (filters.priority) {
-    result = result.filter((task) => task.task_priority === filters.priority);
-  }
-  if (filters.createdBy?.length) {
-    const ids = filters.createdBy.map(Number);
-    result = result.filter((task) => ids.includes(Number(task.created_by)));
-  }
-  if (filters.assignedTo?.length) {
-    const ids = filters.assignedTo.map(Number);
-    result = result.filter((task) => ids.includes(Number(task.asigned_to)));
-  }
-  if (filters.dueFrom) {
-    result = result.filter((task) => (task.due_date ?? "").slice(0, 10) >= filters.dueFrom!);
-  }
-  if (filters.dueTo) {
-    result = result.filter((task) => (task.due_date ?? "").slice(0, 10) <= filters.dueTo!);
-  }
-  if (filters.searchQuery?.trim()) {
-    result = result.filter((task) =>
-      matchesTaskSearch(task, filters.searchQuery),
-    );
-  }
-
-  return result;
+  return total;
 }
 
 export function sortTasks(tasks: TaskEntity[]): TaskEntity[] {
@@ -121,25 +154,49 @@ export function selectTabCounts(
     >;
   } = {},
 ): Record<TaskTabId, number> {
-  const tabs: TaskTabId[] = [
-    "all",
-    "today",
-    "week",
-    "overdue",
-    "created",
-    "assigned",
-    "pendingApproval",
-    "recurring",
-    "completed",
-  ];
-  return tabs.reduce(
-    (acc, tab) => {
-      const rows = selectTasksForTab(state, tab, now, { isAts: options.isAts });
-      acc[tab] = options.filters
-        ? applyTaskFilters(rows, options.filters).length
-        : rows.length;
-      return acc;
-    },
-    {} as Record<TaskTabId, number>,
-  );
+  const filters = options.filters;
+  const uniqueTasks = uniqueTasksFromBuckets(state);
+  const activeTasks = activeTasksFromBuckets(state);
+  const createdTasks = byBucket(state, state.createdByMeIds);
+  const assignedTasks = byBucket(state, state.assignedToMeIds);
+  const completedTasks = state.completedIds.length
+    ? byBucket(state, state.completedIds)
+    : Object.values(state.byId).filter((task) =>
+        isCompletedStatus(task.status),
+      );
+  const pendingTasks = (
+    state.pendingApprovalIds.length
+      ? byBucket(state, state.pendingApprovalIds)
+      : uniqueTasks.filter((task) => task.status === "Pending-Approval")
+  ).filter((task) => task.status === "Pending-Approval");
+  const recurringTasks = state.recurringIds.length
+    ? byBucket(state, state.recurringIds)
+    : Object.values(state.byId).filter((task) => task.is_recurring);
+
+  const counts: Record<TaskTabId, number> = {
+    all: 0,
+    today: 0,
+    week: 0,
+    overdue: 0,
+    created: countMatching(createdTasks, filters),
+    assigned: countMatching(assignedTasks, filters),
+    pendingApproval: countMatching(pendingTasks, filters),
+    recurring: countMatching(recurringTasks, filters),
+    completed: countMatching(completedTasks, filters),
+  };
+
+  const activeContext = createActiveTabContext(now, options);
+  const todayCandidates: TaskEntity[] = [];
+  for (const task of activeTasks) {
+    if (matchesActiveTab(task, "today", activeContext)) {
+      todayCandidates.push(task);
+    }
+    if (filters && !matchesTaskFilters(task, filters)) continue;
+    counts.all += 1;
+    if (matchesActiveTab(task, "week", activeContext)) counts.week += 1;
+    if (matchesActiveTab(task, "overdue", activeContext)) counts.overdue += 1;
+  }
+  counts.today = countMatching(uniqueByRecurrenceOrigin(todayCandidates), filters);
+
+  return counts;
 }

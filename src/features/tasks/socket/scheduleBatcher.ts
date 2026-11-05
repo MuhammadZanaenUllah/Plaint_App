@@ -16,6 +16,9 @@ const UNKNOWN_HOLD_MS = 5_000;
 
 const pending = new Map<number, SchedulePatch>();
 let timer: ReturnType<typeof setTimeout> | null = null;
+const pendingCritical = new Map<number, number>();
+let criticalTimer: ReturnType<typeof setTimeout> | null = null;
+const heldTimers = new Set<ReturnType<typeof setTimeout>>();
 
 function mergePatch(current: SchedulePatch | undefined, next: SchedulePatch): SchedulePatch {
   return { ...current, ...next };
@@ -48,10 +51,36 @@ function flush() {
     if (applyPatch(taskId, patch)) continue;
 
     // The row was not loaded yet (create/schedule race). Hold it briefly.
-    setTimeout(() => {
+    const held = setTimeout(() => {
+      heldTimers.delete(held);
       applyPatch(taskId, patch);
     }, UNKNOWN_HOLD_MS);
+    heldTimers.add(held);
   }
+}
+
+function flushCritical() {
+  criticalTimer = null;
+  const entries = [...pendingCritical.entries()];
+  pendingCritical.clear();
+  const store = useTasksStore.getState();
+  for (const [taskId, order] of entries) {
+    if (store.byId[taskId]) {
+      store.patchTask(taskId, { critical_order: order });
+    }
+  }
+}
+
+export function enqueueCriticalReorder(
+  rows: { id: number | string; critical_order: number }[],
+): void {
+  for (const row of rows) {
+    const taskId = Number(row.id);
+    if (!Number.isFinite(taskId) || taskId <= 0) continue;
+    pendingCritical.set(taskId, Number(row.critical_order));
+  }
+  if (criticalTimer || pendingCritical.size === 0) return;
+  criticalTimer = setTimeout(flushCritical, BATCH_DELAY_MS);
 }
 
 export function enqueueScheduleUpdate(taskId: number, patch: SchedulePatch): void {
@@ -71,9 +100,16 @@ export function flushScheduleForTask(taskId: number): void {
 
 export function resetScheduleBatcher(): void {
   pending.clear();
+  pendingCritical.clear();
   if (timer) {
     clearTimeout(timer);
     timer = null;
   }
+  if (criticalTimer) {
+    clearTimeout(criticalTimer);
+    criticalTimer = null;
+  }
+  for (const held of heldTimers) clearTimeout(held);
+  heldTimers.clear();
 }
 
