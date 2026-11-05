@@ -20,6 +20,7 @@ import {
   sortTasks,
 } from "../store/selectors";
 import { useTaskTabCounts } from "./useTaskTabCounts";
+import { isNetworkErrorMessage } from "../utils/taskError";
 import type { TaskEntity, TaskListItem, TaskOwner } from "../types/task.types";
 
 export type DashboardRow = TaskRowProps & { _raw: TaskListItem };
@@ -162,6 +163,7 @@ export function useTaskDashboard(
     totalCount: rows.length,
     loading: store.isLoading,
     error: store.error,
+    offline: isNetworkErrorMessage(store.error),
     partial: store.isPartialLoad,
     stale: store.stale,
     completeCount: store.completeCount,

@@ -12,6 +12,7 @@ import { useTaskFilterController } from "@/features/tasks/hooks/useTaskFilterCon
 import { useTaskDelayedPopup } from "@/features/tasks/hooks/useTaskDelayedPopup";
 import { useTaskProjectAssignment } from "@/features/tasks/hooks/useTaskProjectAssignment";
 import TaskProjectAssignmentHost from "@/features/tasks/components/shared/TaskProjectAssignmentHost";
+import { reportTaskError } from "@/features/tasks/utils/taskError";
 import { useTaskStats } from "@/features/tasks/hooks/useTaskStats";
 import styles from "./TasksScreen.styles";
 import { useTaskTabs } from "@/features/tasks/hooks/useTaskTabs";
@@ -140,6 +141,7 @@ function TasksScreenContent() {
 
   const statsScrollRef = useRef<ScrollView>(null);
   const cardLayoutsRef = useRef<Record<string, { x: number; width: number }>>({});
+  const refreshingRef = useRef(false);
 
   const canCreate = useMemo(
     () => canCreateTask(authState.user, authState.company),
@@ -169,7 +171,8 @@ function TasksScreenContent() {
   );
 
   const handleRefresh = useCallback(async () => {
-    if (!companyId) return;
+    if (!companyId || refreshingRef.current) return;
+    refreshingRef.current = true;
     setRefreshing(true);
     try {
       await fetchAllTasks(companyId, { silent: true });
@@ -180,6 +183,7 @@ function TasksScreenContent() {
       }
       tabs.resetPagination();
     } finally {
+      refreshingRef.current = false;
       setRefreshing(false);
     }
   }, [
@@ -218,7 +222,9 @@ function TasksScreenContent() {
     canAssign: canAssignProject,
     canCreateProject: canCreateProjectNow,
     refresh: () => {
-      handleRefresh().catch(() => {});
+      handleRefresh().catch((error) =>
+        reportTaskError("Task refresh after assignment failed", error),
+      );
     },
   });
 
@@ -381,6 +387,7 @@ function TasksScreenContent() {
           error={dashboard.error}
           hasTasks={dashboard.allRows.length > 0}
           stale={dashboard.partial || dashboard.stale}
+          offline={dashboard.offline}
           activeFilterCount={filters.activeFilterCount}
           hasMore={tabs.hasMore}
           loadingMore={tabs.loadingMore}

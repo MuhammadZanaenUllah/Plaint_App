@@ -24,6 +24,7 @@ import {
   normalizeApiStatus,
   toApiStatus,
 } from "../utils/taskStatus";
+import { taskErrorMessage } from "../utils/taskError";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 
 type Options = {
@@ -82,7 +83,7 @@ export function useTaskActions({
       } catch (error) {
         showError(
           "Schedule Update Failed",
-          error instanceof Error ? error.message : "Failed to recalculate the task schedule.",
+          taskErrorMessage(error, "Failed to recalculate the task schedule."),
         );
       }
     },
@@ -128,7 +129,7 @@ export function useTaskActions({
         } catch (error) {
           showError(
             "Approval Failed",
-            error instanceof Error ? error.message : "Failed to approve task.",
+            taskErrorMessage(error, "Failed to approve task."),
           );
           return;
         }
@@ -222,7 +223,7 @@ export function useTaskActions({
       } catch (error) {
         showError(
           "Status Update Failed",
-          error instanceof Error ? error.message : "Failed to update task status.",
+          taskErrorMessage(error, "Failed to update task status."),
         );
       }
     },
@@ -282,7 +283,7 @@ export function useTaskActions({
         if (previous) useTasksStore.getState().patchTask(taskId, previous);
         showError(
           "Reassignment Failed",
-          error instanceof Error ? error.message : "Failed to reassign task.",
+          taskErrorMessage(error, "Failed to reassign task."),
         );
         return;
       }

@@ -80,7 +80,12 @@ export function useTaskDeepLink({
     if (!rawId || rawId === handledTaskIdRef.current) return;
 
     const targetId = Number(rawId);
-    if (Number.isNaN(targetId) || !companyId || loading) return;
+    if (Number.isNaN(targetId)) {
+      showError("Invalid task link", "This link does not point to a valid task.");
+      router.setParams({ taskId: undefined });
+      return;
+    }
+    if (!companyId || loading) return;
 
     handledTaskIdRef.current = rawId;
     openTaskById(targetId).finally(() => {

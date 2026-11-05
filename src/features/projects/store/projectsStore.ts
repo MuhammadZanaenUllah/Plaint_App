@@ -18,7 +18,7 @@ import {
   getSprints,
   updateSprint as updateSprintApi,
 } from "@/features/projects/api/sprintsApi";
-import type { ApiResult } from "@/features/tasks/api/apiResult";
+import { fromError, type ApiResult } from "@/features/tasks/api/apiResult";
 import type {
   CreateProjectPayload,
   ProjectDetailData,
@@ -97,12 +97,20 @@ const initialState = {
   error: null as string | null,
 };
 
+async function safeApi<T>(run: () => Promise<ApiResult<T>>): Promise<ApiResult<T>> {
+  try {
+    return await run();
+  } catch (error) {
+    return fromError<T>(error);
+  }
+}
+
 export const useProjectsStore = create<ProjectsState>()((set, get) => ({
   ...initialState,
 
   loadProjects: async (companyId, options = {}) => {
     set({ isLoading: true, error: null });
-    const result = await getAllProjects(companyId, options);
+    const result = await safeApi(() => getAllProjects(companyId, options));
     if (!result.ok) {
       set({ isLoading: false, error: result.message });
       return;
@@ -112,7 +120,7 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
 
   loadProjectDetail: async (projectId) => {
     set({ isLoading: true, error: null });
-    const result = await getProjectDetail(projectId);
+    const result = await safeApi(() => getProjectDetail(projectId));
     if (!result.ok) {
       set({ isLoading: false, error: result.message });
       return;
@@ -122,7 +130,7 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
 
   loadSprints: async (companyId, projectId) => {
     set({ isLoading: true, error: null });
-    const result = await getSprints(companyId, projectId);
+    const result = await safeApi(() => getSprints(companyId, projectId));
     if (!result.ok) {
       set({ isLoading: false, error: result.message });
       return;
@@ -131,7 +139,7 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
   },
 
   loadProjectUsers: async (companyId) => {
-    const result = await getProjectUsers(companyId);
+    const result = await safeApi(() => getProjectUsers(companyId));
     if (!result.ok) {
       set({ error: result.message });
       return;
@@ -141,7 +149,9 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
 
   loadAssignableProjects: async (companyId) => {
     set({ assignableProjectsLoading: true, assignableProjectsError: null });
-    const result = await getAllProjects(companyId, { scope: "all", lite: true });
+    const result = await safeApi(() =>
+      getAllProjects(companyId, { scope: "all", lite: true }),
+    );
     if (!result.ok) {
       set({
         assignableProjectsLoading: false,
@@ -162,7 +172,7 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
       assignmentSprintsError: null,
       assignmentSprintsProjectId: projectId,
     });
-    const result = await getSprints(companyId, projectId);
+    const result = await safeApi(() => getSprints(companyId, projectId));
     if (!result.ok) {
       set({
         assignmentSprintsLoading: false,
@@ -178,7 +188,7 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
   },
 
   createProject: async (payload) => {
-    const result = await createProjectApi(payload);
+    const result = await safeApi(() => createProjectApi(payload));
     if (result.ok) {
       await get().loadProjects(payload.company_id);
     }
@@ -186,7 +196,7 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
   },
 
   updateProject: async (projectId, payload) => {
-    const result = await updateProjectApi(projectId, payload);
+    const result = await safeApi(() => updateProjectApi(projectId, payload));
     if (result.ok) {
       if (payload.company_id) await get().loadProjects(payload.company_id);
       await get().loadProjectDetail(projectId);
@@ -195,7 +205,7 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
   },
 
   createSprint: async (payload) => {
-    const result = await createSprintApi(payload);
+    const result = await safeApi(() => createSprintApi(payload));
     if (result.ok) {
       await get().loadSprints(payload.company_id, payload.project_id);
     }
@@ -203,7 +213,7 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
   },
 
   updateSprint: async (sprintId, payload, context) => {
-    const result = await updateSprintApi(sprintId, payload);
+    const result = await safeApi(() => updateSprintApi(sprintId, payload));
     if (result.ok) {
       await get().loadSprints(context.companyId, context.projectId);
     }
@@ -211,7 +221,7 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
   },
 
   deleteSprint: async (sprintId, context) => {
-    const result = await deleteSprintApi(sprintId);
+    const result = await safeApi(() => deleteSprintApi(sprintId));
     if (result.ok) {
       await Promise.all([
         get().loadSprints(context.companyId, context.projectId),
@@ -222,13 +232,13 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
   },
 
   uploadAttachment: async (projectId, formData) => {
-    const result = await uploadProjectAttachmentApi(projectId, formData);
+    const result = await safeApi(() => uploadProjectAttachmentApi(projectId, formData));
     if (result.ok) await get().loadProjectDetail(projectId);
     return result;
   },
 
   deleteAttachment: async (attachmentId) => {
-    return deleteProjectAttachmentApi(attachmentId);
+    return safeApi(() => deleteProjectAttachmentApi(attachmentId));
   },
 
   clearDetail: () =>

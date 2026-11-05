@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import type { TaskDetail } from "@/components/TaskDetailModal";
 import type { TaskRowProps } from "@/components/TaskRow";
 import { viewTask } from "@/services/api/tasks.service";
+import { reportTaskError } from "../utils/taskError";
 
 type Options = {
   companyId: number | null;
@@ -30,8 +31,13 @@ export function useTaskDetailOpener({ companyId, onOpen }: Options) {
           effortUnit = detailTask?.effort_unit ?? undefined;
           projectName = detailTask?.project_name ?? undefined;
         }
-      } catch {
-        // fall back to list data
+      } catch (error) {
+        // Keep the list-backed detail usable, but never swallow the failure.
+        reportTaskError(
+          "Failed to refresh task detail; using list data",
+          error,
+          "Task detail could not be refreshed.",
+        );
       }
 
       const detail = {

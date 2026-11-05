@@ -30,6 +30,11 @@ import {
 import { validateAttachment } from "@/features/tasks/utils/taskValidation";
 import { formatTaskDueDatePkt } from "@/features/tasks/utils/taskDate";
 import {
+  isNetworkErrorMessage,
+  reportTaskError,
+  taskErrorMessage,
+} from "@/features/tasks/utils/taskError";
+import {
   canAssignTaskToProject,
   canCreateSprint,
   canEditProject,
@@ -62,7 +67,7 @@ import { mapTaskListItem } from "@/utils/statusMapper";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, router } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -113,18 +118,29 @@ export default function ProjectDetailScreen() {
   const [dateOpen, setDateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const uploadingRef = useRef(false);
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null);
   const [initialTab, setInitialTab] = useState<"details" | "comments">("details");
 
   const refresh = useCallback(() => {
-    if (projectId) loadProjectDetail(projectId).catch(() => {});
+    if (projectId) {
+      loadProjectDetail(projectId).catch((error) =>
+        reportTaskError("Project detail refresh failed", error),
+      );
+    }
   }, [loadProjectDetail, projectId]);
 
   useEffect(() => {
     if (!projectId || !canView) return;
-    loadProjectDetail(projectId).catch(() => {});
-    loadSprints(companyId, projectId).catch(() => {});
-    loadProjectUsers(companyId).catch(() => {});
+    loadProjectDetail(projectId).catch((error) =>
+      reportTaskError("Project detail load failed", error),
+    );
+    loadSprints(companyId, projectId).catch((error) =>
+      reportTaskError("Project sprints load failed", error),
+    );
+    loadProjectUsers(companyId).catch((error) =>
+      reportTaskError("Project users load failed", error),
+    );
   }, [
     canView,
     companyId,
@@ -357,7 +373,7 @@ export default function ProjectDetailScreen() {
     } catch (err) {
       showError(
         "Status Update Failed",
-        err instanceof Error ? err.message : "Could not update the task.",
+        taskErrorMessage(err, "Could not update the task."),
       );
     }
   };
@@ -434,25 +450,26 @@ export default function ProjectDetailScreen() {
   };
 
   const handlePickAttachment = async (files: SelectedFile[]) => {
-    if (!projectId || !canEditNow) return;
-    const file = files[0];
-    if (!file) return;
-    const validation = validateAttachment(file);
-    if (!validation.valid) {
-      showError(
-        "Attachment Rejected",
-        `"${file.name}": ${Object.values(validation.errors)[0]}`,
-      );
-      return;
-    }
-    const formData = new FormData();
-    formData.append("file", {
-      uri: file.uri,
-      name: file.name || "attachment",
-      type: file.mimeType || "application/octet-stream",
-    } as unknown as Blob);
-    setUploading(true);
+    if (!projectId || !canEditNow || uploadingRef.current) return;
+    uploadingRef.current = true;
     try {
+      const file = files[0];
+      if (!file) return;
+      const validation = validateAttachment(file);
+      if (!validation.valid) {
+        showError(
+          "Attachment Rejected",
+          `"${file.name}": ${Object.values(validation.errors)[0]}`,
+        );
+        return;
+      }
+      const formData = new FormData();
+      formData.append("file", {
+        uri: file.uri,
+        name: file.name || "attachment",
+        type: file.mimeType || "application/octet-stream",
+      } as unknown as Blob);
+      setUploading(true);
       const result = await uploadAttachment(projectId, formData);
       if (!result.ok) {
         showError("Upload Failed", result.message);
@@ -461,6 +478,7 @@ export default function ProjectDetailScreen() {
       showSuccess("Success", "Attachment uploaded.");
       refresh();
     } finally {
+      uploadingRef.current = false;
       setUploading(false);
     }
   };
@@ -536,7 +554,11 @@ export default function ProjectDetailScreen() {
       ) : error && !projectDetail ? (
         <View style={styles.center}>
           <Text style={styles.emptyTitle}>Could not load project</Text>
-          <Text style={styles.emptyText}>{error}</Text>
+          <Text style={styles.emptyText}>
+            {isNetworkErrorMessage(error)
+              ? "You appear to be offline. Check your connection and retry."
+              : error}
+          </Text>
           <TouchableOpacity style={styles.retryBtn} onPress={refresh}>
             <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
@@ -550,6 +572,13 @@ export default function ProjectDetailScreen() {
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
           >
+            {error ? (
+              <Text style={styles.inlineError}>
+                {isNetworkErrorMessage(error)
+                  ? "You appear to be offline. Changes may not save until you reconnect."
+                  : error}
+              </Text>
+            ) : null}
             <View style={styles.field}>
               <Text style={styles.fieldLabel}>Project Title</Text>
               <TextInput
@@ -803,6 +832,12 @@ export default function ProjectDetailScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#fff" },
   content: { paddingHorizontal: 16, paddingBottom: 40 },
+  inlineError: {
+    marginTop: 8,
+    fontSize: rf(12),
+    color: "#B45309",
+    fontFamily: "SF_Pro_Regular",
+  },
   center: {
     flex: 1,
     alignItems: "center",

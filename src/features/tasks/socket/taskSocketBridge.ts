@@ -27,6 +27,7 @@ import type {
 } from "./socket.types";
 import type { TaskEntity, TaskListItem, TaskPriority } from "../types/task.types";
 import { normalizeApiStatus } from "../utils/taskStatus";
+import { reportTaskError } from "../utils/taskError";
 import { useTaskDetailStore } from "../store/taskDetailStore";
 import { useTasksStore } from "../store/tasksStore";
 import { useProjectsStore } from "../store/projectsStore";
@@ -129,7 +130,7 @@ export function useTaskSocketBridge({
       if (Object.keys(state.byId).length === 0) return;
       state
         .loadDashboard(companyId, { silent: true, force: true })
-        .catch(() => {});
+        .catch((error) => reportTaskError("Task socket background refresh failed", error));
     }, REFETCH_DEBOUNCE_MS);
   };
 
@@ -144,7 +145,7 @@ export function useTaskSocketBridge({
       if (Object.keys(state.byId).length === 0) return;
       state
         .loadAll(companyId, { excludeComplete: true })
-        .catch(() => {});
+        .catch((error) => reportTaskError("Task socket background refresh failed", error));
     }, REFETCH_DEBOUNCE_MS);
   };
 
@@ -158,7 +159,7 @@ export function useTaskSocketBridge({
       useTasksStore
         .getState()
         .loadDashboard(companyId, { silent: true, force: true })
-        .catch(() => {});
+        .catch((error) => reportTaskError("Task socket background refresh failed", error));
     }, REFETCH_DEBOUNCE_MS);
   };
 
@@ -171,11 +172,15 @@ export function useTaskSocketBridge({
       if (!companyId) return;
       const projects = useProjectsStore.getState();
       if (projects.projects.length > 0) {
-        projects.loadProjects(companyId).catch(() => {});
+        projects
+          .loadProjects(companyId)
+          .catch((error) => reportTaskError("Socket project list refetch failed", error));
       }
       if (projects.projectDetail) {
         const detailId = Number(projects.projectDetail.id ?? 0);
-        if (detailId > 0) projects.loadProjectDetail(detailId).catch(() => {});
+        if (detailId > 0) projects
+          .loadProjectDetail(detailId)
+          .catch((error) => reportTaskError("Socket project detail refetch failed", error));
       }
     }, REFETCH_DEBOUNCE_MS);
   };
@@ -254,7 +259,7 @@ export function useTaskSocketBridge({
   useEffect(() => {
     if (!companyId) return;
 
-    connectSocket().catch(() => {});
+    connectSocket().catch((error) => reportTaskError("Task socket connect failed", error));
 
     const cleanups: (() => void)[] = [];
 
@@ -503,15 +508,21 @@ export function useTaskSocketBridge({
             projects.sprintsProjectId === projectId ||
             projects.assignmentSprintsProjectId === projectId;
           if (detailOpen || sprintsLoaded) {
-            projects.loadSprints(companyId, projectId).catch(() => {});
+            projects
+              .loadSprints(companyId, projectId)
+              .catch((error) => reportTaskError("Socket sprint refetch failed", error));
           }
           if (detailOpen) {
-            projects.loadProjectDetail(projectId).catch(() => {});
+            projects
+              .loadProjectDetail(projectId)
+              .catch((error) => reportTaskError("Socket project detail refresh failed", error));
           }
           if (projects.assignmentSprintsProjectId === projectId) {
             projects
               .loadAssignmentSprints(companyId, projectId)
-              .catch(() => {});
+              .catch((error) =>
+                reportTaskError("Socket assignment-sprint refetch failed", error),
+              );
           }
         }
         scheduleProjectRefetch();
@@ -551,7 +562,7 @@ export function useTaskSocketBridge({
         useTasksStore
           .getState()
           .loadDashboard(companyId, { silent: true, force: true })
-          .catch(() => {});
+          .catch((error) => reportTaskError("Task socket background refresh failed", error));
       }),
     );
 

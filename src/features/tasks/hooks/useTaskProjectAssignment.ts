@@ -6,6 +6,7 @@ import type {
 } from "@/features/projects/types/project.types";
 import { validateSprintAssignment } from "@/features/projects/utils/projectValidation";
 import { showError, showSuccess } from "@/utils/toast";
+import { reportTaskError, taskErrorMessage } from "../utils/taskError";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { updateTaskProject } from "../api/taskApi";
 import { useTasksStore } from "../store/tasksStore";
@@ -72,6 +73,7 @@ export function useTaskProjectAssignment({
   const [selectedProject, setSelectedProject] =
     useState<AssignmentProject | null>(null);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [createProjectVisible, setCreateProjectVisible] = useState(false);
 
@@ -97,7 +99,11 @@ export function useTaskProjectAssignment({
       setSelectedProject(null);
       setSubmissionError(null);
       setProjectPickerOpen(true);
-      if (companyId) loadAssignableProjects(companyId).catch(() => {});
+      if (companyId) {
+        loadAssignableProjects(companyId).catch((error) =>
+          reportTaskError("Could not load assignable projects", error),
+        );
+      }
     },
     [canAssign, companyId, loadAssignableProjects, setTargetTask],
   );
@@ -121,7 +127,9 @@ export function useTaskProjectAssignment({
       setProjectPickerOpen(false);
       setSprintPickerOpen(true);
       if (companyId) {
-        loadAssignmentSprints(companyId, project.id).catch(() => {});
+        loadAssignmentSprints(companyId, project.id).catch((error) =>
+          reportTaskError("Could not load project sprints", error),
+        );
       }
     },
     [canAssign, companyId, loadAssignmentSprints, setTargetTask],
@@ -131,7 +139,7 @@ export function useTaskProjectAssignment({
     async (project: AssignmentProject, sprint: Sprint | null) => {
       const row = targetRef.current;
       const taskId = Number(row?.id ?? 0);
-      if (!row?._raw || !taskId || !companyId || saving) return;
+      if (!row?._raw || !taskId || !companyId || savingRef.current) return;
 
       if (sprint) {
         const deadline = validateSprintAssignment(
@@ -147,6 +155,7 @@ export function useTaskProjectAssignment({
         }
       }
 
+      savingRef.current = true;
       setSaving(true);
       setSubmissionError(null);
       try {
@@ -186,27 +195,24 @@ export function useTaskProjectAssignment({
 
         const projects = useProjectsStore.getState();
         if (projects.projects.length > 0) {
-          projects.loadProjects(companyId).catch(() => {});
+          projects.loadProjects(companyId).catch((error) =>
+            reportTaskError("Project list refresh after assignment failed", error),
+          );
         }
         refresh?.();
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to assign the task to a project.";
+        const message = taskErrorMessage(
+          error,
+          "Failed to assign the task to a project.",
+        );
         setSubmissionError(message);
         showError("Assignment Failed", message);
       } finally {
+        savingRef.current = false;
         setSaving(false);
       }
     },
-    [
-      companyId,
-      companyIdentifier,
-      refresh,
-      saving,
-      setTargetTask,
-    ],
+    [companyId, companyIdentifier, refresh, setTargetTask],
   );
 
   const selectProject = useCallback(
@@ -236,7 +242,9 @@ export function useTaskProjectAssignment({
   const selectSprint = useCallback(
     (sprint: Sprint | null) => {
       if (!selectedProject) return;
-      assign(selectedProject, sprint).catch(() => {});
+      assign(selectedProject, sprint).catch((error) =>
+        reportTaskError("Sprint assignment failed", error),
+      );
     },
     [assign, selectedProject],
   );
@@ -304,7 +312,9 @@ export function useTaskProjectAssignment({
       canCreateProject,
       onClose: closeProjectPicker,
       onSelect: (project: ProjectEntity) => {
-        selectProject(project).catch(() => {});
+        selectProject(project).catch((error) =>
+          reportTaskError("Project selection failed", error),
+        );
       },
       onCreateProject: openCreateProject,
     },
@@ -322,7 +332,9 @@ export function useTaskProjectAssignment({
       visible: createProjectVisible,
       onClose: closeCreateProject,
       onCreated: (projectId: number) => {
-        handleProjectCreated(projectId).catch(() => {});
+        handleProjectCreated(projectId).catch((error) =>
+          reportTaskError("Assigning the newly created project failed", error),
+        );
       },
     },
     assigning: saving,

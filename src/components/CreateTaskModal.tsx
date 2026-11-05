@@ -46,6 +46,7 @@ import {
   type UserUpdatePayload,
 } from "@/services/socket/socketService";
 import { extractErrorMessage } from "@/utils/errorHandler";
+import { reportTaskError } from "@/features/tasks/utils/taskError";
 import { rf } from "@/utils/responsive";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
@@ -463,7 +464,9 @@ export default function CreateTaskModal({
     // A socket `create` event and the reply normally update the list. If the
     // reply did not include the saved row, fall back to a silent refetch.
     if (!result.task) {
-      fetchAllTasks(companyId, { silent: true }).catch(() => {});
+      fetchAllTasks(companyId, { silent: true }).catch((error) =>
+        reportTaskError("Task list refresh after create/reorder failed", error),
+      );
     }
 
     if (showOrderAfterCreate && assigneeCriticalTasks.length > 0) {
@@ -575,7 +578,9 @@ export default function CreateTaskModal({
       } else {
         showSuccess("Success", "Critical task order updated.");
       }
-      fetchAllTasks(companyId, { silent: true }).catch(() => {});
+      fetchAllTasks(companyId, { silent: true }).catch((error) =>
+        reportTaskError("Task list refresh after create/reorder failed", error),
+      );
     } catch (error) {
       showError("Reorder Error", extractErrorMessage(error));
     } finally {

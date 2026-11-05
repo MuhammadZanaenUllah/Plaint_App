@@ -10,6 +10,7 @@ import {
 import { useTasksStore } from "@/features/tasks/store/tasksStore";
 import type { DelayedPopupTask } from "@/features/tasks/types/task.types";
 import { showError, showSuccess } from "@/utils/toast";
+import { reportTaskError } from "../utils/taskError";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const MIN_DELAY_MS = 1_000;
@@ -86,8 +87,9 @@ export function useTaskDelayedPopup({ companyId }: Options) {
             nextDelay = clampDelay(nextCheck - serverTime);
           }
         }
-      } catch {
-        // Network failure: retry on the maximum interval.
+      } catch (error) {
+        // Network failure: retry on the maximum interval, but keep evidence.
+        reportTaskError("Delayed-popup check failed", error);
       }
 
       if (!cancelled) {
@@ -148,7 +150,9 @@ export function useTaskDelayedPopup({ companyId }: Options) {
         useTasksStore
           .getState()
           .loadDashboard(companyId, { silent: true, force: true })
-          .catch(() => {});
+          .catch((error) =>
+            reportTaskError("Delayed-task refresh failed", error),
+          );
       }
 
       dismissedRef.current.add(current.id);

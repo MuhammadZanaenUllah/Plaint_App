@@ -12,6 +12,7 @@ type Props = {
   error: string | null;
   hasTasks: boolean;
   stale: boolean;
+  offline?: boolean;
   activeFilterCount: number;
   hasMore: boolean;
   loadingMore: boolean;
@@ -39,6 +40,7 @@ export default function TaskList({
   error,
   hasTasks,
   stale,
+  offline,
   activeFilterCount,
   hasMore,
   loadingMore,
@@ -64,6 +66,7 @@ export default function TaskList({
       error={error}
       hasTasks={hasTasks}
       stale={stale}
+      offline={offline}
       sectionTitle={sectionTitle}
       onRetry={onRetry}
       containerStyle={containerStyle}

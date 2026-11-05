@@ -11,6 +11,7 @@ import type {
   CanonicalProjectStatus,
   CreateProjectPayload,
 } from "@/features/projects/types/project.types";
+import { reportTaskError } from "@/features/tasks/utils/taskError";
 import { validateAttachment } from "@/features/tasks/utils/taskValidation";
 import { toCalendarDateOnly, pktTodayStart } from "@/features/tasks/utils/taskDate";
 import { useTasks } from "@/hooks/useTasks";
@@ -82,7 +83,11 @@ export default function CreateProjectModal({
       setSaving(false);
       submitLockRef.current = false;
     }, 0);
-    if (companyId) loadProjectUsers(companyId).catch(() => {});
+    if (companyId) {
+      loadProjectUsers(companyId).catch((error) =>
+        reportTaskError("Project owner list failed to load", error),
+      );
+    }
     return () => clearTimeout(timer);
   }, [visible, companyId, loadProjectUsers]);
 

@@ -9,7 +9,7 @@ import {
 } from "@/features/projects/utils/projectValidation";
 import { showError, showSuccess } from "@/utils/toast";
 import { Alert } from "react-native";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 type Options = {
   companyId: number;
@@ -37,8 +37,10 @@ export function useProjectSprints({
 
   const [modal, setModal] = useState<ModalState>(null);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const deletingRef = useRef(false);
 
   const closeModal = useCallback(() => {
     if (saving) return;
@@ -58,7 +60,7 @@ export function useProjectSprints({
 
   const submit = useCallback(
     async (values: { name: string; dueDate: string }) => {
-      if (!project?.id || !companyId || saving) return;
+      if (!project?.id || !companyId || savingRef.current) return;
 
       if (modal?.mode === "create") {
         const validation = validateSprint({
@@ -71,6 +73,7 @@ export function useProjectSprints({
           return;
         }
 
+        savingRef.current = true;
         setSaving(true);
         setError(null);
         try {
@@ -89,6 +92,7 @@ export function useProjectSprints({
           showSuccess("Success", "Sprint created!");
           setModal(null);
         } finally {
+          savingRef.current = false;
           setSaving(false);
         }
         return;
@@ -118,6 +122,7 @@ export function useProjectSprints({
         return;
       }
 
+      savingRef.current = true;
       setSaving(true);
       setError(null);
       try {
@@ -133,6 +138,7 @@ export function useProjectSprints({
         showSuccess("Success", "Sprint date updated.");
         setModal(null);
       } finally {
+        savingRef.current = false;
         setSaving(false);
       }
     },
@@ -142,7 +148,6 @@ export function useProjectSprints({
       createSprint,
       modal,
       project,
-      saving,
       updateSprint,
       userId,
     ],
@@ -150,7 +155,7 @@ export function useProjectSprints({
 
   const requestDelete = useCallback(
     (sprint: Sprint) => {
-      if (!project?.id || !companyId || deletingId !== null) return;
+      if (!project?.id || !companyId || deletingRef.current) return;
       Alert.alert(
         "Delete Sprint",
         "Are you sure? Tasks in this sprint will be moved to the general project pool.",
@@ -160,6 +165,7 @@ export function useProjectSprints({
             text: "Delete",
             style: "destructive",
             onPress: async () => {
+              deletingRef.current = true;
               setDeletingId(sprint.id);
               try {
                 const result = await deleteSprint(sprint.id, {
@@ -172,6 +178,7 @@ export function useProjectSprints({
                 }
                 showSuccess("Success", "Sprint deleted.");
               } finally {
+                deletingRef.current = false;
                 setDeletingId(null);
               }
             },
@@ -179,7 +186,7 @@ export function useProjectSprints({
         ],
       );
     },
-    [companyId, deleteSprint, deletingId, project?.id],
+    [companyId, deleteSprint, project?.id],
   );
 
   const modalProps = useMemo(

@@ -14,6 +14,10 @@ import {
 } from "@/features/projects/utils/projectStatus";
 import CreateProjectModal from "@/features/projects/components/CreateProjectModal";
 import { formatTaskDueDatePkt } from "@/features/tasks/utils/taskDate";
+import {
+  isNetworkErrorMessage,
+  reportTaskError,
+} from "@/features/tasks/utils/taskError";
 import { useAuth } from "@/hooks/useAuth";
 import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
@@ -64,8 +68,12 @@ export default function ProjectsScreen() {
 
   useEffect(() => {
     if (!companyId || !canView) return;
-    loadProjects(companyId).catch(() => {});
-    loadProjectUsers(companyId).catch(() => {});
+    loadProjects(companyId).catch((error) =>
+      reportTaskError("Project list load failed", error),
+    );
+    loadProjectUsers(companyId).catch((error) =>
+      reportTaskError("Project users load failed", error),
+    );
   }, [companyId, canView, loadProjects, loadProjectUsers]);
 
   const ownerNames = useMemo(() => {
@@ -266,6 +274,14 @@ export default function ProjectsScreen() {
           }}
         />
 
+        {error && projects.length > 0 ? (
+          <Text style={styles.inlineError}>
+            {isNetworkErrorMessage(error)
+              ? "You appear to be offline. Showing cached projects."
+              : error}
+          </Text>
+        ) : null}
+
         {isLoading && projects.length === 0 ? (
           <View style={styles.center}>
             <ActivityIndicator color="#00DEAB" />
@@ -273,10 +289,18 @@ export default function ProjectsScreen() {
         ) : error && projects.length === 0 ? (
           <View style={styles.center}>
             <Text style={styles.emptyTitle}>Could not load projects</Text>
-            <Text style={styles.emptyText}>{error}</Text>
+            <Text style={styles.emptyText}>
+              {isNetworkErrorMessage(error)
+                ? "You appear to be offline. Check your connection and retry."
+                : error}
+            </Text>
             <TouchableOpacity
               style={styles.retryBtn}
-              onPress={() => loadProjects(companyId).catch(() => {})}
+              onPress={() =>
+                loadProjects(companyId).catch((error) =>
+                  reportTaskError("Project list retry failed", error),
+                )
+              }
             >
               <Text style={styles.retryText}>Retry</Text>
             </TouchableOpacity>
@@ -370,6 +394,12 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Regular",
   },
   statusRow: { flexGrow: 0, marginBottom: 10 },
+  inlineError: {
+    marginBottom: 8,
+    fontSize: rf(12),
+    color: "#B45309",
+    fontFamily: "SF_Pro_Regular",
+  },
   statusChip: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
