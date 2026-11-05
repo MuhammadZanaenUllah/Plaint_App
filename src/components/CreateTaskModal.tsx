@@ -37,6 +37,11 @@ import {
   statusLabel,
 } from "@/features/tasks/utils/taskStatus";
 import { toCalendarDateOnly, pktTodayStart } from "@/features/tasks/utils/taskDate";
+import {
+  isDependencyCandidateStatus,
+  isNewCriticalFirst,
+  replacePlaceholderId,
+} from "@/features/tasks/utils/taskActionRules";
 import { validateAttachment } from "@/features/tasks/utils/taskValidation";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
@@ -268,6 +273,9 @@ export default function CreateTaskModal({
   // pendingForm: the validated form waiting to be created once the user
   // resolves the critical conflict.
   const pendingFormRef = useRef<CreateTaskFormState | null>(null);
+  // Form waiting for the pre-create critical order confirmation.
+  const orderFormRef = useRef<CreateTaskFormState | null>(null);
+  const ORDER_PLACEHOLDER_ID = -1;
   // existingCriticalTasks for the selected assignee
   const [assigneeCriticalTasks, setAssigneeCriticalTasks] = useState<
     CriticalTask[]
@@ -284,19 +292,21 @@ export default function CreateTaskModal({
 
 
 
-  const filteredUsers = taskState.taskOwners.filter((u) => {
-    const fullName = `${u.first_name} ${u.last_name}`.toLowerCase();
-    return fullName.includes(assignSearch.toLowerCase());
-  });
+  const filteredUsers = taskState.taskOwners
+    .filter((u) => {
+      const fullName = `${u.first_name} ${u.last_name}`.toLowerCase();
+      return fullName.includes(assignSearch.toLowerCase());
+    })
+    // Contract §9.1: at most 10 assignee results.
+    .slice(0, 10);
 
-  // All global tasks available for dependencies — only tasks whose status is
-  // "Pending" or "In-Progress" can be selected as dependencies. Search + paging
-  // are handled entirely inside the standalone DependencyModal.
+  // All global tasks available for dependencies. Exclude only completed,
+  // closed/cancelled and On-Hold tasks; search + paging are handled inside
+  // the standalone DependencyModal.
   const availableTasksForDeps = useMemo(() => {
-    const selectable = allMappedTasks.filter(
-      (t) => t.status === "Pending" || t.status === "In-Progress",
+    return allMappedTasks.filter((t) =>
+      isDependencyCandidateStatus(String(t._raw.status)),
     );
-    return selectable;
   }, [allMappedTasks]);
 
   const handlePickFiles = (files: SelectedFile[]) => {
@@ -497,7 +507,10 @@ export default function CreateTaskModal({
     const validation = validateCreateTaskForm(form, { isAts: isAdvanced });
     if (!validation.valid) {
       const messages = [...new Set(Object.values(validation.errors))];
-      showInfo("Validation", messages.join("\n"));
+      showInfo(
+        "Validation",
+        validation.message ?? messages.join("\n"),
+      );
       return;
     }
 
@@ -541,12 +554,20 @@ export default function CreateTaskModal({
   // ── Critical popup handlers ───────────────────────────────────────────────
 
   /** Option 1: Stop current task → create with bump_to_front: true. */
-  const handleStopAndStart = async () => {
+  const handleStopAndStart = () => {
     setCriticalPopupVisible(false);
     const form = pendingFormRef.current;
     pendingFormRef.current = null;
     if (!form) return;
-    await createFromForm(form, true, true);
+    orderFormRef.current = form;
+    setOrderNewTask({
+      id: ORDER_PLACEHOLDER_ID,
+      title: form.title,
+      assignedTo: form.assignName,
+      dueDate: form.dueDate ? toCalendarDateOnly(form.dueDate) : undefined,
+      status: form.status,
+    });
+    setOrderModalVisible(true);
   };
 
   /** Option 2: Wait → create with bump_to_front: false, close normally. */
@@ -559,34 +580,75 @@ export default function CreateTaskModal({
   };
 
   /** Reorder modal confirmed: call POST /tasks/reorder-critical then close. */
+  /** Cancel/back from the order sheet: reset back to Normal, keep the form. */
+  const handleCancelOrder = () => {
+    orderFormRef.current = null;
+    setOrderModalVisible(false);
+    setOrderNewTask(null);
+    setAssigneeCriticalTasks([]);
+    setSelectedPriority("normal");
+  };
+
+  /** Order confirmed before creation; then reorder with the real task id. */
   const handleConfirmOrder = async (orderedIds: number[]) => {
+    const form = orderFormRef.current;
+    if (!form) {
+      handleCancelOrder();
+      return;
+    }
+    const newFirst = isNewCriticalFirst(orderedIds, ORDER_PLACEHOLDER_ID);
+    let createdId: number | null = null;
     try {
-      const result = await reorderCriticalApi({
+      const result = await submitCreateTask(form, { bumpToFront: newFirst });
+      if (!result) return;
+      createdId = result.id;
+
+      showSuccess("Success", "Task created successfully.");
+      if (result.planningHold) {
+        showInfo(
+          "Planning Project",
+          result.message ??
+            "This task's project is still in Planning, so the task stays On Hold until the project starts.",
+        );
+      }
+      if (!result.task) {
+        fetchAllTasks(companyId, { silent: true }).catch((error) =>
+          reportTaskError("Task list refresh after create failed", error),
+        );
+      }
+
+      const realOrder = replacePlaceholderId(
         orderedIds,
+        ORDER_PLACEHOLDER_ID,
+        result.id,
+      );
+      const reorderResult = await reorderCriticalApi({
+        orderedIds: realOrder,
         company_id: companyId,
       });
-      if (!result.ok) {
-        showError("Reorder Error", result.message);
-      } else if (result.data.blockedTasks.length > 0) {
-        const titles = result.data.blockedTasks
+      if (!reorderResult.ok) {
+        showError("Reorder Error", reorderResult.message);
+      } else if (reorderResult.data.blockedTasks.length > 0) {
+        const titles = reorderResult.data.blockedTasks
           .map((task) => `"${task.title}"`)
           .join(", ");
         showInfo(
           "Order Saved",
-          `Order saved. ${titles} have unfinished dependencies — they will be scheduled at the selected position once the dependencies are completed.`,
+          `Order saved. ${titles} have unfinished dependencies - they will be scheduled at the selected position once the dependencies are completed.`,
         );
       } else {
         showSuccess("Success", "Critical task order updated.");
       }
-      fetchAllTasks(companyId, { silent: true }).catch((error) =>
-        reportTaskError("Task list refresh after create/reorder failed", error),
-      );
     } catch (error) {
-      showError("Reorder Error", extractErrorMessage(error));
+      showError("Create Task", extractErrorMessage(error));
     } finally {
+      orderFormRef.current = null;
       setOrderModalVisible(false);
       setOrderNewTask(null);
-      finalizeCreate();
+      setAssigneeCriticalTasks([]);
+      if (createdId !== null) {
+        finalizeCreate();
+      }
     }
   };
 
@@ -629,6 +691,7 @@ export default function CreateTaskModal({
     setOrderModalVisible(false);
     setOrderNewTask(null);
     pendingFormRef.current = null;
+    orderFormRef.current = null;
     setAssigneeCriticalTasks([]);
     if (descriptionEditorRef.current) {
       descriptionEditorRef.current.setContentHtml("");
@@ -1989,6 +2052,7 @@ export default function CreateTaskModal({
           onClose={() => {
             setCriticalPopupVisible(false);
             pendingFormRef.current = null;
+            setSelectedPriority("normal");
           }}
           onStopAndStart={handleStopAndStart}
           onWaitAndSchedule={handleWaitAndSchedule}
@@ -2005,7 +2069,7 @@ export default function CreateTaskModal({
             }
           }
           existingCriticalTasks={assigneeCriticalTasks}
-          onClose={finalizeCreate}
+          onClose={handleCancelOrder}
           onConfirm={handleConfirmOrder}
         />
       </View>

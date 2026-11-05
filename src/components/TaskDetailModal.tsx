@@ -28,10 +28,23 @@ import {
   TASK_PERMISSIONS,
 } from "@/features/tasks/permissions/taskPermissions";
 import { useTasksStore } from "@/features/tasks/store/tasksStore";
+import { getSprints } from "@/features/projects/api/sprintsApi";
+import { getProjectDetail } from "@/features/projects/api/projectsApi";
 import { fromMinutes, toMinutes, formatEffort } from "@/features/tasks/utils/taskEffort";
 import { parseTaskDate, toCalendarDateOnly } from "@/features/tasks/utils/taskDate";
 import { normalizeApiStatus, toApiStatus } from "@/features/tasks/utils/taskStatus";
-import { validateAttachment } from "@/features/tasks/utils/taskValidation";
+import {
+  isDependencyCandidateStatus,
+  isNewCriticalFirst,
+  shouldRecalculateAfterStatus,
+  shouldRouteAtsReopen,
+  shouldRouteAtsResume,
+} from "@/features/tasks/utils/taskActionRules";
+import { reportTaskError } from "@/features/tasks/utils/taskError";
+import {
+  validateAttachment,
+  validateDueDate,
+} from "@/features/tasks/utils/taskValidation";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import {
@@ -275,6 +288,7 @@ async function persistTaskStatus({
         company_identifier: companyIdentifier,
       });
       savedStatus = useTasksStore.getState().byId[taskId]?.status ?? requested;
+      showSuccess("Success", "Task status updated.");
     }
 
     onSaved(savedStatus);
@@ -283,13 +297,7 @@ async function persistTaskStatus({
         "Approval Required",
         "You cannot mark the status as complete because approval is required. Please ask your team lead to mark the task as complete.",
       );
-    } else if (
-      isAts &&
-      (requested === "Complete" ||
-        requested === "Pending" ||
-        current === "On-Hold" ||
-        current === "Partial Complete")
-    ) {
+    } else if (shouldRecalculateAfterStatus(current, requested, isAts)) {
       try {
         const result = await recalculateSchedule(taskId, {
           company_id: companyId,
@@ -766,6 +774,8 @@ export default function TaskDetailModal({
   const [notesLoading, setNotesLoading] = useState(false);
   const [sendingNote, setSendingNote] = useState(false);
   const [taskDetail, setTaskDetail] = useState<ViewTaskData | null>(null);
+  const detailRequestRef = useRef(0);
+  const notesRequestRef = useRef(0);
   const [replyToNote, setReplyToNote] = useState<TaskNote | null>(null);
   const [editingNote, setEditingNote] = useState<TaskNote | null>(null);
   const [editingNoteText, setEditingNoteText] = useState("");
@@ -773,6 +783,11 @@ export default function TaskDetailModal({
   const [detailLoading, setDetailLoading] = useState(false);
   const [dependencyModalVisible, setDependencyModalVisible] = useState(false);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [dueBounds, setDueBounds] = useState<{
+    sprintDueDate: string | null;
+    projectDueDate: string | null;
+    parentDueDate: string | null;
+  }>({ sprintDueDate: null, projectDueDate: null, parentDueDate: null });
 
   // ── Task Edit State ───────────────────────────────────────────────────
   const [savingTask, setSavingTask] = useState(false);
@@ -903,7 +918,7 @@ export default function TaskDetailModal({
     (!isCompleteTask || isRecurringTemplate);
   const canEditStatus = taskDetail?.task?.can_edit_status === true;
   const canManageDependencies =
-    isAts && canEdit && !isCompleteTask && currentStatus !== "On-Hold";
+    canEdit && !isCompleteTask && currentStatus !== "On-Hold";
   const canManageAttachments =
     hasEditPermission && !isCompleteTask && (canEdit || canEditStatus);
   const canComment = hasPermission(authState.user, TASK_PERMISSIONS.list);
@@ -928,21 +943,24 @@ export default function TaskDetailModal({
   // Persists an edit immediately — pass just the field(s) that changed as
   // `overrides`. Dedicated endpoints are used for assignee and due date;
   // everything else goes through the full website-equivalent update payload.
-  const persistTaskField = async (overrides: Partial<UpdateTaskRequest>) => {
-    if (!task?.taskId || savingTask) return;
+  const persistTaskField = async (
+    overrides: Partial<UpdateTaskRequest>,
+    options: { skipRecalculate?: boolean } = {},
+  ): Promise<boolean> => {
+    if (!task?.taskId || savingTask) return false;
     if (!canEdit) {
       showError("Not Allowed", "You don't have permission to edit this task.");
-      return;
+      return false;
     }
     const apiT = taskDetail?.task;
     if (!apiT) {
       showError("Not Loaded", "Task details are still loading.");
-      return;
+      return false;
     }
     const title = (overrides.title ?? editTitle).trim();
     if (!title) {
       showError("Validation Error", "Task title cannot be empty.");
-      return;
+      return false;
     }
 
     setSavingTask(true);
@@ -960,7 +978,7 @@ export default function TaskDetailModal({
         });
         if (!result.ok) {
           showError("Reassign Failed", result.message);
-          return;
+          return false;
         }
         useTasksStore.getState().patchTask(taskId, { asigned_to: newAssignee });
         setTaskDetail((current) =>
@@ -970,7 +988,7 @@ export default function TaskDetailModal({
         );
         await recalculateIfAts(taskId);
         await loadTaskDetail();
-        return;
+        return true;
       }
 
       // Normal-company due-date changes use /tasks/updatetaskduedate.
@@ -980,12 +998,31 @@ export default function TaskDetailModal({
             "Read-only",
             "ATS due dates are scheduled by the engine and cannot be edited.",
           );
-          return;
+          return false;
         }
         const dueDate = overrides.due_date;
         if (!dueDate) {
           showError("Validation Error", "Due date is required.");
-          return;
+          return false;
+        }
+        const subtaskDueDate =
+          apiT.sub_tasks?.reduce((latest, subtask) => {
+            const value = (subtask.due_date ?? "").slice(0, 10);
+            return value > latest ? value : latest;
+          }, "") || null;
+        const validation = validateDueDate(dueDate, {
+          required: true,
+          sprintDueDate: dueBounds.sprintDueDate,
+          projectDueDate: dueBounds.projectDueDate,
+          parentDueDate: dueBounds.parentDueDate,
+          subtaskDueDate,
+        });
+        if (!validation.valid) {
+          showError(
+            "Validation Error",
+            Object.values(validation.errors)[0] ?? "Invalid due date.",
+          );
+          return false;
         }
         const result = await updateTaskDueDate(taskId, {
           duedate: dueDate,
@@ -994,14 +1031,14 @@ export default function TaskDetailModal({
         });
         if (!result.ok) {
           showError("Update Failed", result.message);
-          return;
+          return false;
         }
         useTasksStore.getState().patchTask(taskId, { due_date: dueDate });
         setTaskDetail((current) =>
           current ? { ...current, task: { ...current.task, due_date: dueDate } } : current,
         );
         await loadTaskDetail();
-        return;
+        return true;
       }
 
       const payload = buildUpdateTaskPayload(
@@ -1013,6 +1050,7 @@ export default function TaskDetailModal({
       await loadTaskDetail();
 
       if (
+        !options.skipRecalculate &&
         isAts &&
         (overrides.effort_hours !== undefined ||
           overrides.priority !== undefined ||
@@ -1020,14 +1058,15 @@ export default function TaskDetailModal({
       ) {
         await recalculateIfAts(taskId);
       }
+      return true;
     } catch (err: any) {
-      showError("Error", err.message || "Failed to update task.");
+      showError("Error", err?.message || "Failed to update task.");
+      return false;
     } finally {
       setSavingTask(false);
     }
   };
 
-  // ── @-mention picker ───────────────────────────────────────────────────
   const [mentionActive, setMentionActive] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionedUserIds, setMentionedUserIds] = useState<number[]>([]);
@@ -1051,16 +1090,24 @@ export default function TaskDetailModal({
 
   const loadTaskDetail = useCallback(async () => {
     if (!detailTaskId) return;
+    const requestId = ++detailRequestRef.current;
     setDetailLoading(true);
     try {
       const detail = await viewTaskApi(detailTaskId);
+      if (requestId !== detailRequestRef.current) return;
       if (detail) {
         setTaskDetail(detail);
+      } else {
+        showError("Task Detail", "Task details could not be loaded.");
       }
-    } catch {
-      // silently fail
+    } catch (error) {
+      if (requestId !== detailRequestRef.current) return;
+      showError(
+        "Task Detail",
+        reportTaskError("Task detail load failed", error),
+      );
     } finally {
-      setDetailLoading(false);
+      if (requestId === detailRequestRef.current) setDetailLoading(false);
     }
   }, [detailTaskId, viewTaskApi]);
 
@@ -1069,10 +1116,73 @@ export default function TaskDetailModal({
     try {
       const deps = await getDependencies(detailTaskId, companyId);
       setDependencies(deps);
-    } catch {
-      // silently fail
+    } catch (error) {
+      showError(
+        "Dependencies",
+        reportTaskError("Task dependency load failed", error),
+      );
     }
   }, [detailTaskId, companyId, getDependencies, task]);
+
+  const boundsProjectId = taskDetail?.task?.project_id ?? null;
+  const boundsSprintId = taskDetail?.task?.sprint_id ?? null;
+  const boundsParentId = taskDetail?.task?.parent_id ?? 0;
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    const next = {
+      sprintDueDate: null as string | null,
+      projectDueDate: null as string | null,
+      parentDueDate: null as string | null,
+    };
+
+    (async () => {
+      if (boundsProjectId) {
+        try {
+          const project = await getProjectDetail(Number(boundsProjectId));
+          if (project.ok) {
+            next.projectDueDate = project.data.project.due_date ?? null;
+          }
+        } catch (error) {
+          reportTaskError("Project due-date bound load failed", error);
+        }
+      }
+      if (boundsProjectId && boundsSprintId) {
+        try {
+          const sprints = await getSprints(companyId, Number(boundsProjectId));
+          if (sprints.ok) {
+            const sprint = sprints.data.find(
+              (entry) => Number(entry.id) === Number(boundsSprintId),
+            );
+            next.sprintDueDate = sprint?.due_date ?? null;
+          }
+        } catch (error) {
+          reportTaskError("Sprint due-date bound load failed", error);
+        }
+      }
+      if (boundsParentId) {
+        try {
+          const parent = await viewTaskApi(Number(boundsParentId));
+          next.parentDueDate = parent?.task?.due_date ?? null;
+        } catch (error) {
+          reportTaskError("Parent due-date bound load failed", error);
+        }
+      }
+      if (!cancelled) setDueBounds(next);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    visible,
+    boundsProjectId,
+    boundsSprintId,
+    boundsParentId,
+    companyId,
+    viewTaskApi,
+  ]);
 
   const handleAddDependency = async (dependsOnId: number) => {
     if (!task?.taskId) return;
@@ -1130,7 +1240,7 @@ export default function TaskDetailModal({
       return (
         rowId !== Number(task?.taskId) &&
         !existing.has(rowId) &&
-        (row._raw.status === "Pending" || row._raw.status === "In-Progress")
+        isDependencyCandidateStatus(String(row._raw.status))
       );
     });
   }, [allMappedTasks, dependencies, task?.taskId]);
@@ -1177,9 +1287,8 @@ export default function TaskDetailModal({
     setCriticalPromptVisible(true);
   };
 
-  const handleCriticalStop = async () => {
+  const handleCriticalStop = () => {
     setCriticalPromptVisible(false);
-    await persistTaskField({ task_priority: "critical", bump_to_front: true });
     setDetailOrderNewTask({
       id: Number(task?.taskId ?? 0),
       title: apiTask?.title ?? task?.title ?? "Task",
@@ -1187,6 +1296,7 @@ export default function TaskDetailModal({
       dueDate: apiTask?.due_date ?? undefined,
       status: apiTask?.status,
     });
+    // Do not persist/recalculate before the order is confirmed (AUD-025).
     setDetailOrderModalVisible(true);
   };
 
@@ -1195,7 +1305,24 @@ export default function TaskDetailModal({
     await persistTaskField({ task_priority: "critical", bump_to_front: false });
   };
 
+  const handleCancelDetailOrder = () => {
+    setDetailOrderModalVisible(false);
+    setDetailOrderNewTask(null);
+    setDetailCriticalTasks([]);
+    setEditTaskPriority(
+      apiTask?.task_priority === "critical" ? "critical" : "normal",
+    );
+  };
+
   const handleDetailOrderConfirm = async (orderedIds: number[]) => {
+    const newTaskId = Number(task?.taskId ?? 0);
+    const newFirst = isNewCriticalFirst(orderedIds, newTaskId);
+    const saved = await persistTaskField(
+      { task_priority: "critical", bump_to_front: newFirst },
+      { skipRecalculate: true },
+    );
+    if (!saved) return;
+
     const result = await reorderCritical({ orderedIds, company_id: companyId });
     if (!result.ok) {
       showError("Reorder Error", result.message);
@@ -1205,13 +1332,14 @@ export default function TaskDetailModal({
         .join(", ");
       showInfo(
         "Order Saved",
-        `Order saved. ${titles} have unfinished dependencies — they will be scheduled at the selected position once the dependencies are completed.`,
+        `Order saved. ${titles} have unfinished dependencies - they will be scheduled at the selected position once the dependencies are completed.`,
       );
     } else {
       showSuccess("Success", "Critical task order updated.");
     }
     setDetailOrderModalVisible(false);
     setDetailOrderNewTask(null);
+    await recalculateIfAts(newTaskId);
     await loadTaskDetail();
   };
 
@@ -1287,6 +1415,7 @@ export default function TaskDetailModal({
 
   const loadNotes = useCallback(async () => {
     if (!detailTaskId || !companyId || !companyIdentifier) return;
+    const requestId = ++notesRequestRef.current;
     setNotesLoading(true);
     try {
       const fetched = await fetchNotes(
@@ -1294,6 +1423,7 @@ export default function TaskDetailModal({
         companyId,
         companyIdentifier,
       );
+      if (requestId !== notesRequestRef.current) return;
       if (Array.isArray(fetched)) {
         const sanitized = fetched.map((n) => ({
           ...n,
@@ -1310,10 +1440,14 @@ export default function TaskDetailModal({
 
         setNotes(originalOrdered);
       }
-    } catch {
-      // silently fail
+    } catch (error) {
+      if (requestId !== notesRequestRef.current) return;
+      showError(
+        "Comments",
+        reportTaskError("Task comments load failed", error),
+      );
     } finally {
-      setNotesLoading(false);
+      if (requestId === notesRequestRef.current) setNotesLoading(false);
     }
   }, [detailTaskId, companyId, companyIdentifier, fetchNotes, task]);
 
@@ -1338,8 +1472,15 @@ export default function TaskDetailModal({
       }
     } else {
       // Do not retain detail/dependency payloads after the sheet closes.
+      detailRequestRef.current += 1;
+      notesRequestRef.current += 1;
       setTaskDetail(null);
       setDependencies([]);
+      setDueBounds({
+        sprintDueDate: null,
+        projectDueDate: null,
+        parentDueDate: null,
+      });
       setCommentText("");
       setReplyToNote(null);
       setEditingNote(null);
@@ -1766,11 +1907,6 @@ export default function TaskDetailModal({
     attachmentItems.length > 0
       ? attachmentItems.map((item) => item.original_name || item.attachment)
       : task.attachments;
-  const effortDisplay = apiTask
-    ? `${apiTask.effort_hours} ${apiTask.effort_unit}`
-    : task.effortHours
-      ? `${task.effortHours} ${task.effortUnit ?? "minutes"}`
-      : "-";
   const projectDisplay = apiTask?.project_name ?? task.projectName ?? "-";
 
   // Recurring detail string from API
@@ -1908,14 +2044,14 @@ export default function TaskDetailModal({
                     value={editTitle}
                     editable={canEdit}
                     onChangeText={setEditTitle}
-                    onBlur={() => {
+                    onBlur={async () => {
                       const trimmed = editTitle.trim();
                       if (
                         trimmed &&
                         trimmed !== lastSavedTitleRef.current.trim()
                       ) {
-                        lastSavedTitleRef.current = trimmed;
-                        persistTaskField({ title: trimmed });
+                        const saved = await persistTaskField({ title: trimmed });
+                        if (saved) lastSavedTitleRef.current = trimmed;
                       }
                     }}
                     scrollEnabled={false}
@@ -2253,10 +2389,13 @@ export default function TaskDetailModal({
                         onPress={() => setEffortPickerVisible(true)}
                       >
                         <Text style={styles.infoValue}>
-                          {editEffortHours || "0"}{" "}
-                          {editEffortUnit === "minutes"
-                            ? "mins"
-                            : editEffortUnit}
+                          {formatEffort(
+                            toMinutes(
+                              editEffortHours || "0",
+                              editEffortUnit as "minutes" | "hours" | "days",
+                            ),
+                            editEffortUnit as "minutes" | "hours" | "days",
+                          )}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -2369,10 +2508,12 @@ export default function TaskDetailModal({
                       ref={descriptionEditorRef}
                       initialHTML={editDescription}
                       onChangeHTML={setEditDescription}
-                      onBlur={() => {
+                      onBlur={async () => {
                         if (editDescription !== lastSavedDescRef.current) {
-                          lastSavedDescRef.current = editDescription;
-                          persistTaskField({ description: editDescription });
+                          const saved = await persistTaskField({
+                            description: editDescription,
+                          });
+                          if (saved) lastSavedDescRef.current = editDescription;
                         }
                       }}
                       disabled={!canEdit}
@@ -2699,6 +2840,7 @@ export default function TaskDetailModal({
                       .toLowerCase()
                       .includes(assigneeSearch.trim().toLowerCase()),
                   )
+                  .slice(0, 10)
                   .map((user) => {
                     const isSelected = editAssignToId === user.id;
                     return (
@@ -2793,16 +2935,12 @@ export default function TaskDetailModal({
                           return;
                         }
 
-                        // ATS reopen uses /tasks/reopen with priority + effort.
-                        if (
-                          isAts &&
-                          detailStatus === "Complete" &&
-                          st !== "Complete"
-                        ) {
+                        // ATS Complete/On-Hold reopening uses /tasks/reopen.
+                        if (shouldRouteAtsReopen(detailStatus, st, isAts)) {
                           if (Number(creatorIdOfTask) !== Number(currentUserId)) {
                             showError(
                               "Not Allowed",
-                              "Only the task creator can reopen a completed task.",
+                              "Only the task creator can reopen this task.",
                             );
                             return;
                           }
@@ -2812,13 +2950,9 @@ export default function TaskDetailModal({
                         }
 
                         // ATS resume from Pending-Approval allows optional effort.
-                        if (
-                          isAts &&
-                          detailStatus === "Pending-Approval" &&
-                          (st === "In-Progress" || st === "Pending")
-                        ) {
+                        if (shouldRouteAtsResume(detailStatus, st, isAts)) {
                           setStatusPickerVisible(false);
-                          setResumeTargetStatus(st);
+                          setResumeTargetStatus(st as "In-Progress" | "Pending");
                           setResumeModalVisible(true);
                           return;
                         }
@@ -2929,6 +3063,9 @@ export default function TaskDetailModal({
                         isSelected && styles.popoverRowSelected,
                       ]}
                       onPress={() => {
+                        // Event-handler call; the compiler rule flags the
+                        // detail-loader request-token ref through this chain.
+                        // eslint-disable-next-line react-hooks/refs
                         void handlePriorityChange(tier);
                       }}
                     >
@@ -3094,16 +3231,18 @@ export default function TaskDetailModal({
                   onChangeText={(t) =>
                     setEditEffortHours(t.replace(/[^0-9.]/g, ""))
                   }
-                  onBlur={() => {
+                  onBlur={async () => {
                     if (editEffortHours !== lastSavedEffortHoursRef.current) {
-                      lastSavedEffortHoursRef.current = editEffortHours;
-                      persistTaskField({
+                      const saved = await persistTaskField({
                         effort_hours: toMinutes(
                           editEffortHours,
                           editEffortUnit as "minutes" | "hours" | "days",
                         ),
                         effort_unit: editEffortUnit,
                       });
+                      if (saved) {
+                        lastSavedEffortHoursRef.current = editEffortHours;
+                      }
                     }
                   }}
                   keyboardType="numeric"
@@ -3118,7 +3257,7 @@ export default function TaskDetailModal({
                         styles.inlineUnitChip,
                         editEffortUnit === unit && styles.inlineUnitChipActive,
                       ]}
-                      onPress={() => {
+                      onPress={async () => {
                         const nextUnit = unit as "minutes" | "hours" | "days";
                         const minutes = toMinutes(
                           editEffortHours,
@@ -3127,11 +3266,11 @@ export default function TaskDetailModal({
                         const converted = String(fromMinutes(minutes, nextUnit));
                         setEditEffortUnit(nextUnit);
                         setEditEffortHours(converted);
-                        lastSavedEffortHoursRef.current = converted;
-                        persistTaskField({
+                        const saved = await persistTaskField({
                           effort_hours: minutes,
                           effort_unit: nextUnit,
                         });
+                        if (saved) lastSavedEffortHoursRef.current = converted;
                       }}
                     >
                       <Text
@@ -3169,6 +3308,7 @@ export default function TaskDetailModal({
               <CalendarPicker
                 startDate={editDueDate}
                 endDate={editDueDate}
+                disablePast={!isAts}
                 onSelectStart={(d) => {
                   setEditDueDate(d);
                   persistTaskField({ due_date: toCalendarDateOnly(d) });
@@ -3265,8 +3405,11 @@ export default function TaskDetailModal({
                         }}
                       >
                         Current Effort:{" "}
-                        {editEffortHours || apiTask?.effort_hours || "0"}{" "}
-                        {editEffortUnit || apiTask?.effort_unit || "hours"}
+                        {formatEffort(
+                          Number(apiTask?.effort_hours ?? 0),
+                          (apiTask?.effort_unit as "minutes" | "hours" | "days") ||
+                            "hours",
+                        )}
                       </Text>
                       <Text
                         style={{
@@ -3306,10 +3449,7 @@ export default function TaskDetailModal({
             }
           }
           existingCriticalTasks={detailCriticalTasks}
-          onClose={() => {
-            setDetailOrderModalVisible(false);
-            setDetailOrderNewTask(null);
-          }}
+          onClose={handleCancelDetailOrder}
           onConfirm={handleDetailOrderConfirm}
         />
       </View>
@@ -3372,13 +3512,19 @@ export default function TaskDetailModal({
         companyIdentifier={companyIdentifier}
         onSuccess={(newStatus) => {
           const nextStatus = newStatus ?? "Rejected";
+          const completedAt = new Date().toISOString();
           setEditStatus(nextStatus);
           const taskId = task.taskId ?? 0;
           if (taskId) {
             useTasksStore.getState().patchTask(taskId, {
               status: normalizeApiStatus(nextStatus) as never,
+              completed_at:
+                normalizeApiStatus(nextStatus) === "Complete"
+                  ? completedAt
+                  : null,
             });
-            void recalculateIfAts(taskId);
+            // Contract §8.9 / AUD-035: pass completion time to recalc.
+            void recalculateIfAts(taskId, completedAt);
           }
           loadTaskDetail();
         }}
@@ -3402,6 +3548,7 @@ export default function TaskDetailModal({
           if (taskId) {
             useTasksStore.getState().patchTask(taskId, {
               status: normalizeApiStatus(status) as never,
+              completed_at: null,
             });
           }
           void recalculateIfAts(taskId);
@@ -3423,6 +3570,7 @@ export default function TaskDetailModal({
               status: normalizeApiStatus(resumeTargetStatus) as never,
             });
           }
+          void recalculateIfAts(taskId);
           loadTaskDetail();
         }}
       />

@@ -14,6 +14,7 @@ import type { StatusType, TaskRowProps } from "@/components/TaskRow";
 import {
   approveTask,
   reassignTask,
+  recalculateSchedule,
   updateTaskStatus,
   viewTask,
 } from "@/features/tasks/api/taskApi";
@@ -27,6 +28,11 @@ import {
   normalizeApiStatus,
   toApiStatus,
 } from "@/features/tasks/utils/taskStatus";
+import {
+  shouldRecalculateAfterReassign,
+  shouldRecalculateAfterStatus,
+  shouldRouteAtsReopen,
+} from "@/features/tasks/utils/taskActionRules";
 import { validateAttachment } from "@/features/tasks/utils/taskValidation";
 import { formatTaskDueDatePkt } from "@/features/tasks/utils/taskDate";
 import {
@@ -88,6 +94,7 @@ export default function ProjectDetailScreen() {
   const { state: authState } = useAuth();
   const companyId = authState.company?.company_id ?? 0;
   const companyIdentifier = authState.company?.company_identifier ?? "";
+  const isAts = authState.hasAdvancedTaskModule === true;
   const canView = canViewProjects(authState.user, authState.company);
   const hasEditPermission = hasPermission(authState.user, TASK_PERMISSIONS.edit);
 
@@ -300,51 +307,74 @@ export default function ProjectDetailScreen() {
     [companyId],
   );
 
+  const recalculateIfAts = useCallback(
+    async (taskId: number, completedAt?: string) => {
+      if (!isAts) return;
+      try {
+        const result = await recalculateSchedule(taskId, {
+          company_id: companyId,
+          company_identifier: companyIdentifier,
+          completed_at: completedAt,
+        });
+        if (!result.ok) {
+          showError("Schedule Update Failed", result.message);
+        }
+      } catch (error) {
+        showError(
+          "Schedule Update Failed",
+          taskErrorMessage(error, "Could not recalculate the task."),
+        );
+      }
+    },
+    [companyId, companyIdentifier, isAts],
+  );
+
   const handleStatusChange = async (row: TaskRowProps, next: StatusType) => {
     const raw = row._raw;
     const taskId = Number(row.id);
     if (!raw || !taskId) return;
-    if (raw.can_edit_status !== true) {
+    const current = normalizeApiStatus(String(raw.status));
+    const requested = normalizeApiStatus(String(next));
+    const admin =
+      (authState.user?.role_title ?? "").trim().toLowerCase() === "company admin";
+    const creator =
+      Number(raw.created_by ?? 0) === Number(authState.user?.id ?? 0);
+    const isApproval = current === "Pending-Approval" && requested === "Complete";
+    const canApprove = isApproval && (admin || creator);
+
+    // A Company Admin can approve a Pending-Approval task even when the row
+    // does not grant can_edit_status (AUD-034).
+    if (raw.can_edit_status !== true && !canApprove) {
       showError("Not Allowed", "You cannot change this task's status.");
       return;
     }
-    if (isCompletedStatus(raw.status) && raw.can_edit !== true) {
+    if (isApproval && !canApprove) {
+      showError(
+        "Not Allowed",
+        "Only the task creator or company admin can approve a task.",
+      );
+      return;
+    }
+    if (isCompletedStatus(current) && raw.can_edit !== true) {
       showError("Not Allowed", "Only the task creator can reopen a completed task.");
       return;
     }
-    if (
-      isCompletedStatus(raw.status) &&
-      authState.hasAdvancedTaskModule === true &&
-      normalizeApiStatus(next) !== "Complete"
-    ) {
+    if (shouldRouteAtsReopen(current, requested, isAts)) {
       showInfo(
         "ATS Reopen",
         "Open the task detail to reopen this ATS task with a new priority and effort.",
       );
       return;
     }
-    if (normalizeApiStatus(next) === "Rejected") {
+    if (requested === "Rejected") {
       showInfo("Reject Task", "Open the task detail to reject a pending-approval task.");
       return;
     }
 
-    const apiStatus = toApiStatus(String(next));
+    const apiStatus = toApiStatus(requested);
+    const completedAt = new Date().toISOString();
     try {
-      if (
-        normalizeApiStatus(raw.status) === "Pending-Approval" &&
-        apiStatus === "Complete"
-      ) {
-        const createdBy = Number(raw.created_by ?? 0);
-        const admin =
-          (authState.user?.role_title ?? "").trim().toLowerCase() ===
-          "company admin";
-        if (!admin && createdBy !== Number(authState.user?.id)) {
-          showError(
-            "Not Allowed",
-            "Only the task creator or company admin can approve a task.",
-          );
-          return;
-        }
+      if (isApproval) {
         const result = await approveTask(taskId, {
           company_id: companyId,
           company_identifier: companyIdentifier,
@@ -353,6 +383,10 @@ export default function ProjectDetailScreen() {
           showError("Approval Failed", result.message);
           return;
         }
+        useTasksStore.getState().patchTask(taskId, {
+          status: "Complete",
+          completed_at: completedAt,
+        });
       } else {
         const result = await updateTaskStatus(taskId, {
           status: apiStatus,
@@ -368,6 +402,12 @@ export default function ProjectDetailScreen() {
             status: "Pending-Approval",
           });
         }
+      }
+      if (shouldRecalculateAfterStatus(current, requested, isAts)) {
+        await recalculateIfAts(
+          taskId,
+          requested === "Complete" ? completedAt : undefined,
+        );
       }
       refresh();
     } catch (err) {
@@ -398,6 +438,9 @@ export default function ProjectDetailScreen() {
     if (!result.ok) {
       showError("Reassign Failed", result.message);
       return;
+    }
+    if (shouldRecalculateAfterReassign(isAts)) {
+      await recalculateIfAts(taskId);
     }
     refresh();
   };

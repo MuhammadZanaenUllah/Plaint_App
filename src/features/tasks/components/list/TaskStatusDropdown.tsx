@@ -12,12 +12,21 @@ type Props = {
 
 function getOptions(item: TaskRowProps): { label: string; value: StatusType }[] {
   if (item.status === "Pending-Approval") {
-    return item.canApproveReject === true
-      ? [
-          { label: "Approve", value: "Completed" },
-          { label: "Reject", value: "Rejected" },
-        ]
-      : [];
+    const options: { label: string; value: StatusType }[] = [];
+    if (item.canApproveReject === true) {
+      options.push(
+        { label: "Approve", value: "Completed" },
+        { label: "Reject", value: "Rejected" },
+      );
+    }
+    // ATS doers resume from Pending-Approval with the optional-effort modal.
+    if (item.canEditStatus === true) {
+      options.push(
+        { label: "Resume as In Progress", value: "In-Progress" },
+        { label: "Resume as Pending", value: "Pending" },
+      );
+    }
+    return options;
   }
   if (item.status === "Completed") {
     return item.canReopen === true

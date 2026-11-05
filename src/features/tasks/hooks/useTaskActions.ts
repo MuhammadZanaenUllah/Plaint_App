@@ -20,10 +20,15 @@ import type { TaskListItem, UpdateTaskStatusRequest } from "../types/task.types"
 import {
   canTransitionStatus,
   isCompletedStatus,
-  isInProgressStatus,
   normalizeApiStatus,
   toApiStatus,
 } from "../utils/taskStatus";
+import {
+  isCompletionReady,
+  shouldRecalculateAfterStatus,
+  shouldRouteAtsReopen,
+  shouldRouteAtsResume,
+} from "../utils/taskActionRules";
 import { taskErrorMessage } from "../utils/taskError";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 
@@ -39,6 +44,8 @@ type Options = {
   ) => Promise<void>;
   refresh: () => void;
   onReject: (taskId: number) => void;
+  onReopen: (taskId: number) => void;
+  onResume: (taskId: number, status: "In-Progress" | "Pending") => void;
 };
 
 function getTask(row: TaskRowProps): TaskListItem | undefined {
@@ -47,15 +54,6 @@ function getTask(row: TaskRowProps): TaskListItem | undefined {
 
 function getTaskId(row: TaskRowProps): number {
   return Number(row.id);
-}
-
-function isCompletionReady(status: string): boolean {
-  return (
-    isInProgressStatus(status) ||
-    status === "In Review" ||
-    status === "In Testing" ||
-    status === "Pending-Approval"
-  );
 }
 
 export function useTaskActions({
@@ -67,6 +65,8 @@ export function useTaskActions({
   updateTaskStatusApi,
   refresh,
   onReject,
+  onReopen,
+  onResume,
 }: Options) {
   const recalculate = useCallback(
     async (taskId: number, completedAt?: string) => {
@@ -107,11 +107,28 @@ export function useTaskActions({
           showInfo("Not Allowed", "Only the task creator or company admin can reject this task.");
           return;
         }
-        if (isAts) {
-          showInfo("ATS Rejection", "ATS rejection options are part of the ATS task workflow.");
+        // ATS and normal both use the reject modal from the list.
+        onReject(taskId);
+        return;
+      }
+
+      // ATS Complete/On-Hold reopening needs the priority + effort modal.
+      if (shouldRouteAtsReopen(currentStatus, requestedStatus, isAts)) {
+        if (!canReopen(task, user, company)) {
+          showInfo("Not Allowed", "Only the task creator can reopen this task.");
           return;
         }
-        onReject(taskId);
+        onReopen(taskId);
+        return;
+      }
+
+      // ATS Pending-Approval doers use the Resume modal from the list.
+      if (shouldRouteAtsResume(currentStatus, requestedStatus, isAts)) {
+        if (!canChangeStatus(task, user)) {
+          showInfo("Not Allowed", "You don't have permission to change this task's status.");
+          return;
+        }
+        onResume(taskId, requestedStatus as "In-Progress" | "Pending");
         return;
       }
 
@@ -137,12 +154,13 @@ export function useTaskActions({
           showError("Approval Failed", result.message);
           return;
         }
+        const completedAt = new Date().toISOString();
         useTasksStore.getState().patchTask(taskId, {
           status: "Complete",
-          completed_at: new Date().toISOString(),
+          completed_at: completedAt,
         });
         showSuccess("Success", result.message ?? "Task approved successfully.");
-        await recalculate(taskId, new Date().toISOString());
+        await recalculate(taskId, completedAt);
         refresh();
         return;
       }
@@ -153,10 +171,6 @@ export function useTaskActions({
           !canReopen(task, user, company)
         ) {
           showInfo("Not Allowed", "Only the task creator can reopen a completed task.");
-          return;
-        }
-        if (isAts) {
-          showInfo("ATS Reopen", "ATS task reopening requires the Phase 5 rescheduling flow.");
           return;
         }
         if (requestedStatus !== "Pending" && requestedStatus !== "In-Progress") return;
@@ -195,11 +209,11 @@ export function useTaskActions({
       }
 
       const nextStatus = toApiStatus(requestedStatus);
-      const shouldRecalculate =
-        requestedStatus === "Complete" ||
-        requestedStatus === "Pending" ||
-        currentStatus === "On-Hold" ||
-        currentStatus === "Partial Complete";
+      const shouldRecalculate = shouldRecalculateAfterStatus(
+        currentStatus,
+        requestedStatus,
+        isAts,
+      );
 
       try {
         await updateTaskStatusApi(taskId, {
@@ -213,11 +227,14 @@ export function useTaskActions({
             "Approval Required",
             "You cannot mark the status as complete because approval is required. Please ask your team lead to mark the task as complete.",
           );
-        } else if (shouldRecalculate) {
-          await recalculate(
-            taskId,
-            requestedStatus === "Complete" ? new Date().toISOString() : undefined,
-          );
+        } else {
+          showSuccess("Success", "Task status updated.");
+          if (shouldRecalculate) {
+            await recalculate(
+              taskId,
+              requestedStatus === "Complete" ? new Date().toISOString() : undefined,
+            );
+          }
         }
         refresh();
       } catch (error) {
@@ -233,6 +250,8 @@ export function useTaskActions({
       companyIdentifier,
       isAts,
       onReject,
+      onReopen,
+      onResume,
       recalculate,
       refresh,
       updateTaskStatusApi,
@@ -300,9 +319,39 @@ export function useTaskActions({
   );
 
   const handleRejectSuccess = useCallback(
-    async (taskId: number) => {
-      useTasksStore.getState().patchTask(taskId, { status: "Rejected" });
+    async (taskId: number, newStatus?: string) => {
+      const status = normalizeApiStatus(newStatus ?? "Rejected");
+      useTasksStore.getState().patchTask(taskId, {
+        status: status as never,
+        completed_at: status === "Complete" ? new Date().toISOString() : null,
+      });
+      // Contract §8.9: recalculate after reject; the caller passes the new
+      // status so an ATS reject that became In Progress/Pending is not
+      // overwritten with "Rejected" (AUD-027).
       await recalculate(taskId, new Date().toISOString());
+      refresh();
+    },
+    [recalculate, refresh],
+  );
+
+  const handleReopenSuccess = useCallback(
+    async (taskId: number, status: string) => {
+      useTasksStore.getState().patchTask(taskId, {
+        status: normalizeApiStatus(status) as never,
+        completed_at: null,
+      });
+      await recalculate(taskId);
+      refresh();
+    },
+    [recalculate, refresh],
+  );
+
+  const handleResumeSuccess = useCallback(
+    async (taskId: number, status: string) => {
+      useTasksStore.getState().patchTask(taskId, {
+        status: normalizeApiStatus(status) as never,
+      });
+      await recalculate(taskId);
       refresh();
     },
     [recalculate, refresh],
@@ -320,5 +369,7 @@ export function useTaskActions({
     handleAssigneeChange,
     handleRejectSuccess,
     handleReopen,
+    handleReopenSuccess,
+    handleResumeSuccess,
   };
 }

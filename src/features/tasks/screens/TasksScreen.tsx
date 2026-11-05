@@ -137,6 +137,17 @@ function TasksScreenContent() {
   const [rejectTargetTaskId, setRejectTargetTaskId] = useState<number | null>(
     null,
   );
+  const [reopenModalVisible, setReopenModalVisible] = useState(false);
+  const [reopenTargetTaskId, setReopenTargetTaskId] = useState<number | null>(
+    null,
+  );
+  const [resumeModalVisible, setResumeModalVisible] = useState(false);
+  const [resumeTargetTaskId, setResumeTargetTaskId] = useState<number | null>(
+    null,
+  );
+  const [resumeTargetStatus, setResumeTargetStatus] = useState<
+    "In-Progress" | "Pending"
+  >("In-Progress");
   const [refreshing, setRefreshing] = useState(false);
 
   const statsScrollRef = useRef<ScrollView>(null);
@@ -213,6 +224,15 @@ function TasksScreenContent() {
     onReject: (taskId) => {
       setRejectTargetTaskId(taskId);
       setRejectModalVisible(true);
+    },
+    onReopen: (taskId) => {
+      setReopenTargetTaskId(taskId);
+      setReopenModalVisible(true);
+    },
+    onResume: (taskId, status) => {
+      setResumeTargetTaskId(taskId);
+      setResumeTargetStatus(status);
+      setResumeModalVisible(true);
     },
   });
 
@@ -425,13 +445,37 @@ function TasksScreenContent() {
         rejectTaskId={rejectTargetTaskId ?? 0}
         companyId={companyId ?? 0}
         companyIdentifier={companyIdentifier}
+        isAts={isAts}
         onRejectClose={() => {
           setRejectModalVisible(false);
           setRejectTargetTaskId(null);
         }}
-        onRejectSuccess={() =>
-          actions.handleRejectSuccess(rejectTargetTaskId ?? 0)
+        onRejectSuccess={(newStatus) =>
+          actions.handleRejectSuccess(rejectTargetTaskId ?? 0, newStatus)
         }
+        reopenModalVisible={reopenModalVisible}
+        reopenTaskId={reopenTargetTaskId ?? 0}
+        onReopenClose={() => {
+          setReopenModalVisible(false);
+          setReopenTargetTaskId(null);
+        }}
+        onReopenSuccess={(status) => {
+          void actions.handleReopenSuccess(reopenTargetTaskId ?? 0, status);
+          setReopenModalVisible(false);
+          setReopenTargetTaskId(null);
+        }}
+        resumeModalVisible={resumeModalVisible}
+        resumeTaskId={resumeTargetTaskId ?? 0}
+        resumeTargetStatus={resumeTargetStatus}
+        onResumeClose={() => {
+          setResumeModalVisible(false);
+          setResumeTargetTaskId(null);
+        }}
+        onResumeSuccess={(status) => {
+          void actions.handleResumeSuccess(resumeTargetTaskId ?? 0, status);
+          setResumeModalVisible(false);
+          setResumeTargetTaskId(null);
+        }}
       />
 
       <TaskProjectAssignmentHost

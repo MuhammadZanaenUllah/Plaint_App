@@ -28,9 +28,16 @@ export function validateCreateTaskForm(
   ctx: { isAts: boolean },
 ): CreateTaskValidationResult {
   const errors: Record<string, string> = {};
+  const missingRequired: string[] = [];
 
-  if (!form.title.trim()) errors.title = "Task title is required.";
-  if (!form.assignTo) errors.assignee = "Please assign a user.";
+  if (!form.title.trim()) {
+    errors.title = "Task title is required.";
+    missingRequired.push("Title");
+  }
+  if (!form.assignTo) {
+    errors.assignee = "Please assign a user.";
+    missingRequired.push("Assigned To");
+  }
 
   if (ctx.isAts) {
     const minutes = toMinutes(form.effortValue, form.effortUnit);
@@ -48,8 +55,9 @@ export function validateCreateTaskForm(
     else if (dueDate < today) errors.dueDate = "Due date cannot be in the past.";
   }
 
-  if (!CREATE_STATUSES.includes(normalizeApiStatus(form.status))) {
+  if (!form.status || !CREATE_STATUSES.includes(normalizeApiStatus(form.status))) {
     errors.status = "Status must be Pending, In-Progress, On-Hold or Complete.";
+    missingRequired.push("Status");
   }
 
   if (form.taskPriority === "critical" && !ctx.isAts) {
@@ -107,7 +115,12 @@ export function validateCreateTaskForm(
     }
   }
 
-  return result(errors);
+  // Contract §9.1: one combined message lists every missing required field.
+  const message =
+    missingRequired.length > 0
+      ? `Please fill in required fields: ${missingRequired.join(", ")}`
+      : undefined;
+  return result(errors, message);
 }
 
 export function validateCreateTaskAttachments(files: SelectedFile[]): {

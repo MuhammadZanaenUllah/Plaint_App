@@ -223,7 +223,8 @@ export function OrderCriticalTasksModal({
   onClose,
   onConfirm,
 }: OrderCriticalTasksProps) {
-  // orderedList: [newTask, ...existingCriticalTasks] – newTask is fixed at index 0
+  // orderedList: [newTask, ...existingCriticalTasks]. Every row is movable;
+  // bump_to_front is only used when the edited task ends up first.
   const [orderedList, setOrderedList] = useState<CriticalTask[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -235,7 +236,7 @@ export function OrderCriticalTasksModal({
   }, [visible, newTask, existingCriticalTasks]);
 
   const moveUp = useCallback((index: number) => {
-    if (index <= 1) return; // 0 = newTask (pinned), 1 can't move above newTask
+    if (index <= 0) return;
     setOrderedList((prev) => {
       const next = [...prev];
       [next[index - 1], next[index]] = [next[index], next[index - 1]];
@@ -303,7 +304,7 @@ export function OrderCriticalTasksModal({
           >
             {orderedList.map((task, index) => {
               const isNew = task.id === newTask.id;
-              const canMoveUp = index > 1;
+              const canMoveUp = index > 0;
               const canMoveDown = index < orderedList.length - 1;
 
               return (
@@ -361,40 +362,36 @@ export function OrderCriticalTasksModal({
 
                   {/* Up / Down controls */}
                   <View style={order.controls}>
-                    {!isNew && (
-                      <>
-                        <TouchableOpacity
-                          onPress={() => moveUp(index)}
-                          disabled={!canMoveUp}
-                          hitSlop={6}
-                          style={[
-                            order.controlBtn,
-                            !canMoveUp && order.controlBtnDisabled,
-                          ]}
-                        >
-                          <Ionicons
-                            name="chevron-up"
-                            size={16}
-                            color={canMoveUp ? "#1D1D1D" : "#D1D5DB"}
-                          />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => moveDown(index)}
-                          disabled={!canMoveDown}
-                          hitSlop={6}
-                          style={[
-                            order.controlBtn,
-                            !canMoveDown && order.controlBtnDisabled,
-                          ]}
-                        >
-                          <Ionicons
-                            name="chevron-down"
-                            size={16}
-                            color={canMoveDown ? "#1D1D1D" : "#D1D5DB"}
-                          />
-                        </TouchableOpacity>
-                      </>
-                    )}
+                    <TouchableOpacity
+                      onPress={() => moveUp(index)}
+                      disabled={!canMoveUp}
+                      hitSlop={6}
+                      style={[
+                        order.controlBtn,
+                        !canMoveUp && order.controlBtnDisabled,
+                      ]}
+                    >
+                      <Ionicons
+                        name="chevron-up"
+                        size={16}
+                        color={canMoveUp ? "#1D1D1D" : "#D1D5DB"}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => moveDown(index)}
+                      disabled={!canMoveDown}
+                      hitSlop={6}
+                      style={[
+                        order.controlBtn,
+                        !canMoveDown && order.controlBtnDisabled,
+                      ]}
+                    >
+                      <Ionicons
+                        name="chevron-down"
+                        size={16}
+                        color={canMoveDown ? "#1D1D1D" : "#D1D5DB"}
+                      />
+                    </TouchableOpacity>
                   </View>
                 </View>
               );

@@ -33,7 +33,6 @@ function toDashboardRow(
   owners: TaskOwner[],
   user: PermissionUser,
   company: PermissionCompany,
-  isAts: boolean,
 ): DashboardRow {
   const raw = entity as unknown as TaskListItem;
   const mapped = mapTaskListItem(raw, owners);
@@ -43,7 +42,7 @@ function toDashboardRow(
     // Missing permission flags must be treated as false (contract §6).
     canEditStatus: raw.can_edit_status === true,
     canApproveReject: canApproveReject(raw, user),
-    canReopen: !isAts && isComplete && canReopenTask(raw, user, company),
+    canReopen: isComplete && canReopenTask(raw, user, company),
     canReassign: canReassignTask(raw, user, company),
     subtaskCount: raw.subtask_count ?? 0,
     _raw: raw,
@@ -106,16 +105,16 @@ export function useTaskDashboard(
     const scoped = selectTasksForTab(store, filters.activeTab, now, { isAts });
     const filtered = applyTaskFilters(scoped, filters);
     return (filters.activeTab === "completed" ? filtered : sortTasks(filtered)).map(
-      (entity) => toDashboardRow(entity, store.owners, user, company, isAts),
+      (entity) => toDashboardRow(entity, store.owners, user, company),
     );
   }, [store, filters, now, isAts, user, company]);
 
   const allRows = useMemo(
     () =>
       Object.values(store.byId).map((entity) =>
-        toDashboardRow(entity, store.owners, user, company, isAts),
+        toDashboardRow(entity, store.owners, user, company),
       ),
-    [store.byId, store.owners, user, company, isAts],
+    [store.byId, store.owners, user, company],
   );
 
   const countFilters = useMemo(

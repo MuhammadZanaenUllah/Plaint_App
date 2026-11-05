@@ -150,12 +150,18 @@ function validateDueDateInto(value: string, errors: ValidationErrors, key: strin
   }
 }
 
+function dateOnly(value: string | null | undefined): string {
+  return (value ?? "").trim().slice(0, 10);
+}
+
 export function validateDueDate(
   dueDate: string | null,
   options: {
     isAts?: boolean;
     required?: boolean;
     sprintDueDate?: string | null;
+    projectDueDate?: string | null;
+    parentDueDate?: string | null;
     subtaskDueDate?: string | null;
   } = {},
 ): ValidationResult {
@@ -167,11 +173,20 @@ export function validateDueDate(
   validateDueDateInto(dueDate, errors, "dueDate");
   if (options.isAts) {
     errors.dueDate = "ATS due dates are scheduled by the engine and cannot be edited.";
+    return result(errors);
   }
-  if (options.sprintDueDate && dueDate > options.sprintDueDate) {
+
+  const due = dateOnly(dueDate);
+  if (options.sprintDueDate && due > dateOnly(options.sprintDueDate)) {
     errors.dueDate = "Task due date cannot exceed the sprint due date.";
   }
-  if (options.subtaskDueDate && dueDate < options.subtaskDueDate) {
+  if (options.projectDueDate && due > dateOnly(options.projectDueDate)) {
+    errors.dueDate = "Task due date cannot exceed the project due date.";
+  }
+  if (options.parentDueDate && due > dateOnly(options.parentDueDate)) {
+    errors.dueDate = "Due date cannot be after the parent task due date.";
+  }
+  if (options.subtaskDueDate && due < dateOnly(options.subtaskDueDate)) {
     errors.dueDate = "Due date cannot be before a subtask due date.";
   }
   return result(errors);

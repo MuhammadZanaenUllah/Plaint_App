@@ -139,16 +139,12 @@ export function canApproveReject(task: TaskListItem, user: PermissionUser): bool
 export function canReopen(
   task: TaskListItem,
   user: PermissionUser,
-  company?: PermissionCompany,
+  _company?: PermissionCompany,
 ): boolean {
   if (!user) return false;
   if (!isCreator(task, user)) return false;
-  const reopenable = isCompleted(task) || task.status === "On-Hold" || task.status === "On Hold";
-  if (!reopenable) return false;
-  if (company && hasAdvancedTaskModule(company)) {
-    return (task.effort_hours ?? 0) > 0;
-  }
-  return true;
+  // ATS /reopen requires a NEW effort value in the modal, not an existing one.
+  return isCompleted(task) || task.status === "On-Hold" || task.status === "On Hold";
 }
 
 export function canManageAttachments(
