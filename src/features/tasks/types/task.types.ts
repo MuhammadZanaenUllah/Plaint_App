@@ -144,6 +144,7 @@ export type TaskListItem = {
   effort_unit?: string;
   start_date?: string;
   project_name?: string | null;
+  sprint_name?: string | null;
   recurring_period?: RecurringPeriod | null;
   recurring_time?: string | null;
   recurring_total_count?: number;
@@ -187,6 +188,7 @@ export type TaskEntity = {
   project_id: number | null;
   project_name?: string | null;
   sprint_id: number | null;
+  sprint_name?: string | null;
   subtask_count: number;
   notes_count: number;
   can_edit: boolean;

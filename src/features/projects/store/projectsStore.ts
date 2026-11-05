@@ -12,7 +12,12 @@ import {
   updateProject as updateProjectApi,
   uploadProjectAttachment as uploadProjectAttachmentApi,
 } from "@/features/projects/api/projectsApi";
-import { getSprints } from "@/features/projects/api/sprintsApi";
+import {
+  createSprint as createSprintApi,
+  deleteSprint as deleteSprintApi,
+  getSprints,
+  updateSprint as updateSprintApi,
+} from "@/features/projects/api/sprintsApi";
 import type { ApiResult } from "@/features/tasks/api/apiResult";
 import type {
   CreateProjectPayload,
@@ -20,14 +25,26 @@ import type {
   ProjectEntity,
   ProjectUser,
   Sprint,
+  SprintCreatePayload,
+  SprintUpdatePayload,
   UpdateProjectRequest,
 } from "@/features/projects/types/project.types";
+
+type SprintContext = { companyId: number; projectId: number };
 
 export type ProjectsState = {
   projects: ProjectEntity[];
   projectDetail: ProjectDetailData | null;
   sprints: Sprint[];
+  sprintsProjectId: number | null;
   projectUsers: ProjectUser[];
+  assignableProjects: ProjectEntity[];
+  assignableProjectsLoading: boolean;
+  assignableProjectsError: string | null;
+  assignmentSprints: Sprint[];
+  assignmentSprintsProjectId: number | null;
+  assignmentSprintsLoading: boolean;
+  assignmentSprintsError: string | null;
   isLoading: boolean;
   error: string | null;
 
@@ -35,12 +52,24 @@ export type ProjectsState = {
   loadProjectDetail: (projectId: number) => Promise<void>;
   loadSprints: (companyId: number, projectId: number) => Promise<void>;
   loadProjectUsers: (companyId: number) => Promise<void>;
+  loadAssignableProjects: (companyId: number) => Promise<ProjectEntity[] | null>;
+  loadAssignmentSprints: (companyId: number, projectId: number) => Promise<Sprint[] | null>;
   createProject: (
     payload: CreateProjectPayload,
   ) => Promise<ApiResult<{ id: number }>>;
   updateProject: (
     projectId: number,
     payload: UpdateProjectRequest,
+  ) => Promise<ApiResult<string>>;
+  createSprint: (payload: SprintCreatePayload) => Promise<ApiResult<Sprint>>;
+  updateSprint: (
+    sprintId: number,
+    payload: SprintUpdatePayload,
+    context: SprintContext,
+  ) => Promise<ApiResult<Sprint>>;
+  deleteSprint: (
+    sprintId: number,
+    context: SprintContext,
   ) => Promise<ApiResult<string>>;
   uploadAttachment: (
     projectId: number,
@@ -55,7 +84,15 @@ const initialState = {
   projects: [] as ProjectEntity[],
   projectDetail: null as ProjectDetailData | null,
   sprints: [] as Sprint[],
+  sprintsProjectId: null as number | null,
   projectUsers: [] as ProjectUser[],
+  assignableProjects: [] as ProjectEntity[],
+  assignableProjectsLoading: false,
+  assignableProjectsError: null as string | null,
+  assignmentSprints: [] as Sprint[],
+  assignmentSprintsProjectId: null as number | null,
+  assignmentSprintsLoading: false,
+  assignmentSprintsError: null as string | null,
   isLoading: false,
   error: null as string | null,
 };
@@ -90,7 +127,7 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
       set({ isLoading: false, error: result.message });
       return;
     }
-    set({ sprints: result.data, isLoading: false });
+    set({ sprints: result.data, sprintsProjectId: projectId, isLoading: false });
   },
 
   loadProjectUsers: async (companyId) => {
@@ -100,6 +137,44 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
       return;
     }
     set({ projectUsers: result.data });
+  },
+
+  loadAssignableProjects: async (companyId) => {
+    set({ assignableProjectsLoading: true, assignableProjectsError: null });
+    const result = await getAllProjects(companyId, { scope: "all", lite: true });
+    if (!result.ok) {
+      set({
+        assignableProjectsLoading: false,
+        assignableProjectsError: result.message,
+      });
+      return null;
+    }
+    set({
+      assignableProjects: result.data,
+      assignableProjectsLoading: false,
+    });
+    return result.data;
+  },
+
+  loadAssignmentSprints: async (companyId, projectId) => {
+    set({
+      assignmentSprintsLoading: true,
+      assignmentSprintsError: null,
+      assignmentSprintsProjectId: projectId,
+    });
+    const result = await getSprints(companyId, projectId);
+    if (!result.ok) {
+      set({
+        assignmentSprintsLoading: false,
+        assignmentSprintsError: result.message,
+      });
+      return null;
+    }
+    set({
+      assignmentSprints: result.data,
+      assignmentSprintsLoading: false,
+    });
+    return result.data;
   },
 
   createProject: async (payload) => {
@@ -119,6 +194,33 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
     return result;
   },
 
+  createSprint: async (payload) => {
+    const result = await createSprintApi(payload);
+    if (result.ok) {
+      await get().loadSprints(payload.company_id, payload.project_id);
+    }
+    return result;
+  },
+
+  updateSprint: async (sprintId, payload, context) => {
+    const result = await updateSprintApi(sprintId, payload);
+    if (result.ok) {
+      await get().loadSprints(context.companyId, context.projectId);
+    }
+    return result;
+  },
+
+  deleteSprint: async (sprintId, context) => {
+    const result = await deleteSprintApi(sprintId);
+    if (result.ok) {
+      await Promise.all([
+        get().loadSprints(context.companyId, context.projectId),
+        get().loadProjectDetail(context.projectId),
+      ]);
+    }
+    return result;
+  },
+
   uploadAttachment: async (projectId, formData) => {
     const result = await uploadProjectAttachmentApi(projectId, formData);
     if (result.ok) await get().loadProjectDetail(projectId);
@@ -129,7 +231,8 @@ export const useProjectsStore = create<ProjectsState>()((set, get) => ({
     return deleteProjectAttachmentApi(attachmentId);
   },
 
-  clearDetail: () => set({ projectDetail: null, sprints: [] }),
+  clearDetail: () =>
+    set({ projectDetail: null, sprints: [], sprintsProjectId: null }),
   reset: () => set({ ...initialState }),
 }));
 

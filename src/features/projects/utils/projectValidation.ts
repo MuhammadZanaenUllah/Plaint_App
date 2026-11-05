@@ -2,6 +2,7 @@
 // Contract references: §4.1-§4.3, FLOW-P-003, FLOW-P-006.
 
 import type { CanonicalProjectStatus } from "../types/project.types";
+import { toPktDateOnly } from "@/features/tasks/utils/taskDate";
 
 export type ValidationErrors = Record<string, string>;
 export type ValidationResult = { valid: boolean; errors: ValidationErrors };
@@ -48,14 +49,21 @@ export type SprintForm = {
   projectDueDate?: string | null;
 };
 
+function isAfterDay(a: string, b: string): boolean {
+  const aDay = toPktDateOnly(a);
+  const bDay = toPktDateOnly(b);
+  if (!aDay || !bDay) return a > b;
+  return aDay > bDay;
+}
+
 export function validateSprint(form: SprintForm): ValidationResult {
   const errors: ValidationErrors = {};
-  if (!form.name?.trim()) errors.name = "Sprint name is required.";
-  if (!form.dueDate) errors.dueDate = "Sprint due date is required.";
+  if (!form.name?.trim()) errors.name = "Please enter sprint name and due date.";
+  if (!form.dueDate) errors.dueDate = "Please enter sprint name and due date.";
   else if (!isIsoOrDateOnly(form.dueDate)) errors.dueDate = "Due date must be a valid date.";
 
-  if (form.dueDate && form.projectDueDate && form.dueDate > form.projectDueDate) {
-    errors.dueDate = "Sprint due date cannot be after the project due date.";
+  if (form.dueDate && form.projectDueDate && isAfterDay(form.dueDate, form.projectDueDate)) {
+    errors.dueDate = "Sprint date cannot be later than the project due date.";
   }
   return result(errors);
 }
@@ -65,8 +73,28 @@ export function validateSprintAssignment(
   taskDueDate: string | null | undefined,
 ): ValidationResult {
   const errors: ValidationErrors = {};
-  if (sprintDueDate && taskDueDate && taskDueDate > sprintDueDate) {
-    errors.sprint = "This task's due date is after the sprint deadline; choose another sprint or reduce effort.";
+  if (sprintDueDate && taskDueDate && isAfterDay(taskDueDate, sprintDueDate)) {
+    errors.sprint =
+      "Task due date exceeds the sprint due date. Choose another sprint or adjust the task date.";
+  }
+  return result(errors);
+}
+
+export function validateSprintDateForTasks(
+  sprintDueDate: string | null | undefined,
+  taskDueDates: (string | null | undefined)[],
+): ValidationResult {
+  const errors: ValidationErrors = {};
+  if (!sprintDueDate) {
+    errors.dueDate = "Sprint due date is required.";
+    return result(errors);
+  }
+  const lateTask = taskDueDates.find(
+    (taskDueDate) => taskDueDate && isAfterDay(taskDueDate, sprintDueDate),
+  );
+  if (lateTask) {
+    errors.dueDate =
+      "Sprint date cannot be earlier than the due date of a task in this sprint.";
   }
   return result(errors);
 }

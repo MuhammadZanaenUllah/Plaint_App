@@ -6,9 +6,11 @@ import TaskDetailModal, {
   buildTaskDetailFromViewTask,
   type TaskDetail,
 } from "@/components/TaskDetailModal";
-import SingleTaskTable from "@/components/SingleTaskTable";
+import SingleTaskTable, {
+  type AssignableOwner,
+  type SingleTaskTableColumn,
+} from "@/components/SingleTaskTable";
 import type { StatusType, TaskRowProps } from "@/components/TaskRow";
-import type { AssignableOwner } from "@/components/SingleTaskTable";
 import {
   approveTask,
   reassignTask,
@@ -28,10 +30,17 @@ import {
 import { validateAttachment } from "@/features/tasks/utils/taskValidation";
 import { formatTaskDueDatePkt } from "@/features/tasks/utils/taskDate";
 import {
+  canAssignTaskToProject,
+  canCreateSprint,
   canEditProject,
   canViewProjects,
 } from "@/features/projects/permissions/projectPermissions";
 import { useProjectsStore } from "@/features/projects/store/projectsStore";
+import CreateSprintModal from "@/features/projects/components/project-detail/CreateSprintModal";
+import ProjectSprintsSection from "@/features/projects/components/project-detail/ProjectSprintsSection";
+import { useProjectSprints } from "@/features/projects/components/project-detail/useProjectSprints";
+import { useTaskProjectAssignment } from "@/features/tasks/hooks/useTaskProjectAssignment";
+import TaskProjectAssignmentHost from "@/features/tasks/components/shared/TaskProjectAssignmentHost";
 import type {
   CanonicalProjectStatus,
   ProjectAttachment,
@@ -80,9 +89,12 @@ export default function ProjectDetailScreen() {
   const {
     projectDetail,
     projectUsers,
+    sprints,
+    sprintsProjectId,
     isLoading,
     error,
     loadProjectDetail,
+    loadSprints,
     loadProjectUsers,
     updateProject,
     uploadAttachment,
@@ -110,8 +122,16 @@ export default function ProjectDetailScreen() {
   useEffect(() => {
     if (!projectId || !canView) return;
     loadProjectDetail(projectId).catch(() => {});
+    loadSprints(companyId, projectId).catch(() => {});
     loadProjectUsers(companyId).catch(() => {});
-  }, [canView, companyId, loadProjectDetail, loadProjectUsers, projectId]);
+  }, [
+    canView,
+    companyId,
+    loadProjectDetail,
+    loadProjectUsers,
+    loadSprints,
+    projectId,
+  ]);
 
   useEffect(() => {
     const detail = projectDetail;
@@ -167,10 +187,53 @@ export default function ProjectDetailScreen() {
   );
   const openTaskCount = projectTasks.filter(isOpenProjectTask).length;
 
+  const canManageSprints = canCreateSprint(
+    authState.user,
+    authState.company,
+    projectDetail,
+  );
+  const canAssignProject = canAssignTaskToProject(
+    authState.user,
+    authState.company,
+  );
+
+  const projectSprints = useMemo(
+    () => (sprintsProjectId === projectId ? sprints : []),
+    [projectId, sprints, sprintsProjectId],
+  );
+
+  const sprintNames = useMemo(
+    () =>
+      new Map(
+        projectSprints.map((sprint) => [Number(sprint.id), sprint.name]),
+      ),
+    [projectSprints],
+  );
+
+  const assignment = useTaskProjectAssignment({
+    companyId,
+    companyIdentifier,
+    canAssign: canAssignProject,
+    refresh,
+  });
+
+  const sprintController = useProjectSprints({
+    companyId,
+    companyIdentifier,
+    userId: Number(authState.user?.id ?? 0),
+    project: projectDetail,
+    sprints: projectSprints,
+  });
+
   const rows: TaskRowProps[] = useMemo(
     () =>
       projectTasks.map((task) => ({
         ...mapTaskListItem(task, taskState.taskOwners ?? []),
+        sprint: task.sprint_id
+          ? sprintNames.get(Number(task.sprint_id)) ??
+            `Sprint #${task.sprint_id}`
+          : undefined,
+        canEditSprint: task.can_edit === true && canAssignProject,
         canEditStatus: task.can_edit_status === true,
         canReassign: task.can_edit === true && hasEditPermission,
         canApproveReject:
@@ -179,7 +242,19 @@ export default function ProjectDetailScreen() {
             (authState.user?.role_title ?? "").trim().toLowerCase() ===
               "company admin"),
       })),
-    [authState.user, hasEditPermission, projectTasks, taskState.taskOwners],
+    [
+      authState.user,
+      canAssignProject,
+      hasEditPermission,
+      projectTasks,
+      sprintNames,
+      taskState.taskOwners,
+    ],
+  );
+
+  const projectTaskColumns = useMemo<SingleTaskTableColumn[]>(
+    () => ["title", "createdBy", "assignedTo", "dueDate", "sprint", "status"],
+    [],
   );
 
   const openTask = useCallback(
@@ -624,6 +699,15 @@ export default function ProjectDetailScreen() {
               </TouchableOpacity>
             )}
 
+            <ProjectSprintsSection
+              sprints={projectSprints}
+              loading={isLoading}
+              canManage={canManageSprints}
+              onCreate={sprintController.openCreate}
+              onEditDate={sprintController.openDate}
+              onDelete={sprintController.requestDelete}
+            />
+
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionTitle}>Attachments</Text>
               {canEditNow && <DocumentPickerButton onPick={handlePickAttachment} />}
@@ -663,6 +747,7 @@ export default function ProjectDetailScreen() {
             <SingleTaskTable
               sectionTitle=""
               tasks={rows}
+              columns={projectTaskColumns}
               contained
               canReassign={hasEditPermission}
               assignableOwners={(taskState.taskOwners ?? []).map((owner) => ({
@@ -677,11 +762,17 @@ export default function ProjectDetailScreen() {
               onCommentPress={(row) => openTask(row, "comments")}
               onStatusChange={handleStatusChange}
               onAssigneeChange={handleAssigneeChange}
+              onSprintPress={(row) => {
+                if (!projectDetail) return;
+                assignment.openSprintForTask(row, projectDetail);
+              }}
               emptyText="No tasks in this project."
             />
           </ScrollView>
         </KeyboardAvoidingView>
       )}
+
+      <CreateSprintModal {...sprintController.createModalProps} />
 
       <TaskDetailModal
         visible={!!selectedTask}
@@ -691,6 +782,12 @@ export default function ProjectDetailScreen() {
         }}
         task={selectedTask}
         initialTab={initialTab}
+      />
+
+      <TaskProjectAssignmentHost
+        controller={assignment}
+        companyId={companyId}
+        companyIdentifier={companyIdentifier}
       />
     </SafeAreaView>
   );

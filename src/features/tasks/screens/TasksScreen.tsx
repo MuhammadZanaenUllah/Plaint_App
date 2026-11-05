@@ -10,6 +10,8 @@ import { useTaskDeepLink } from "@/features/tasks/hooks/useTaskDeepLink";
 import { useTaskDetailOpener } from "@/features/tasks/hooks/useTaskDetailOpener";
 import { useTaskFilterController } from "@/features/tasks/hooks/useTaskFilterController";
 import { useTaskDelayedPopup } from "@/features/tasks/hooks/useTaskDelayedPopup";
+import { useTaskProjectAssignment } from "@/features/tasks/hooks/useTaskProjectAssignment";
+import TaskProjectAssignmentHost from "@/features/tasks/components/shared/TaskProjectAssignmentHost";
 import { useTaskStats } from "@/features/tasks/hooks/useTaskStats";
 import styles from "./TasksScreen.styles";
 import { useTaskTabs } from "@/features/tasks/hooks/useTaskTabs";
@@ -26,7 +28,11 @@ import { useTaskFiltersStore } from "@/features/tasks/store/taskFiltersStore";
 import { useSearch } from "@/context/SearchContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
-import { canViewProjects } from "@/features/projects/permissions/projectPermissions";
+import {
+  canAssignTaskToProject,
+  canCreateProject,
+  canViewProjects,
+} from "@/features/projects/permissions/projectPermissions";
 import { showError } from "@/utils/toast";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -153,6 +159,14 @@ function TasksScreenContent() {
     () => canViewProjects(authState.user, authState.company),
     [authState.company, authState.user],
   );
+  const canAssignProject = useMemo(
+    () => canAssignTaskToProject(authState.user, authState.company),
+    [authState.company, authState.user],
+  );
+  const canCreateProjectNow = useMemo(
+    () => canCreateProject(authState.user, authState.company),
+    [authState.company, authState.user],
+  );
 
   const handleRefresh = useCallback(async () => {
     if (!companyId) return;
@@ -195,6 +209,16 @@ function TasksScreenContent() {
     onReject: (taskId) => {
       setRejectTargetTaskId(taskId);
       setRejectModalVisible(true);
+    },
+  });
+
+  const assignment = useTaskProjectAssignment({
+    companyId: companyId ?? 0,
+    companyIdentifier,
+    canAssign: canAssignProject,
+    canCreateProject: canCreateProjectNow,
+    refresh: () => {
+      handleRefresh().catch(() => {});
     },
   });
 
@@ -373,6 +397,8 @@ function TasksScreenContent() {
           onStatusChange={actions.handleStatusChange}
           onAssigneeChange={actions.handleAssigneeChange}
           onScrollOffsetChange={handleScrollOffset}
+          canAssignProject={canAssignProject}
+          onAddToProjectPress={assignment.openForTask}
         />
       </Pressable>
 
@@ -399,6 +425,12 @@ function TasksScreenContent() {
         onRejectSuccess={() =>
           actions.handleRejectSuccess(rejectTargetTaskId ?? 0)
         }
+      />
+
+      <TaskProjectAssignmentHost
+        controller={assignment}
+        companyId={companyId ?? 0}
+        companyIdentifier={companyIdentifier}
       />
     </View>
   );

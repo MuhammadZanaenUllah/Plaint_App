@@ -28,6 +28,8 @@ type Props = {
   onStatusChange: (task: TaskRowProps, status: StatusType) => void;
   onAssigneeChange: (task: TaskRowProps, owner: AssignableOwner) => void;
   onScrollOffsetChange: (offsetY: number) => void;
+  canAssignProject?: boolean;
+  onAddToProjectPress?: (task: TaskRowProps) => void;
 };
 
 export default function TaskList({
@@ -53,6 +55,8 @@ export default function TaskList({
   onStatusChange,
   onAssigneeChange,
   onScrollOffsetChange,
+  canAssignProject,
+  onAddToProjectPress,
 }: Props) {
   return (
     <TaskListSection
@@ -82,6 +86,8 @@ export default function TaskList({
         canReassign={canReassign}
         assignableOwners={assignableOwners}
         onAssigneeChange={onAssigneeChange}
+        canAssignProject={canAssignProject}
+        onAddToProjectPress={onAddToProjectPress}
         virtualized
       />
     </TaskListSection>

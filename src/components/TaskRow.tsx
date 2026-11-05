@@ -17,10 +17,12 @@ export type TaskRowProps = {
   taskPriority?: "normal" | "critical";
   comment?: string;
   project?: string;
+  sprint?: string;
   canEditStatus?: boolean;
   canApproveReject?: boolean;
   canReopen?: boolean;
   canReassign?: boolean;
+  canEditSprint?: boolean;
   subtaskCount?: number;
   _raw?: TaskListItem;
   isOpen?: boolean;

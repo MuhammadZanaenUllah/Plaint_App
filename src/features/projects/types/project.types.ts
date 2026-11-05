@@ -206,10 +206,9 @@ export type SprintCreatePayload = {
   company_identifier?: string;
 };
 
+// The backend copies the whole body onto the sprint, so send only the date.
 export type SprintUpdatePayload = {
   due_date: string; // ISO
-  company_id: number;
-  company_identifier?: string;
 };
 
 export type ProjectEditRights = {

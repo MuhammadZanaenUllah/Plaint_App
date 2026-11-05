@@ -482,14 +482,22 @@ export function useTaskSocketBridge({
         const projectId = numeric(p.project_id ?? p.data?.id);
         const projects = useProjectsStore.getState();
         if (projectId) {
-          if (projects.sprints.length > 0) {
+          const detailOpen =
+            !!projects.projectDetail &&
+            Number(projects.projectDetail.id) === projectId;
+          const sprintsLoaded =
+            projects.sprintsProjectId === projectId ||
+            projects.assignmentSprintsProjectId === projectId;
+          if (detailOpen || sprintsLoaded) {
             projects.loadSprints(companyId, projectId).catch(() => {});
           }
-          if (
-            projects.projectDetail &&
-            Number(projects.projectDetail.id) === projectId
-          ) {
+          if (detailOpen) {
             projects.loadProjectDetail(projectId).catch(() => {});
+          }
+          if (projects.assignmentSprintsProjectId === projectId) {
+            projects
+              .loadAssignmentSprints(companyId, projectId)
+              .catch(() => {});
           }
         }
         scheduleProjectRefetch();

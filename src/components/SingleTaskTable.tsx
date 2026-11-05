@@ -79,6 +79,7 @@ export type SingleTaskTableColumn =
   | "createdBy"
   | "assignedTo"
   | "dueDate"
+  | "sprint"
   | "status";
 
 type Props = {
@@ -103,6 +104,7 @@ type Props = {
   onAssigneeChange?: (task: TaskRowProps, owner: AssignableOwner) => void;
   canAssignProject?: boolean;
   onAddToProjectPress?: (task: TaskRowProps) => void;
+  onSprintPress?: (task: TaskRowProps) => void;
   // Optional column configuration. When omitted, the classic task layout is
   // used (Title / Created By / Due Date, fitted to the window without
   // horizontal scrolling). When provided, only the listed columns render —
@@ -152,6 +154,7 @@ const DEFAULT_COLUMN_HEADINGS: Record<SingleTaskTableColumn, string> = {
   createdBy: "Created By",
   assignedTo: "Assigned To",
   dueDate: "Due Date",
+  sprint: "Sprint",
   status: "Status",
 };
 
@@ -212,6 +215,7 @@ function getTableMetrics(
     createdBy: 1.1,
     assignedTo: 1.1,
     dueDate: 0.8,
+    sprint: 0.9,
     status: 0.8,
   };
   const COL_MIN: Record<SingleTaskTableColumn, number> = {
@@ -219,6 +223,7 @@ function getTableMetrics(
     createdBy: 90,
     assignedTo: 90,
     dueDate: 95,
+    sprint: 90,
     status: 80,
   };
   const FIXED_COL_WIDTHS: Record<SingleTaskTableColumn, number> = {
@@ -226,6 +231,7 @@ function getTableMetrics(
     createdBy: 160,
     assignedTo: 160,
     dueDate: 150,
+    sprint: 150,
     status: 130,
   };
 
@@ -362,6 +368,7 @@ function SingleTaskTable({
   onAssigneeChange,
   canAssignProject = false,
   onAddToProjectPress,
+  onSprintPress,
   columns,
   columnHeadings,
   readOnly = false,
@@ -752,6 +759,7 @@ function SingleTaskTable({
                   }
                   canAssignProject={canAssignProject}
                   onAddToProjectPress={onAddToProjectPress}
+                  onSprintPress={onSprintPress}
                   scrollCloseSignal={scrollCloseSignal}
                   columns={effectiveColumns}
                   readOnly={readOnly}
@@ -904,6 +912,7 @@ function SingleTaskTable({
                       }
                       canAssignProject={canAssignProject}
                       onAddToProjectPress={onAddToProjectPress}
+                      onSprintPress={onSprintPress}
                       scrollCloseSignal={scrollCloseSignal}
                       columns={effectiveColumns}
                       readOnly={readOnly}
@@ -961,6 +970,7 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
   onAssigneeSelect,
   canAssignProject,
   onAddToProjectPress,
+  onSprintPress,
   scrollCloseSignal,
   columns,
   readOnly,
@@ -987,6 +997,7 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
   onAssigneeSelect: (owner: AssignableOwner) => void;
   canAssignProject?: boolean;
   onAddToProjectPress?: (task: TaskRowProps) => void;
+  onSprintPress?: (task: TaskRowProps) => void;
   columns: SingleTaskTableColumn[];
   readOnly?: boolean;
 }) {
@@ -1186,6 +1197,9 @@ const SwipeTaskRow = memo(function SwipeTaskRow({
                 columnKey={key}
                 width={metrics.columnWidths[key]!}
                 onPress={key === "title" ? () => onTaskPress?.(item) : undefined}
+                onSprintPress={
+                  key === "sprint" ? () => onSprintPress?.(item) : undefined
+                }
               />
             ))}
             {!readOnly && currentStage === null && (
@@ -1313,11 +1327,13 @@ const TaskCellContent = memo(function TaskCellContent({
   columnKey,
   width,
   onPress,
+  onSprintPress,
 }: {
   item: TaskRowProps;
   columnKey: SingleTaskTableColumn;
   width: number;
   onPress?: () => void;
+  onSprintPress?: () => void;
 }) {
   const isCompleted = item.status === "Completed";
 
@@ -1414,6 +1430,45 @@ const TaskCellContent = memo(function TaskCellContent({
     );
   }
 
+  if (columnKey === "sprint") {
+    const label = item.sprint?.trim() || "No Sprint";
+    const content = (
+      <>
+        <Ionicons
+          name="flag-outline"
+          size={15}
+          color={item.sprint ? "#00DEAB" : "#9CA3AF"}
+          style={styles.dateIcon}
+        />
+        <Text
+          style={[styles.cellText, !item.sprint && styles.mutedCellText]}
+          numberOfLines={1}
+        >
+          {label}
+        </Text>
+        {onSprintPress && item.canEditSprint !== false ? (
+          <Ionicons name="chevron-down" size={12} color="#6B7280" />
+        ) : null}
+      </>
+    );
+
+    if (!onSprintPress || item.canEditSprint === false) {
+      return <View style={[styles.dateCell, { width }]}>{content}</View>;
+    }
+    return (
+      <TouchableOpacity
+        style={[styles.dateCell, { width }]}
+        onPress={() => {
+          triggerHaptic("light");
+          onSprintPress();
+        }}
+        activeOpacity={0.7}
+      >
+        {content}
+      </TouchableOpacity>
+    );
+  }
+
   const statusColor = STATUS_COLORS[item.status] ?? {
     bg: "#F3F4F6",
     text: "#4B5563",
@@ -1490,6 +1545,8 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
     item.canEditStatus === true ||
     item.canApproveReject === true ||
     item.canReopen === true;
+  const canChangeProject =
+    canAssignProject === true && item._raw?.can_edit !== false;
 
   if (stage === "actions") {
     return (
@@ -1552,7 +1609,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
           <Text style={[styles.swipeHeaderText, styles.swipeCommentColumn]}>
             Comment
           </Text>
-          {canAssignProject ? (
+          {canChangeProject ? (
             <Text style={[styles.swipeHeaderText, styles.swipeProjectColumn]}>
               Project
             </Text>
@@ -1649,7 +1706,7 @@ const TaskSwipeContent = memo(function TaskSwipeContent({
           <Ionicons name="chatbox-outline" size={18} color="#00DEAB" />
         </TouchableOpacity>
 
-        {canAssignProject ? (
+        {canChangeProject ? (
           <TouchableOpacity
             style={[styles.swipeProjectCell, styles.swipeProjectColumn]}
             onPress={() => onAddToProjectPress?.(item)}
@@ -1935,6 +1992,9 @@ const styles = StyleSheet.create({
     fontSize: rf(10.5),
     color: "#1F2937",
     fontFamily: "SF_Pro_Medium",
+  },
+  mutedCellText: {
+    color: "#9CA3AF",
   },
   dateCell: {
     flexDirection: "row",
