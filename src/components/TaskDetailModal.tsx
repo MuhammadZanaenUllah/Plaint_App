@@ -49,6 +49,7 @@ import { selectAttachmentChips } from "@/features/tasks/utils/attachmentDisplay"
 import { buildEffortHistoryRows } from "@/features/tasks/utils/effortHistory";
 import { needsTaskLookupRefresh } from "@/features/tasks/utils/realtime";
 import { reportTaskError } from "@/features/tasks/utils/taskError";
+import { filterAndCapDetailAssignees } from "@/features/tasks/utils/taskOwnerFilter";
 import {
   validateAttachment,
   validateDueDate,
@@ -2627,14 +2628,10 @@ export default function TaskDetailModal({
                 style={{ maxHeight: 260 }}
                 keyboardShouldPersistTaps="handled"
               >
-                {taskState.taskOwners
-                  .filter((user) =>
-                    `${user.first_name ?? ""} ${user.last_name ?? ""} ${user.full_name ?? ""}`
-                      .toLowerCase()
-                      .includes(assigneeSearch.trim().toLowerCase()),
-                  )
-                  .slice(0, 10)
-                  .map((user) => {
+                {filterAndCapDetailAssignees(
+                  taskState.taskOwners,
+                  assigneeSearch,
+                ).map((user) => {
                     const isSelected = editAssignToId === user.id;
                     return (
                       <TouchableOpacity

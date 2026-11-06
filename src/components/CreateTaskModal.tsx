@@ -42,6 +42,7 @@ import {
   isNewCriticalFirst,
   replacePlaceholderId,
 } from "@/features/tasks/utils/taskActionRules";
+import { filterAndCapCreateAssignees } from "@/features/tasks/utils/taskOwnerFilter";
 import { validateAttachment } from "@/features/tasks/utils/taskValidation";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
@@ -292,13 +293,11 @@ export default function CreateTaskModal({
 
 
 
-  const filteredUsers = taskState.taskOwners
-    .filter((u) => {
-      const fullName = `${u.first_name} ${u.last_name}`.toLowerCase();
-      return fullName.includes(assignSearch.toLowerCase());
-    })
-    // Contract Â§9.1: at most 10 assignee results.
-    .slice(0, 10);
+  // Contract §9.1: at most 10 assignee results.
+  const filteredUsers = filterAndCapCreateAssignees(
+    taskState.taskOwners,
+    assignSearch,
+  );
 
   // All global tasks available for dependencies. Exclude only completed,
   // closed/cancelled and On-Hold tasks; search + paging are handled inside

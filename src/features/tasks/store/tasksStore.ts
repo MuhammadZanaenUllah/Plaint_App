@@ -14,15 +14,16 @@ import type {
 } from "../types/task.types";
 import { isCompletedStatus, normalizeApiStatus } from "../utils/taskStatus";
 import { buildTaskSearchHaystack } from "../utils/taskSearch";
+import { createInflightDedupe } from "../utils/inflightDedupe";
 import { createRequestTracker } from "../utils/requestGeneration";
 import { listWithStaleRetry } from "../utils/staleRetry";
 import {
   mergeIds,
   moveTaskToBucket,
   resolveTaskBucket,
-  retainRecentIds,
   withoutId,
 } from "../utils/taskBuckets";
+import { planCompletedRetention } from "../utils/completedCache";
 
 export type TaskBucket = "assignedToMe" | "createdByMe" | "allOtherTasks";
 
@@ -120,19 +121,10 @@ const initialState = {
 };
 
 // In-flight dedupe per company+endpoint.
-const inFlight = new Map<string, Promise<unknown>>();
+const inFlight = createInflightDedupe();
+const dedupe = inFlight.run;
 const requestTracker = createRequestTracker();
 let storeEpoch = 0;
-
-function dedupe<T>(key: string, run: () => Promise<T>): Promise<T> {
-  const existing = inFlight.get(key);
-  if (existing) return existing as Promise<T>;
-  const promise = run().finally(() => {
-    if (inFlight.get(key) === promise) inFlight.delete(key);
-  });
-  inFlight.set(key, promise);
-  return promise;
-}
 
 function toEntity(row: TaskListItem | TaskEntity): TaskEntity {
   const source = row as unknown as Record<string, unknown>;
@@ -561,26 +553,26 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
     ]);
 
     set((state) => {
-      const merged = page === 1 ? pageIds : mergeIds(state.completedIds, pageIds);
       // Bound completed-page retention so long paging sessions do not grow
       // `byId` without limit (AUD-018).
-      const retained = retainRecentIds(merged, MAX_COMPLETED_ROWS);
-      const retainedSet = new Set(retained);
-      const keep = new Set([
-        ...state.assignedToMeIds,
-        ...state.createdByMeIds,
-        ...state.allOtherTaskIds,
-        ...state.recurringIds,
-        ...state.pendingApprovalIds,
-        ...retained,
-      ]);
+      const { retainedIds, removeIds } = planCompletedRetention({
+        previousIds: state.completedIds,
+        pageIds,
+        page,
+        maxRows: MAX_COMPLETED_ROWS,
+        protectedIds: [
+          ...state.assignedToMeIds,
+          ...state.createdByMeIds,
+          ...state.allOtherTaskIds,
+          ...state.recurringIds,
+          ...state.pendingApprovalIds,
+        ],
+      });
       const byId = entitiesFrom(result.data, state.byId);
-      for (const id of state.completedIds) {
-        if (!retainedSet.has(id) && !keep.has(id)) delete byId[id];
-      }
+      for (const id of removeIds) delete byId[id];
       return {
         byId,
-        completedIds: retained,
+        completedIds: retainedIds,
         completedPage: page,
         hasMoreCompleted: result.data.has_more ?? pageIds.length === 50,
         completeCount: result.data.complete_count ?? state.completeCount,

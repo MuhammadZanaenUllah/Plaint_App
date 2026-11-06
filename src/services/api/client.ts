@@ -1,6 +1,7 @@
 import { fetch, prefetch, nitroFetchOnWorklet } from "react-native-nitro-fetch";
 import { API_BASE_URL } from "@/config/env";
 import { getStoredToken } from "@/utils/token";
+import { runWithAbortTimeout } from "./requestTimeout";
 
 const BASE_URL = API_BASE_URL;
 
@@ -118,19 +119,10 @@ async function fetchWithOptions(
   if (!options.timeoutMs && !options.signal) {
     return fetch(url, init);
   }
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  if (options.signal?.aborted) controller.abort();
-  options.signal?.addEventListener("abort", abort);
-  const timer = options.timeoutMs
-    ? setTimeout(abort, options.timeoutMs)
-    : null;
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    if (timer) clearTimeout(timer);
-    options.signal?.removeEventListener("abort", abort);
-  }
+  return runWithAbortTimeout(
+    (signal) => fetch(url, { ...init, signal }),
+    options,
+  );
 }
 
 export async function apiGetWithStatus<T>(
