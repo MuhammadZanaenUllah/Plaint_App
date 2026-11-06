@@ -116,6 +116,7 @@ function TasksScreenContent() {
   const isAts = authState.hasAdvancedTaskModule === true;
 
   const { searchText, isHeaderCompact, setIsHeaderCompact } = useSearch();
+  const lastCompactRef = useRef(isHeaderCompact);
   const filters = useTaskFilterController(searchText);
   const dashboard = useTaskDashboard(isAts, authState.user, authState.company);
 
@@ -301,7 +302,10 @@ function TasksScreenContent() {
 
   const handleScrollOffset = useCallback(
     (offsetY: number) => {
-      setIsHeaderCompact(offsetY > SCROLL_COMPACT_THRESHOLD);
+      const nextCompact = offsetY > SCROLL_COMPACT_THRESHOLD;
+      if (nextCompact === lastCompactRef.current) return;
+      lastCompactRef.current = nextCompact;
+      setIsHeaderCompact(nextCompact);
     },
     [setIsHeaderCompact],
   );

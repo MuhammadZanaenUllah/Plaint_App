@@ -7,6 +7,7 @@ import { Tabs, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { View } from "react-native";
+import Animated, { LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type HeaderConfig = {
@@ -77,7 +78,8 @@ function TabLayoutContent() {
       {/* Transparent status bar with dark content, matching the conversation
           screen (`<StatusBar style="dark" />`) instead of the light app default. */}
       <StatusBar style="dark" />
-      <View
+      <Animated.View
+        layout={LinearTransition.duration(180)}
         style={{
           overflow: "visible",
           zIndex: 99999,
@@ -93,7 +95,7 @@ function TabLayoutContent() {
           forceSearchOpen={forceSearchOpen}
           placeholder={config.placeholder}
         />
-      </View>
+      </Animated.View>
       <Tabs
         initialRouteName="tasks"
         screenOptions={{

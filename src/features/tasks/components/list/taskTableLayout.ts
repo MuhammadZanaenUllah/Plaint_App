@@ -66,6 +66,20 @@ export function getTaskKey(task: TaskRowProps, index: number) {
   return task.id ?? `${index}:${task.title}:${task.dueDate}`;
 }
 
+/**
+ * Stable identity for interaction state (open swipe row, local overrides).
+ * Never include the row index; indices change on filter/sort/paging and would
+ * transfer one task's state to another. API task ids are always preferred.
+ */
+export function getTaskIdentityKey(task: TaskRowProps): string {
+  const rawId = task._raw?.id;
+  const id = task.id ?? rawId;
+  if (id !== undefined && id !== null && String(id).length > 0) {
+    return `task:${String(id)}`;
+  }
+  return `fallback:${task.title}|${task.dueDate}|${task.assignedTo}|${task.createdBy}`;
+}
+
 export function clamp(value: number, min: number, max: number) {
   "worklet";
   return Math.min(max, Math.max(min, value));

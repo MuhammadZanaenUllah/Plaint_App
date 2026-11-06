@@ -3,10 +3,12 @@
 
 import { StatusType, TaskRowProps } from "@/components/TaskRow";
 import { renderCounters } from "@/features/tasks/dev/counters";
+import { resolveSwipeSettle } from "@/features/tasks/utils/taskSwipeSettle";
 import { memo, useCallback, useEffect, useMemo } from "react";
 import { TouchableOpacity, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+  cancelAnimation,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -29,22 +31,29 @@ import { WaveChevronBadge } from "./TaskTablePrimitives";
 
 export type SwipeStage = "actions" | "details";
 
+const SWIPE_SPRING = {
+  damping: 24,
+  stiffness: 260,
+  mass: 0.85,
+  overshootClamping: true,
+};
+
 export const SwipeTaskRow = memo(function SwipeTaskRow({
   item,
+  taskKey,
   rowIndex,
   metrics,
   isOpen,
   stage,
   onOpenSwipe,
   onCloseSwipe,
-  onSwipeDragStateChange,
   onTaskPress,
   onCommentPress,
   onToggleComplete,
   onStatusChange,
   canReassign,
   assignableOwners,
-  onAssigneeSelect,
+  onAssigneeChange,
   canAssignProject,
   onAddToProjectPress,
   onSprintPress,
@@ -53,25 +62,21 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
   readOnly,
 }: {
   item: TaskRowProps;
+  taskKey: string;
   rowIndex: number;
   metrics: TableMetrics;
   isOpen: boolean;
   stage: SwipeStage | null;
-  onOpenSwipe: (rowIndex: number, stage: SwipeStage) => void;
+  onOpenSwipe: (taskKey: string, stage: SwipeStage) => void;
   onCloseSwipe: () => void;
-  onSwipeDragStateChange: (dragging: boolean) => void;
   onTaskPress?: (task: TaskRowProps) => void;
   onCommentPress?: (task: TaskRowProps) => void;
-  onToggleComplete: (task: TaskRowProps, rowIndex: number) => void;
-  onStatusChange: (
-    task: TaskRowProps,
-    rowIndex: number,
-    status: StatusType,
-  ) => void;
+  onToggleComplete: (task: TaskRowProps) => void;
+  onStatusChange: (task: TaskRowProps, status: StatusType) => void;
   scrollCloseSignal?: number;
   canReassign?: boolean;
   assignableOwners?: AssignableOwner[];
-  onAssigneeSelect: (owner: AssignableOwner) => void;
+  onAssigneeChange: (task: TaskRowProps, owner: AssignableOwner) => void;
   canAssignProject?: boolean;
   onAddToProjectPress?: (task: TaskRowProps) => void;
   onSprintPress?: (task: TaskRowProps) => void;
@@ -83,6 +88,8 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
   const gestureStartX = useSharedValue(0);
   const wrapHeight = useSharedValue(ROW_HEIGHT);
   const hasStarted = useSharedValue(false);
+  const isDragging = useSharedValue(false);
+  const isOpenValue = useSharedValue(isOpen);
   const currentStage = isOpen ? stage : null;
   const revealWidth =
     currentStage === "details"
@@ -98,15 +105,16 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
         : ROW_HEIGHT;
 
   useEffect(() => {
-    const springConfig = {
-      damping: 24,
-      stiffness: 260,
-      mass: 0.85,
-      overshootClamping: true,
-    };
-    translateX.value = withSpring(-revealWidth, springConfig);
-    wrapHeight.value = withSpring(rowHeight, springConfig);
-  }, [revealWidth, rowHeight, translateX, wrapHeight]);
+    isOpenValue.value = isOpen;
+  }, [isOpen, isOpenValue]);
+
+  useEffect(() => {
+    // Do not fight the live gesture. The finalize handler snaps immediately on
+    // the UI thread; this effect handles state driven from outside the gesture.
+    if (isDragging.value) return;
+    translateX.value = withSpring(-revealWidth, SWIPE_SPRING);
+    wrapHeight.value = withSpring(rowHeight, SWIPE_SPRING);
+  }, [revealWidth, rowHeight, translateX, wrapHeight, isDragging]);
 
   const animatedWrapStyle = useAnimatedStyle(() => ({
     minHeight: wrapHeight.value,
@@ -115,12 +123,17 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
   const settleSwipe = useCallback(
     (nextStage: SwipeStage | null) => {
       if (nextStage) {
-        onOpenSwipe(rowIndex, nextStage);
+        onOpenSwipe(taskKey, nextStage);
       } else {
         onCloseSwipe();
       }
     },
-    [onCloseSwipe, onOpenSwipe, rowIndex],
+    [onCloseSwipe, onOpenSwipe, taskKey],
+  );
+
+  const handleAssigneeSelect = useCallback(
+    (owner: AssignableOwner) => onAssigneeChange(item, owner),
+    [item, onAssigneeChange],
   );
 
   const animatedRowStyle = useAnimatedStyle(() => ({
@@ -131,17 +144,19 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
     () =>
       Gesture.Pan()
         .activeOffsetX([-12, 12])
-        .failOffsetY([-18, 18])
+        .failOffsetY([-20, 20])
         .onBegin(() => {
+          cancelAnimation(translateX);
+          cancelAnimation(wrapHeight);
+          isDragging.value = true;
           gestureStartX.value = translateX.value;
         })
         .onStart((event) => {
+          if (!isOpenValue.value && event.translationX > 0) return;
           hasStarted.value = true;
-          if (!isOpen && event.translationX > 0) return;
-          runOnJS(onSwipeDragStateChange)(true);
         })
         .onUpdate((event) => {
-          if (!isOpen && event.translationX > 0) return;
+          if (!isOpenValue.value && event.translationX > 0) return;
           translateX.value = clamp(
             gestureStartX.value + event.translationX,
             -metrics.swipeContentWidth,
@@ -149,64 +164,67 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
           );
         })
         .onFinalize((event) => {
-          runOnJS(onSwipeDragStateChange)(false);
-          // Skip settling if the gesture never actually activated (e.g. a
-          // tap that stayed under the activeOffsetX threshold) â€” otherwise
-          // a stray touch could snap an already-resting row.
-          if (!hasStarted.value) return;
+          isDragging.value = false;
+          if (!hasStarted.value) {
+            // A tap/scroll began while a spring was running. onBegin cancelled
+            // it, so restore the current open/closed resting position.
+            const restingReveal = isOpenValue.value
+              ? stage === "details"
+                ? metrics.swipeContentWidth
+                : ACTION_REVEAL_WIDTH
+              : 0;
+            const restingHeight = isOpenValue.value
+              ? stage === "details"
+                ? DETAIL_ROW_HEIGHT
+                : ROW_HEIGHT + 32
+              : ROW_HEIGHT;
+            translateX.value = withSpring(-restingReveal, SWIPE_SPRING);
+            wrapHeight.value = withSpring(restingHeight, SWIPE_SPRING);
+            return;
+          }
 
           hasStarted.value = false;
-          // Always runs â€” even when the ScrollView/list steals the gesture
-          // mid-swipe (fail/cancel) â€” so the row can't get stuck half-open
-          // with no matching onEnd to snap it into a resting position.
           const releaseX = clamp(
             gestureStartX.value + event.translationX,
             -metrics.swipeContentWidth,
             0,
           );
-          const projectedX = clamp(
-            releaseX + event.velocityX * 0.06,
-            -metrics.swipeContentWidth,
-            0,
-          );
+          const nextStage = resolveSwipeSettle({
+            startX: gestureStartX.value,
+            releaseX,
+            velocityX: event.velocityX,
+            contentWidth: metrics.swipeContentWidth,
+            actionWidth: ACTION_REVEAL_WIDTH,
+          });
+          const targetX =
+            nextStage === "details"
+              ? -metrics.swipeContentWidth
+              : nextStage === "actions"
+                ? -ACTION_REVEAL_WIDTH
+                : 0;
+          const targetHeight =
+            nextStage === "details"
+              ? DETAIL_ROW_HEIGHT
+              : nextStage === "actions"
+                ? ROW_HEIGHT + 32
+                : ROW_HEIGHT;
 
-          if (event.velocityX > 400 || projectedX > -40) {
-            runOnJS(settleSwipe)(null);
-            return;
-          }
-
-          if (
-            gestureStartX.value < -ACTION_REVEAL_WIDTH * 1.2 &&
-            projectedX > -metrics.swipeContentWidth * 0.65
-          ) {
-            if (projectedX > -ACTION_REVEAL_WIDTH * 0.8) {
-              runOnJS(settleSwipe)(null);
-            } else {
-              runOnJS(settleSwipe)("actions");
-            }
-            return;
-          }
-
-          if (projectedX < -metrics.swipeContentWidth * 0.6) {
-            runOnJS(settleSwipe)("details");
-            return;
-          }
-
-          if (projectedX < -ACTION_REVEAL_WIDTH * 0.35) {
-            runOnJS(settleSwipe)("actions");
-            return;
-          }
-
-          runOnJS(settleSwipe)(null);
+          // Snap on the UI thread immediately; only update the open-row state
+          // through JS after the gesture ends.
+          translateX.value = withSpring(targetX, SWIPE_SPRING);
+          wrapHeight.value = withSpring(targetHeight, SWIPE_SPRING);
+          runOnJS(settleSwipe)(nextStage);
         }),
     [
       gestureStartX,
       hasStarted,
-      isOpen,
+      isDragging,
+      isOpenValue,
       metrics.swipeContentWidth,
-      onSwipeDragStateChange,
       settleSwipe,
+      stage,
       translateX,
+      wrapHeight,
     ],
   );
 
@@ -233,15 +251,13 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
             item={item}
             stage={currentStage ?? "actions"}
             onClose={onCloseSwipe}
-            onBackToActions={() => onOpenSwipe(rowIndex, "actions")}
-            onRevealDetails={() => onOpenSwipe(rowIndex, "details")}
-            onStatusSelect={(nextStatus) =>
-              onStatusChange(item, rowIndex, nextStatus)
-            }
+            onBackToActions={() => onOpenSwipe(taskKey, "actions")}
+            onRevealDetails={() => onOpenSwipe(taskKey, "details")}
+            onStatusSelect={(nextStatus) => onStatusChange(item, nextStatus)}
             onCommentPress={onCommentPress}
             canReassign={canReassign}
             assignableOwners={assignableOwners}
-            onAssigneeSelect={onAssigneeSelect}
+            onAssigneeSelect={handleAssigneeSelect}
             canAssignProject={canAssignProject}
             onAddToProjectPress={onAddToProjectPress}
             scrollCloseSignal={scrollCloseSignal}
@@ -262,7 +278,7 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
               item={item}
               width={metrics.leadingWidth}
               readOnly={readOnly}
-              onToggle={() => onToggleComplete(item, rowIndex)}
+              onToggle={() => onToggleComplete(item)}
             />
             {columns.map((key) => (
               <TaskCellContent
@@ -279,7 +295,7 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
             {!readOnly && currentStage === null && (
               <TouchableOpacity
                 style={styles.actionPress}
-                onPress={() => onOpenSwipe(rowIndex, "actions")}
+                onPress={() => onOpenSwipe(taskKey, "actions")}
                 activeOpacity={0.8}
               >
                 <WaveChevronBadge />

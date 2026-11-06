@@ -15,6 +15,7 @@ import {
 import {
   ActivityIndicator,
   FlatList,
+  type LayoutChangeEvent,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -38,6 +39,7 @@ import {
   DEFAULT_COLUMNS,
   getOwnerInitials,
   getTableMetrics,
+  getTaskIdentityKey,
   getTaskKey,
   type AssignableOwner,
   type SingleTaskTableColumn,
@@ -100,7 +102,7 @@ type Props = {
 };
 
 type SwipeStage = "actions" | "details";
-type OpenSwipeRow = { index: number; stage: SwipeStage } | null;
+type OpenSwipeRow = { taskKey: string; stage: SwipeStage } | null;
 type StatusOverrides = Record<string, StatusType>;
 type AssigneeOverride = { name: string; initials: string; avatar?: string };
 type AssigneeOverrides = Record<string, AssigneeOverride>;
@@ -136,6 +138,19 @@ function SingleTaskTable({
 }: Props) {
   renderCounters.table();
   const { width: windowWidth } = useWindowDimensions();
+  // Prefer the table's actual available width over the viewport width. The
+  // header can collapse/expand above the list without this table reflowing.
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+  const layoutWidth = measuredWidth ?? windowWidth;
+  const handleContainerLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextWidth = event.nativeEvent.layout.width;
+    if (nextWidth <= 0) return;
+    setMeasuredWidth((previous) =>
+      previous !== null && Math.abs(previous - nextWidth) < 0.5
+        ? previous
+        : nextWidth,
+    );
+  }, []);
   const effectiveColumns = useMemo(
     () => columns ?? DEFAULT_COLUMNS,
     [columns],
@@ -146,8 +161,8 @@ function SingleTaskTable({
     [columnHeadings],
   );
   const metrics = useMemo(
-    () => getTableMetrics(windowWidth, effectiveColumns, contained),
-    [windowWidth, effectiveColumns, contained],
+    () => getTableMetrics(layoutWidth, effectiveColumns, contained),
+    [layoutWidth, effectiveColumns, contained],
   );
   const [statusOverrides, setStatusOverrides] = useState<StatusOverrides>({});
   const [assigneeOverrides, setAssigneeOverrides] = useState<AssigneeOverrides>(
@@ -164,7 +179,15 @@ function SingleTaskTable({
     setLastSectionTitle(sectionTitle);
     if (openSwipeRow !== null) setOpenSwipeRow(null);
   }
-  const [isSwipeDragging, setIsSwipeDragging] = useState(false);
+  const openTaskKey = openSwipeRow?.taskKey;
+  if (
+    openTaskKey &&
+    !tasks.some((task) => getTaskIdentityKey(task) === openTaskKey)
+  ) {
+    // The open task left the current tab/filter/page. Reset synchronously so
+    // a later task cannot inherit that open state by position.
+    setOpenSwipeRow(null);
+  }
   const [rowViewportHeight, setRowViewportHeight] = useState(0);
   const [rowContentHeight, setRowContentHeight] = useState(0);
 
@@ -190,8 +213,8 @@ function SingleTaskTable({
 
   const augmentedTasks = useMemo(
     () =>
-      tasks.map((task, index) => {
-        const key = getTaskKey(task, index);
+      tasks.map((task) => {
+        const key = getTaskIdentityKey(task);
         const assigneeOverride = assigneeOverrides[key];
         return {
           ...task,
@@ -209,12 +232,12 @@ function SingleTaskTable({
   );
 
   const handleAssigneeChange = useCallback(
-    (task: TaskRowProps, rowIndex: number, owner: AssignableOwner) => {
+    (task: TaskRowProps, owner: AssignableOwner) => {
       if (!task._raw) {
         const displayName = getOwnerDisplayName(owner);
         setAssigneeOverrides((previous) => ({
           ...previous,
-          [getTaskKey(task, rowIndex)]: {
+          [getTaskIdentityKey(task)]: {
             name: displayName.split(/\s+/)[0] ?? displayName,
             initials: getOwnerInitials(owner),
             avatar: owner.image ?? undefined,
@@ -227,7 +250,7 @@ function SingleTaskTable({
   );
 
   const handleStatusChange = useCallback(
-    (task: TaskRowProps, rowIndex: number, nextStatus: StatusType) => {
+    (task: TaskRowProps, nextStatus: StatusType) => {
       if (
         task.canEditStatus !== true &&
         task.canApproveReject !== true &&
@@ -251,7 +274,7 @@ function SingleTaskTable({
       if (!task._raw) {
         setStatusOverrides((previous) => ({
           ...previous,
-          [getTaskKey(task, rowIndex)]: nextStatus,
+          [getTaskIdentityKey(task)]: nextStatus,
         }));
       }
       onStatusChange?.(task, nextStatus);
@@ -260,25 +283,24 @@ function SingleTaskTable({
   );
 
   const handleToggleComplete = useCallback(
-    (task: TaskRowProps, rowIndex: number) => {
+    (task: TaskRowProps) => {
       if (task.status !== "Completed") {
-        handleStatusChange(task, rowIndex, "Completed");
+        handleStatusChange(task, "Completed");
       }
     },
     [handleStatusChange],
   );
 
-  const openSwipe = useCallback((index: number, stage: SwipeStage) => {
+  const openSwipe = useCallback((taskKey: string, stage: SwipeStage) => {
     triggerHaptic("light");
-    setOpenSwipeRow({ index, stage });
+    setOpenSwipeRow({ taskKey, stage });
   }, []);
 
   const closeSwipe = useCallback(() => {
     setOpenSwipeRow(null);
   }, []);
 
-  const shouldEnableRowScroll =
-    rowContentHeight > rowViewportHeight + 1 && !isSwipeDragging;
+  const shouldEnableRowScroll = rowContentHeight > rowViewportHeight + 1;
 
   const pullDistance = useSharedValue(0);
 
@@ -362,20 +384,24 @@ function SingleTaskTable({
 
   return (
     <View
-      style={[
-        styles.container,
-        {
-          width: metrics.needsHScroll
-            ? metrics.fullTableWidth
-            : metrics.tableWidth,
-          alignSelf: contained
-            ? "stretch"
-            : metrics.tableWidthClamped
-              ? "center"
-              : "flex-end",
-        },
-      ]}
+      style={{ flex: 1, width: "100%" }}
+      onLayout={handleContainerLayout}
     >
+      <View
+        style={[
+          styles.container,
+          {
+            width: metrics.needsHScroll
+              ? metrics.fullTableWidth
+              : metrics.tableWidth,
+            alignSelf: contained
+              ? "stretch"
+              : metrics.tableWidthClamped
+                ? "center"
+                : "flex-end",
+          },
+        ]}
+      >
       <View
         style={[styles.sectionHeader, { marginLeft: metrics.leftCompensation }]}
       >
@@ -496,36 +522,40 @@ function SingleTaskTable({
             <FlatList<TaskRowProps>
               ref={rowsListRef}
               data={loading ? [] : augmentedTasks}
+              extraData={openSwipeRow}
               keyExtractor={(item, index) => String(getTaskKey(item, index))}
-              renderItem={({ item, index }) => (
-                <SwipeTaskRow
-                  item={item}
-                  rowIndex={index}
-                  metrics={metrics}
-                  isOpen={openSwipeRow?.index === index}
-                  stage={
-                    openSwipeRow?.index === index ? openSwipeRow.stage : null
-                  }
-                  onOpenSwipe={openSwipe}
-                  onCloseSwipe={closeSwipe}
-                  onSwipeDragStateChange={setIsSwipeDragging}
-                  onTaskPress={onTaskPress}
-                  onCommentPress={onCommentPress}
-                  onToggleComplete={handleToggleComplete}
-                  onStatusChange={handleStatusChange}
-                  canReassign={canReassign}
-                  assignableOwners={assignableOwners}
-                  onAssigneeSelect={(owner) =>
-                    handleAssigneeChange(item, index, owner)
-                  }
-                  canAssignProject={canAssignProject}
-                  onAddToProjectPress={onAddToProjectPress}
-                  onSprintPress={onSprintPress}
-                  scrollCloseSignal={scrollCloseSignal}
-                  columns={effectiveColumns}
-                  readOnly={readOnly}
-                />
-              )}
+              renderItem={({ item, index }) => {
+                const taskKey = getTaskIdentityKey(item);
+                return (
+                  <SwipeTaskRow
+                    item={item}
+                    taskKey={taskKey}
+                    rowIndex={index}
+                    metrics={metrics}
+                    isOpen={openSwipeRow?.taskKey === taskKey}
+                    stage={
+                      openSwipeRow?.taskKey === taskKey
+                        ? openSwipeRow.stage
+                        : null
+                    }
+                    onOpenSwipe={openSwipe}
+                    onCloseSwipe={closeSwipe}
+                    onTaskPress={onTaskPress}
+                    onCommentPress={onCommentPress}
+                    onToggleComplete={handleToggleComplete}
+                    onStatusChange={handleStatusChange}
+                    canReassign={canReassign}
+                    assignableOwners={assignableOwners}
+                    onAssigneeChange={handleAssigneeChange}
+                    canAssignProject={canAssignProject}
+                    onAddToProjectPress={onAddToProjectPress}
+                    onSprintPress={onSprintPress}
+                    scrollCloseSignal={scrollCloseSignal}
+                    columns={effectiveColumns}
+                    readOnly={readOnly}
+                  />
+                );
+              }}
               ListHeaderComponent={
                 loading ? (
                   <View style={styles.centeredState}>
@@ -647,38 +677,39 @@ function SingleTaskTable({
               ) : null}
 
               {!loading
-                ? augmentedTasks.map((task, rowIndex) => (
-                    <SwipeTaskRow
-                      key={getTaskKey(task, rowIndex)}
-                      item={task}
-                      rowIndex={rowIndex}
-                      metrics={metrics}
-                      isOpen={openSwipeRow?.index === rowIndex}
-                      stage={
-                        openSwipeRow?.index === rowIndex
-                          ? openSwipeRow.stage
-                          : null
-                      }
-                      onOpenSwipe={openSwipe}
-                      onCloseSwipe={closeSwipe}
-                      onSwipeDragStateChange={setIsSwipeDragging}
-                      onTaskPress={onTaskPress}
-                      onCommentPress={onCommentPress}
-                      onToggleComplete={handleToggleComplete}
-                      onStatusChange={handleStatusChange}
-                      canReassign={canReassign}
-                      assignableOwners={assignableOwners}
-                      onAssigneeSelect={(owner) =>
-                        handleAssigneeChange(task, rowIndex, owner)
-                      }
-                      canAssignProject={canAssignProject}
-                      onAddToProjectPress={onAddToProjectPress}
-                      onSprintPress={onSprintPress}
-                      scrollCloseSignal={scrollCloseSignal}
-                      columns={effectiveColumns}
-                      readOnly={readOnly}
-                    />
-                  ))
+                ? augmentedTasks.map((task, rowIndex) => {
+                    const taskKey = getTaskIdentityKey(task);
+                    return (
+                      <SwipeTaskRow
+                        key={getTaskKey(task, rowIndex)}
+                        item={task}
+                        taskKey={taskKey}
+                        rowIndex={rowIndex}
+                        metrics={metrics}
+                        isOpen={openSwipeRow?.taskKey === taskKey}
+                        stage={
+                          openSwipeRow?.taskKey === taskKey
+                            ? openSwipeRow.stage
+                            : null
+                        }
+                        onOpenSwipe={openSwipe}
+                        onCloseSwipe={closeSwipe}
+                        onTaskPress={onTaskPress}
+                        onCommentPress={onCommentPress}
+                        onToggleComplete={handleToggleComplete}
+                        onStatusChange={handleStatusChange}
+                        canReassign={canReassign}
+                        assignableOwners={assignableOwners}
+                        onAssigneeChange={handleAssigneeChange}
+                        canAssignProject={canAssignProject}
+                        onAddToProjectPress={onAddToProjectPress}
+                        onSprintPress={onSprintPress}
+                        scrollCloseSignal={scrollCloseSignal}
+                        columns={effectiveColumns}
+                        readOnly={readOnly}
+                      />
+                    );
+                  })
                 : null}
 
               {!loading && augmentedTasks.length > 0 ? (
@@ -694,6 +725,7 @@ function SingleTaskTable({
           )}
         </>
       )}
+      </View>
     </View>
   );
 }

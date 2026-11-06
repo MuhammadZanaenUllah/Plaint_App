@@ -12,7 +12,6 @@ export default StyleSheet.create({
   },
   tableShell: {
     flex: 1,
-    paddingLeft: 16,
     paddingTop: 2,
     paddingBottom: 0,
   },
