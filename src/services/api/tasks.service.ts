@@ -29,7 +29,7 @@ import {
   ViewTaskData,
 } from "@/types/task.types";
 import { File } from "expo-file-system";
-import { apiDelete, apiGet, apiPost, apiUpload } from "./client";
+import { apiGet, apiPost, apiUpload } from "./client";
 
 export async function getAllTasks(
   companyId: number,
@@ -102,25 +102,6 @@ export async function createTask(
   return res;
 }
 
-export async function createSubtask(
-  parentId: number,
-  data: CreateTaskRequest,
-): Promise<ApiResponse<{ id: number }>> {
-  console.log(
-    `[CreateSubtask API] ---> Sending POST /tasks/createsubtask/${parentId} with payload:`,
-    JSON.stringify(data, null, 2),
-  );
-  const res = await apiPost<ApiResponse<{ id: number }>>(
-    `/tasks/createsubtask/${parentId}`,
-    data,
-  );
-  console.log(
-    `[CreateSubtask API] <--- Received response from /tasks/createsubtask/${parentId}:`,
-    JSON.stringify(res, null, 2),
-  );
-  return res;
-}
-
 export async function updateTask(
   taskId: number,
   data: UpdateTaskRequest,
@@ -152,10 +133,6 @@ export async function reassignTask(
   data: UpdateAssigneeRequest,
 ): Promise<ApiResponse<string>> {
   return apiPost<ApiResponse<string>>(`/tasks/updateasignedto/${taskId}`, data);
-}
-
-export async function deleteTask(taskId: number): Promise<ApiResponse<string>> {
-  return apiDelete<ApiResponse<string>>(`/tasks/${taskId}`);
 }
 
 export async function approveTask(

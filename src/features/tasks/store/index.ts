@@ -3,9 +3,6 @@
 export { useTasksStore, tasksStore } from "./tasksStore";
 export type { TasksState, TaskBucket } from "./tasksStore";
 
-export { useTaskDetailStore, taskDetailStore } from "./taskDetailStore";
-export type { DetailState } from "./taskDetailStore";
-
 export { useTaskFiltersStore, filtersStore } from "./taskFiltersStore";
 export type { TaskFiltersState } from "./taskFiltersStore";
 

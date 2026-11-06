@@ -67,7 +67,6 @@ export type TasksState = {
     companyId: number,
     options?: { waitFresh?: boolean; excludeComplete?: boolean },
   ) => Promise<void>;
-  loadDueToday: (companyId: number) => Promise<void>;
   loadFiltered: (
     companyId: number,
     filter: TaskFilter,
@@ -80,7 +79,6 @@ export type TasksState = {
     },
   ) => Promise<void>;
   loadRecurring: (companyId: number, options?: { force?: boolean }) => Promise<void>;
-  loadPendingApproval: (companyId: number) => Promise<void>;
   loadCompletedPage: (companyId: number, page: number) => Promise<boolean>;
   refreshLookups: (companyId: number) => Promise<void>;
   applyBuckets: (
@@ -450,55 +448,6 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
     });
   },
 
-  loadDueToday: async (companyId) => {
-    const epoch = storeEpoch;
-    const token = requestTracker.begin(`due:${companyId}`);
-    set({ isLoading: true, error: null });
-    let result: ApiResult<TaskListResponse>;
-    try {
-      result = await dedupe(`due:${companyId}`, () =>
-        listWithStaleRetry((waitFresh) =>
-          getDueTodayTasks(companyId, { waitFresh }),
-        ),
-      );
-    } catch (error) {
-      if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
-      set({
-        isLoading: false,
-        error: error instanceof Error ? error.message : "Failed to load tasks.",
-      });
-      return;
-    }
-    if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
-    if (!result.ok) {
-      set({ isLoading: false, error: result.message });
-      return;
-    }
-    set((state) => {
-      const ids = bucketIds(result.data);
-      const lookup = lookupPatch(result.data, state);
-      return {
-        byId: entitiesFrom(result.data, state.byId),
-        ...lookup,
-        ...mergeBucketState(state, ids),
-        recurringIds: mergeIds(state.recurringIds, lookup.recurringIds),
-        pendingApprovalIds: mergeIds(
-          state.pendingApprovalIds,
-          lookup.pendingApprovalIds,
-        ),
-        dueTodayCount: idsOf([
-          ...(result.data.tasks_assigned_to_me ?? []),
-          ...(result.data.tasksByme ?? []),
-          ...(result.data.all_other_tasks ?? []),
-        ]).length,
-        isPartialLoad: true,
-        isLoading: false,
-        error: null,
-        lastRefresh: Date.now(),
-      };
-    });
-  },
-
   loadFiltered: async (companyId, filter, options = {}) => {
     const epoch = storeEpoch;
     const key = `filter:${companyId}:${filter}:${options.page ?? 1}:${options.limit ?? ""}`;
@@ -568,12 +517,6 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
       waitFresh: options.force === true,
       force: options.force === true,
       silent: true,
-    });
-  },
-
-  loadPendingApproval: async (companyId) => {
-    await get().loadFiltered(companyId, "pending_approval", {
-      waitFresh: true,
     });
   },
 

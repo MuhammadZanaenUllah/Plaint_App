@@ -28,7 +28,7 @@ import type {
 import type { TaskEntity, TaskListItem, TaskPriority } from "../types/task.types";
 import { normalizeApiStatus } from "../utils/taskStatus";
 import { reportTaskError } from "../utils/taskError";
-import { useTaskDetailStore } from "../store/taskDetailStore";
+
 import { useTasksStore } from "../store/tasksStore";
 import { useProjectsStore } from "../store/projectsStore";
 import { isCompanyAdmin, isHead } from "../permissions/taskPermissions";
@@ -433,8 +433,8 @@ export function useTaskSocketBridge({
             if (taskId) {
               scheduleProjectDetailForTask(taskId);
               useTasksStore.getState().removeTask(taskId);
-              const detail = useTaskDetailStore.getState();
-              if (Number(detail.taskId) === taskId) detail.clear();
+              // The open detail subscribes to this event through
+              // useTaskDetailSocket and closes itself (AUD-079).
             }
             break;
           }

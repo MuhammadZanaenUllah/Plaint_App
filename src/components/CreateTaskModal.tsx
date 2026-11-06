@@ -7,7 +7,6 @@ import {
 import DependencyModal from "@/components/DependencyModal";
 import FloatingInput from "@/components/FloatingInput";
 import RichTextEditor, { RichTextEditorRef } from "@/components/texteditor";
-import DocumentPickerButton from "@/features/attachments/components/DocumentPickerButton";
 import type { SelectedFile } from "@/features/attachments/types/attachment.types";
 import { reorderCritical as reorderCriticalApi } from "@/features/tasks/api/taskApi";
 import {
@@ -15,6 +14,7 @@ import {
   RECURRING_PERIOD_OPTIONS,
   type CreateTaskFormState,
 } from "@/features/tasks/components/create-task/createTaskTypes";
+import { TaskAttachmentsField } from "@/features/tasks/components/create-task/TaskAttachmentsField";
 import {
   validateCreateTaskAttachments,
   validateCreateTaskForm,
@@ -82,7 +82,7 @@ type Props = { visible: boolean; onClose: () => void; onCreated?: () => void };
 // Mirrors the previous "half"/"full" snap points from the @expo/ui sheet.
 const SNAP_POINTS = ["50%", "70%"];
 
-// Advanced Task Module effort/duration unit — matches the web app's
+// Advanced Task Module effort/duration unit â€” matches the web app's
 // Minutes/Hours/Days switcher on the "Hrs" chip.
 type EffortUnit = "minutes" | "hours" | "days";
 const EFFORT_UNITS: { value: EffortUnit; label: string; abbrev: string }[] = [
@@ -100,7 +100,7 @@ const PRIORITY_OPTIONS: {
   { value: "critical", label: "Critical", dot: "#FF4444" },
 ];
 
-// Contract §3.8: create accepts only Pending, In-Progress, On-Hold or Complete.
+// Contract Â§3.8: create accepts only Pending, In-Progress, On-Hold or Complete.
 // Recurring is a template flag, not a status; Rejected/Pending-Approval are
 // server-driven transitions, not create-time choices.
 const STATUSES = CREATE_STATUSES.map((status) => ({
@@ -146,7 +146,7 @@ export default function CreateTaskModal({
   }, [visible, companyId, fetchAllTasks]);
 
   // Companies with the Advanced Task Module enabled schedule tasks by
-  // effort/duration instead of a manually-picked due date — the backend
+  // effort/duration instead of a manually-picked due date â€” the backend
   // engine computes due_date itself.
 
   const [activePanel, setActivePanel] = useState<
@@ -242,7 +242,7 @@ export default function CreateTaskModal({
   const [selectedApproval, setSelectedApproval] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<TaskStatus | null>(null);
 
-  // recurringOpen removed — now uses recurringModalVisible popup
+  // recurringOpen removed â€” now uses recurringModalVisible popup
   const [isRecurringEnabled, setIsRecurringEnabled] = useState(false);
   const [recurringPeriod, setRecurringPeriod] =
     useState<RecurringPeriod | null>(null);
@@ -265,7 +265,7 @@ export default function CreateTaskModal({
     [],
   );
 
-  // ── Critical-task conflict flow ───────────────────────────────────────────
+  // â”€â”€ Critical-task conflict flow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // criticalPopupVisible: shown when assignee already has active critical tasks
   const [criticalPopupVisible, setCriticalPopupVisible] = useState(false);
   // orderModalVisible: shown after user picks "stop & start immediately"
@@ -297,7 +297,7 @@ export default function CreateTaskModal({
       const fullName = `${u.first_name} ${u.last_name}`.toLowerCase();
       return fullName.includes(assignSearch.toLowerCase());
     })
-    // Contract §9.1: at most 10 assignee results.
+    // Contract Â§9.1: at most 10 assignee results.
     .slice(0, 10);
 
   // All global tasks available for dependencies. Exclude only completed,
@@ -524,7 +524,7 @@ export default function CreateTaskModal({
 
     const isCritical = isAdvanced && form.taskPriority === "critical";
     if (isCritical) {
-      // Conflict prompt is an ATS-only, critical-only rule (contract §8.5).
+      // Conflict prompt is an ATS-only, critical-only rule (contract Â§8.5).
       const activeCritical = allMappedTasks.filter(
         (task) =>
           Number(task._raw.asigned_to) === Number(form.assignTo) &&
@@ -551,9 +551,9 @@ export default function CreateTaskModal({
     await createFromForm(form, isCritical);
   };
 
-  // ── Critical popup handlers ───────────────────────────────────────────────
+  // â”€â”€ Critical popup handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  /** Option 1: Stop current task → create with bump_to_front: true. */
+  /** Option 1: Stop current task â†’ create with bump_to_front: true. */
   const handleStopAndStart = () => {
     setCriticalPopupVisible(false);
     const form = pendingFormRef.current;
@@ -570,7 +570,7 @@ export default function CreateTaskModal({
     setOrderModalVisible(true);
   };
 
-  /** Option 2: Wait → create with bump_to_front: false, close normally. */
+  /** Option 2: Wait â†’ create with bump_to_front: false, close normally. */
   const handleWaitAndSchedule = async () => {
     setCriticalPopupVisible(false);
     const form = pendingFormRef.current;
@@ -705,7 +705,7 @@ export default function CreateTaskModal({
     }
   }, [visible]);
 
-  // ── Advanced effort (Hrs) panel: keep Hours/Unit fields above the keyboard ──
+  // â”€â”€ Advanced effort (Hrs) panel: keep Hours/Unit fields above the keyboard â”€â”€
   // The effort input auto-focuses when the panel opens, so the keyboard
   // covers the lower part of the sheet. Track the keyboard and scroll the
   // effort row so its bottom sits just above the keyboard's top edge, once
@@ -839,7 +839,7 @@ export default function CreateTaskModal({
       onChange={(index) => {
         currentSnapIndexRef.current = index;
         if (index === topSnapIndex) {
-          // The sheet has finished extending to max height — re-measure the
+          // The sheet has finished extending to max height â€” re-measure the
           // auto-focused effort row now that the layout is stable (the earlier
           // effort-row scroll ran mid-animation and can land slightly low).
           setTimeout(bringEffortRowIntoView, 120);
@@ -958,7 +958,7 @@ export default function CreateTaskModal({
               </View>
             </View>
 
-            {/* ── Row 1 Chips: Assigned / Due Date / Priority ── */}
+            {/* â”€â”€ Row 1 Chips: Assigned / Due Date / Priority â”€â”€ */}
             <View style={styles.chipsRow}>
               {/* 1. Assigned to */}
               <TouchableOpacity
@@ -1067,7 +1067,7 @@ export default function CreateTaskModal({
                 </TouchableOpacity>
               )}
 
-              {/* 3. Priority — critical is ATS-only; normal companies show Normal */}
+              {/* 3. Priority â€” critical is ATS-only; normal companies show Normal */}
               <TouchableOpacity
                 style={[styles.designChip, styles.designChipDark]}
                 onPress={() => {
@@ -1086,7 +1086,7 @@ export default function CreateTaskModal({
               </TouchableOpacity>
             </View>
 
-            {/* ── Row 1 Expanded Panels ── */}
+            {/* â”€â”€ Row 1 Expanded Panels â”€â”€ */}
             {activePanel === "assigned" && (
               <View style={styles.assignedPanelWrap}>
                 <FloatingInput
@@ -1272,7 +1272,7 @@ export default function CreateTaskModal({
               </View>
             )}
 
-            {/* ── Row 2 Chips & Inline Expanded Panels ── */}
+            {/* â”€â”€ Row 2 Chips & Inline Expanded Panels â”€â”€ */}
             <View style={styles.chipsRow}>
               {/* 1. Approval Required Chip */}
               <TouchableOpacity
@@ -1488,7 +1488,7 @@ export default function CreateTaskModal({
                 </Text>
               </TouchableOpacity>
 
-              {/* 4. Dependencies Chip — ATS-only (contract §3.8) */}
+              {/* 4. Dependencies Chip â€” ATS-only (contract Â§3.8) */}
               {isAdvanced && (
                 <TouchableOpacity
                   style={[
@@ -1524,46 +1524,12 @@ export default function CreateTaskModal({
               )}
             </View>
 
-            <View style={styles.attachInlineRow}>
-              <DocumentPickerButton onPick={handlePickFiles} />
-              {attachments.length > 0 && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={[styles.tagsScroll, { overflow: "visible" }]}
-                  contentContainerStyle={styles.tagsScrollContent}
-                  decelerationRate="fast"
-                  bounces
-                  overScrollMode="never"
-                  nestedScrollEnabled
-                >
-                  {attachments.map((file, i) => (
-                    <View key={`${file.name}-${i}`} style={styles.tag}>
-                      <TouchableOpacity
-                        onPress={() => handleDownloadAttachment(file)}
-                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                      >
-                        <Ionicons
-                          name="download-outline"
-                          size={14}
-                          color="#0DDFAB"
-                        />
-                      </TouchableOpacity>
-                      <Text style={styles.tagText} numberOfLines={1}>
-                        {file.name}
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => removeAttachment(i)}
-                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                        style={styles.tagClose}
-                      >
-                        <Text style={styles.tagCloseText}>✕</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                </ScrollView>
-              )}
-            </View>
+            <TaskAttachmentsField
+              attachments={attachments}
+              onPick={handlePickFiles}
+              onRemove={removeAttachment}
+              onDownload={handleDownloadAttachment}
+            />
             <View
               style={[
                 styles.bottomActionRow,
@@ -1584,8 +1550,8 @@ export default function CreateTaskModal({
           </BottomSheetScrollView>
         </Pressable>
 
-        {/* ── Center Popup: Assign Task Modal ──
-              Rendered as a plain absolute overlay (not a nested <Modal>) —
+        {/* â”€â”€ Center Popup: Assign Task Modal â”€â”€
+              Rendered as a plain absolute overlay (not a nested <Modal>) â€”
               see the absoluteCenterOverlay style comment for why. Must stay
               as a sibling of sheetContainer, inside the same positioned
               parent, for its absolute-fill styling to work. */}
@@ -1695,7 +1661,7 @@ export default function CreateTaskModal({
           </Pressable>
         )}
 
-        {/* ── Center Popup: Recurring Task Modal ── */}
+        {/* â”€â”€ Center Popup: Recurring Task Modal â”€â”€ */}
         {recurringModalVisible && (
           <Pressable
             style={[styles.centerModalOverlay, styles.absoluteCenterOverlay]}
@@ -2034,8 +2000,8 @@ export default function CreateTaskModal({
           </Pressable>
         )}
 
-        {/* ── Dependencies Modal (standalone native Modal, blurs everything
-              behind it and owns its own scroll + keyboard handling) ── */}
+        {/* â”€â”€ Dependencies Modal (standalone native Modal, blurs everything
+              behind it and owns its own scroll + keyboard handling) â”€â”€ */}
         <DependencyModal
           visible={dependenciesModalVisible}
           onClose={() => setDependenciesModalVisible(false)}
@@ -2044,7 +2010,7 @@ export default function CreateTaskModal({
           onToggle={handleToggleDependency}
         />
 
-        {/* ── Critical Task: Conflict Popup ──
+        {/* â”€â”€ Critical Task: Conflict Popup â”€â”€
               Rendered as a sibling overlay for the same reason as the
               popups above. */}
         <CriticalTaskPopUpModal
@@ -2058,7 +2024,7 @@ export default function CreateTaskModal({
           onWaitAndSchedule={handleWaitAndSchedule}
         />
 
-        {/* ── Critical Task: Reorder Modal ── */}
+        {/* â”€â”€ Critical Task: Reorder Modal â”€â”€ */}
         <OrderCriticalTasksModal
           visible={orderModalVisible}
           newTask={
@@ -2426,50 +2392,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  tagsScrollWrapper: {
-    marginBottom: 8,
-    overflow: "visible",
-  },
-  tagsScroll: { flexGrow: 0, marginBottom: 8, overflow: "visible" },
-  tagsScrollContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingRight: 8,
-  },
-  tag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#1D1D1D",
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    marginRight: 8,
-    maxWidth: 220,
-  },
-  tagText: {
-    flex: 1,
-    fontSize: rf(12.5),
-    color: "#0DDFAB",
-    fontFamily: "SF_Pro_Regular",
-  },
-  tagClose: {
-    marginLeft: 4,
-  },
-  tagCloseText: {
-    fontSize: rf(13),
-    color: "#0DDFAB",
-    fontFamily: "SF_Pro_Regular",
-    lineHeight: 16,
-  },
-
-  attachInlineRow: {
-    flexDirection: "column",
-    alignItems: "stretch",
-    gap: 10,
-    marginTop: 8,
-    marginBottom: 12,
-  },
   bottomActionRow: {
     paddingHorizontal: 20,
     paddingTop: 12,
@@ -2633,7 +2555,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   // Rendered as a plain absolutely-positioned overlay, not as a nested
-  // <Modal> — nesting a native Modal on top of an open bottom sheet is
+  // <Modal> â€” nesting a native Modal on top of an open bottom sheet is
   // unreliable on iOS (it silently fails to present) even though it works
   // fine on Android. Must stay as a sibling of sheetContainer, inside the
   // same positioned parent, so it paints above it instead of behind it.

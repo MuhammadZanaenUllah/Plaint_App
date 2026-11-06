@@ -63,19 +63,21 @@ import {
   UpdateTaskRequest,
   ViewTaskData,
 } from "@/types/task.types";
+import { buildMentionMarkup, mentionMarkupToDisplay } from "@/utils/chatHelpers";
 import {
-  buildMentionMarkup,
-  mentionMarkupToDisplay,
-} from "@/utils/chatHelpers";
+  CommentBubble,
+  PinnedCommentCard,
+} from "@/features/tasks/components/task-detail/TaskDetailComments";
 import {
-  formatFullDateTime as formatFullDateTimeShared,
-  formatShortDate,
-} from "@/utils/dateFormat";
+  formatApiDate,
+  formatDetailDateTime,
+  getDependencyInitials,
+} from "@/features/tasks/components/task-detail/taskDetailFormatters";
 import { openChatDocument } from "@/utils/openChatDocument";
 import { rf } from "@/utils/responsive";
 import { apiStatusToUi } from "@/utils/statusMapper";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -172,9 +174,6 @@ const AVAILABLE_STATUSES = [
   "Partial Complete",
   "Rejected",
 ];
-
-// Contract §11.1 website reaction set.
-const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"] as const;
 
 type PersistStatusOptions = {
   taskId: number;
@@ -336,263 +335,6 @@ async function persistTaskStatus({
   }
 }
 
-function getDependencyInitials(name: string): string {
-  if (!name || name === "-") return "?";
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0][0].toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function PinnedCommentCard({
-  comment,
-  onUnpin,
-  onOpenAttachment,
-}: {
-  comment: TaskNote;
-  onUnpin: (note: TaskNote) => void;
-  onOpenAttachment?: (path: string, name?: string) => void;
-}) {
-  const rawDate =
-    comment.created_at ||
-    (comment as any).createdAt ||
-    (comment as any).created_date ||
-    (comment as any).date ||
-    (comment as any).created;
-
-  return (
-    <View style={styles.pinnedCard}>
-      <View style={styles.bubbleHeader}>
-        <Avatar
-          name={comment.user_name}
-          imagePath={comment.user_image}
-          size={20}
-          borderRadius={5}
-          fontSize={9}
-        />
-        <View style={styles.bubbleNameRow}>
-          <Text style={styles.bubbleName}>{comment.user_name}</Text>
-          <Text style={styles.bubbleTime}>{formatApiDateTime(rawDate)}</Text>
-        </View>
-        <TouchableOpacity
-          onPress={() => onUnpin(comment)}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <MaterialCommunityIcons
-            name="pin"
-            size={18}
-            color="#00DEAB"
-            style={styles.pinIcon}
-          />
-        </TouchableOpacity>
-      </View>
-
-      <Text style={styles.bubbleText}>
-        {mentionMarkupToDisplay(comment.notes)}
-      </Text>
-      {comment.attachment_file ? (
-        <TouchableOpacity
-          style={styles.noteAttachmentChip}
-          onPress={() =>
-            onOpenAttachment?.(
-              comment.attachment_file ?? "",
-              attachmentDisplayName(undefined, comment.attachment_file ?? ""),
-            )
-          }
-        >
-          <Ionicons name="attach" size={13} color="#00A876" />
-          <Text style={styles.noteAttachmentText} numberOfLines={1}>
-            {attachmentDisplayName(undefined, comment.attachment_file)}
-          </Text>
-        </TouchableOpacity>
-      ) : null}
-    </View>
-  );
-}
-
-function CommentBubble({
-  comment,
-  currentUserId,
-  onPin,
-  onDelete,
-  onReactionToggle,
-  onEdit,
-  onReply,
-  canEditOwn,
-  canDeleteOwn,
-  canPinReact,
-  index = 0,
-  onOpenAttachment,
-}: {
-  comment: TaskNote;
-  currentUserId: number;
-  onPin?: (note: TaskNote) => void;
-  onDelete?: (note: TaskNote) => void;
-  onReactionToggle?: (emoji: string, noteId: number) => void;
-  onEdit?: (note: TaskNote) => void;
-  onReply?: (note: TaskNote) => void;
-  canEditOwn?: boolean;
-  canDeleteOwn?: boolean;
-  canPinReact?: boolean;
-  index?: number;
-  onOpenAttachment?: (path: string, name?: string) => void;
-}) {
-  const isOwn = comment.user_id === currentUserId;
-  const isPinned = comment.pin_top === 1;
-
-  const rawDate =
-    comment.created_at ||
-    (comment as any).createdAt ||
-    (comment as any).created_date ||
-    (comment as any).date ||
-    (comment as any).created;
-
-  return (
-    <View style={styles.bubble}>
-      <View style={styles.bubbleHeader}>
-        <Avatar
-          name={comment.user_name}
-          imagePath={comment.user_image}
-          size={20}
-          borderRadius={5}
-          fontSize={9}
-        />
-        <View style={styles.bubbleNameRow}>
-          <Text style={styles.bubbleName}>{comment.user_name}</Text>
-          <Text style={styles.bubbleTime}>{formatApiDateTime(rawDate)}</Text>
-        </View>
-      </View>
-
-      {comment.reply_to && (
-        <View style={styles.commentReplyQuote}>
-          <Text style={styles.commentReplyName}>
-            {comment.reply_to.user_name || "Reply"}
-          </Text>
-          <Text style={styles.commentReplyText} numberOfLines={2}>
-            {mentionMarkupToDisplay(comment.reply_to.content ?? "")}
-          </Text>
-        </View>
-      )}
-
-      <Text style={styles.bubbleText}>
-        {mentionMarkupToDisplay(comment.notes)}
-      </Text>
-
-      {comment.attachment_file ? (
-        <TouchableOpacity
-          style={styles.noteAttachmentChip}
-          onPress={() =>
-            onOpenAttachment?.(
-              comment.attachment_file ?? "",
-              attachmentDisplayName(undefined, comment.attachment_file ?? ""),
-            )
-          }
-        >
-          <Ionicons name="attach" size={13} color="#00A876" />
-          <Text style={styles.noteAttachmentText} numberOfLines={1}>
-            {attachmentDisplayName(undefined, comment.attachment_file)}
-          </Text>
-        </TouchableOpacity>
-      ) : null}
-
-      {comment.reactions && comment.reactions.length > 0 && (
-        <View style={styles.reactionsRow}>
-          {comment.reactions.map((r, i) => (
-            <View key={i} style={styles.reactionBadge}>
-              <Text style={styles.reactionText}>{r.emoji}</Text>
-              <Text style={styles.reactionCount}>
-                {r.user_name.split(" ")[0]}
-              </Text>
-            </View>
-          ))}
-        </View>
-      )}
-
-      <View style={styles.bubbleActions}>
-        {canPinReact && (
-          <>
-            {REACTION_EMOJIS.map((emoji) => {
-              const active = comment.reactions?.some(
-                (r) => r.user_id === currentUserId && r.emoji === emoji,
-              );
-              return (
-                <TouchableOpacity
-                  key={emoji}
-                  style={[
-                    styles.actionBtn,
-                    active && styles.reactionActionActive,
-                  ]}
-                  onPress={() => onReactionToggle?.(emoji, comment.id ?? 0)}
-                >
-                  <Text style={styles.reactionActionEmoji}>{emoji}</Text>
-                </TouchableOpacity>
-              );
-            })}
-
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={() => onPin?.(comment)}
-            >
-              <MaterialCommunityIcons
-                name={isPinned ? "pin" : "pin-outline"}
-                size={15}
-                color={isPinned ? "#00DEAB" : "#9CA3AF"}
-              />
-            </TouchableOpacity>
-          </>
-        )}
-
-        {isOwn && canEditOwn && (
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() => onEdit?.(comment)}
-          >
-            <Ionicons name="pencil-outline" size={15} color="#9CA3AF" />
-          </TouchableOpacity>
-        )}
-
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={() => onReply?.(comment)}
-        >
-          <Ionicons name="arrow-undo-outline" size={15} color="#9CA3AF" />
-        </TouchableOpacity>
-
-        {isOwn && canDeleteOwn && (
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() => onDelete?.(comment)}
-          >
-            <Ionicons name="trash-outline" size={15} color="#9CA3AF" />
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
-  );
-}
-
-function formatApiDate(dateStr: string): string {
-  return formatShortDate(dateStr);
-}
-
-function formatApiDateTime(dateStr: string): string {
-  return formatFullDateTimeShared(dateStr);
-}
-
-function formatDetailDateTime(dateStr?: string | null): string {
-  if (!dateStr) return "-";
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  const month = d.toLocaleDateString("en-US", { month: "short" });
-  const day = String(d.getDate()).padStart(2, "0");
-  const year = d.getFullYear();
-  let hours = d.getHours();
-  const minutes = String(d.getMinutes()).padStart(2, "0");
-  const ampm = hours >= 12 ? "PM" : "AM";
-  hours = hours % 12 || 12;
-  return `${month} ${day}, ${year} ${hours}:${minutes} ${ampm}`;
-}
-
 // Builds a TaskDetail payload for the modal from a `/tasks/view/:id` response.
 // Used when opening a task from a notification (no pre-mapped task row exists).
 export function buildTaskDetailFromViewTask(
@@ -734,7 +476,7 @@ export default function TaskDetailModal({
     parentDueDate: string | null;
   }>({ sprintDueDate: null, projectDueDate: null, parentDueDate: null });
 
-  // ── Task Edit State ───────────────────────────────────────────────────
+  // â”€â”€ Task Edit State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [savingTask, setSavingTask] = useState(false);
 
   const [editTitle, setEditTitle] = useState("");
@@ -885,7 +627,7 @@ export default function TaskDetailModal({
     await recalculateScheduleSafe(taskId, completedAt);
   };
 
-  // Persists an edit immediately — pass just the field(s) that changed as
+  // Persists an edit immediately â€” pass just the field(s) that changed as
   // `overrides`. Dedicated endpoints are used for assignee and due date;
   // everything else goes through the full website-equivalent update payload.
   const persistTaskField = async (
@@ -1821,7 +1563,7 @@ export default function TaskDetailModal({
   // Use taskDetail data from ViewTask API response, fall back to props
   const apiTask = taskDetail?.task;
 
-  // Resolve user names — created_by/asigned_to can be a number (lookup in taskOwners) or an object (inline user info)
+  // Resolve user names â€” created_by/asigned_to can be a number (lookup in taskOwners) or an object (inline user info)
   const resolveUserName = (
     idOrObj:
       | number
@@ -1853,7 +1595,7 @@ export default function TaskDetailModal({
   const assignedToName = apiTask
     ? resolveUserName(apiTask.asigned_to)
     : task.assignedTo;
-  // task_owner entries from /tasks/all don't reliably carry full_name —
+  // task_owner entries from /tasks/all don't reliably carry full_name â€”
   // build the display name from first/last first, matching the fallback
   // used for @-mentions elsewhere in this file.
   const selectedOwner = taskState.taskOwners.find(
@@ -2068,7 +1810,7 @@ export default function TaskDetailModal({
                     multiline
                   />
 
-                  {/* ── Info Rows (vertical, ordered) ── */}
+                  {/* â”€â”€ Info Rows (vertical, ordered) â”€â”€ */}
 
                   {/* 1. Assigned to */}
                   <View style={styles.infoRow}>
@@ -2480,7 +2222,7 @@ export default function TaskDetailModal({
                           ))}
                         </ScrollView>
                       ) : (
-                        <Text style={styles.infoValue}>—</Text>
+                        <Text style={styles.infoValue}>â€”</Text>
                       )}
                       {canManageDependencies && (
                         <TouchableOpacity
@@ -2712,7 +2454,7 @@ export default function TaskDetailModal({
               )}
             </BottomSheetScrollView>
 
-            {/* ── Mention Suggestions ── */}
+            {/* â”€â”€ Mention Suggestions â”€â”€ */}
             {mentionActive && mentionCandidates.length > 0 && (
               <View style={styles.mentionSuggestions}>
                 {mentionCandidates.map((user) => (
@@ -2812,7 +2554,7 @@ export default function TaskDetailModal({
                   >
                     <Ionicons name="at" size={16} color="#374151" />
                   </TouchableOpacity>
-                  {/* Voice recorder — hidden/disabled */}
+                  {/* Voice recorder â€” hidden/disabled */}
                   {/* <TouchableOpacity style={styles.toolBtn}>
                         <Ionicons
                           name="mic-outline"
@@ -2820,7 +2562,7 @@ export default function TaskDetailModal({
                           color="#374151"
                         />
                       </TouchableOpacity> */}
-                  {/* Video recorder — hidden/disabled */}
+                  {/* Video recorder â€” hidden/disabled */}
                   {/* <TouchableOpacity style={styles.toolBtn}>
                         <Ionicons
                           name="videocam-outline"
@@ -2845,7 +2587,7 @@ export default function TaskDetailModal({
           </View>
         )}
 
-        {/* ── Assignee Picker Popover ── */}
+        {/* â”€â”€ Assignee Picker Popover â”€â”€ */}
         {assignPickerVisible && (
           <Pressable
             style={styles.popoverOverlay}
@@ -2936,7 +2678,7 @@ export default function TaskDetailModal({
           </Pressable>
         )}
 
-        {/* ── Status Picker Popover ── */}
+        {/* â”€â”€ Status Picker Popover â”€â”€ */}
         {statusPickerVisible && (
           <Pressable
             style={styles.popoverOverlay}
@@ -3085,7 +2827,7 @@ export default function TaskDetailModal({
           </Pressable>
         )}
 
-        {/* ── Task Priority Picker Popover ── */}
+        {/* â”€â”€ Task Priority Picker Popover â”€â”€ */}
         {priorityPickerVisible && (
           <Pressable
             style={styles.popoverOverlay}
@@ -3197,7 +2939,7 @@ export default function TaskDetailModal({
           </Pressable>
         )}
 
-        {/* ── Approval Required Picker Popover ── */}
+        {/* â”€â”€ Approval Required Picker Popover â”€â”€ */}
         {approvalPickerVisible && (
           <Pressable
             style={styles.popoverOverlay}
@@ -3256,7 +2998,7 @@ export default function TaskDetailModal({
           </Pressable>
         )}
 
-        {/* ── Effort Picker Popover ── */}
+        {/* â”€â”€ Effort Picker Popover â”€â”€ */}
         {effortPickerVisible && (
           <Pressable
             style={styles.popoverOverlay}
@@ -3340,7 +3082,7 @@ export default function TaskDetailModal({
           </Pressable>
         )}
 
-        {/* ── Date Picker Popover ── */}
+        {/* â”€â”€ Date Picker Popover â”€â”€ */}
         {datePickerVisible && (
           <Pressable
             style={styles.popoverOverlay}
@@ -3374,7 +3116,7 @@ export default function TaskDetailModal({
             </Pressable>
           </Pressable>
         )}
-        {/* ── Effort Logs Modal ── */}
+        {/* â”€â”€ Effort Logs Modal â”€â”€ */}
         {effortLogsModalVisible && (
           <Modal
             transparent
@@ -3581,7 +3323,7 @@ export default function TaskDetailModal({
                   ? completedAt
                   : null,
             });
-            // Contract §8.9 / AUD-035: pass completion time to recalc.
+            // Contract Â§8.9 / AUD-035: pass completion time to recalc.
             void recalculateIfAts(taskId, completedAt);
           }
           loadTaskDetail();
@@ -4042,142 +3784,6 @@ const styles = StyleSheet.create({
   commentsContainer: { flex: 1, flexDirection: "column" },
   commentsList: { flex: 1 },
   commentsListContent: { gap: 12, paddingBottom: 16 },
-  bubble: {
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 12,
-    padding: 12,
-    backgroundColor: "#FFFFFF",
-  },
-  pinnedCard: {
-    backgroundColor: "#E6FBF6",
-    borderColor: "#E6FBF6",
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-  },
-  pinnedBottomPin: {
-    marginTop: 10,
-    alignSelf: "flex-start",
-  },
-  bubbleHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-    gap: 5,
-  },
-  bubbleAvatar: {
-    width: 20,
-    height: 20,
-    borderRadius: 5,
-    backgroundColor: "#00DEAB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  bubbleAvatarText: { fontSize: rf(10), fontWeight: "700", color: "#fff" },
-  bubbleNameRow: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  bubbleName: {
-    fontSize: rf(12),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#1D1D1D",
-  },
-  bubbleTime: {
-    fontSize: rf(9),
-    color: "#D1D5DB",
-    fontFamily: "SF_Pro_Regular",
-  },
-  pinIcon: { marginLeft: "auto" },
-  bubbleText: {
-    fontSize: rf(13),
-    color: "#1D1D1D",
-    lineHeight: 20,
-    fontFamily: "SF_Pro_Regular",
-  },
-  bubbleActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-    gap: 12,
-  },
-  reactionsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 8,
-    flexWrap: "wrap",
-  },
-  reactionBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#F3F4F6",
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  reactionText: { fontSize: rf(12) },
-  reactionCount: {
-    fontSize: rf(10),
-    color: "#6B7280",
-    fontFamily: "SF_Pro_Regular",
-  },
-  actionBtn: { padding: 2 },
-  reactionActionActive: {
-    backgroundColor: "#E6FBF6",
-    borderRadius: 6,
-  },
-  reactionActionEmoji: {
-    fontSize: rf(14),
-  },
-  noteAttachmentChip: {
-    marginTop: 8,
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderWidth: 1,
-    borderColor: "#D1FAE5",
-    backgroundColor: "#F0FDF9",
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    maxWidth: "100%",
-  },
-  noteAttachmentText: {
-    fontSize: rf(11),
-    color: "#047857",
-    fontFamily: "SF_Pro_Medium",
-    maxWidth: 220,
-  },
-  commentReplyQuote: {
-    backgroundColor: "#F3F4F6",
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    marginBottom: 6,
-    borderLeftWidth: 3,
-    borderLeftColor: "#00DEAB",
-  },
-  commentReplyName: {
-    fontSize: rf(10),
-    color: "#00A876",
-    fontFamily: "SF_Pro_Semibold",
-    marginBottom: 1,
-  },
-  commentReplyText: {
-    fontSize: rf(10.5),
-    color: "#6B7280",
-    fontFamily: "SF_Pro_Regular",
-  },
   replyBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -4344,7 +3950,7 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
   },
 
-  // ── Edit Mode Styles ──────────────────────────────────────────────
+  // â”€â”€ Edit Mode Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   titleHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -4617,7 +4223,7 @@ const styles = StyleSheet.create({
     color: "#1F2937",
   },
 
-  // ── Direct Inline Editing Styles ─────────────────────────────────────────
+  // â”€â”€ Direct Inline Editing Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   editableTaskTitle: {
     fontSize: rf(16),
     fontFamily: "SF_Pro_Semibold",
