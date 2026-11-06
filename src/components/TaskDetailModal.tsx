@@ -1,5 +1,3 @@
-import Avatar from "@/components/Avatar";
-import DocumentPickerButton from "@/features/attachments/components/DocumentPickerButton";
 import type { SelectedFile } from "@/features/attachments/types/attachment.types";
 import {
   addDependency,
@@ -20,6 +18,15 @@ import {
   updateNoteReaction,
 } from "@/features/tasks/api/taskNotesApi";
 import { buildUpdateTaskPayload } from "@/features/tasks/components/task-detail/taskUpdatePayload";
+import { TaskDetailCommentsTab } from "@/features/tasks/components/task-detail/TaskDetailCommentsTab";
+import { TaskDetailDetailsTab } from "@/features/tasks/components/task-detail/TaskDetailDetailsTab";
+import { TaskDetailApprovalPicker } from "@/features/tasks/components/task-detail/pickers/TaskDetailApprovalPicker";
+import { TaskDetailAssigneePicker } from "@/features/tasks/components/task-detail/pickers/TaskDetailAssigneePicker";
+import { TaskDetailDueDatePicker } from "@/features/tasks/components/task-detail/pickers/TaskDetailDueDatePicker";
+import { TaskDetailEffortLogsModal } from "@/features/tasks/components/task-detail/pickers/TaskDetailEffortLogsModal";
+import { TaskDetailEffortPicker } from "@/features/tasks/components/task-detail/pickers/TaskDetailEffortPicker";
+import { TaskDetailPriorityPicker } from "@/features/tasks/components/task-detail/pickers/TaskDetailPriorityPicker";
+import { TaskDetailStatusPicker } from "@/features/tasks/components/task-detail/pickers/TaskDetailStatusPicker";
 import ReopenTaskModal from "@/features/tasks/components/task-detail/ReopenTaskModal";
 import ResumeTaskModal from "@/features/tasks/components/task-detail/ResumeTaskModal";
 import { useTaskDetailSocket } from "@/features/tasks/hooks/useTaskDetailSocket";
@@ -30,7 +37,7 @@ import {
 import { useTasksStore } from "@/features/tasks/store/tasksStore";
 import { getSprints } from "@/features/projects/api/sprintsApi";
 import { getProjectDetail } from "@/features/projects/api/projectsApi";
-import { fromMinutes, toMinutes, formatEffort } from "@/features/tasks/utils/taskEffort";
+import { fromMinutes, toMinutes } from "@/features/tasks/utils/taskEffort";
 import { parseTaskDate, toCalendarDateOnly } from "@/features/tasks/utils/taskDate";
 import { normalizeApiStatus, toApiStatus } from "@/features/tasks/utils/taskStatus";
 import {
@@ -49,7 +56,6 @@ import { selectAttachmentChips } from "@/features/tasks/utils/attachmentDisplay"
 import { buildEffortHistoryRows } from "@/features/tasks/utils/effortHistory";
 import { needsTaskLookupRefresh } from "@/features/tasks/utils/realtime";
 import { reportTaskError } from "@/features/tasks/utils/taskError";
-import { filterAndCapDetailAssignees } from "@/features/tasks/utils/taskOwnerFilter";
 import {
   validateAttachment,
   validateDueDate,
@@ -66,10 +72,6 @@ import {
 } from "@/types/task.types";
 import { buildMentionMarkup, mentionMarkupToDisplay } from "@/utils/chatHelpers";
 import {
-  CommentBubble,
-  PinnedCommentCard,
-} from "@/features/tasks/components/task-detail/TaskDetailComments";
-import {
   formatApiDate,
   formatDetailDateTime,
   getDependencyInitials,
@@ -83,7 +85,6 @@ import {
   BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetScrollView,
-  BottomSheetTextInput,
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -93,8 +94,6 @@ import {
   Keyboard,
   Modal,
   Platform,
-  Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -102,7 +101,6 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import CalendarPicker from "./CalendarPicker";
 import {
   CriticalTaskPopUpModal,
   OrderCriticalTasksModal,
@@ -110,9 +108,8 @@ import {
 } from "./CriticalTaskModal";
 import DependencyModal from "./DependencyModal";
 import RejectTaskModal from "./RejectTaskModal";
-import RichTextEditor, { RichTextEditorRef } from "./texteditor";
+import type { RichTextEditorRef } from "./texteditor";
 import { STATUS_COLORS, StatusType, TaskRowProps } from "./TaskRow";
-import SingleTaskTable from "./SingleTaskTable";
 
 const SNAP_POINTS = ["94%"];
 
@@ -755,6 +752,21 @@ export default function TaskDetailModal({
     }
   };
 
+  const handleTitleBlur = async () => {
+    const trimmed = editTitle.trim();
+    if (trimmed && trimmed !== lastSavedTitleRef.current.trim()) {
+      const saved = await persistTaskField({ title: trimmed });
+      if (saved) lastSavedTitleRef.current = trimmed;
+    }
+  };
+
+  const handleDescriptionBlur = async () => {
+    if (editDescription !== lastSavedDescRef.current) {
+      const saved = await persistTaskField({ description: editDescription });
+      if (saved) lastSavedDescRef.current = editDescription;
+    }
+  };
+
   const [mentionActive, setMentionActive] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionedUserIds, setMentionedUserIds] = useState<number[]>([]);
@@ -995,6 +1007,145 @@ export default function TaskDetailModal({
       })),
     );
     setCriticalPromptVisible(true);
+  };
+
+  const handleAssigneeSelect = (user: { id: number }) => {
+    setEditAssignToId(user.id);
+    setAssignPickerVisible(false);
+    setAssigneeSearch("");
+    persistTaskField({ assign_to: user.id });
+  };
+
+  const handleStatusSelect = (nextStatus: string) => {
+    const detailTask = taskDetail?.task;
+    const detailStatus = normalizeApiStatus(
+      String(detailTask?.status ?? editStatus),
+    );
+
+    if (nextStatus === "Rejected") {
+      if (!canApproveRejectNow) {
+        showError(
+          "Not Allowed",
+          "Only the task creator or company admin can reject this task.",
+        );
+        return;
+      }
+      setStatusPickerVisible(false);
+      setRejectModalVisible(true);
+      return;
+    }
+
+    // ATS Complete/On-Hold reopening uses /tasks/reopen.
+    if (shouldRouteAtsReopen(detailStatus, nextStatus, isAts)) {
+      if (Number(creatorIdOfTask) !== Number(currentUserId)) {
+        showError("Not Allowed", "Only the task creator can reopen this task.");
+        return;
+      }
+      setStatusPickerVisible(false);
+      setReopenModalVisible(true);
+      return;
+    }
+
+    // ATS resume from Pending-Approval allows optional effort.
+    if (shouldRouteAtsResume(detailStatus, nextStatus, isAts)) {
+      setStatusPickerVisible(false);
+      setResumeTargetStatus(nextStatus as "In-Progress" | "Pending");
+      setResumeModalVisible(true);
+      return;
+    }
+
+    void persistTaskStatus({
+      taskId: task?.taskId ?? 0,
+      currentStatus: String(detailTask?.status ?? editStatus),
+      nextStatus,
+      subtaskCount: detailTask?.subtask_count ?? 0,
+      canEditStatus,
+      canApproveReject: canApproveRejectNow,
+      createdBy: Number(creatorIdOfTask),
+      currentUserId,
+      isAts,
+      companyId,
+      companyIdentifier,
+      updateStatus: updateTaskStatusApi,
+      onSaved: (savedStatus) => {
+        setEditStatus(String(savedStatus));
+        setTaskDetail((current) =>
+          current
+            ? {
+                ...current,
+                task: {
+                  ...current.task,
+                  status: savedStatus,
+                  completed_at:
+                    savedStatus === "Complete"
+                      ? new Date().toISOString()
+                      : null,
+                },
+              }
+            : current,
+        );
+      },
+    }).then((saved) => {
+      if (saved) setStatusPickerVisible(false);
+    });
+  };
+
+  const handlePriorityTierSelect = (tier: "normal" | "critical") => {
+    void handlePriorityChange(tier);
+  };
+
+  const handleCompanyPrioritySelect = (priority: { id: number }) => {
+    setEditPriorityId(priority.id);
+    setPriorityPickerVisible(false);
+    persistTaskField({ priority: priority.id });
+  };
+
+  const handleApprovalSelect = (value: boolean) => {
+    setEditApprovalRequired(value);
+    setApprovalPickerVisible(false);
+    persistTaskField({ approval_required: value ? 1 : 0 });
+  };
+
+  const handleEffortBlur = async () => {
+    if (editEffortHours !== lastSavedEffortHoursRef.current) {
+      const saved = await persistTaskField({
+        effort_hours: toMinutes(
+          editEffortHours,
+          editEffortUnit as "minutes" | "hours" | "days",
+        ),
+        effort_unit: editEffortUnit,
+      });
+      if (saved) {
+        lastSavedEffortHoursRef.current = editEffortHours;
+      }
+    }
+  };
+
+  const handleEffortUnitSelect = async (
+    nextUnit: "minutes" | "hours" | "days",
+  ) => {
+    const minutes = toMinutes(
+      editEffortHours,
+      editEffortUnit as "minutes" | "hours" | "days",
+    );
+    const converted = String(fromMinutes(minutes, nextUnit));
+    setEditEffortUnit(nextUnit);
+    setEditEffortHours(converted);
+    const saved = await persistTaskField({
+      effort_hours: minutes,
+      effort_unit: nextUnit,
+    });
+    if (saved) lastSavedEffortHoursRef.current = converted;
+  };
+
+  const handleDueDateSelect = (date: Date) => {
+    setEditDueDate(date);
+    persistTaskField({ due_date: toCalendarDateOnly(date) });
+  };
+
+  const handleAssignPickerClose = () => {
+    setAssignPickerVisible(false);
+    setAssigneeSearch("");
   };
 
   const handleCriticalStop = () => {
@@ -1306,6 +1457,21 @@ export default function TaskDetailModal({
     if (!triggerActive) setMentionQuery("");
 
     if (triggerActive && !mentionUsersLoadedRef.current && companyId) {
+      mentionUsersLoadedRef.current = true;
+      fetchMentionUsers(companyId)
+        .then(setMentionUsers)
+        .catch(() => {
+          mentionUsersLoadedRef.current = false;
+        });
+    }
+  };
+
+  const handleMentionButtonPress = () => {
+    const text = `${commentText}@`;
+    setCommentText(text);
+    setMentionQuery("");
+    setMentionActive(true);
+    if (companyId && !mentionUsersLoadedRef.current) {
       mentionUsersLoadedRef.current = true;
       fetchMentionUsers(companyId)
         .then(setMentionUsers)
@@ -1788,1443 +1954,187 @@ export default function TaskDetailModal({
                   bounces={true}
                   overScrollMode="always"
                 >
-                  {/* Direct Editable Title */}
-                  <TextInput
-                    allowFontScaling={false}
-                    style={styles.editableTaskTitle}
-                    value={editTitle}
-                    editable={canEdit}
-                    onChangeText={setEditTitle}
-                    onBlur={async () => {
-                      const trimmed = editTitle.trim();
-                      if (
-                        trimmed &&
-                        trimmed !== lastSavedTitleRef.current.trim()
-                      ) {
-                        const saved = await persistTaskField({ title: trimmed });
-                        if (saved) lastSavedTitleRef.current = trimmed;
-                      }
+                  <TaskDetailDetailsTab
+                    canEdit={canEdit}
+                    canEditStatus={canEditStatus}
+                    canApproveRejectNow={canApproveRejectNow}
+                    isAts={isAts}
+                    canManageDependencies={canManageDependencies}
+                    canManageAttachments={canManageAttachments}
+                    titleValue={editTitle}
+                    onTitleChange={setEditTitle}
+                    onTitleBlur={handleTitleBlur}
+                    assigneeName={selectedOwnerName || assignedToName}
+                    assigneeImage={
+                      selectedOwner?.image ??
+                      (typeof apiTask?.asigned_to === "object"
+                        ? apiTask.asigned_to?.image
+                        : undefined)
+                    }
+                    onAssigneePress={() => setAssignPickerVisible(true)}
+                    createdByName={createdByName}
+                    createdByImage={(apiTask as any)?.task_creator?.image}
+                    createdAtDisplay={createdAtDisplay}
+                    startDateDisplay={startDateDisplay}
+                    dueDateDisplay={estCompletionDisplay}
+                    onDueDatePress={() => {
+                      if (!isAts) setDatePickerVisible(true);
                     }}
-                    scrollEnabled={false}
-                    placeholder="Enter task title..."
-                    placeholderTextColor="#9CA3AF"
-                    multiline
-                  />
-
-                  {/* â”€â”€ Info Rows (vertical, ordered) â”€â”€ */}
-
-                  {/* 1. Assigned to */}
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoLabelWrap}>
-                      <Ionicons
-                        name="people-outline"
-                        size={16}
-                        color="#AAAAAA"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.infoLabel}>Assigned to:</Text>
-                    </View>
-                    <View style={styles.infoValueWrap}>
-                      <TouchableOpacity
-                        style={[
-                          styles.assignedRow,
-                          !canEdit && { opacity: 0.7 },
-                        ]}
-                        activeOpacity={0.7}
-                        disabled={!canEdit}
-                        onPress={() => setAssignPickerVisible(true)}
-                      >
-                        <Avatar
-                          name={selectedOwnerName || assignedToName}
-                          imagePath={
-                            selectedOwner?.image ??
-                            (typeof apiTask?.asigned_to === "object"
-                              ? apiTask.asigned_to?.image
-                              : undefined)
-                          }
-                          size={20}
-                          borderRadius={4}
-                        />
-                        <Text style={styles.infoValue}>
-                          {selectedOwnerName || assignedToName || "Select User"}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  {/* 2. Created By */}
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoLabelWrap}>
-                      <Ionicons
-                        name="person-outline"
-                        size={16}
-                        color="#AAAAAA"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.infoLabel}>Created By:</Text>
-                    </View>
-                    <View style={styles.infoValueWrap}>
-                      <View style={styles.assignedRow}>
-                        <Avatar
-                          name={createdByName}
-                          imagePath={(apiTask as any)?.task_creator?.image}
-                          size={20}
-                          borderRadius={4}
-                        />
-                        <Text style={styles.infoValue}>{createdByName}</Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* 3. Created At */}
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoLabelWrap}>
-                      <Ionicons
-                        name="calendar-outline"
-                        size={16}
-                        color="#AAAAAA"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.infoLabel}>Created At:</Text>
-                    </View>
-                    <View style={styles.infoValueWrap}>
-                      <Text style={styles.infoValue}>{createdAtDisplay}</Text>
-                    </View>
-                  </View>
-
-                  {/* 4. Start Date */}
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoLabelWrap}>
-                      <Ionicons
-                        name="calendar-outline"
-                        size={16}
-                        color="#AAAAAA"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.infoLabel}>Start Date:</Text>
-                    </View>
-                    <View style={styles.infoValueWrap}>
-                      <Text style={styles.infoValue}>{startDateDisplay}</Text>
-                    </View>
-                  </View>
-
-                  {/* 5. Est. Completion */}
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoLabelWrap}>
-                      <Ionicons
-                        name="calendar-outline"
-                        size={16}
-                        color="#AAAAAA"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.infoLabel}>Est. Completion:</Text>
-                      <Ionicons
-                        name="information-circle-outline"
-                        size={12}
-                        color="#9CA3AF"
-                        style={{ marginLeft: 2 }}
-                      />
-                    </View>
-                    <View style={styles.infoValueWrap}>
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        disabled={!canEdit || isAts}
-                        style={(!canEdit || isAts) && { opacity: 0.7 }}
-                        onPress={() => {
-                          if (!isAts) setDatePickerVisible(true);
-                        }}
-                      >
-                        <Text style={styles.infoValue}>
-                          {estCompletionDisplay}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  {/* 6. Actual Completion */}
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoLabelWrap}>
-                      <Ionicons
-                        name="calendar-outline"
-                        size={16}
-                        color="#AAAAAA"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.infoLabel}>Actual Completion:</Text>
-                    </View>
-                    <View style={styles.infoValueWrap}>
-                      <Text style={styles.infoValue}>
-                        {actualCompletionDisplay}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* 7. Priority */}
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoLabelWrap}>
-                      <Ionicons
-                        name="star-outline"
-                        size={16}
-                        color="#AAAAAA"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.infoLabel}>Priority:</Text>
-                    </View>
-                    <View style={styles.infoValueWrap}>
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        disabled={!canEdit || (hasTaskPriority && !isAts)}
-                        style={
-                          (!canEdit || (hasTaskPriority && !isAts)) && {
-                            opacity: 0.7,
-                          }
-                        }
-                        onPress={() => setPriorityPickerVisible(true)}
-                      >
-                        <View
-                          style={[
-                            styles.taskPriorityBadge,
-                            editTaskPriority === "critical"
-                              ? styles.taskPriorityBadgeCritical
-                              : styles.taskPriorityBadgeNormal,
-                          ]}
-                        >
-                          <View
-                            style={[
-                              styles.taskPriorityDot,
-                              {
-                                backgroundColor:
-                                  editTaskPriority === "critical"
-                                    ? "#EF4444"
-                                    : "#00A876",
-                              },
-                            ]}
-                          />
-                          <Text
-                            style={[
-                              styles.taskPriorityBadgeText,
-                              {
-                                color:
-                                  editTaskPriority === "critical"
-                                    ? "#EF4444"
-                                    : "#00A876",
-                              },
-                            ]}
-                          >
-                            {hasTaskPriority
-                              ? editTaskPriority === "critical"
-                                ? "Critical"
-                                : "Normal"
-                              : companyPriorityName}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  {/* 8. Task Status */}
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoLabelWrap}>
-                      <Ionicons
-                        name="sync-outline"
-                        size={16}
-                        color="#AAAAAA"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.infoLabel}>Task Status:</Text>
-                    </View>
-                    <View style={styles.infoValueWrap}>
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        disabled={!canEditStatus && !canApproveRejectNow}
-                        style={
-                          (!canEditStatus && !canApproveRejectNow) && {
-                            opacity: 0.7,
-                          }
-                        }
-                        onPress={() => setStatusPickerVisible(true)}
-                      >
-                        <View
-                          style={[
-                            styles.badge,
-                            {
-                              backgroundColor:
-                                STATUS_COLORS[editStatus as StatusType]?.bg ??
-                                "#D1FAE5",
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.badgeText,
-                              {
-                                color:
-                                  STATUS_COLORS[editStatus as StatusType]
-                                    ?.text ?? "#059669",
-                              },
-                            ]}
-                          >
-                            {editStatus === "In-Progress"
-                              ? "In Progress"
-                              : editStatus === "On-Hold"
-                                ? "On Hold"
-                                : editStatus}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  {/* 9. Recurring Task */}
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoLabelWrap}>
-                      <Ionicons
-                        name="repeat-outline"
-                        size={16}
-                        color="#AAAAAA"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.infoLabel}>Recurring Task:</Text>
-                    </View>
-                    <View style={styles.infoValueWrap}>
-                      <Text style={styles.infoValue}>
-                        {apiTask?.is_recurring || task.recurringTask === "Yes"
-                          ? "Yes"
-                          : "No"}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* 10. Approval Required */}
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoLabelWrap}>
-                      <Ionicons
-                        name="checkbox-outline"
-                        size={16}
-                        color="#AAAAAA"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.infoLabel}>Approval Required:</Text>
-                    </View>
-                    <View style={styles.infoValueWrap}>
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        disabled={!canEdit}
-                        style={!canEdit && { opacity: 0.7 }}
-                        onPress={() => setApprovalPickerVisible(true)}
-                      >
-                        <Text style={styles.infoValue}>
-                          {editApprovalRequired ? "Yes" : "No"}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  {/* 11. Efforts (ATS only) */}
-                  {isAts && (
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoLabelWrap}>
-                      <Ionicons
-                        name="time-outline"
-                        size={16}
-                        color="#AAAAAA"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.infoLabel}>Efforts:</Text>
-                    </View>
-                    <View style={styles.infoValueWrap}>
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        disabled={!canEdit}
-                        style={!canEdit && { opacity: 0.7 }}
-                        onPress={() => setEffortPickerVisible(true)}
-                      >
-                        <Text style={styles.infoValue}>
-                          {formatEffort(
-                            toMinutes(
-                              editEffortHours || "0",
-                              editEffortUnit as "minutes" | "hours" | "days",
-                            ),
-                            editEffortUnit as "minutes" | "hours" | "days",
-                          )}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                  )}
-
-                  {/* 12. Effort Logs (ATS only) */}
-                  {isAts && (
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoLabelWrap}>
-                      <Ionicons
-                        name="time-outline"
-                        size={16}
-                        color="#AAAAAA"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.infoLabel}>Effort Logs:</Text>
-                      <Ionicons
-                        name="information-circle-outline"
-                        size={12}
-                        color="#9CA3AF"
-                        style={{ marginLeft: 2 }}
-                      />
-                    </View>
-                    <View style={styles.infoValueWrap}>
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        onPress={() => setEffortLogsModalVisible(true)}
-                      >
-                        <Text style={[styles.infoValue, { color: "#00DEAB" }]}>
-                          {effortLogsDisplay}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                  )}
-
-                  {/* 13. Dependencies */}
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoLabelWrap}>
-                      <Ionicons
-                        name="git-compare-outline"
-                        size={16}
-                        color="#AAAAAA"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.infoLabel}>Dependencies:</Text>
-                    </View>
-                    <View style={styles.infoValueWrap}>
-                      {depDisplay.length > 0 ? (
-                        <ScrollView
-                          horizontal
-                          showsHorizontalScrollIndicator={false}
-                          nestedScrollEnabled
-                        >
-                          {dependencies.map((dep, idx) => (
-                            <View key={`${dep.task_id}-${idx}`} style={styles.depPill}>
-                              <Text
-                                style={styles.depPillText}
-                                numberOfLines={1}
-                              >
-                                {dep.title}
-                              </Text>
-                              {canManageDependencies && (
-                                <TouchableOpacity
-                                  onPress={() => handleRemoveDependency(dep)}
-                                  hitSlop={8}
-                                  style={{ marginLeft: 4 }}
-                                >
-                                  <Ionicons name="close" size={12} color="#00DEAB" />
-                                </TouchableOpacity>
-                              )}
-                            </View>
-                          ))}
-                        </ScrollView>
-                      ) : (
-                        <Text style={styles.infoValue}>â€”</Text>
-                      )}
-                      {canManageDependencies && (
-                        <TouchableOpacity
-                          style={styles.addDependencyBtn}
-                          onPress={() => setDependencyModalVisible(true)}
-                        >
-                          <Ionicons name="add" size={13} color="#00DEAB" />
-                          <Text style={styles.addDependencyText}>Add</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </View>
-
-                  {/* Direct Editable Description */}
-                  <View style={styles.section}>
-                    <View style={styles.descHeaderRow}>
-                      {/* <Ionicons
-                        name="document-text-outline"
-                        size={16}
-                        color="#8E8E93"
-                        style={{ marginRight: 6 }}
-                      /> */}
-                      <Text style={styles.sectionTitle}>Description</Text>
-                    </View>
-                    <View style={styles.descBadgeChip}>
-                      <Ionicons name="link-outline" size={12} color="#fff" />
-                      <Text style={styles.descBadgeChipText}>
-                        +{attachmentFiles.length}
-                      </Text>
-                    </View>
-                    <RichTextEditor
-                      key={`${task?.taskId ?? "task"}-${apiTask?.id ?? "pending"}`}
-                      ref={descriptionEditorRef}
-                      initialHTML={editDescription}
-                      onChangeHTML={setEditDescription}
-                      onBlur={async () => {
-                        if (editDescription !== lastSavedDescRef.current) {
-                          const saved = await persistTaskField({
-                            description: editDescription,
-                          });
-                          if (saved) lastSavedDescRef.current = editDescription;
-                        }
-                      }}
-                      disabled={!canEdit}
-                      showToolbar={canEdit}
-                      editorHeight={140}
-                      borderless
-                    />
-                  </View>
-
-                  {depRows.length > 0 && (
-                    <View style={styles.dependencyTableWrap}>
-                      <SingleTaskTable
-                        sectionTitle="Dependencies"
-                        tasks={depRows}
-                        contained
-                        readOnly
-                        canReassign={false}
-                        columns={["title", "assignedTo", "status", "remove"]}
-                        columnHeadings={{ remove: "" }}
-                        onRemoveTask={(row) => {
-                          const dep = dependencies.find(
-                            (entry) => Number(entry.task_id) === Number(row.id),
-                          );
-                          if (dep) handleRemoveDependency(dep);
-                        }}
-                      />
-                    </View>
-                  )}
-
-                  {/* Bottom Attachments Button */}
-                  <View style={styles.bottomAttachmentSection}>
-                    <Text style={styles.sectionTitle}>Attachments</Text>
-                    {canManageAttachments && (
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <DocumentPickerButton onPick={handlePickAttachment} />
-                        <Text style={styles.bottomAttachmentText}>
-                          {uploadingAttachment ? "Uploading..." : "Add attachment"}
-                        </Text>
-                      </View>
+                    actualCompletionDisplay={actualCompletionDisplay}
+                    hasTaskPriority={hasTaskPriority}
+                    editTaskPriority={editTaskPriority}
+                    companyPriorityName={companyPriorityName}
+                    onPriorityPress={() => setPriorityPickerVisible(true)}
+                    editStatus={editStatus}
+                    onStatusPress={() => setStatusPickerVisible(true)}
+                    isRecurring={Boolean(
+                      apiTask?.is_recurring || task.recurringTask === "Yes",
                     )}
-                  </View>
-
-                  {attachmentFiles.length > 0 && (
-                    <View style={styles.section}>
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        nestedScrollEnabled
-                      >
-                        {attachmentItems.length > 0
-                          ? taskAttachmentSelection.visible.map((item) => (
-                              <View key={item.id} style={styles.attachTag}>
-                                <TouchableOpacity
-                                  onPress={() =>
-                                    handleOpenAttachment(
-                                      item.attachment,
-                                      attachmentDisplayName(
-                                        item.original_name,
-                                        item.attachment,
-                                      ),
-                                    )
-                                  }
-                                  style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
-                                >
-                                  <Ionicons
-                                    name="download-outline"
-                                    size={13}
-                                    color="#00DEAB"
-                                  />
-                                  <Text style={styles.attachTagText} numberOfLines={1}>
-                                    {attachmentDisplayName(
-                                      item.original_name,
-                                      item.attachment,
-                                    )}
-                                  </Text>
-                                </TouchableOpacity>
-                                {canManageAttachments && (
-                                  <TouchableOpacity
-                                    onPress={() => handleDeleteAttachment(item.id)}
-                                    hitSlop={8}
-                                    style={{ marginLeft: 6 }}
-                                  >
-                                    <Ionicons name="close" size={12} color="#EF4444" />
-                                  </TouchableOpacity>
-                                )}
-                              </View>
-                            ))
-                          : fileAttachmentSelection.visible.map((a, i) => (
-                              <TouchableOpacity
-                                key={i}
-                                style={styles.attachTag}
-                                onPress={() => handleOpenAttachment(a)}
-                              >
-                                <Ionicons
-                                  name="download-outline"
-                                  size={13}
-                                  color="#00DEAB"
-                                />
-                                <Text style={styles.attachTagText}>{a}</Text>
-                              </TouchableOpacity>
-                            ))}
-                        {(attachmentItems.length > 0
-                          ? taskAttachmentSelection.hiddenCount
-                          : fileAttachmentSelection.hiddenCount) > 0 ? (
-                          <TouchableOpacity
-                            style={styles.attachTag}
-                            onPress={() => setShowAllAttachments(true)}
-                          >
-                            <Text style={styles.attachTagText}>
-                              +{attachmentItems.length > 0
-                                ? taskAttachmentSelection.hiddenCount
-                                : fileAttachmentSelection.hiddenCount}{" "}
-                              more
-                            </Text>
-                          </TouchableOpacity>
-                        ) : showAllAttachments && attachmentFiles.length > 3 ? (
-                          <TouchableOpacity
-                            style={styles.attachTag}
-                            onPress={() => setShowAllAttachments(false)}
-                          >
-                            <Text style={styles.attachTagText}>Show less</Text>
-                          </TouchableOpacity>
-                        ) : null}
-                      </ScrollView>
-                    </View>
-                  )}
+                    approvalRequired={editApprovalRequired}
+                    onApprovalPress={() => setApprovalPickerVisible(true)}
+                    editEffortHours={editEffortHours}
+                    editEffortUnit={editEffortUnit}
+                    effortLogsDisplay={effortLogsDisplay}
+                    onEffortPress={() => setEffortPickerVisible(true)}
+                    onEffortLogsPress={() => setEffortLogsModalVisible(true)}
+                    dependencies={dependencies}
+                    hasDependencies={depDisplay.length > 0}
+                    onRemoveDependency={handleRemoveDependency}
+                    onAddDependency={() => setDependencyModalVisible(true)}
+                    descriptionAttachmentCount={attachmentFiles.length}
+                    description={editDescription}
+                    descriptionEditorKey={`${task?.taskId ?? "task"}-${apiTask?.id ?? "pending"}`}
+                    descriptionEditorRef={descriptionEditorRef}
+                    onDescriptionChange={setEditDescription}
+                    onDescriptionBlur={handleDescriptionBlur}
+                    depRows={depRows}
+                    onRemoveDependencyFromTable={handleRemoveDependency}
+                    attachmentFiles={attachmentFiles}
+                    attachmentItems={attachmentItems}
+                    taskVisible={taskAttachmentSelection.visible}
+                    taskHiddenCount={taskAttachmentSelection.hiddenCount}
+                    fileVisible={fileAttachmentSelection.visible}
+                    fileHiddenCount={fileAttachmentSelection.hiddenCount}
+                    showAllAttachments={showAllAttachments}
+                    uploadingAttachment={uploadingAttachment}
+                    onPickAttachments={handlePickAttachment}
+                    onOpenAttachment={handleOpenAttachment}
+                    onDeleteAttachment={handleDeleteAttachment}
+                    onShowAllAttachments={() => setShowAllAttachments(true)}
+                    onShowLessAttachments={() => setShowAllAttachments(false)}
+                  />
                 </BottomSheetScrollView>
               </View>
             )}
           </View>
         )}
 
-        {activeTab === "comments" && (
-          <View
-            style={[
-              styles.commentsContainer,
-              styles.tabComment,
-              keyboardPad > 0 && { paddingBottom: keyboardPad },
-            ]}
-          >
-            {/* Sticky pinned message */}
-            {pinnedNotes.length > 0 && (
-              <PinnedCommentCard
-                comment={pinnedNotes[0]}
-                onUnpin={handlePinNote}
-                onOpenAttachment={handleOpenAttachment}
-              />
-            )}
-
-            {/* Only comments scroll */}
-            <BottomSheetScrollView
-              style={styles.commentsList}
-              contentContainerStyle={styles.commentsListContent}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              nestedScrollEnabled
-              bounces={true}
-              overScrollMode="always"
-            >
-              {notesLoading ? (
-                <ActivityIndicator
-                  size="small"
-                  color="#00DEAB"
-                  style={{ marginTop: 20 }}
-                />
-              ) : notes.length === 0 ? (
-                <View style={styles.emptyComments}>
-                  <Text style={styles.emptyCommentsText}>No Comments</Text>
-                </View>
-              ) : (
-                notes.map((c, i) => (
-                  <CommentBubble
-                    key={c.id ?? i}
-                    comment={c}
-                    currentUserId={currentUserId}
-                    onPin={handlePinNote}
-                    onDelete={handleDeleteNote}
-                    onReactionToggle={handleReactionToggle}
-                    onEdit={handleEditNote}
-                    onReply={handleReply}
-                    canEditOwn={canEditDeleteComments}
-                    canDeleteOwn={canEditDeleteComments}
-                    canPinReact={canPinOrReactToComments}
-                    index={i}
-                    onOpenAttachment={handleOpenAttachment}
-                  />
-                ))
-              )}
-            </BottomSheetScrollView>
-
-            {/* â”€â”€ Mention Suggestions â”€â”€ */}
-            {mentionActive && mentionCandidates.length > 0 && (
-              <View style={styles.mentionSuggestions}>
-                {mentionCandidates.map((user) => (
-                  <TouchableOpacity
-                    key={user.id}
-                    style={styles.mentionSuggestionItem}
-                    activeOpacity={0.6}
-                    onPress={() => selectMention(user)}
-                  >
-                    <View style={styles.mentionAvatar}>
-                      <Text style={styles.mentionAvatarText}>
-                        {`${user.first_name?.[0] ?? ""}${user.last_name?.[0] ?? ""}`.toUpperCase()}
-                      </Text>
-                    </View>
-                    <Text style={styles.mentionName} numberOfLines={1}>
-                      {`${user.first_name ?? ""} ${user.last_name ?? ""}`.trim() ||
-                        user.full_name ||
-                        `User ${user.id}`}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            {replyToNote && (
-              <View style={styles.replyBanner}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.replyBannerName}>
-                    Replying to {replyToNote.user_name}
-                  </Text>
-                  <Text style={styles.replyBannerText} numberOfLines={1}>
-                    {mentionMarkupToDisplay(replyToNote.notes ?? "")}
-                  </Text>
-                </View>
-                <TouchableOpacity onPress={() => setReplyToNote(null)} hitSlop={8}>
-                  <Ionicons name="close" size={16} color="#6B7280" />
-                </TouchableOpacity>
-              </View>
-            )}
-
-            <View
-              ref={commentBoxRef}
-              style={[
-                styles.inputBox,
-                {
-                  borderColor: isFocused ? "#1D1D1D" : "#E5E7EB",
-                },
-              ]}
-            >
-              {(isFocused || commentText.length > 0) && (
-                <View style={styles.inputLabelWrap}>
-                  <Text style={styles.inputLabelText}>Comment</Text>
-                </View>
-              )}
-              <BottomSheetTextInput
-                style={styles.inputField}
-                value={commentText}
-                editable={canComment}
-                onChangeText={handleCommentChange}
-                onFocus={() => setIsFocused(true)}
-                onBlur={() => setIsFocused(false)}
-                onKeyPress={(event) => {
-                  const native = event.nativeEvent as typeof event.nativeEvent & {
-                    shiftKey?: boolean;
-                  };
-                  if (native.key === "Enter" && !native.shiftKey) {
-                    (event as unknown as { preventDefault?: () => void })
-                      .preventDefault?.();
-                    handleCommentSubmit();
-                  }
-                }}
-                multiline
-                placeholder={
-                  !isFocused && commentText.length === 0 ? "Comment" : ""
-                }
-                placeholderTextColor="#9CA3AF"
-                textAlignVertical="top"
-              />
-              <View style={styles.inputToolbar}>
-                <View style={styles.toolbarLeft}>
-                  <TouchableOpacity
-                    style={styles.toolBtn}
-                    onPress={() => {
-                      const text = `${commentText}@`;
-                      setCommentText(text);
-                      setMentionQuery("");
-                      setMentionActive(true);
-                      if (companyId && !mentionUsersLoadedRef.current) {
-                        mentionUsersLoadedRef.current = true;
-                        fetchMentionUsers(companyId)
-                          .then(setMentionUsers)
-                          .catch(() => {
-                            mentionUsersLoadedRef.current = false;
-                          });
-                      }
-                    }}
-                  >
-                    <Ionicons name="at" size={16} color="#374151" />
-                  </TouchableOpacity>
-                  {/* Voice recorder â€” hidden/disabled */}
-                  {/* <TouchableOpacity style={styles.toolBtn}>
-                        <Ionicons
-                          name="mic-outline"
-                          size={16}
-                          color="#374151"
-                        />
-                      </TouchableOpacity> */}
-                  {/* Video recorder â€” hidden/disabled */}
-                  {/* <TouchableOpacity style={styles.toolBtn}>
-                        <Ionicons
-                          name="videocam-outline"
-                          size={16}
-                          color="#374151"
-                        />
-                      </TouchableOpacity> */}
-                </View>
-                <TouchableOpacity
-                  style={[styles.sendBtn, sendingNote && { opacity: 0.5 }]}
-                  onPress={handleSendComment}
-                  disabled={sendingNote || !commentText.trim() || !canComment}
-                >
-                  {sendingNote ? (
-                    <ActivityIndicator size={12} color="#fff" />
-                  ) : (
-                    <Ionicons name="send" size={14} color="#fff" />
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        )}
+        <TaskDetailCommentsTab
+          visible={activeTab === "comments"}
+          keyboardPad={keyboardPad}
+          pinnedNotes={pinnedNotes}
+          notes={notes}
+          notesLoading={notesLoading}
+          currentUserId={currentUserId}
+          canComment={canComment}
+          canEditDeleteComments={canEditDeleteComments}
+          canPinOrReactToComments={canPinOrReactToComments}
+          mentionActive={mentionActive}
+          mentionCandidates={mentionCandidates}
+          replyToNote={replyToNote}
+          commentText={commentText}
+          isFocused={isFocused}
+          sendingNote={sendingNote}
+          commentBoxRef={commentBoxRef}
+          onUnpinNote={handlePinNote}
+          onOpenAttachment={handleOpenAttachment}
+          onDeleteNote={handleDeleteNote}
+          onReactionToggle={handleReactionToggle}
+          onEditNote={handleEditNote}
+          onReply={handleReply}
+          onSelectMention={selectMention}
+          onChangeComment={handleCommentChange}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          onSubmitKey={handleCommentSubmit}
+          onSend={handleSendComment}
+          onMentionButtonPress={handleMentionButtonPress}
+          onClearReply={() => setReplyToNote(null)}
+        />
 
         {/* â”€â”€ Assignee Picker Popover â”€â”€ */}
-        {assignPickerVisible && (
-          <Pressable
-            style={styles.popoverOverlay}
-            onPress={() => {
-              setAssignPickerVisible(false);
-              setAssigneeSearch("");
-            }}
-          >
-            <Pressable
-              style={styles.popoverCard}
-              onPress={(e) => e.stopPropagation()}
-            >
-              <View style={styles.popoverHeader}>
-                <Text style={styles.popoverTitle}>Select Assignee</Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    setAssignPickerVisible(false);
-                    setAssigneeSearch("");
-                  }}
-                >
-                  <Ionicons name="close" size={20} color="#1D1D1D" />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.popoverSearchWrap}>
-                <Ionicons name="search-outline" size={16} color="#9CA3AF" />
-                <TextInput
-                  style={styles.popoverSearchInput}
-                  value={assigneeSearch}
-                  onChangeText={setAssigneeSearch}
-                  placeholder="Search people..."
-                  placeholderTextColor="#9CA3AF"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              </View>
-              <ScrollView
-                style={{ maxHeight: 260 }}
-                keyboardShouldPersistTaps="handled"
-              >
-                {filterAndCapDetailAssignees(
-                  taskState.taskOwners,
-                  assigneeSearch,
-                ).map((user) => {
-                    const isSelected = editAssignToId === user.id;
-                    return (
-                      <TouchableOpacity
-                        key={user.id}
-                        style={[
-                          styles.popoverRow,
-                          isSelected && styles.popoverRowSelected,
-                        ]}
-                        onPress={() => {
-                          setEditAssignToId(user.id);
-                          setAssignPickerVisible(false);
-                          setAssigneeSearch("");
-                          persistTaskField({ assign_to: user.id });
-                        }}
-                      >
-                        <Text
-                          style={[
-                            styles.popoverRowText,
-                            isSelected && {
-                              fontFamily: "SF_Pro_Semibold",
-                              color: "#00DEAB",
-                            },
-                          ]}
-                        >
-                          {`${user.first_name ?? ""} ${user.last_name ?? ""}`.trim() ||
-                            user.full_name ||
-                            `User ${user.id}`}
-                        </Text>
-                        {isSelected && (
-                          <Ionicons
-                            name="checkmark"
-                            size={16}
-                            color="#00DEAB"
-                          />
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-              </ScrollView>
-            </Pressable>
-          </Pressable>
-        )}
+        <TaskDetailAssigneePicker
+          visible={assignPickerVisible}
+          onClose={handleAssignPickerClose}
+          owners={taskState.taskOwners}
+          search={assigneeSearch}
+          onChangeSearch={setAssigneeSearch}
+          selectedId={editAssignToId}
+          onSelect={handleAssigneeSelect}
+        />
 
-        {/* â”€â”€ Status Picker Popover â”€â”€ */}
-        {statusPickerVisible && (
-          <Pressable
-            style={styles.popoverOverlay}
-            onPress={() => setStatusPickerVisible(false)}
-          >
-            <Pressable
-              style={styles.popoverCard}
-              onPress={(e) => e.stopPropagation()}
-            >
-              <View style={styles.popoverHeader}>
-                <Text style={styles.popoverTitle}>Select Status</Text>
-                <TouchableOpacity onPress={() => setStatusPickerVisible(false)}>
-                  <Ionicons name="close" size={20} color="#1D1D1D" />
-                </TouchableOpacity>
-              </View>
-              <ScrollView style={{ maxHeight: 260 }}>
-                {AVAILABLE_STATUSES.filter(
-                  (st) =>
-                    (st !== "Partial Complete" ||
-                      (taskDetail?.task?.subtask_count ?? 0) > 0) &&
-                    (st !== "Rejected" || canApproveRejectNow) &&
-                    (st !== "Complete" || currentStatus !== "Complete"),
-                ).map((st) => {
-                  const detailTask = taskDetail?.task;
-                  const detailStatus = normalizeApiStatus(String(detailTask?.status ?? editStatus));
-                  const isSelected =
-                    normalizeApiStatus(String(editStatus)) ===
-                    normalizeApiStatus(st);
-                  return (
-                    <TouchableOpacity
-                      key={st}
-                      style={[
-                        styles.popoverRow,
-                        isSelected && styles.popoverRowSelected,
-                      ]}
-                      onPress={() => {
-                        if (st === "Rejected") {
-                          if (!canApproveRejectNow) {
-                            showError(
-                              "Not Allowed",
-                              "Only the task creator or company admin can reject this task.",
-                            );
-                            return;
-                          }
-                          setStatusPickerVisible(false);
-                          setRejectModalVisible(true);
-                          return;
-                        }
+        <TaskDetailStatusPicker
+          visible={statusPickerVisible}
+          onClose={() => setStatusPickerVisible(false)}
+          options={AVAILABLE_STATUSES.filter(
+            (st) =>
+              (st !== "Partial Complete" ||
+                (taskDetail?.task?.subtask_count ?? 0) > 0) &&
+              (st !== "Rejected" || canApproveRejectNow) &&
+              (st !== "Complete" || currentStatus !== "Complete"),
+          )}
+          editStatus={editStatus}
+          onSelect={handleStatusSelect}
+        />
 
-                        // ATS Complete/On-Hold reopening uses /tasks/reopen.
-                        if (shouldRouteAtsReopen(detailStatus, st, isAts)) {
-                          if (Number(creatorIdOfTask) !== Number(currentUserId)) {
-                            showError(
-                              "Not Allowed",
-                              "Only the task creator can reopen this task.",
-                            );
-                            return;
-                          }
-                          setStatusPickerVisible(false);
-                          setReopenModalVisible(true);
-                          return;
-                        }
+        <TaskDetailPriorityPicker
+          visible={priorityPickerVisible}
+          onClose={() => setPriorityPickerVisible(false)}
+          hasTaskPriority={hasTaskPriority}
+          isAts={isAts}
+          editTaskPriority={editTaskPriority}
+          priorities={taskState.priorities ?? []}
+          editPriorityId={editPriorityId}
+          onSelectTier={handlePriorityTierSelect}
+          onSelectPriority={handleCompanyPrioritySelect}
+        />
 
-                        // ATS resume from Pending-Approval allows optional effort.
-                        if (shouldRouteAtsResume(detailStatus, st, isAts)) {
-                          setStatusPickerVisible(false);
-                          setResumeTargetStatus(st as "In-Progress" | "Pending");
-                          setResumeModalVisible(true);
-                          return;
-                        }
+        <TaskDetailApprovalPicker
+          visible={approvalPickerVisible}
+          onClose={() => setApprovalPickerVisible(false)}
+          value={editApprovalRequired}
+          onSelect={handleApprovalSelect}
+        />
 
-                        void persistTaskStatus({
-                          taskId: task.taskId ?? 0,
-                          currentStatus: String(detailTask?.status ?? editStatus),
-                          nextStatus: st,
-                          subtaskCount: detailTask?.subtask_count ?? 0,
-                          canEditStatus,
-                          canApproveReject: canApproveRejectNow,
-                          createdBy: Number(creatorIdOfTask),
-                          currentUserId,
-                          isAts,
-                          companyId,
-                          companyIdentifier,
-                          updateStatus: updateTaskStatusApi,
-                          onSaved: (savedStatus) => {
-                            setEditStatus(String(savedStatus));
-                            setTaskDetail((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    task: {
-                                      ...current.task,
-                                      status: savedStatus,
-                                      completed_at:
-                                        savedStatus === "Complete"
-                                          ? new Date().toISOString()
-                                          : null,
-                                    },
-                                  }
-                                : current,
-                            );
-                          },
-                        }).then((saved) => {
-                          if (saved) setStatusPickerVisible(false);
-                        });
-                      }}
-                    >
-                      <View
-                        style={[
-                          styles.badge,
-                          {
-                            backgroundColor:
-                              STATUS_COLORS[st as StatusType]?.bg ?? "#00DEAB",
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.badgeText,
-                            {
-                              color:
-                                STATUS_COLORS[st as StatusType]?.text ?? "#fff",
-                            },
-                          ]}
-                        >
-                          {st === "In-Progress"
-                            ? "In Progress"
-                            : st === "On-Hold"
-                              ? "On Hold"
-                              : st}
-                        </Text>
-                      </View>
-                      {isSelected && (
-                        <Ionicons
-                          name="checkmark"
-                          size={16}
-                          color="#00DEAB"
-                          style={{ marginLeft: "auto" }}
-                        />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </Pressable>
-          </Pressable>
-        )}
+        <TaskDetailEffortPicker
+          visible={effortPickerVisible}
+          onClose={() => setEffortPickerVisible(false)}
+          value={editEffortHours}
+          unit={editEffortUnit}
+          onChangeValue={(value) =>
+            setEditEffortHours(value.replace(/[^0-9.]/g, ""))
+          }
+          onBlur={handleEffortBlur}
+          onSelectUnit={handleEffortUnitSelect}
+        />
 
-        {/* â”€â”€ Task Priority Picker Popover â”€â”€ */}
-        {priorityPickerVisible && (
-          <Pressable
-            style={styles.popoverOverlay}
-            onPress={() => setPriorityPickerVisible(false)}
-          >
-            <Pressable
-              style={styles.popoverCard}
-              onPress={(e) => e.stopPropagation()}
-            >
-              <View style={styles.popoverHeader}>
-                <Text style={styles.popoverTitle}>Task Priority</Text>
-                <TouchableOpacity
-                  onPress={() => setPriorityPickerVisible(false)}
-                >
-                  <Ionicons name="close" size={20} color="#1D1D1D" />
-                </TouchableOpacity>
-              </View>
-              {hasTaskPriority ? (
-                (isAts ? (["normal", "critical"] as const) : (["normal"] as const)).map((tier) => {
-                  const isSelected = editTaskPriority === tier;
-                  return (
-                    <TouchableOpacity
-                      key={tier}
-                      style={[
-                        styles.popoverRow,
-                        isSelected && styles.popoverRowSelected,
-                      ]}
-                      onPress={() => {
-                        // Event-handler call; the compiler rule flags the
-                        // detail-loader request-token ref through this chain.
-                        // eslint-disable-next-line react-hooks/refs
-                        void handlePriorityChange(tier);
-                      }}
-                    >
-                      <View
-                        style={[
-                          styles.taskPriorityBadge,
-                          tier === "critical"
-                            ? styles.taskPriorityBadgeCritical
-                            : styles.taskPriorityBadgeNormal,
-                        ]}
-                      >
-                        <View
-                          style={[
-                            styles.taskPriorityDot,
-                            {
-                              backgroundColor:
-                                tier === "critical" ? "#EF4444" : "#00A876",
-                            },
-                          ]}
-                        />
-                        <Text
-                          style={[
-                            styles.taskPriorityBadgeText,
-                            {
-                              color: tier === "critical" ? "#EF4444" : "#00A876",
-                            },
-                          ]}
-                        >
-                          {tier === "critical" ? "Critical" : "Normal"}
-                        </Text>
-                      </View>
-                      {isSelected && (
-                        <Ionicons
-                          name="checkmark"
-                          size={16}
-                          color="#00DEAB"
-                          style={{ marginLeft: "auto" }}
-                        />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })
-              ) : (
-                (taskState.priorities ?? []).map((priority) => {
-                  const isSelected = editPriorityId === priority.id;
-                  return (
-                    <TouchableOpacity
-                      key={priority.id}
-                      style={[
-                        styles.popoverRow,
-                        isSelected && styles.popoverRowSelected,
-                      ]}
-                      onPress={() => {
-                        setEditPriorityId(priority.id);
-                        setPriorityPickerVisible(false);
-                        persistTaskField({ priority: priority.id });
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.popoverRowText,
-                          isSelected && {
-                            fontFamily: "SF_Pro_Semibold",
-                            color: "#00DEAB",
-                          },
-                        ]}
-                      >
-                        {priority.name}
-                      </Text>
-                      {isSelected && (
-                        <Ionicons name="checkmark" size={16} color="#00DEAB" />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })
-              )}
-            </Pressable>
-          </Pressable>
-        )}
+        <TaskDetailDueDatePicker
+          visible={datePickerVisible}
+          onClose={() => setDatePickerVisible(false)}
+          value={editDueDate}
+          isAts={isAts}
+          onSelect={handleDueDateSelect}
+          onDone={() => setDatePickerVisible(false)}
+        />
 
-        {/* â”€â”€ Approval Required Picker Popover â”€â”€ */}
-        {approvalPickerVisible && (
-          <Pressable
-            style={styles.popoverOverlay}
-            onPress={() => setApprovalPickerVisible(false)}
-          >
-            <Pressable
-              style={styles.popoverCard}
-              onPress={(e) => e.stopPropagation()}
-            >
-              <View style={styles.popoverHeader}>
-                <Text style={styles.popoverTitle}>Approval Required</Text>
-                <TouchableOpacity
-                  onPress={() => setApprovalPickerVisible(false)}
-                >
-                  <Ionicons name="close" size={20} color="#1D1D1D" />
-                </TouchableOpacity>
-              </View>
-              {[
-                { label: "Yes", value: true },
-                { label: "No", value: false },
-              ].map((opt) => {
-                const isSelected = editApprovalRequired === opt.value;
-                return (
-                  <TouchableOpacity
-                    key={opt.label}
-                    style={[
-                      styles.popoverRow,
-                      isSelected && styles.popoverRowSelected,
-                    ]}
-                    onPress={() => {
-                      setEditApprovalRequired(opt.value);
-                      setApprovalPickerVisible(false);
-                      persistTaskField({
-                        approval_required: opt.value ? 1 : 0,
-                      });
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.popoverRowText,
-                        isSelected && {
-                          fontFamily: "SF_Pro_Semibold",
-                          color: "#00DEAB",
-                        },
-                      ]}
-                    >
-                      {opt.label}
-                    </Text>
-                    {isSelected && (
-                      <Ionicons name="checkmark" size={16} color="#00DEAB" />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </Pressable>
-          </Pressable>
-        )}
-
-        {/* â”€â”€ Effort Picker Popover â”€â”€ */}
-        {effortPickerVisible && (
-          <Pressable
-            style={styles.popoverOverlay}
-            onPress={() => setEffortPickerVisible(false)}
-          >
-            <Pressable
-              style={styles.popoverCard}
-              onPress={(e) => e.stopPropagation()}
-            >
-              <View style={styles.popoverHeader}>
-                <Text style={styles.popoverTitle}>Effort</Text>
-                <TouchableOpacity onPress={() => setEffortPickerVisible(false)}>
-                  <Ionicons name="close" size={20} color="#1D1D1D" />
-                </TouchableOpacity>
-              </View>
-              <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-              >
-                <TextInput
-                  style={styles.inlineEffortInput}
-                  value={editEffortHours}
-                  autoFocus
-                  onChangeText={(t) =>
-                    setEditEffortHours(t.replace(/[^0-9.]/g, ""))
-                  }
-                  onBlur={async () => {
-                    if (editEffortHours !== lastSavedEffortHoursRef.current) {
-                      const saved = await persistTaskField({
-                        effort_hours: toMinutes(
-                          editEffortHours,
-                          editEffortUnit as "minutes" | "hours" | "days",
-                        ),
-                        effort_unit: editEffortUnit,
-                      });
-                      if (saved) {
-                        lastSavedEffortHoursRef.current = editEffortHours;
-                      }
-                    }
-                  }}
-                  keyboardType="numeric"
-                  placeholder="0"
-                  placeholderTextColor="#9CA3AF"
-                />
-                <View style={{ flexDirection: "row", gap: 4 }}>
-                  {["hours", "minutes", "days"].map((unit) => (
-                    <TouchableOpacity
-                      key={unit}
-                      style={[
-                        styles.inlineUnitChip,
-                        editEffortUnit === unit && styles.inlineUnitChipActive,
-                      ]}
-                      onPress={async () => {
-                        const nextUnit = unit as "minutes" | "hours" | "days";
-                        const minutes = toMinutes(
-                          editEffortHours,
-                          editEffortUnit as "minutes" | "hours" | "days",
-                        );
-                        const converted = String(fromMinutes(minutes, nextUnit));
-                        setEditEffortUnit(nextUnit);
-                        setEditEffortHours(converted);
-                        const saved = await persistTaskField({
-                          effort_hours: minutes,
-                          effort_unit: nextUnit,
-                        });
-                        if (saved) lastSavedEffortHoursRef.current = converted;
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.inlineUnitChipText,
-                          editEffortUnit === unit && { color: "#fff" },
-                        ]}
-                      >
-                        {unit}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            </Pressable>
-          </Pressable>
-        )}
-
-        {/* â”€â”€ Date Picker Popover â”€â”€ */}
-        {datePickerVisible && (
-          <Pressable
-            style={styles.popoverOverlay}
-            onPress={() => setDatePickerVisible(false)}
-          >
-            <Pressable
-              style={[styles.popoverCard, { maxWidth: 360 }]}
-              onPress={(e) => e.stopPropagation()}
-            >
-              <View style={styles.popoverHeader}>
-                <Text style={styles.popoverTitle}>Select Due Date</Text>
-                <TouchableOpacity onPress={() => setDatePickerVisible(false)}>
-                  <Ionicons name="close" size={20} color="#1D1D1D" />
-                </TouchableOpacity>
-              </View>
-              <CalendarPicker
-                startDate={editDueDate}
-                endDate={editDueDate}
-                disablePast={!isAts}
-                onSelectStart={(d) => {
-                  setEditDueDate(d);
-                  persistTaskField({ due_date: toCalendarDateOnly(d) });
-                }}
-                onSelectEnd={(d) => {
-                  setEditDueDate(d);
-                  persistTaskField({ due_date: toCalendarDateOnly(d) });
-                }}
-                onDone={() => setDatePickerVisible(false)}
-                compact
-              />
-            </Pressable>
-          </Pressable>
-        )}
-        {/* â”€â”€ Effort Logs Modal â”€â”€ */}
-        {effortLogsModalVisible && (
-          <Modal
-            transparent
-            animationType="fade"
-            visible={effortLogsModalVisible}
-            onRequestClose={() => setEffortLogsModalVisible(false)}
-          >
-            <Pressable
-              style={styles.popoverOverlay}
-              onPress={() => setEffortLogsModalVisible(false)}
-            >
-              <Pressable
-                style={[
-                  styles.popoverCard,
-                  { maxHeight: "70%", width: "90%", maxWidth: 420 },
-                ]}
-                onPress={(e) => e.stopPropagation()}
-              >
-                <View style={styles.popoverHeader}>
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
-                    <Ionicons name="time-outline" size={18} color="#1D1D1D" />
-                    <Text style={styles.popoverTitle}>Effort Logs</Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => setEffortLogsModalVisible(false)}
-                  >
-                    <Ionicons name="close" size={20} color="#1D1D1D" />
-                  </TouchableOpacity>
-                </View>
-
-                <ScrollView
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={{ paddingVertical: 8, gap: 10 }}
-                >
-                  {effortHistory.length > 0 ? (
-                    effortHistory.map((log, idx) => {
-                      const row = effortHistoryRows[idx];
-                      const unit =
-                        (row?.unit as "minutes" | "hours" | "days") || "hours";
-                      const direction = (row?.delta ?? 0) >= 0 ? "+" : "-";
-                      return (
-                        <View key={idx} style={styles.logCard}>
-                          <View style={styles.logHeader}>
-                            <Text style={styles.logUser}>
-                              {log.changed_by_name || "User"}
-                            </Text>
-                            <Text style={styles.logDate}>
-                              {log.changed_at
-                                ? formatDetailDateTime(log.changed_at)
-                                : "-"}
-                            </Text>
-                          </View>
-                          <Text style={styles.logChange}>
-                            {formatEffort(row?.before ?? 0, unit)} {direction}{" "}
-                            {formatEffort(Math.abs(row?.delta ?? 0), unit)} ={" "}
-                            {formatEffort(row?.after ?? 0, unit)}
-                          </Text>
-                          <Text style={styles.logMeta}>
-                            {(row?.action || "update").replace(/_/g, " ")}
-                            {row?.fromStatus || row?.toStatus
-                              ? ` | ${row.fromStatus || "-"} -> ${row.toStatus || "-"}`
-                              : ""}
-                          </Text>
-                        </View>
-                      );
-                    })
-                  ) : (
-                    <View style={{ paddingVertical: 24, alignItems: "center" }}>
-                      <Ionicons
-                        name="document-text-outline"
-                        size={32}
-                        color="#D1D5DB"
-                        style={{ marginBottom: 8 }}
-                      />
-                      <Text
-                        style={{
-                          fontSize: rf(13),
-                          color: "#6B7280",
-                          fontFamily: "SF_Pro_Medium",
-                        }}
-                      >
-                        Current Effort:{" "}
-                        {formatEffort(
-                          Number(apiTask?.effort_hours ?? 0),
-                          (apiTask?.effort_unit as "minutes" | "hours" | "days") ||
-                            "hours",
-                        )}
-                      </Text>
-                      <Text
-                        style={{
-                          fontSize: rf(11.5),
-                          color: "#9CA3AF",
-                          marginTop: 4,
-                          fontFamily: "SF_Pro_Regular",
-                        }}
-                      >
-                        No change logs recorded for this task.
-                      </Text>
-                    </View>
-                  )}
-                </ScrollView>
-              </Pressable>
-            </Pressable>
-          </Modal>
-        )}
+        <TaskDetailEffortLogsModal
+          visible={effortLogsModalVisible}
+          onClose={() => setEffortLogsModalVisible(false)}
+          effortHistory={effortHistory}
+          effortHistoryRows={effortHistoryRows}
+          currentEffortHours={apiTask?.effort_hours}
+          currentEffortUnit={apiTask?.effort_unit}
+        />
         <CriticalTaskPopUpModal
           visible={criticalPromptVisible}
           onClose={() => {
@@ -3376,11 +2286,6 @@ export default function TaskDetailModal({
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.45)",
-  },
   sheetContainer: {
     flex: 1,
     paddingHorizontal: 16,
@@ -3389,15 +2294,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-  },
-  sheet: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 14,
-    paddingHorizontal: 16,
-    minHeight: "90%",
-    maxHeight: "90%",
   },
   dragHandleBar: {
     width: "100%",
@@ -3452,317 +2348,6 @@ const styles = StyleSheet.create({
   },
   tabDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#00DEAB" },
   detailsScroll: { paddingBottom: 28, paddingTop: 10 },
-  cntBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#00DFAB",
-    borderRadius: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    alignSelf: "flex-start",
-    marginBottom: 10,
-  },
-  cntBadgeGray: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#AAAAAA",
-    borderRadius: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    alignSelf: "flex-start",
-    marginBottom: 10,
-  },
-  cntBadgeText: {
-    fontSize: rf(12),
-    color: "#fff",
-    fontFamily: "SF_Pro_Regular",
-  },
-  taskTitle: {
-    fontSize: rf(16),
-    fontFamily: "SF_Pro_Medium",
-    color: "#1D1D1D",
-    marginBottom: 14,
-  },
-  gridContainer: {
-    flexDirection: "row",
-    gap: 16,
-    marginVertical: 10,
-  },
-  gridColumn: {
-    flex: 1,
-    gap: 8,
-  },
-  gridRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    minHeight: 32,
-  },
-  gridLabelWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexShrink: 0,
-  },
-  gridIcon: {
-    marginRight: 5,
-  },
-  gridLabel: {
-    fontSize: rf(11.5),
-    color: "#8E8E93",
-    fontFamily: "SF_Pro_Medium",
-  },
-  gridValueText: {
-    fontSize: rf(11.5),
-    color: "#1D1D1D",
-    fontFamily: "SF_Pro_Medium",
-    textAlign: "right",
-    flexShrink: 1,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    alignSelf: "flex-end",
-  },
-  statusBadgeText: {
-    fontSize: rf(11),
-    fontFamily: "SF_Pro_Semibold",
-  },
-  priorityBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-    alignSelf: "flex-end",
-  },
-  priorityBadgeNormal: {
-    backgroundColor: "#E6FBF6",
-  },
-  priorityBadgeCritical: {
-    backgroundColor: "#FEE2E2",
-  },
-  priorityDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 4,
-  },
-  priorityBadgeText: {
-    fontSize: rf(11),
-    fontFamily: "SF_Pro_Semibold",
-  },
-  effortLogsValueText: {
-    fontSize: rf(11.5),
-    color: "#00DEAB",
-    fontFamily: "SF_Pro_Medium",
-    textAlign: "right",
-    textDecorationLine: "underline",
-  },
-  logCard: {
-    backgroundColor: "#F9FAFB",
-    borderRadius: 8,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  logHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  logUser: {
-    fontSize: rf(12),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#1D1D1D",
-  },
-  logDate: {
-    fontSize: rf(10),
-    color: "#9CA3AF",
-    fontFamily: "SF_Pro_Regular",
-  },
-  logChange: {
-    fontSize: rf(11.5),
-    color: "#4B5563",
-    fontFamily: "SF_Pro_Regular",
-    marginTop: 2,
-  },
-  logMeta: {
-    fontSize: rf(10.5),
-    color: "#9CA3AF",
-    fontFamily: "SF_Pro_Regular",
-    marginTop: 2,
-  },
-  descHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  descBadgeChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    backgroundColor: "#1D1D1D",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    alignSelf: "flex-start",
-    marginBottom: 8,
-  },
-  descBadgeChipText: {
-    fontSize: rf(10),
-    color: "#FFFFFF",
-    fontFamily: "SF_Pro_Medium",
-  },
-  bottomAttachmentSection: {
-    marginTop: 14,
-    marginBottom: 8,
-  },
-  bottomAttachmentBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: "#FFFFFF",
-  },
-  bottomAttachmentText: {
-    fontSize: rf(12),
-    color: "#8E8E93",
-    fontFamily: "SF_Pro_Medium",
-  },
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 7,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  infoLabelWrap: { flexDirection: "row", alignItems: "center", flex: 1.2 },
-  infoLabel: {
-    fontSize: rf(11),
-    color: "#6B7280",
-    fontFamily: "SF_Pro_Semibold",
-  },
-  infoValueWrap: { flex: 1.5, flexShrink: 1 },
-  infoValue: {
-    fontSize: rf(12),
-    color: "#1D1D1D",
-    fontFamily: "SF_Pro_Regular",
-    flexShrink: 1,
-  },
-  assignedRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 6,
-    flexShrink: 1,
-    justifyContent: "flex-start",
-  },
-  assignedValueRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    flexShrink: 1,
-    justifyContent: "flex-start",
-  },
-  initials: {
-    width: 24,
-    height: 24,
-    borderRadius: 5,
-    backgroundColor: "#00DEAB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  initialsText: { fontSize: rf(10), fontWeight: "700", color: "#fff" },
-  badge: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    alignSelf: "flex-start",
-  },
-  badgeText: { fontSize: rf(11), fontFamily: "SF_Pro_Medium" },
-  dependencyTableWrap: {
-    marginTop: 18,
-  },
-  depPill: {
-    backgroundColor: "#F0FFF8",
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 6,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  depPillText: {
-    fontSize: rf(11),
-    color: "#00DEAB",
-    fontFamily: "SF_Pro_Regular",
-  },
-  addDependencyBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    marginTop: 4,
-  },
-  addDependencyText: {
-    fontSize: rf(11),
-    color: "#00DEAB",
-    fontFamily: "SF_Pro_Medium",
-  },
-  section: { marginTop: 16 },
-  sectionTitle: {
-    fontSize: rf(15),
-    fontFamily: "SF_Pro_Medium",
-    color: "#1D1D1D",
-    marginBottom: 8,
-  },
-  descText: {
-    fontSize: rf(12),
-    color: "#1D1D1D",
-    lineHeight: 18,
-    fontFamily: "SF_Pro_Regular",
-  },
-  descBadgesRow: { flexDirection: "row", gap: 8, marginTop: 10 },
-  descBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderWidth: 1,
-    backgroundColor: "#1D1D1D",
-    borderRadius: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  descBadgeText: { fontSize: rf(11), color: "#fff" },
-  attachHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 8,
-  },
-  attachTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#1D1D1D",
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    marginRight: 8,
-  },
-  attachTagText: {
-    fontSize: rf(11),
-    color: "#00DEAB",
-    fontFamily: "SF_Pro_Regular",
-  },
   tabContent: {
     flex: 1,
     minHeight: 0,
@@ -3770,36 +2355,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 12,
     paddingHorizontal: 16,
     paddingTop: 10,
-  },
-  tabComment: {
-    flex: 1,
-    backgroundColor: "#F9F9F9",
-    borderTopLeftRadius: 12,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-  },
-  commentsContainer: { flex: 1, flexDirection: "column" },
-  commentsList: { flex: 1 },
-  commentsListContent: { gap: 12, paddingBottom: 16 },
-  replyBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#F0FDF8",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginTop: 8,
-  },
-  replyBannerName: {
-    fontSize: rf(11),
-    color: "#00A876",
-    fontFamily: "SF_Pro_Semibold",
-  },
-  replyBannerText: {
-    fontSize: rf(11),
-    color: "#6B7280",
-    fontFamily: "SF_Pro_Regular",
   },
   editCommentInput: {
     borderWidth: 1,
@@ -3832,317 +2387,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: rf(13),
     fontFamily: "SF_Pro_Semibold",
-  },
-  inputBox: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 10,
-    marginBottom: 16,
-    position: "relative",
-    backgroundColor: "#FFFFFF",
-    marginTop: 8,
-  },
-  inputLabelWrap: {
-    position: "absolute",
-    top: -10,
-    left: 12,
-    backgroundColor: "#F9F9F9",
-    paddingHorizontal: 6,
-    zIndex: 10,
-  },
-  inputLabelText: {
-    fontSize: rf(12),
-    color: "#374151",
-    fontFamily: "SF_Pro_Medium",
-  },
-  inputField: {
-    fontSize: rf(13),
-    color: "#1D1D1D",
-    fontFamily: "SF_Pro_Regular",
-    minHeight: 36,
-    maxHeight: 70,
-    paddingTop: 2,
-    paddingBottom: 2,
-    textAlignVertical: "top",
-  },
-  inputToolbar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 8,
-  },
-  toolbarLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  toolBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: "#F3F4F6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sendBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: "#00DEAB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  mentionSuggestions: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#E6E6E6",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 4,
-    overflow: "hidden",
-    marginBottom: 8,
-  },
-  mentionSuggestionItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  mentionAvatar: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: "#1D1D1D",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
-  },
-  mentionAvatarText: {
-    color: "#fff",
-    fontSize: rf(10),
-    fontFamily: "SF_Pro_Bold",
-  },
-  mentionName: {
-    flex: 1,
-    fontSize: rf(14),
-    fontFamily: "SF_Pro_Medium",
-    color: "#1F2937",
-  },
-  emptyComments: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 100,
-  },
-  emptyCommentsText: {
-    fontSize: rf(16),
-    fontFamily: "SF_Pro_Regular",
-    color: "#9CA3AF",
-  },
-
-  // â”€â”€ Edit Mode Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  titleHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 16,
-  },
-  editHeaderBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: "#F0FDF9",
-    borderWidth: 1,
-    borderColor: "#00DEAB",
-  },
-  editHeaderBtnText: {
-    fontSize: rf(13),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#00DEAB",
-  },
-  editContainer: {
-    gap: 14,
-    paddingBottom: 20,
-  },
-  editHeaderBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  editHeaderTitle: {
-    fontSize: rf(16),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#1D1D1D",
-  },
-  cancelLinkText: {
-    fontSize: rf(14),
-    fontFamily: "SF_Pro_Regular",
-    color: "#EF4444",
-  },
-  editBlock: {
-    gap: 6,
-  },
-  editBlockLabel: {
-    fontSize: rf(13),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#4B5563",
-  },
-  editTitleInput: {
-    fontSize: rf(16),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#1D1D1D",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: "#FFFFFF",
-  },
-  editDescBox: {
-    fontSize: rf(14),
-    fontFamily: "SF_Pro_Regular",
-    color: "#1D1D1D",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: "#FFFFFF",
-    minHeight: 80,
-    textAlignVertical: "top",
-  },
-  editRowInteractive: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: "#F9FAFB",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    gap: 8,
-  },
-  editRowTitle: {
-    fontSize: rf(13),
-    fontFamily: "SF_Pro_Medium",
-    color: "#6B7280",
-    width: 120,
-  },
-  editRowValText: {
-    flex: 1,
-    fontSize: rf(13),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#1D1D1D",
-  },
-  pillToggleBox: {
-    flexDirection: "row",
-    gap: 6,
-  },
-  pillToggleBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#FFFFFF",
-  },
-  pillToggleBtnActiveNormal: {
-    backgroundColor: "#00DEAB",
-    borderColor: "#00DEAB",
-  },
-  pillToggleBtnActiveCritical: {
-    backgroundColor: "#FF4444",
-    borderColor: "#FF4444",
-  },
-  pillToggleBtnActiveGray: {
-    backgroundColor: "#E5E7EB",
-    borderColor: "#E5E7EB",
-  },
-  pillToggleBtnText: {
-    fontSize: rf(12),
-    fontFamily: "SF_Pro_Medium",
-    color: "#4B5563",
-  },
-  effortNumBox: {
-    width: 60,
-    fontSize: rf(13),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#1D1D1D",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: "#FFFFFF",
-    textAlign: "center",
-  },
-  unitChipWrap: {
-    flexDirection: "row",
-    gap: 4,
-  },
-  unitChipItem: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#FFFFFF",
-  },
-  unitChipItemActive: {
-    backgroundColor: "#1D1D1D",
-    borderColor: "#1D1D1D",
-  },
-  unitChipItemText: {
-    fontSize: rf(11),
-    fontFamily: "SF_Pro_Medium",
-    color: "#6B7280",
-  },
-  editSaveRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 10,
-  },
-  editCancelBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  editCancelBtnText: {
-    fontSize: rf(14),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#6B7280",
-  },
-  editSaveBtn: {
-    flex: 2,
-    flexDirection: "row",
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: "#00DEAB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  editSaveBtnText: {
-    fontSize: rf(14),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#FFFFFF",
   },
 
   // Popover overlay styles
@@ -4182,133 +2426,5 @@ const styles = StyleSheet.create({
     fontSize: rf(15),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
-  },
-  popoverSearchWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    height: 38,
-    marginBottom: 8,
-  },
-  popoverSearchInput: {
-    flex: 1,
-    fontSize: rf(13),
-    fontFamily: "SF_Pro_Regular",
-    color: "#1D1D1D",
-    padding: 0,
-  },
-  popoverRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 9,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F9FAFB",
-    borderRadius: 8,
-  },
-  popoverRowSelected: {
-    backgroundColor: "#F0FDF9",
-  },
-  popoverRowText: {
-    fontSize: rf(13),
-    fontFamily: "SF_Pro_Regular",
-    color: "#1F2937",
-  },
-
-  // â”€â”€ Direct Inline Editing Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  editableTaskTitle: {
-    fontSize: rf(16),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#1D1D1D",
-    marginBottom: 10,
-    paddingVertical: 3,
-    paddingHorizontal: 0,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  editableDescInput: {
-    fontSize: rf(13),
-    fontFamily: "SF_Pro_Regular",
-    color: "#374151",
-    lineHeight: 18,
-    marginTop: 4,
-    padding: 8,
-    backgroundColor: "#F9FAFB",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    minHeight: 56,
-    textAlignVertical: "top",
-  },
-  taskPriorityBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    alignSelf: "flex-start",
-  },
-  taskPriorityBadgeNormal: {
-    backgroundColor: "#E6FBF5",
-  },
-  taskPriorityBadgeCritical: {
-    backgroundColor: "#FEE7E7",
-  },
-  taskPriorityDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  taskPriorityBadgeText: {
-    fontSize: rf(12),
-    fontFamily: "SF_Pro_Semibold",
-  },
-  inlineEffortInput: {
-    width: 44,
-    fontSize: rf(12),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#1D1D1D",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    backgroundColor: "#FFFFFF",
-    textAlign: "center",
-  },
-  inlineUnitChip: {
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#FFFFFF",
-  },
-  inlineUnitChipActive: {
-    backgroundColor: "#1D1D1D",
-    borderColor: "#1D1D1D",
-  },
-  inlineUnitChipText: {
-    fontSize: rf(10),
-    fontFamily: "SF_Pro_Medium",
-    color: "#6B7280",
-  },
-  userReactions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginLeft: 8,
-  },
-  userReactionBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    backgroundColor: "#E5E7EB",
-    borderRadius: 4,
   },
 });
