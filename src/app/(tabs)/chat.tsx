@@ -36,7 +36,7 @@ import {
     openRoomConversation,
 } from "@/utils/conversationNavigation";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import {
     useCallback,
     useEffect,
@@ -66,9 +66,8 @@ import {
     getCompanyActiveUsers,
     type CompanyActiveUser,
 } from "@/services/api/users.service";
-// PROJECT MODULE DISABLED
-// import { canCreateChannel, canCreateProject, canViewChat, canViewProjects } from "@/utils/permissions";
 import { canCreateChannel, canViewChat } from "@/utils/permissions";
+import { canViewProjects } from "@/features/projects/permissions/projectPermissions";
 const { ChatIcon: MainChatIcon, ChannelTabIcon } = Icons;
 
 // ─── Chip Config ──────────────────────────────────────────────────────────────
@@ -297,13 +296,13 @@ export default function ChatScreen() {
     const perms = useMemo(
         () => ({
             hasChatRead: canViewChat(currentUser),
-            // PROJECT MODULE DISABLED
-            // hasProjectRead: canViewProjects(currentUser),
+            hasProjectRead: canViewProjects(
+                currentUser,
+                authState?.state?.company ?? null,
+            ),
             canCreateChannels: canCreateChannel(currentUser),
-            // PROJECT MODULE DISABLED
-            // canCreateProjects: canCreateProject(currentUser),
         }),
-        [currentUser]
+        [currentUser, authState?.state?.company]
     );
 
     // Only rooms the user is permitted to see:
@@ -978,6 +977,14 @@ export default function ChatScreen() {
                                 </View>
                             );
                         })}
+                        {perms.hasProjectRead && (
+                            <TouchableOpacity
+                                style={styles.chipButton}
+                                onPress={() => router.push("/projects" as never)}
+                            >
+                                <Text style={styles.chipText}>Projects</Text>
+                            </TouchableOpacity>
+                        )}
                     </ScrollView>
 
                     {displayRooms.length > 0 ? (
