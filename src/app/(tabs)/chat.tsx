@@ -315,13 +315,41 @@ export default function ChatScreen() {
             // Conversations "deleted for me" stay hidden until a new message
             // arrives (see ChatContext.hiddenRoomIds).
             if (hiddenRoomIds.has(r._id)) return false;
-            // PROJECT MODULE DISABLED — project group-chat rooms are excluded
-            // entirely so they never surface in the chat list.
-            // if (r.type === "project") return perms.hasProjectRead;
-            if (r.type === "project") return false;
+            // Project group-chat rooms are visible alongside normal channels
+            // when the user has the project-list permission.
+            if (r.type === "project") return perms.hasProjectRead;
             return perms.hasChatRead;
         });
     }, [state.rooms, perms, hiddenRoomIds]);
+
+    // Project rooms are expanded by default so their General/Documentation
+    // channels are immediately visible; users can collapse them.
+    const [collapsedProjects, setCollapsedProjects] = useState<Set<number>>(
+        new Set(),
+    );
+
+    // Group project child channels under their parent project room.
+    const projectChannelMap = useMemo(() => {
+        const map = new Map<number, Room[]>();
+        for (const room of visibleRooms) {
+            if (room.type === "channel" && room.parent_id != null) {
+                const parentId = Number(room.parent_id);
+                const existing = map.get(parentId) ?? [];
+                existing.push(room);
+                map.set(parentId, existing);
+            }
+        }
+        return map;
+    }, [visibleRooms]);
+
+    const toggleProjectCollapse = useCallback((projectId: number) => {
+        setCollapsedProjects((previous) => {
+            const next = new Set(previous);
+            if (next.has(projectId)) next.delete(projectId);
+            else next.add(projectId);
+            return next;
+        });
+    }, []);
 
     // Hide the Channels/Projects chips entirely when the user lacks the
     // corresponding read permission (they'd render empty otherwise).
@@ -349,10 +377,6 @@ export default function ChatScreen() {
     // PROJECT MODULE DISABLED
     // Track which project we're adding a channel to (null = standalone channel)
     // const [projectContext, setProjectContext] = useState<Room | null>(null);
-    // Track expanded projects in the Projects chip view
-    // const [expandedProjects, setExpandedProjects] = useState<Set<number>>(new Set());
-    // Track selected project for ProjectDetailModal
-    // const [selectedProjectForDetail, setSelectedProjectForDetail] = useState<Project | null>(null);
 
     // ── InviteToChannelModal state ─────────────────────────────────────────────
     const [inviteModalVisible, setInviteModalVisible] = useState(false);
@@ -464,8 +488,11 @@ export default function ChatScreen() {
             all: hasUnread(directRooms),
             unread: hasUnread(directRooms),
             read: false,
-            channels: hasUnread(rooms.filter((r) => r.type === "channel")),
-            // projects: hasUnread(rooms.filter((r) => r.type === "project")),
+            channels: hasUnread(
+                rooms.filter(
+                    (r) => r.type === "channel" || r.type === "project",
+                ),
+            ),
         };
     }, [visibleRooms]);
 
@@ -489,13 +516,23 @@ export default function ChatScreen() {
 
         let base: Room[];
         switch (activeChip) {
-            case "channels":
-                base = filterRoomsByType(rooms, "channel");
-                break;
-            // PROJECT MODULE DISABLED
-            // case "projects":
-            //     base = filterRoomsByType(rooms, "project");
-            //     break;
+        case "channels": {
+            // Project rooms are grouped with their child channels in this
+            // view. Child channels whose parent project room is not visible
+            // (e.g. chat-only user without project-list) stay in the normal
+            // channel list so they are not hidden.
+            const projectRooms = filterRoomsByType(rooms, "project");
+            const projectRoomIds = new Set(projectRooms.map((room) => room.id));
+            base = [
+                ...projectRooms,
+                ...filterRoomsByType(rooms, "channel").filter(
+                    (room) =>
+                        room.parent_id == null ||
+                        !projectRoomIds.has(Number(room.parent_id)),
+                ),
+            ];
+            break;
+        }
             case "unread":
                 base = filterUnreadRooms(directRooms);
                 break;
@@ -919,6 +956,95 @@ export default function ChatScreen() {
     //     [fetchRooms, fetchProjects]
     // );
 
+    const renderRoomRow = (room: Room) => {
+        const displayName = getRoomDisplayName(room, currentUserId);
+        const unread = isRoomUnread(room);
+        const lastAtts = room.last_message?.attachments ?? [];
+        const lastText = room.last_message?.text ?? "";
+        const lastAudio = lastAtts.find((a) => isAudioAttachment(a));
+        const lastIsVoice = !!lastAudio || isVoiceNoteText(lastText);
+        const lastVoiceSecs = lastIsVoice
+            ? (lastAudio
+                  ? getVoiceNoteSecondsFromAttachment(lastAudio)
+                  : null) ??
+              getVoiceNoteSecondsFromText(lastText)
+            : null;
+        const lastPreview = room.last_message
+            ? lastIsVoice
+                ? lastVoiceSecs != null
+                    ? `Voice note · ${formatVoiceDuration(lastVoiceSecs)}`
+                    : "Voice note"
+                : lastAtts.length > 0
+                    ? `📎 ${lastAtts.length} attachment${lastAtts.length > 1 ? "s" : ""}`
+                    : room.last_message.text || "No messages yet"
+            : "No messages yet";
+
+        return (
+            <SwipeableChatRow
+                key={room.id}
+                isMuted={!!room.is_muted}
+                isUnread={unread}
+                selected={selectedChatId === room.id.toString()}
+                onToggleMute={() => handleRowToggleMute(room)}
+                onToggleRead={() => handleRowToggleRead(room)}
+                onPress={() => handleRoomPress(room)}
+            >
+                <View style={styles.avatarContainer}>
+                    <Avatar
+                        name={displayName}
+                        imagePath={getRoomAvatar(room, currentUserId)}
+                        size={30}
+                        borderRadius={5}
+                        fontSize={12}
+                        fontFamily="SF_Pro_Medium"
+                    />
+                    {unread && <View style={styles.onlineIndicator} />}
+                </View>
+                <View style={styles.chatInfo}>
+                    <Text style={styles.chatName} numberOfLines={1}>
+                        {displayName}
+                    </Text>
+                    {lastIsVoice ? (
+                        <View style={styles.chatSnippetRow}>
+                            <Ionicons
+                                name="mic"
+                                size={12}
+                                color="#4B5563"
+                                style={styles.chatSnippetMic}
+                            />
+                            <Text
+                                style={[styles.chatSnippet, styles.chatSnippetFlex]}
+                                numberOfLines={1}
+                            >
+                                {lastPreview}
+                            </Text>
+                        </View>
+                    ) : (
+                        <Text style={styles.chatSnippet} numberOfLines={1}>
+                            {lastPreview}
+                        </Text>
+                    )}
+                </View>
+                <View style={styles.chatMeta}>
+                    {unread && room.unreadCount > 0 && (
+                        <View style={styles.unreadBubble}>
+                            <Text style={styles.unreadBubbleText}>
+                                +{room.unreadCount}
+                            </Text>
+                        </View>
+                    )}
+                    <Text style={styles.chatTime}>
+                        {room.last_message?.createdAt
+                            ? formatChatListTime(room.last_message.createdAt)
+                            : room.my_visible_from
+                                ? formatChatListTime(room.my_visible_from)
+                                : ""}
+                    </Text>
+                </View>
+            </SwipeableChatRow>
+        );
+    };
+
     if (state.loading && state.rooms.length === 0) {
         return (
             <View style={styles.root}>
@@ -1178,97 +1304,136 @@ export default function ChatScreen() {
                                 })
                             )}
                             */}
-                            {displayRooms.map((room: Room) => {
-                                    const displayName = getRoomDisplayName(room, currentUserId);
-                                    const unread = isRoomUnread(room);
-                                    const lastAtts = room.last_message?.attachments ?? [];
-                                    const lastText = room.last_message?.text ?? "";
-                                    const lastAudio = lastAtts.find((a) => isAudioAttachment(a));
-                                    const lastIsVoice = !!lastAudio || isVoiceNoteText(lastText);
-                                    const lastVoiceSecs = lastIsVoice
-                                        ? (lastAudio
-                                              ? getVoiceNoteSecondsFromAttachment(lastAudio)
-                                              : null) ??
-                                          getVoiceNoteSecondsFromText(lastText)
-                                        : null;
-                                    const lastPreview = room.last_message
-                                        ? lastIsVoice
-                                            ? lastVoiceSecs != null
-                                                ? `Voice note · ${formatVoiceDuration(lastVoiceSecs)}`
-                                                : "Voice note"
-                                            : lastAtts.length > 0
-                                                ? `📎 ${lastAtts.length} attachment${lastAtts.length > 1 ? "s" : ""}`
-                                                : room.last_message.text || "No messages yet"
-                                        : "No messages yet";
-
-                                    return (
-                                        <SwipeableChatRow
-                                            key={room.id}
-                                            isMuted={!!room.is_muted}
-                                            isUnread={unread}
-                                            selected={selectedChatId === room.id.toString()}
-                                            onToggleMute={() => handleRowToggleMute(room)}
-                                            onToggleRead={() => handleRowToggleRead(room)}
-                                            onPress={() => handleRoomPress(room)}
-                                        >
-                                            <View style={styles.avatarContainer}>
-                                                <Avatar
-                                                    name={displayName}
-                                                    imagePath={getRoomAvatar(room, currentUserId)}
-                                                    size={30}
-                                                    borderRadius={5}
-                                                    fontSize={12}
-                                                    fontFamily="SF_Pro_Medium"
-                                                />
-                                                {unread && (
-                                                    <View style={styles.onlineIndicator} />
-                                                )}
-                                            </View>
-                                            <View style={styles.chatInfo}>
-                                                <Text style={styles.chatName} numberOfLines={1}>
-                                                    {displayName}
-                                                </Text>
-                                                {lastIsVoice ? (
-                                                    <View style={styles.chatSnippetRow}>
-                                                        <Ionicons
-                                                            name="mic"
-                                                            size={12}
-                                                            color="#4B5563"
-                                                            style={styles.chatSnippetMic}
-                                                        />
-                                                        <Text
-                                                            style={[styles.chatSnippet, styles.chatSnippetFlex]}
-                                                            numberOfLines={1}
-                                                        >
-                                                            {lastPreview}
-                                                        </Text>
-                                                    </View>
-                                                ) : (
-                                                    <Text style={styles.chatSnippet} numberOfLines={1}>
-                                                        {lastPreview}
-                                                    </Text>
-                                                )}
-                                            </View>
-                                            <View style={styles.chatMeta}>
-                                                {unread && room.unreadCount > 0 && (
-                                                    <View style={styles.unreadBubble}>
-                                                        <Text style={styles.unreadBubbleText}>
-                                                            +{room.unreadCount}
-                                                        </Text>
-                                                    </View>
-                                                )}
-                                                <Text style={styles.chatTime}>
-                                                    {room.last_message?.createdAt
-                                                        ? formatChatListTime(room.last_message.createdAt)
-                                                        : room.my_visible_from
-                                                            ? formatChatListTime(room.my_visible_from)
-                                                            : ""}
-                                                </Text>
-                                            </View>
-                                        </SwipeableChatRow>
-                                    );
-                                })
-                            }
+                            {activeChip === "channels" ? (
+                                <>
+                                    {displayRooms
+                                        .filter((room) => room.type === "project")
+                                        .map((project) => {
+                                            const displayName = getRoomDisplayName(project, currentUserId);
+                                            const childChannels = projectChannelMap.get(project.id) ?? [];
+                                            const isCollapsed = collapsedProjects.has(project.id);
+                                            const unread = isRoomUnread(project);
+                                            const projectTime = project.last_message?.createdAt
+                                                ? formatChatListTime(project.last_message.createdAt)
+                                                : "";
+                                            return (
+                                                <View key={`project-${project.id}`}>
+                                                    <TouchableOpacity
+                                                        style={[
+                                                            styles.chatRow,
+                                                            selectedChatId === project.id.toString() && styles.chatRowSelected,
+                                                        ]}
+                                                        activeOpacity={0.7}
+                                                        onPress={() => toggleProjectCollapse(project.id)}
+                                                    >
+                                                        <View style={styles.avatarContainer}>
+                                                            <Avatar
+                                                                name={displayName}
+                                                                imagePath={getRoomAvatar(project, currentUserId)}
+                                                                size={30}
+                                                                borderRadius={5}
+                                                                fontSize={12}
+                                                                fontFamily="SF_Pro_Medium"
+                                                            />
+                                                            {unread && <View style={styles.onlineIndicator} />}
+                                                        </View>
+                                                        <View style={styles.chatInfo}>
+                                                            <Text style={styles.chatName} numberOfLines={1}>
+                                                                {displayName}
+                                                            </Text>
+                                                            <Text style={styles.chatSnippet} numberOfLines={1}>
+                                                                {childChannels.length} channel{childChannels.length === 1 ? "" : "s"}
+                                                                {isCollapsed ? " · collapsed" : ""}
+                                                            </Text>
+                                                        </View>
+                                                        <View style={styles.chatMeta}>
+                                                            {unread && project.unreadCount > 0 && (
+                                                                <View style={styles.unreadBubble}>
+                                                                    <Text style={styles.unreadBubbleText}>
+                                                                        +{project.unreadCount}
+                                                                    </Text>
+                                                                </View>
+                                                            )}
+                                                            {projectTime !== "" && (
+                                                                <Text style={styles.chatTime}>{projectTime}</Text>
+                                                            )}
+                                                            <Ionicons
+                                                                name={isCollapsed ? "chevron-down" : "chevron-up"}
+                                                                size={16}
+                                                                color="#6B7280"
+                                                            />
+                                                        </View>
+                                                    </TouchableOpacity>
+                                                    {!isCollapsed &&
+                                                        childChannels.map((channel) => {
+                                                            const channelName = getRoomDisplayName(channel, currentUserId);
+                                                            const channelUnread = isRoomUnread(channel);
+                                                            const channelAttachments = channel.last_message?.attachments ?? [];
+                                                            const channelPreview = channel.last_message
+                                                                ? channelAttachments.length > 0
+                                                                    ? `📎 ${channelAttachments.length} attachment${channelAttachments.length > 1 ? "s" : ""}`
+                                                                    : channel.last_message.text || "No messages yet"
+                                                                : "No messages yet";
+                                                            const channelTime = channel.last_message?.createdAt
+                                                                ? formatChatListTime(channel.last_message.createdAt)
+                                                                : "";
+                                                            return (
+                                                                <TouchableOpacity
+                                                                    key={channel.id}
+                                                                    style={[
+                                                                        styles.chatRow,
+                                                                        { paddingLeft: 38 },
+                                                                        selectedChatId === channel.id.toString() && styles.chatRowSelected,
+                                                                    ]}
+                                                                    activeOpacity={0.7}
+                                                                    onPress={() => handleRoomPress(channel)}
+                                                                >
+                                                                    <View style={styles.avatarContainer}>
+                                                                        <Avatar
+                                                                            name={channelName}
+                                                                            imagePath={getRoomAvatar(channel, currentUserId)}
+                                                                            size={26}
+                                                                            borderRadius={5}
+                                                                            fontSize={11.5}
+                                                                            fontFamily="SF_Pro_Medium"
+                                                                        />
+                                                                        {channelUnread && (
+                                                                            <View style={styles.onlineIndicator} />
+                                                                        )}
+                                                                    </View>
+                                                                    <View style={styles.chatInfo}>
+                                                                        <Text style={styles.chatName} numberOfLines={1}>
+                                                                            {channelName}
+                                                                        </Text>
+                                                                        <Text style={styles.chatSnippet} numberOfLines={1}>
+                                                                            {channelPreview}
+                                                                        </Text>
+                                                                    </View>
+                                                                    <View style={styles.chatMeta}>
+                                                                        {channelUnread && channel.unreadCount > 0 && (
+                                                                            <View style={styles.unreadBubble}>
+                                                                                <Text style={styles.unreadBubbleText}>
+                                                                                    +{channel.unreadCount}
+                                                                                </Text>
+                                                                            </View>
+                                                                        )}
+                                                                        {channelTime !== "" && (
+                                                                            <Text style={styles.chatTime}>{channelTime}</Text>
+                                                                        )}
+                                                                    </View>
+                                                                </TouchableOpacity>
+                                                            );
+                                                        })}
+                                                </View>
+                                            );
+                                        })}
+                                    {displayRooms
+                                        .filter((room) => room.type === "channel")
+                                        .map(renderRoomRow)}
+                                </>
+                            ) : (
+                                displayRooms.map(renderRoomRow)
+                            )}
                         </View>
                     ) : searchText.trim() !== "" ? (
                         <View style={styles.workspaceContainer}>
