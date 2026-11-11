@@ -27,6 +27,9 @@ export type RoomLastMessage = {
     originalName?: string | null;
     type?: string;
     fileType?: string;
+    duration_seconds?: number | string | null;
+    durationSeconds?: number | string | null;
+    duration?: number | string | null;
   }[];
 };
 
@@ -100,6 +103,13 @@ export type MessageAttachment = {
    * containers such as `.webm` (audio voice note vs. real video).
    */
   fileType?: string;
+  /**
+   * Voice-note length supplied by the backend (seconds). Preferred over
+   * parsing the filename/text or probing the audio file.
+   */
+  duration_seconds?: number | string | null;
+  durationSeconds?: number | string | null;
+  duration?: number | string | null;
   size?: number;
 };
 

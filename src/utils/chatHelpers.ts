@@ -154,6 +154,9 @@ type AttachmentLike = {
   mimeType?: string | null;
   mime_type?: string | null;
   fileType?: string | null;
+  duration_seconds?: number | string | null;
+  durationSeconds?: number | string | null;
+  duration?: number | string | null;
 };
 
 function attachmentMime(a: AttachmentLike): string {
@@ -237,6 +240,21 @@ export function getVoiceNoteSecondsFromAttachment(
   a?: AttachmentLike | null,
 ): number | null {
   if (!a) return null;
+
+  // Prefer explicit backend metadata when present. This avoids a late
+  // audio-metadata probe for website-originated voice notes.
+  const explicitDurations = [
+    a.duration_seconds,
+    a.durationSeconds,
+    a.duration,
+  ];
+  for (const value of explicitDurations) {
+    if (value == null || value === "") continue;
+    const seconds =
+      typeof value === "number" ? value : Number.parseFloat(String(value));
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds;
+  }
+
   const candidates = [a.originalName, a.name, a.url].filter(
     Boolean,
   ) as string[];
