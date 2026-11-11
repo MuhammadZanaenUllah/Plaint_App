@@ -337,18 +337,19 @@ export default function MediaComposerModal({ files, onSend, onCancel }: Props) {
       statusBarTranslucent
       onRequestClose={onCancel}
     >
-      <GestureHandlerRootView style={composerStyles.root}>
-        {cropUri ? (
+      {cropUri ? (
+        <GestureHandlerRootView style={composerStyles.root}>
           <CropView
             uri={cropUri}
             onCancel={() => setCropUri(null)}
             onDone={handleCropDone}
           />
-        ) : (
-          <KeyboardAvoidingView
-            style={composerStyles.flex}
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-          >
+        </GestureHandlerRootView>
+      ) : (
+        <KeyboardAvoidingView
+          style={composerStyles.root}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
             {/* Top bar */}
             <View
               style={[composerStyles.topBar, { paddingTop: insets.top + 10 }]}
@@ -486,9 +487,8 @@ export default function MediaComposerModal({ files, onSend, onCancel }: Props) {
                 )}
               </TouchableOpacity>
             </View>
-          </KeyboardAvoidingView>
-        )}
-      </GestureHandlerRootView>
+        </KeyboardAvoidingView>
+      )}
     </Modal>
   );
 }

@@ -126,7 +126,7 @@ import Reanimated, {
   withSpring,
   type SharedValue,
 } from "react-native-reanimated";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import EmojiPicker from "rn-emoji-keyboard";
 
 const { ChatIcon: MainChatIcon } = Icons;
@@ -1966,6 +1966,10 @@ function AttachmentCluster({
 // is zoomed — otherwise a horizontal pan would swipe to the next image.
 const VIEWER_MAX_SCALE = 6;
 const VIEWER_DOUBLE_TAP_SCALE = 2.5;
+// Keep every preview (portrait and landscape) inside a consistent vertical
+// band. Landscape images were already width-limited to roughly this height;
+// portrait images previously filled the whole screen.
+const VIEWER_IMAGE_MAX_HEIGHT_RATIO = 0.5;
 
 function ZoomableImage({
   url,
@@ -2110,6 +2114,21 @@ function ImageViewerModal({
 }) {
   const listRef = useRef<FlatList<MessageAttachment>>(null);
   const { width, height } = Dimensions.get("window");
+  const insets = useSafeAreaInsets();
+  const previewHeight = Math.max(
+    1,
+    Math.round(height * VIEWER_IMAGE_MAX_HEIGHT_RATIO),
+  );
+  const controlsTop = Math.max(
+    Platform.OS === "ios" ? 54 : 24,
+    insets.top + 8,
+  );
+  const controlsLeft = Math.max(18, insets.left + 12);
+  const controlsRight = Math.max(18, insets.right + 12);
+  const counterTop = Math.max(
+    Platform.OS === "ios" ? 60 : 30,
+    insets.top + 12,
+  );
   const [zoomed, setZoomed] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const safeIndex =
@@ -2171,16 +2190,28 @@ function ImageViewerModal({
             onChangeIndex(i);
           }}
           renderItem={({ item }) => (
-            <ZoomableImage
-              url={item.url}
-              width={width}
-              height={height}
-              onZoomChange={setZoomed}
-            />
+            <View
+              style={{
+                width,
+                height,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <ZoomableImage
+                url={item.url}
+                width={width}
+                height={previewHeight}
+                onZoomChange={setZoomed}
+              />
+            </View>
           )}
         />
         <TouchableOpacity
-          style={styles.viewerDownload}
+          style={[
+            styles.viewerDownload,
+            { top: controlsTop, left: controlsLeft },
+          ]}
           onPress={handleDownload}
           disabled={downloading}
           hitSlop={12}
@@ -2192,14 +2223,17 @@ function ImageViewerModal({
           )}
         </TouchableOpacity>
         <TouchableOpacity
-          style={styles.viewerClose}
+          style={[
+            styles.viewerClose,
+            { top: controlsTop, right: controlsRight },
+          ]}
           onPress={onClose}
           hitSlop={12}
         >
           <Ionicons name="close" size={26} color="#fff" />
         </TouchableOpacity>
         {images.length > 1 ? (
-          <View style={styles.viewerCounter}>
+          <View style={[styles.viewerCounter, { top: counterTop }]}>
             <Text style={styles.viewerCounterText}>
               {`${safeIndex + 1} / ${images.length}`}
             </Text>
@@ -2511,7 +2545,7 @@ const MessageBubble = React.memo(function MessageBubble({
                 ) : null}
                 <AttachmentCluster
                   images={imageAtts ?? []}
-                  docs={docAtts ?? []}
+                  docs={[]}
                   videos={videoAtts ?? []}
                   onOpenImage={onOpenImage}
                   onOpenVideo={onOpenVideo}
@@ -2528,6 +2562,16 @@ const MessageBubble = React.memo(function MessageBubble({
                   !videoAtts?.length &&
                   !audioAtt ? (
                   <LinkifiedText text={message.text} style={styles.bubbleText} />
+                ) : null}
+                {docAtts && docAtts.length > 0 ? (
+                  <AttachmentCluster
+                    images={[]}
+                    docs={docAtts}
+                    videos={[]}
+                    onOpenImage={onOpenImage}
+                    onOpenVideo={onOpenVideo}
+                    onLongPress={(e) => onLongPress?.(message, e)}
+                  />
                 ) : null}
               </Pressable>
             </Animated.View>
@@ -2628,7 +2672,7 @@ const MessageBubble = React.memo(function MessageBubble({
                 ) : null}
               <AttachmentCluster
                 images={imageAtts ?? []}
-                docs={docAtts ?? []}
+                docs={[]}
                 videos={videoAtts ?? []}
                 onOpenImage={onOpenImage}
                 onOpenVideo={onOpenVideo}
@@ -2645,6 +2689,16 @@ const MessageBubble = React.memo(function MessageBubble({
                 !videoAtts?.length &&
                 !audioAtt ? (
                 <LinkifiedText text={message.text} style={styles.bubbleText} />
+              ) : null}
+              {docAtts && docAtts.length > 0 ? (
+                <AttachmentCluster
+                  images={[]}
+                  docs={docAtts}
+                  videos={[]}
+                  onOpenImage={onOpenImage}
+                  onOpenVideo={onOpenVideo}
+                  onLongPress={(e) => onLongPress?.(message, e)}
+                />
               ) : null}
             </Pressable>
           </Animated.View>
@@ -8817,6 +8871,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: Platform.OS === "ios" ? 54 : 24,
     right: 18,
+    zIndex: 3,
     width: 38,
     height: 38,
     borderRadius: 19,
@@ -8828,7 +8883,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: Platform.OS === "ios" ? 54 : 24,
     left: 18,
-    zIndex: 2,
+    zIndex: 3,
     width: 38,
     height: 38,
     borderRadius: 19,
@@ -8840,6 +8895,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: Platform.OS === "ios" ? 60 : 30,
     alignSelf: "center",
+    zIndex: 3,
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: 14,
