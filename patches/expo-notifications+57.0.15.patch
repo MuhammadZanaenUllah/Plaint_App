@@ -1,0 +1,1002 @@
+diff --git a/node_modules/expo-notifications/android/src/main/AndroidManifest.xml b/node_modules/expo-notifications/android/src/main/AndroidManifest.xml
+index 777403d..35838ed 100644
+--- a/node_modules/expo-notifications/android/src/main/AndroidManifest.xml
++++ b/node_modules/expo-notifications/android/src/main/AndroidManifest.xml
+@@ -35,5 +35,9 @@
+       android:launchMode="standard"
+       android:taskAffinity=""
+       />
++
++    <receiver
++      android:name=".notifications.presentation.PlanitChatNotificationDismissReceiver"
++      android:exported="false" />
+   </application>
+ </manifest>
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitChatNotification.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitChatNotification.kt
+new file mode 100644
+index 0000000..09894cc
+--- /dev/null
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitChatNotification.kt
+@@ -0,0 +1,779 @@
++package expo.modules.notifications.notifications.presentation
++
++import android.app.NotificationChannel
++import android.app.NotificationManager
++import android.app.PendingIntent
++import android.content.BroadcastReceiver
++import android.content.Context
++import android.content.Intent
++import android.content.pm.PackageManager
++import android.graphics.Bitmap
++import android.graphics.BitmapFactory
++import android.os.Build
++import android.util.Log
++import androidx.core.app.NotificationCompat
++import androidx.core.app.NotificationManagerCompat
++import expo.modules.notifications.notifications.interfaces.INotificationContent
++import expo.modules.notifications.notifications.model.Notification
++import expo.modules.notifications.notifications.model.NotificationAction
++import expo.modules.notifications.notifications.model.NotificationContent
++import expo.modules.notifications.notifications.model.NotificationRequest
++import expo.modules.notifications.notifications.model.NotificationResponse
++import expo.modules.notifications.notifications.presentation.builders.ExpoNotificationBuilder
++import expo.modules.notifications.service.NotificationsService
++import org.json.JSONArray
++import org.json.JSONObject
++import java.util.Date
++import java.util.UUID
++
++/**
++ * Planit chat notification aggregation.
++ *
++ * All chat notifications live inside one Android notification group. Instead of
++ * one child notification per message, there is exactly one child notification
++ * per unique sender. Sender entries are updated in place as new messages
++ * arrive, so the expanded notification shows:
++ *
++ *   Planit - 10 new messages
++ *     Nida Mumtaz (5) - latest preview
++ *     Awais Zulfiqar (3) - latest preview
++ *     Hamza (2) - latest preview
++ *
++ * Each sender entry is independently clickable. Android does not support
++ * per-line click targets in MessagingStyle/InboxStyle, so one grouped child
++ * notification per sender is the reliable way to keep navigation working.
++ *
++ * Sender identity:
++ *  - Preferred: `data.sender_id` from the push payload (stable across rooms).
++ *  - Fallback: `data.sender_name`, then a display name parsed from the
++ *    human-readable notification body (`"Name: preview"` /
++ *    `"Name sent you a message"`). The fallback cannot distinguish two users
++ *    with exactly the same display name; see
++ *    BACKEND_CHAT_NOTIFICATION_SENDER_AGGREGATION.md.
++ *
++ * State is persisted in SharedPreferences so aggregation survives process
++ * recreation and terminated-state delivery. Message ids are de-duplicated so a
++ * repeated push delivery does not increment counters.
++ */
++object PlanitChatNotification {
++  const val GROUP_KEY = "pk.planit.CHAT_NOTIFICATIONS"
++  const val SUMMARY_TAG = "pk.planit.CHAT_NOTIFICATIONS_SUMMARY"
++  const val SUMMARY_ID = 0x504C414E
++  const val DISMISS_EXTRA_TAG = "pk.planit.chat.DISMISS_TAG"
++
++  private const val CHILD_ID = 0
++  private const val SENDER_TAG_PREFIX = "pk.planit.chat.sender."
++
++  private const val PREFS_NAME = "planit_chat_notification_senders"
++  private const val PREFS_KEY = "senders"
++  private const val PREFS_SEEN = "seen_ids"
++  private const val MAX_SENDERS = 12
++  private const val MAX_SEEN = 200
++  private const val MAX_LINES = 8
++  private const val MAX_PREVIEW = 512
++
++  private const val FALLBACK_CHANNEL_ID =
++    "expo_notifications_fallback_notification_channel"
++
++  private val objectIdPattern = Regex("^[a-fA-F0-9]{24}$")
++  private val nameColonPattern = Regex("^([^:\\n]{1,80}):\\s*([\\s\\S]*)$")
++  private val sentPattern = Regex(
++    "^(.{1,80}?)\\s+(?:has\\s+)?sent\\s+(?:you\\s+)?(?:a\\s+)?(?:message|file|photo|image|video|voice\\s+note|attachment|document)\\b.*$",
++    RegexOption.IGNORE_CASE
++  )
++  private val newMessageFromPattern = Regex(
++    "^new message from\\s+(.{1,80})$",
++    RegexOption.IGNORE_CASE
++  )
++  private val genericSenders = setOf(
++    "planit",
++    "planit chat",
++    "chat",
++    "message",
++    "message from planit",
++    "new message",
++    "new messages",
++    "notification",
++    "sent a message",
++    "sent you a message"
++  )
++
++  data class ParsedChat(
++    val senderId: String?,
++    val senderName: String?,
++    val preview: String,
++    val roomId: String?,
++    val messageId: String?
++  )
++
++  private data class SenderAggregate(
++    val key: String,
++    val senderId: String?,
++    val senderName: String,
++    val count: Int,
++    val preview: String,
++    val roomId: String?,
++    val lastTime: Long,
++    val channelId: String?
++  ) {
++    val tag: String get() = tagFor(key)
++  }
++
++  fun isChat(content: INotificationContent): Boolean {
++    return content.body?.optString("type")?.equals("chat", ignoreCase = true) == true
++  }
++
++  fun parse(content: INotificationContent): ParsedChat {
++    val data = content.body
++    val text = content.text?.trim().orEmpty()
++    val title = content.title?.trim().orEmpty()
++
++    val senderId = firstNonBlank(
++      data?.optString("sender_id"),
++      data?.optString("senderId"),
++      data?.optString("user_id"),
++      data?.optString("userId"),
++      data?.optString("from_id"),
++      data?.optString("fromId")
++    )
++    var senderName = cleanName(
++      firstNonBlank(
++        data?.optString("sender_name"),
++        data?.optString("senderName"),
++        data?.optString("user_name"),
++        data?.optString("userName"),
++        data?.optString("from_name"),
++        data?.optString("fromName")
++      )
++    )
++    val explicitPreview = firstNonBlank(
++      data?.optString("message"),
++      data?.optString("text"),
++      data?.optString("message_text"),
++      data?.optString("preview"),
++      data?.optString("content")
++    )
++    val messageId = firstNonBlank(
++      data?.optString("message_id"),
++      data?.optString("messageId"),
++      data?.optString("_id"),
++      data?.optString("id")
++    )
++    val roomId = firstNonBlank(
++      data?.optString("room_id"),
++      data?.optString("roomId")
++    )
++
++    var preview: String? = explicitPreview
++    if (senderName == null) {
++      val extracted = extractFromText(text, title)
++      senderName = extracted.first
++      if (preview == null) preview = extracted.second
++    }
++    if (preview == null) {
++      preview = previewFromText(text, senderName)
++    }
++
++    return ParsedChat(
++      senderId = senderId?.takeIf { it.isNotBlank() },
++      senderName = cleanName(senderName),
++      preview = preview
++        ?.trim()
++        ?.take(MAX_PREVIEW)
++        ?.takeIf { it.isNotBlank() }
++        ?: "Sent you a message",
++      roomId = roomId?.takeIf { it.isNotBlank() },
++      messageId = messageId?.takeIf { it.isNotBlank() }
++    )
++  }
++
++  @Synchronized
++  fun onNotificationPosted(
++    context: Context,
++    notification: Notification,
++    notificationManager: NotificationManagerCompat
++  ) {
++    val content = notification.notificationRequest.content
++    if (!isChat(content)) {
++      return
++    }
++
++    val parsed = parse(content)
++    val systemNotificationManager =
++      context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
++    val currentMessageId = parsed.messageId
++      ?: notification.notificationRequest.identifier.takeIf { it.isNotBlank() }
++
++    // A repeated delivery of the same message must not increase any counter.
++    val seen = loadSeen(context)
++    if (currentMessageId != null && seen.contains(currentMessageId)) {
++      Log.d("PlanitChatNotification", "Ignoring duplicate chat push: $currentMessageId")
++      return
++    }
++
++    val senderKey = when {
++      !parsed.senderId.isNullOrBlank() -> "id:${parsed.senderId}"
++      !parsed.senderName.isNullOrBlank() -> "name:${normalizeName(parsed.senderName)}"
++      else -> "message:${currentMessageId ?: UUID.randomUUID()}"
++    }
++    val currentTag = tagFor(senderKey)
++
++    val active = activeNotifications(systemNotificationManager)
++    val activeSenderTags = active
++      .filter { statusBarNotification ->
++        val tag = statusBarNotification.tag
++        tag != null &&
++          tag != SUMMARY_TAG &&
++          statusBarNotification.id != SUMMARY_ID &&
++          tag.startsWith(SENDER_TAG_PREFIX)
++      }
++      .mapNotNull { it.tag }
++      .toSet()
++
++    // Remove legacy per-message chat children from older app versions.
++    active.forEach { statusBarNotification ->
++      val tag = statusBarNotification.tag ?: return@forEach
++      if (
++        tag != SUMMARY_TAG &&
++        !tag.startsWith(SENDER_TAG_PREFIX) &&
++        statusBarNotification.notification.group == GROUP_KEY
++      ) {
++        runCatching { systemNotificationManager.cancel(tag, statusBarNotification.id) }
++      }
++    }
++
++    // Drop sender entries whose child notification is no longer visible. This
++    // also means tapping/reading a sender starts their counter at 1 next time.
++    val senders = loadSenders(context)
++      .filter { it.tag in activeSenderTags }
++      .toMutableList()
++
++    // Smooth migration: once the backend starts sending sender_id, fold any
++    // still-visible display-name-keyed entry for the same sender into the new
++    // stable-id entry instead of showing the sender twice.
++    var carryCount = 0
++    if (!parsed.senderId.isNullOrBlank() && !parsed.senderName.isNullOrBlank()) {
++      val normalizedName = normalizeName(parsed.senderName)
++      val legacyIndex = senders.indexOfFirst {
++        it.tag != currentTag &&
++          it.senderId == null &&
++          normalizeName(it.senderName) == normalizedName
++      }
++      if (legacyIndex >= 0) {
++        val legacy = senders.removeAt(legacyIndex)
++        carryCount = legacy.count
++        runCatching { systemNotificationManager.cancel(legacy.tag, CHILD_ID) }
++      }
++    }
++
++    val existingIndex = senders.indexOfFirst { it.tag == currentTag }
++    val existing = senders.getOrNull(existingIndex)
++    val channelId = resolveChannelId(context, notification)
++    val now = System.currentTimeMillis()
++    val senderId = parsed.senderId ?: existing?.senderId
++    val senderName = parsed.senderName
++      ?: existing?.senderName
++      ?: "New message"
++    // Only the latest message's room is used as the tap destination. If a push
++    // ever arrives without a room id, tapping falls back to the Chat list
++    // instead of navigating to a stale room.
++    val roomId = parsed.roomId
++
++    val baseCount = (existing?.count ?: 0) + carryCount
++
++    val aggregate = if (existing != null) {
++      existing.copy(
++        senderId = senderId,
++        senderName = senderName,
++        count = baseCount + 1,
++        preview = parsed.preview,
++        roomId = roomId,
++        lastTime = now,
++        channelId = channelId ?: existing.channelId
++      )
++    } else {
++      SenderAggregate(
++        key = senderKey,
++        senderId = senderId,
++        senderName = senderName,
++        count = baseCount + 1,
++        preview = parsed.preview,
++        roomId = roomId,
++        lastTime = now,
++        channelId = channelId
++      )
++    }
++
++    if (existingIndex >= 0) {
++      senders[existingIndex] = aggregate
++    } else {
++      senders.add(aggregate)
++    }
++
++    // Keep the most recent senders if the group grows too large.
++    val overflow = (senders.size - MAX_SENDERS).coerceAtLeast(0)
++    val trimmed = if (overflow > 0) {
++      val newest = senders.sortedByDescending { it.lastTime }.take(MAX_SENDERS).toSet()
++      senders.filter { it !in newest }.forEach { dropped ->
++        runCatching { systemNotificationManager.cancel(dropped.tag, CHILD_ID) }
++      }
++      senders.filter { it in newest }.sortedBy { it.lastTime }.toMutableList()
++    } else {
++      senders
++    }
++
++    saveSenders(context, trimmed)
++    if (currentMessageId != null) {
++      saveSeen(context, (seen + currentMessageId).takeLast(MAX_SEEN))
++    }
++
++    postSenderChild(context, notificationManager, aggregate)
++    postSummary(context, notificationManager, trimmed)
++  }
++
++  @Synchronized
++  fun onSenderDismissed(context: Context, tag: String?) {
++    if (tag.isNullOrBlank()) {
++      return
++    }
++    val systemNotificationManager =
++      context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
++    val notificationManager = NotificationManagerCompat.from(context)
++    val active = activeNotifications(systemNotificationManager)
++    val activeSenderTags = active
++      .filter { statusBarNotification ->
++        val currentTag = statusBarNotification.tag
++        currentTag != null &&
++          currentTag != SUMMARY_TAG &&
++          statusBarNotification.id != SUMMARY_ID &&
++          currentTag.startsWith(SENDER_TAG_PREFIX) &&
++          currentTag != tag
++      }
++      .mapNotNull { it.tag }
++      .toSet()
++
++    val remaining = loadSenders(context).filter { it.tag != tag && it.tag in activeSenderTags }
++    saveSenders(context, remaining)
++    if (remaining.isEmpty()) {
++      cancelSummary(systemNotificationManager)
++    } else {
++      postSummary(context, notificationManager, remaining)
++    }
++  }
++
++  private fun extractFromText(text: String, title: String): Pair<String?, String?> {
++    if (text.isNotBlank()) {
++      nameColonPattern.find(text)?.let { match ->
++        val name = cleanName(match.groupValues[1])
++        if (name != null) {
++          return name to match.groupValues[2].trim().ifBlank { "Sent you a message" }
++        }
++      }
++      sentPattern.find(text)?.let { match ->
++        val name = cleanName(match.groupValues[1])
++        if (name != null) {
++          return name to "Sent you a message"
++        }
++      }
++      newMessageFromPattern.find(text)?.let { match ->
++        val name = cleanName(match.groupValues[1])
++        if (name != null) {
++          return name to "Sent you a message"
++        }
++      }
++    }
++    val titleName = cleanName(title)
++    if (titleName != null) {
++      return titleName to text.takeIf { it.isNotBlank() }
++    }
++    return null to null
++  }
++
++  private fun previewFromText(text: String, name: String?): String? {
++    if (text.isBlank() || objectIdPattern.matches(text)) {
++      return null
++    }
++    if (sentPattern.find(text) != null) {
++      return "Sent you a message"
++    }
++    if (!name.isNullOrBlank() && text.startsWith("$name:", ignoreCase = true)) {
++      return text.substring(name.length + 1).trim().takeIf { it.isNotBlank() }
++    }
++    return text
++  }
++
++  private fun postSenderChild(
++    context: Context,
++    notificationManager: NotificationManagerCompat,
++    sender: SenderAggregate
++  ) {
++    val channelId = sender.channelId ?: fallbackChannelId(context)
++    val builder = if (channelId != null) {
++      NotificationCompat.Builder(context, channelId)
++    } else {
++      NotificationCompat.Builder(context)
++    }
++
++    builder.setSmallIcon(resolveSmallIcon(context))
++    resolveColor(context)?.let { builder.color = it }
++    resolveLargeIcon(context)?.let { builder.setLargeIcon(it) }
++    builder.setContentTitle(sender.senderName)
++    builder.setContentText(sender.preview)
++    builder.setSubText("${sender.count} ${messageWord(sender.count)}")
++    builder.setNumber(sender.count)
++    builder.setStyle(NotificationCompat.BigTextStyle().bigText(sender.preview))
++    builder.setWhen(sender.lastTime)
++    builder.setShowWhen(true)
++    builder.setPriority(NotificationCompat.PRIORITY_HIGH)
++    builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
++    builder.setAutoCancel(true)
++    // Every new message updates this child in place, but should alert again.
++    builder.setOnlyAlertOnce(false)
++    builder.setGroup(GROUP_KEY)
++    builder.setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
++    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
++      builder.setDefaults(NotificationCompat.DEFAULT_ALL)
++    }
++    builder.setContentIntent(senderIntent(context, sender))
++    builder.setDeleteIntent(dismissIntent(context, sender))
++    notificationManager.notify(sender.tag, CHILD_ID, builder.build())
++  }
++
++  private fun postSummary(
++    context: Context,
++    notificationManager: NotificationManagerCompat,
++    senders: List<SenderAggregate>
++  ) {
++    if (senders.isEmpty()) {
++      val manager =
++        context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
++      cancelSummary(manager)
++      return
++    }
++
++    val sorted = senders.sortedByDescending { it.lastTime }
++    val total = senders.sumOf { it.count }
++    val latest = sorted.first()
++    val channelId = summaryChannelId(context, senders)
++    val builder = if (channelId != null) {
++      NotificationCompat.Builder(context, channelId)
++    } else {
++      NotificationCompat.Builder(context)
++    }
++
++    builder.setSmallIcon(resolveSmallIcon(context))
++    resolveColor(context)?.let { builder.color = it }
++    resolveLargeIcon(context)?.let { builder.setLargeIcon(it) }
++    builder.setContentTitle("Planit")
++    builder.setContentText("$total new ${messageWord(total)}")
++    builder.setSubText("$total new ${messageWord(total)}")
++    builder.setNumber(total)
++    builder.setWhen(latest.lastTime)
++    builder.setPriority(NotificationCompat.PRIORITY_HIGH)
++    builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
++    builder.setAutoCancel(true)
++    builder.setOnlyAlertOnce(true)
++    // Children alert; the summary must not alert a second time.
++    builder.setSilent(true)
++    builder.setGroup(GROUP_KEY)
++    builder.setGroupSummary(true)
++    builder.setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
++
++    val shown = sorted.take(MAX_LINES)
++    val inboxStyle = NotificationCompat.InboxStyle()
++      .setBigContentTitle("Planit")
++    shown.forEach { inboxStyle.addLine(lineFor(it)) }
++    inboxStyle.setSummaryText("$total new ${messageWord(total)}")
++    builder.setStyle(inboxStyle)
++
++    builder.setContentIntent(chatListIntent(context))
++    notificationManager.notify(SUMMARY_TAG, SUMMARY_ID, builder.build())
++  }
++
++  private fun lineFor(sender: SenderAggregate): String {
++    return "${sender.senderName} (${sender.count}) - ${sender.preview}"
++  }
++
++  private fun messageWord(count: Int): String = if (count == 1) "message" else "messages"
++
++  private fun tagFor(key: String): String = SENDER_TAG_PREFIX + key
++
++  private fun normalizeName(name: String): String {
++    return name.trim().replace(Regex("\\s+"), " ").lowercase()
++  }
++
++  private fun cleanName(raw: String?): String? {
++    val name = raw
++      ?.trim()
++      ?.replace(Regex("\\s+"), " ")
++      ?.takeIf { it.isNotEmpty() }
++      ?: return null
++    if (name.length > 80 || objectIdPattern.matches(name)) {
++      return null
++    }
++    if (name.lowercase() in genericSenders) {
++      return null
++    }
++    if (name.none { it.isLetter() }) {
++      return null
++    }
++    return name
++  }
++
++  private fun firstNonBlank(vararg values: String?): String? {
++    for (value in values) {
++      val trimmed = value?.trim()
++      if (
++        !trimmed.isNullOrBlank() &&
++        !trimmed.equals("null", ignoreCase = true)
++      ) {
++        return trimmed
++      }
++    }
++    return null
++  }
++
++  private fun senderIntent(context: Context, sender: SenderAggregate): PendingIntent {
++    val body = JSONObject().put("type", "chat")
++    sender.roomId?.let { body.put("room_id", it) }
++    sender.senderId?.let { body.put("sender_id", it) }
++    val content = NotificationContent.Builder()
++      .setTitle(sender.senderName)
++      .setText(sender.preview)
++      .setBody(body)
++      .build()
++    val request = NotificationRequest(sender.tag, content, null)
++    val notification = Notification(request, Date(sender.lastTime))
++    val action = NotificationAction(
++      NotificationResponse.DEFAULT_ACTION_IDENTIFIER,
++      null,
++      true
++    )
++    return NotificationsService.createNotificationResponseIntent(
++      context,
++      notification,
++      action
++    )
++  }
++
++  private fun dismissIntent(context: Context, sender: SenderAggregate): PendingIntent {
++    val intent = Intent(context, PlanitChatNotificationDismissReceiver::class.java).apply {
++      putExtra(DISMISS_EXTRA_TAG, sender.tag)
++    }
++    val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
++    return PendingIntent.getBroadcast(context, sender.tag.hashCode(), intent, flags)
++  }
++
++  private fun chatListIntent(context: Context): PendingIntent {
++    val content = NotificationContent.Builder()
++      .setTitle("Planit")
++      .setText("Chats")
++      .setBody(JSONObject().put("type", "chat"))
++      .build()
++    val request = NotificationRequest(SUMMARY_TAG, content, null)
++    val notification = Notification(request, Date())
++    val action = NotificationAction(
++      NotificationResponse.DEFAULT_ACTION_IDENTIFIER,
++      null,
++      true
++    )
++    return NotificationsService.createNotificationResponseIntent(
++      context,
++      notification,
++      action
++    )
++  }
++
++  private fun resolveChannelId(context: Context, source: Notification): String? {
++    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
++      return null
++    }
++    val manager =
++      context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
++    val requested = source.notificationRequest.trigger?.getNotificationChannel()
++    if (!requested.isNullOrBlank() && manager.getNotificationChannel(requested) != null) {
++      return requested
++    }
++    return ensureFallbackChannel(context, manager)
++  }
++
++  private fun summaryChannelId(
++    context: Context,
++    senders: List<SenderAggregate>
++  ): String? {
++    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
++      return null
++    }
++    val manager =
++      context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
++    senders.forEach { sender ->
++      val id = sender.channelId
++      if (!id.isNullOrBlank() && manager.getNotificationChannel(id) != null) {
++        return id
++      }
++    }
++    return ensureFallbackChannel(context, manager)
++  }
++
++  private fun fallbackChannelId(context: Context): String? {
++    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
++      return null
++    }
++    val manager =
++      context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
++    return ensureFallbackChannel(context, manager)
++  }
++
++  private fun ensureFallbackChannel(
++    context: Context,
++    manager: NotificationManager
++  ): String {
++    if (manager.getNotificationChannel(FALLBACK_CHANNEL_ID) == null) {
++      val channel = NotificationChannel(
++        FALLBACK_CHANNEL_ID,
++        context.getString(expo.modules.notifications.R.string.expo_notifications_fallback_channel_name),
++        NotificationManager.IMPORTANCE_HIGH
++      )
++      channel.setShowBadge(true)
++      channel.enableVibration(true)
++      manager.createNotificationChannel(channel)
++    }
++    return FALLBACK_CHANNEL_ID
++  }
++
++  private fun cancelSummary(manager: NotificationManager) {
++    runCatching { manager.cancel(SUMMARY_TAG, SUMMARY_ID) }
++  }
++
++  private fun resolveSmallIcon(context: Context): Int {
++    return runCatching {
++      val applicationInfo = context.packageManager.getApplicationInfo(
++        context.packageName,
++        PackageManager.GET_META_DATA
++      )
++      val metadata = applicationInfo.metaData
++      if (metadata != null && metadata.containsKey(ExpoNotificationBuilder.META_DATA_DEFAULT_ICON_KEY)) {
++        return metadata.getInt(ExpoNotificationBuilder.META_DATA_DEFAULT_ICON_KEY)
++      }
++      context.applicationInfo.icon
++    }.getOrDefault(context.applicationInfo.icon)
++  }
++
++  private fun resolveColor(context: Context): Int? {
++    return runCatching {
++      val applicationInfo = context.packageManager.getApplicationInfo(
++        context.packageName,
++        PackageManager.GET_META_DATA
++      )
++      val metadata = applicationInfo.metaData
++      if (metadata != null && metadata.containsKey(ExpoNotificationBuilder.META_DATA_DEFAULT_COLOR_KEY)) {
++        return context.resources.getColor(
++          metadata.getInt(ExpoNotificationBuilder.META_DATA_DEFAULT_COLOR_KEY),
++          null
++        )
++      }
++      null
++    }.getOrNull()
++  }
++
++  private fun resolveLargeIcon(context: Context): Bitmap? {
++    return runCatching {
++      val applicationInfo = context.packageManager.getApplicationInfo(
++        context.packageName,
++        PackageManager.GET_META_DATA
++      )
++      val metadata = applicationInfo.metaData
++      if (metadata != null && metadata.containsKey(ExpoNotificationBuilder.META_DATA_LARGE_ICON_KEY)) {
++        return BitmapFactory.decodeResource(
++          context.resources,
++          metadata.getInt(ExpoNotificationBuilder.META_DATA_LARGE_ICON_KEY)
++        )
++      }
++      null
++    }.getOrNull()
++  }
++
++  private fun loadSenders(context: Context): MutableList<SenderAggregate> {
++    val raw = prefs(context).getString(PREFS_KEY, null) ?: return mutableListOf()
++    return runCatching {
++      val array = JSONArray(raw)
++      MutableList(array.length()) { index ->
++        val item = array.getJSONObject(index)
++        SenderAggregate(
++          key = item.getString("key"),
++          senderId = item.optString("senderId")
++            .takeIf { it.isNotBlank() && it != "null" },
++          senderName = item.optString("senderName").ifBlank { "New message" },
++          count = item.optInt("count", 1).coerceAtLeast(1),
++          preview = item.optString("preview").ifBlank { "Sent you a message" },
++          roomId = item.optString("roomId")
++            .takeIf { it.isNotBlank() && it != "null" },
++          lastTime = item.optLong("lastTime", 0L),
++          channelId = item.optString("channelId")
++            .takeIf { it.isNotBlank() && it != "null" }
++        )
++      }
++    }.getOrDefault(mutableListOf())
++  }
++
++  private fun saveSenders(context: Context, senders: List<SenderAggregate>) {
++    val array = JSONArray()
++    senders.forEach { sender ->
++      array.put(
++        JSONObject().apply {
++          put("key", sender.key)
++          put("senderId", sender.senderId ?: JSONObject.NULL)
++          put("senderName", sender.senderName)
++          put("count", sender.count)
++          put("preview", sender.preview)
++          put("roomId", sender.roomId ?: JSONObject.NULL)
++          put("lastTime", sender.lastTime)
++          put("channelId", sender.channelId ?: JSONObject.NULL)
++        }
++      )
++    }
++    prefs(context).edit().putString(PREFS_KEY, array.toString()).commit()
++  }
++
++  private fun loadSeen(context: Context): MutableList<String> {
++    val raw = prefs(context).getString(PREFS_SEEN, null) ?: return mutableListOf()
++    return runCatching {
++      val array = JSONArray(raw)
++      MutableList(array.length()) { index -> array.getString(index) }
++    }.getOrDefault(mutableListOf())
++  }
++
++  private fun saveSeen(context: Context, seen: List<String>) {
++    val array = JSONArray()
++    seen.forEach { array.put(it) }
++    prefs(context).edit().putString(PREFS_SEEN, array.toString()).commit()
++  }
++
++  private fun prefs(context: Context) =
++    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
++
++  private fun activeNotifications(
++    manager: NotificationManager
++  ): Array<android.service.notification.StatusBarNotification> {
++    return runCatching { manager.activeNotifications }.getOrDefault(emptyArray())
++  }
++}
++
++/**
++ * Receives the delete intent attached to a sender child notification and keeps
++ * the persisted aggregate state and the group summary in sync when the user
++ * dismisses or clears a chat notification.
++ */
++class PlanitChatNotificationDismissReceiver : BroadcastReceiver() {
++  override fun onReceive(context: Context, intent: Intent) {
++    val tag = intent.getStringExtra(PlanitChatNotification.DISMISS_EXTRA_TAG)
++    if (tag.isNullOrBlank()) {
++      return
++    }
++    try {
++      PlanitChatNotification.onSenderDismissed(context, tag)
++    } catch (e: Exception) {
++      Log.e("PlanitChatNotification", "Failed to handle notification dismissal.", e)
++    }
++  }
++}
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/builders/ExpoNotificationBuilder.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/builders/ExpoNotificationBuilder.kt
+index 610d303..8e28f06 100644
+--- a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/builders/ExpoNotificationBuilder.kt
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/builders/ExpoNotificationBuilder.kt
+@@ -20,6 +20,7 @@ import expo.modules.notifications.notifications.model.NotificationCategory
+ import expo.modules.notifications.notifications.model.NotificationRequest
+ import expo.modules.notifications.notifications.model.NotificationResponse
+ import expo.modules.notifications.notifications.model.TextInputNotificationAction
++import expo.modules.notifications.notifications.presentation.PlanitChatNotification
+ import expo.modules.notifications.service.NotificationsService
+ import expo.modules.notifications.service.NotificationsService.Companion.createNotificationResponseIntent
+ import expo.modules.notifications.service.delegates.SharedPreferencesNotificationCategoriesStore
+@@ -108,6 +109,18 @@ open class ExpoNotificationBuilder(
+     // entire text to be viewed.
+     builder.setStyle(NotificationCompat.BigTextStyle().bigText(content.text))
+ 
++    if (PlanitChatNotification.isChat(content)) {
++      val parsedChat = PlanitChatNotification.parse(content)
++      if (!parsedChat.senderName.isNullOrBlank()) {
++        builder.setContentTitle(parsedChat.senderName)
++      }
++      builder.setContentText(parsedChat.preview)
++      builder.setStyle(NotificationCompat.BigTextStyle().bigText(parsedChat.preview))
++      builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
++      builder.setGroup(PlanitChatNotification.GROUP_KEY)
++      builder.setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
++    }
++
+     color?.let { builder.color = it.toInt() }
+     notificationContent.badgeCount?.toInt()?.let { builder.setNumber(it) }
+     notificationContent.categoryId?.let { addActionsToBuilder(builder, it) }
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/ExpoFirebaseMessagingService.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/ExpoFirebaseMessagingService.kt
+index f175435..826c385 100644
+--- a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/ExpoFirebaseMessagingService.kt
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/ExpoFirebaseMessagingService.kt
+@@ -1,15 +1,99 @@
+ package expo.modules.notifications.service
+ 
++import android.content.Intent
++import android.util.Log
++import androidx.lifecycle.Lifecycle
++import androidx.lifecycle.ProcessLifecycleOwner
+ import com.google.firebase.messaging.FirebaseMessagingService
+ import com.google.firebase.messaging.RemoteMessage
+ import expo.modules.notifications.service.interfaces.FirebaseMessagingDelegate
++import org.json.JSONObject
+ 
+ open class ExpoFirebaseMessagingService : FirebaseMessagingService() {
+   protected open val firebaseMessagingDelegate: FirebaseMessagingDelegate by lazy {
+     expo.modules.notifications.service.delegates.FirebaseMessagingDelegate(this)
+   }
+ 
+-  override fun onMessageReceived(remoteMessage: RemoteMessage) = firebaseMessagingDelegate.onMessageReceived(remoteMessage)
++  /**
++   * Planit chat grouping.
++   *
++   * Expo's push service sends FCM messages that carry both a `notification`
++   * block and a `data` block. When the app is backgrounded or terminated the
++   * FCM SDK renders the notification block itself, so expo-notifications never
++   * gets a chance to build/group it. Removing the notification block for chat
++   * messages turns them into data messages; FCM then always calls
++   * [onMessageReceived], expo-notifications builds the notification, and the
++   * native grouping code in `PlanitChatNotification` can run in every app
++   * state.
++   *
++   * This is scoped to chat messages from the Expo push service and is skipped
++   * while the app is in the foreground (the normal foreground pipeline already
++   * groups correctly). Task and other notification types keep the stock FCM
++   * behavior.
++   */
++  override fun handleIntent(intent: Intent) {
++    try {
++      if (shouldConvertToDataMessage(intent)) {
++        val notificationKeys = intent.extras?.keySet()
++          ?.filter { it.startsWith("gcm.n.") || it.startsWith("gcm.notification.") }
++          .orEmpty()
++        if (notificationKeys.isNotEmpty()) {
++          val stripped = Intent(intent)
++          notificationKeys.forEach { stripped.removeExtra(it) }
++          super.handleIntent(stripped)
++          return
++        }
++      }
++    } catch (e: Exception) {
++      Log.e(
++        "expo-notifications",
++        "Failed to convert Planit chat push to a data message; falling back to stock handling.",
++        e
++      )
++    }
++    super.handleIntent(intent)
++  }
++
++  private fun shouldConvertToDataMessage(intent: Intent): Boolean {
++    val extras = intent.extras ?: return false
++    val fromExpoPushService = extras.containsKey("projectId") ||
++      extras.containsKey("scopeKey") ||
++      extras.containsKey("experienceId")
++    if (!fromExpoPushService) {
++      return false
++    }
++    if (!isChatData(extras.getString("body"))) {
++      return false
++    }
++    return !isAppInForeground()
++  }
++
++  private fun isChatData(rawBody: String?): Boolean {
++    if (rawBody.isNullOrBlank()) {
++      return false
++    }
++    return try {
++      JSONObject(rawBody).optString("type").equals("chat", ignoreCase = true)
++    } catch (e: Exception) {
++      false
++    }
++  }
++
++  private fun isAppInForeground(): Boolean {
++    return try {
++      ProcessLifecycleOwner.get().lifecycle.currentState
++        .isAtLeast(Lifecycle.State.RESUMED)
++    } catch (e: Exception) {
++      // If the lifecycle owner isn't available we assume background so the
++      // grouping path is used.
++      false
++    }
++  }
++
++  override fun onMessageReceived(remoteMessage: RemoteMessage) =
++    firebaseMessagingDelegate.onMessageReceived(remoteMessage)
++
+   override fun onNewToken(token: String) = firebaseMessagingDelegate.onNewToken(token)
++
+   override fun onDeletedMessages() = firebaseMessagingDelegate.onDeletedMessages()
+ }
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/ExpoPresentationDelegate.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/ExpoPresentationDelegate.kt
+index 38f6fba..e8728ac 100644
+--- a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/ExpoPresentationDelegate.kt
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/ExpoPresentationDelegate.kt
+@@ -19,6 +19,7 @@ import expo.modules.notifications.notifications.model.NotificationBehaviorRecord
+ import expo.modules.notifications.notifications.model.Notification
+ import expo.modules.notifications.notifications.model.NotificationContent
+ import expo.modules.notifications.notifications.model.NotificationRequest
++import expo.modules.notifications.notifications.presentation.PlanitChatNotification
+ import expo.modules.notifications.notifications.presentation.builders.ExpoNotificationBuilder
+ import expo.modules.notifications.service.interfaces.PresentationDelegate
+ import kotlinx.coroutines.CoroutineScope
+@@ -103,6 +104,18 @@ open class ExpoPresentationDelegate(
+       return
+     }
+     CoroutineScope(Dispatchers.IO).launch {
++      if (PlanitChatNotification.isChat(notification.notificationRequest.content)) {
++        // Chat notifications are posted by PlanitChatNotification as one child
++        // per unique sender (plus a group summary). Do not also post the
++        // per-message notification from this path.
++        PlanitChatNotification.onNotificationPosted(
++          context,
++          notification,
++          notificationManager
++        )
++        return@launch
++      }
++
+       val androidNotification = createNotification(notification, behavior)
+ 
+       NotificationManagerCompat.from(context).notify(
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/FirebaseMessagingDelegate.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/FirebaseMessagingDelegate.kt
+index eecdae8..1a278f2 100644
+--- a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/FirebaseMessagingDelegate.kt
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/delegates/FirebaseMessagingDelegate.kt
+@@ -15,6 +15,7 @@ import expo.modules.notifications.notifications.model.triggers.FirebaseNotificat
+ import expo.modules.notifications.service.NotificationsService
+ import expo.modules.notifications.service.interfaces.FirebaseMessagingDelegate
+ import expo.modules.notifications.tokens.interfaces.FirebaseTokenListener
++import org.json.JSONObject
+ import java.util.*
+ 
+ open class FirebaseMessagingDelegate(protected val context: Context) : FirebaseMessagingDelegate {
+@@ -126,7 +127,22 @@ open class FirebaseMessagingDelegate(protected val context: Context) : FirebaseM
+    * the existing notification is replaced, but the ID can remain constant.
+    */
+   protected fun getNotificationIdentifier(remoteMessage: RemoteMessage): String {
+-    return remoteMessage.data["tag"] ?: remoteMessage.messageId ?: UUID.randomUUID().toString()
++    // Planit chat messages must never replace each other. Expo/FCM allow a
++    // `tag` that intentionally replaces an existing notification, but for chat
++    // every message needs its own child notification inside the group. Use the
++    // unique FCM message id for chat regardless of any tag.
++    val data = remoteMessage.data
++    val isChat = data["body"]?.let { raw ->
++      try {
++        JSONObject(raw).optString("type").equals("chat", ignoreCase = true)
++      } catch (e: Exception) {
++        false
++      }
++    } ?: false
++    if (isChat) {
++      return remoteMessage.messageId ?: UUID.randomUUID().toString()
++    }
++    return data["tag"] ?: remoteMessage.messageId ?: UUID.randomUUID().toString()
+   }
+ 
+   protected open fun createNotificationRequest(
