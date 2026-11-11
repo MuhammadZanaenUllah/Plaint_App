@@ -1296,20 +1296,19 @@ export default function TaskDetailModal({
             "System User",
         }));
 
-        const serverPinned = sanitized.filter((n) => n.pin_top === 1);
+        // Remove any pin-based reordering from backend so comments are always in original chronological order
+        const originalChronological = [...sanitized].sort((a, b) => a.id - b.id);
+
+        const serverPinned = originalChronological.filter((n) => n.pin_top === 1);
         const preferredPinnedId =
           lastPinnedNoteIdRef.current ??
           serverPinned[0]?.id ??
           null;
-        const normalized = sanitized.map((note) => ({
+        const normalized = originalChronological.map((note) => ({
           ...note,
           pin_top: note.id === preferredPinnedId ? 1 : 0,
         }));
-        const pinned = normalized.filter((n) => n.pin_top === 1);
-        const unpinned = normalized.filter((n) => n.pin_top !== 1);
-        const originalOrdered = [...pinned, ...unpinned];
-
-        setNotes(originalOrdered);
+        setNotes(normalized);
       }
     } catch (error) {
       if (requestId !== notesRequestRef.current) return;
@@ -1632,17 +1631,14 @@ export default function TaskDetailModal({
         await loadNotes();
       } else {
         lastPinnedNoteIdRef.current = note.id;
-        // Website behaviour: only one note is shown pinned. Unpin the others
-        // locally and keep this note at the top (server may keep several).
-        setNotes((current) => {
-          const target = current.find((entry) => entry.id === note.id);
-          const others = current
-            .filter((entry) => entry.id !== note.id)
-            .map((entry) => ({ ...entry, pin_top: 0 }));
-          return target
-            ? [{ ...target, pin_top: 1 }, ...others]
-            : current;
-        });
+        // Website behaviour: only one note is shown pinned in the pinned card.
+        // Update pin_top without reordering the original comments list.
+        setNotes((current) =>
+          current.map((entry) => ({
+            ...entry,
+            pin_top: entry.id === note.id ? 1 : 0,
+          }))
+        );
       }
     } catch {
       setNotes(previousNotes);

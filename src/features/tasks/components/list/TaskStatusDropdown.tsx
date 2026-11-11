@@ -57,6 +57,14 @@ function getOptions(item: TaskRowProps): { label: string; value: StatusType }[] 
   if ((item.subtaskCount ?? 0) > 0) {
     statuses.push({ label: "Partial Complete", value: "Partial Complete" });
   }
+
+  // Show Rejected option for users who have permission to reject tasks
+  // (task creator or company admin). The action handler in useTaskActions
+  // routes this to the RejectTaskModal with its own permission guard.
+  if (item.canApproveReject === true && item.status !== "Rejected") {
+    statuses.push({ label: "Rejected", value: "Rejected" });
+  }
+
   return statuses;
 }
 

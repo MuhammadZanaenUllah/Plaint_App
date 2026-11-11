@@ -6,6 +6,9 @@ import type { RecurringPeriod } from "@/features/tasks/types/task.types";
 import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -72,36 +75,45 @@ export function CreateRecurringSettingsModal({
   if (!visible) return null;
 
   return (
-    <Pressable
-      style={[styles.centerModalOverlay, styles.absoluteCenterOverlay]}
-      onPress={onClose}
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
     >
-      <Pressable style={styles.centerModalCard} onPress={() => {}}>
-        <View style={styles.centerModalHeader}>
-          <Text style={styles.centerModalTitle}>Recurring Task Settings</Text>
-          {isRecurringEnabled && (
-            <TouchableOpacity onPress={onTurnOff} style={{ marginRight: 12 }}>
-              <Text
-                style={{
-                  fontSize: rf(13),
-                  color: "#EF4444",
-                  fontFamily: "SF_Pro_Medium",
-                }}
-              >
-                Turn Off
-              </Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity onPress={onClose} hitSlop={8}>
-            <Ionicons name="close" size={20} color="#1D1D1D" />
-          </TouchableOpacity>
-        </View>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <Pressable style={styles.centerModalOverlay} onPress={onClose}>
+          <Pressable style={styles.centerModalCard} onPress={() => {}}>
+            <View style={styles.centerModalHeader}>
+              <Text style={styles.centerModalTitle}>Recurring Task Settings</Text>
+              {isRecurringEnabled && (
+                <TouchableOpacity onPress={onTurnOff} style={{ marginRight: 12 }}>
+                  <Text
+                    style={{
+                      fontSize: rf(13),
+                      color: "#EF4444",
+                      fontFamily: "SF_Pro_Medium",
+                    }}
+                  >
+                    Turn Off
+                  </Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={onClose} hitSlop={8}>
+                <Ionicons name="close" size={20} color="#1D1D1D" />
+              </TouchableOpacity>
+            </View>
 
-        <ScrollView
-          style={{ maxHeight: 380 }}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.recurringCardBody}>
+            <ScrollView
+              style={{ maxHeight: 320 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.recurringCardBody}>
             <View style={styles.fieldRow}>
               <Ionicons
                 name="calendar-outline"
@@ -342,5 +354,7 @@ export function CreateRecurringSettingsModal({
         </TouchableOpacity>
       </Pressable>
     </Pressable>
+  </KeyboardAvoidingView>
+</Modal>
   );
 }

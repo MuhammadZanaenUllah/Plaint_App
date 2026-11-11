@@ -27,10 +27,9 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   forwardRef,
   useCallback,
-  useEffect,
   useImperativeHandle,
   useRef,
-  useState,
+  useState
 } from 'react';
 import {
   Modal,
@@ -560,8 +559,9 @@ const styles = StyleSheet.create({
   },
   linkSheet: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    // borderTopLeftRadius: 20,
+    // borderTopRightRadius: 20,
+    borderRadius: 20,
   },
   linkSheetBody: {
     paddingHorizontal: 20,

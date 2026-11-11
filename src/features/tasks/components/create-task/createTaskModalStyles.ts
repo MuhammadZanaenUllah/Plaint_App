@@ -125,9 +125,9 @@ export const createTaskModalStyles = StyleSheet.create({
   },
   recurringCardBody: {
     marginTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-    paddingTop: 14,
+    // borderTopWidth: 1,
+    // borderTopColor: "#F3F4F6",
+    paddingTop: 0,
     gap: 14,
   },
   fieldRow: {

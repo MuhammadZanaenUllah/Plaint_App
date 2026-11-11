@@ -3,9 +3,10 @@
 import type { TaskStatus } from "@/features/tasks/types/task.types";
 import { statusLabel } from "@/features/tasks/utils/taskStatus";
 import { Ionicons } from "@expo/vector-icons";
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
-import { STATUSES } from "../createTaskOptions";
+import { Text, TouchableOpacity, View } from "react-native";
+import { ScrollView } from "react-native-gesture-handler";
 import { createTaskFieldStyles as styles } from "../createTaskFieldStyles";
+import { STATUSES } from "../createTaskOptions";
 
 export function CreateStatusChip({
   active,
@@ -51,6 +52,9 @@ export function CreateStatusPanel({
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+        disallowInterruption
         contentContainerStyle={{
           gap: 8,
           paddingHorizontal: 2,

@@ -132,7 +132,6 @@ export function canEditDueDate(
 
 export function canApproveReject(task: TaskListItem, user: PermissionUser): boolean {
   if (!user) return false;
-  if (task.status !== "Pending-Approval") return false;
   return isCompanyAdmin(user) || isCreator(task, user);
 }
 

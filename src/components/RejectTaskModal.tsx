@@ -69,7 +69,7 @@ export default function RejectTaskModal({
       showError("Validation Error", "Please provide a reason for rejection.");
       return;
     }
-    if (isAts && !rejectType) {
+    if (!rejectType) {
       showError("Validation Error", "Choose a rejection type.");
       return;
     }
@@ -85,14 +85,12 @@ export default function RejectTaskModal({
         additionalHoursInMinutes = numEffort;
       }
     }
-    if (isAts) {
-      if (rejectType === "requirement_changed" && additionalHoursInMinutes <= 0) {
-        showError("Validation Error", "Please enter the effort to add.");
-        return;
-      }
-      if (rejectType === "not_completed") {
-        additionalHoursInMinutes = 0;
-      }
+    if (rejectType === "requirement_changed" && additionalHoursInMinutes <= 0) {
+      showError("Validation Error", "Please enter the effort to add.");
+      return;
+    }
+    if (rejectType === "not_completed") {
+      additionalHoursInMinutes = 0;
     }
 
     setLoading(true);
@@ -102,7 +100,7 @@ export default function RejectTaskModal({
         company_identifier: companyIdentifier,
         reason: trimmedReason,
         additional_hours: additionalHoursInMinutes,
-        ...(isAts && rejectType ? { reject_type: rejectType } : {}),
+        reject_type: rejectType,
       });
 
       if (result.ok) {
@@ -165,21 +163,18 @@ export default function RejectTaskModal({
             </TouchableOpacity>
           </View>
 
-          {/* Reason text area with border-top notch label */}
+          {/* Reason text area */}
           <View
             style={[
               styles.reasonContainer,
               reasonFocused && styles.reasonContainerFocused,
             ]}
           >
-            <View style={styles.labelNotch}>
-              <Text style={styles.labelText}>Reason for rejection</Text>
-            </View>
             <TextInput
               style={styles.reasonInput}
               value={reason}
               onChangeText={setReason}
-              placeholder=""
+              placeholder="Reason for rejection"
               placeholderTextColor="#9CA3AF"
               multiline
               textAlignVertical="top"
@@ -189,119 +184,161 @@ export default function RejectTaskModal({
             />
           </View>
 
-          {isAts && (
-            <View style={styles.rejectTypeRow}>
+          {/* Initial rejection options: Requirement Changed & Task Not Completed */}
+          {!rejectType && (
+            <View style={styles.initialActionRow}>
               <TouchableOpacity
-                style={[
-                  styles.rejectTypeBtn,
-                  rejectType === "requirement_changed" && styles.rejectTypeBtnActive,
-                ]}
+                style={styles.reqChangedBtn}
                 onPress={() => setRejectType("requirement_changed")}
+                activeOpacity={0.8}
               >
-                <Text
-                  style={[
-                    styles.rejectTypeText,
-                    rejectType === "requirement_changed" && styles.rejectTypeTextActive,
-                  ]}
-                >
+                <Text style={styles.reqChangedBtnText} numberOfLines={1} adjustsFontSizeToFit>
                   Requirement Changed
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.rejectTypeBtn,
-                  rejectType === "not_completed" && styles.rejectTypeBtnActive,
-                ]}
-                onPress={() => setRejectType("not_completed")}
+                style={[styles.taskNotCompletedBtn, loading && { opacity: 0.7 }]}
+                onPress={() => {
+                  setRejectType("not_completed");
+                  // Execute reject for "Task Not Completed"
+                  const trimmedReason = reason.trim();
+                  if (!trimmedReason) {
+                    showError("Validation Error", "Please provide a reason for rejection.");
+                    setRejectType(null);
+                    return;
+                  }
+                  setLoading(true);
+                  rejectTask(taskId, {
+                    company_id: companyId,
+                    company_identifier: companyIdentifier,
+                    reason: trimmedReason,
+                    additional_hours: 0,
+                    reject_type: "not_completed",
+                  })
+                    .then((result) => {
+                      if (result.ok) {
+                        showSuccess(
+                          "Success",
+                          result.data.status
+                            ? `Task rejected and moved to ${result.data.status}.`
+                            : "Task has been rejected.",
+                        );
+                        onSuccess?.(result.data.status);
+                        onClose();
+                      } else {
+                        showError("Rejection Failed", result.message);
+                        setRejectType(null);
+                      }
+                    })
+                    .catch((err: any) => {
+                      showError("Error", err.message || "Failed to reject task.");
+                      setRejectType(null);
+                    })
+                    .finally(() => {
+                      setLoading(false);
+                    });
+                }}
+                disabled={loading}
+                activeOpacity={0.8}
               >
-                <Text
-                  style={[
-                    styles.rejectTypeText,
-                    rejectType === "not_completed" && styles.rejectTypeTextActive,
-                  ]}
+                {loading && rejectType === "not_completed" ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Text style={styles.taskNotCompletedBtnText} numberOfLines={1} adjustsFontSizeToFit>
+                    Task Not Completed
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* When Requirement Changed is selected: show effort row + Back & Confirm Reject buttons */}
+          {rejectType === "requirement_changed" && (
+            <>
+              {/* Unified Effort Input Row */}
+              <View style={styles.unifiedEffortRow}>
+                {/* Unit selector trigger */}
+                <TouchableOpacity
+                  style={styles.unifiedUnitBtn}
+                  onPress={() => setUnitDropdownOpen((prev) => !prev)}
+                  activeOpacity={0.7}
                 >
-                  Task Not Completed
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
+                  <Ionicons name="time" size={16} color="#9CA3AF" />
+                  <Text style={styles.unifiedUnitText}>{selectedUnit}</Text>
+                  <Ionicons name="chevron-down" size={12} color="#9CA3AF" />
+                </TouchableOpacity>
 
-          {/* Effort row: Unit dropdown + New Estimated Effort */}
-          {(!isAts || rejectType === "requirement_changed") && (
-          <View style={styles.effortRow}>
-            {/* Unit Dropdown */}
-            <View style={styles.unitPickerWrap}>
-              <TouchableOpacity
-                style={styles.unitBtn}
-                onPress={() => setUnitDropdownOpen((prev) => !prev)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.unitBtnText}>{selectedUnit}</Text>
-                <Ionicons
-                  name="chevron-down"
-                  size={14}
-                  color="#1D1D1D"
-                  style={{ marginLeft: 4 }}
+                {/* Vertical Divider */}
+                <View style={styles.unifiedDivider} />
+
+                {/* Effort text input */}
+                <TextInput
+                  style={styles.unifiedEffortInput}
+                  value={effort}
+                  onChangeText={(t) => setEffort(t.replace(/[^0-9.]/g, ""))}
+                  placeholder={selectedUnit}
+                  placeholderTextColor="#9CA3AF"
+                  keyboardType="numeric"
                 />
-              </TouchableOpacity>
 
-              {unitDropdownOpen && (
-                <View style={styles.unitDropdown}>
-                  {REJECT_UNITS.map((u) => (
-                    <TouchableOpacity
-                      key={u}
-                      style={[
-                        styles.unitDropdownItem,
-                        u === selectedUnit && styles.unitDropdownItemActive,
-                      ]}
-                      onPress={() => {
-                        setSelectedUnit(u);
-                        setUnitDropdownOpen(false);
-                      }}
-                    >
-                      <Text
+                {/* Dropdown popup */}
+                {unitDropdownOpen && (
+                  <View style={styles.unitDropdown}>
+                    {REJECT_UNITS.map((u) => (
+                      <TouchableOpacity
+                        key={u}
                         style={[
-                          styles.unitDropdownText,
-                          u === selectedUnit && styles.unitDropdownTextActive,
+                          styles.unitDropdownItem,
+                          u === selectedUnit && styles.unitDropdownItemActive,
                         ]}
+                        onPress={() => {
+                          setSelectedUnit(u);
+                          setUnitDropdownOpen(false);
+                        }}
                       >
-                        {u}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-            </View>
+                        <Text
+                          style={[
+                            styles.unitDropdownText,
+                            u === selectedUnit && styles.unitDropdownTextActive,
+                          ]}
+                        >
+                          {u}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
 
-            {/* Effort Input */}
-            <View style={styles.effortInputWrap}>
-              <TextInput
-                style={styles.effortInput}
-                value={effort}
-                onChangeText={(t) => setEffort(t.replace(/[^0-9.]/g, ""))}
-                placeholder="New Estimated Effort (optional)"
-                placeholderTextColor="#9CA3AF"
-                keyboardType="numeric"
-              />
-            </View>
-          </View>
+              {/* Actions: Back + Confirm Reject */}
+              <View style={styles.confirmActionRow}>
+                <TouchableOpacity
+                  style={styles.backBtn}
+                  onPress={() => {
+                    setRejectType(null);
+                    setUnitDropdownOpen(false);
+                  }}
+                  disabled={loading}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.backBtnText}>Back</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.confirmBtn, loading && { opacity: 0.7 }]}
+                  onPress={handleConfirm}
+                  disabled={loading}
+                  activeOpacity={0.8}
+                >
+                  {loading ? (
+                    <ActivityIndicator size="small" color="#FFF" />
+                  ) : (
+                    <Text style={styles.confirmBtnText}>Confirm Reject</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </>
           )}
-
-          {/* Actions: Confirm Reject button */}
-          <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={[styles.confirmBtn, loading && { opacity: 0.7 }]}
-              onPress={handleConfirm}
-              disabled={loading}
-              activeOpacity={0.8}
-            >
-              {loading ? (
-                <ActivityIndicator size="small" color="#FFF" />
-              ) : (
-                <Text style={styles.confirmBtnText}>Confirm Reject</Text>
-              )}
-            </TouchableOpacity>
-          </View>
         </Pressable>
       </KeyboardAvoidingView>
     </Modal>
@@ -328,7 +365,7 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
-    padding: 20,
+    padding: 16,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
@@ -340,7 +377,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 18,
+    marginBottom: 16,
   },
   title: {
     fontSize: rf(18),
@@ -351,94 +388,138 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   reasonContainer: {
-    position: "relative",
     borderWidth: 1,
-    borderColor: "#1D1D1D",
-    borderRadius: 10,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
     paddingTop: 12,
     paddingHorizontal: 12,
     paddingBottom: 8,
     minHeight: 100,
     marginBottom: 16,
+    backgroundColor: "#FFFFFF",
   },
   reasonContainerFocused: {
-    borderColor: "#1D1D1D",
-  },
-  labelNotch: {
-    position: "absolute",
-    top: -10,
-    left: 12,
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 4,
-  },
-  labelText: {
-    fontSize: rf(12),
-    fontFamily: "SF_Pro_Medium",
-    color: "#1D1D1D",
+    borderColor: "#D1D5DB",
   },
   reasonInput: {
-    fontSize: rf(14),
-    fontFamily: "SF_Pro_Regular",
-    color: "#1D1D1D",
-    minHeight: 70,
-  },
-  effortRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 20,
-    zIndex: 20,
-  },
-  rejectTypeRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 16,
-  },
-  rejectTypeBtn: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-  },
-  rejectTypeBtnActive: {
-    backgroundColor: "#F87171",
-    borderColor: "#F87171",
-  },
-  rejectTypeText: {
-    fontSize: rf(13),
+    fontSize: rf(13.5),
     fontFamily: "SF_Pro_Medium",
-    color: "#374151",
+    color: "#1D1D1D",
+    minHeight: 75,
   },
-  rejectTypeTextActive: {
-    color: "#FFFFFF",
-  },
-  unitPickerWrap: {
-    position: "relative",
-    zIndex: 30,
-  },
-  unitBtn: {
+  initialActionRow: {
     flexDirection: "row",
+    gap: 8,
+    justifyContent: "flex-end",
+    alignItems: "center",
+    width: "100%",
+  },
+  reqChangedBtn: {
+    flexShrink: 1,
+    backgroundColor: "#F3F4F6",
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
+  },
+  reqChangedBtnText: {
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Medium",
+    color: "#1F2937",
+    textAlign: "center",
+  },
+  taskNotCompletedBtn: {
+    flexShrink: 1,
+    backgroundColor: "#FCA5A5",
+    paddingVertical: 10,
+    paddingHorizontal: 10,
     borderRadius: 8,
-    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  taskNotCompletedBtnText: {
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Medium",
+    color: "#FFFFFF",
+    textAlign: "center",
+  },
+  unifiedEffortRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#1D1D1D",
+    borderRadius: 10,
     height: 44,
+    paddingHorizontal: 10,
+    marginBottom: 18,
+    position: "relative",
+    zIndex: 50,
     backgroundColor: "#FFFFFF",
   },
-  unitBtnText: {
-    fontSize: rf(14),
+  unifiedUnitBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 6,
+    paddingRight: 6,
+  },
+  unifiedUnitText: {
+    fontSize: rf(13),
+    fontFamily: "SF_Pro_Medium",
+    color: "#6B7280",
+  },
+  unifiedDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: "#E5E7EB",
+    marginHorizontal: 8,
+  },
+  unifiedEffortInput: {
+    flex: 1,
+    height: "100%",
+    fontSize: rf(13),
+    fontFamily: "SF_Pro_Regular",
+    color: "#1D1D1D",
+    padding: 0,
+  },
+  confirmActionRow: {
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "flex-end",
+    alignItems: "center",
+  },
+  backBtn: {
+    backgroundColor: "#F3F4F6",
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  backBtnText: {
+    fontSize: rf(13.5),
     fontFamily: "SF_Pro_Medium",
     color: "#1D1D1D",
+  },
+  confirmBtn: {
+    backgroundColor: "#FCA5A5",
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 120,
+  },
+  confirmBtnText: {
+    fontSize: rf(13.5),
+    fontFamily: "SF_Pro_Medium",
+    color: "#FFFFFF",
   },
   unitDropdown: {
     position: "absolute",
-    top: 48,
-    left: 0,
+    top: 46,
+    left: 8,
     width: 80,
     backgroundColor: "#FFFFFF",
     borderRadius: 8,
@@ -467,37 +548,5 @@ const styles = StyleSheet.create({
   unitDropdownTextActive: {
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
-  },
-  effortInputWrap: {
-    flex: 1,
-  },
-  effortInput: {
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    height: 44,
-    fontSize: rf(13),
-    fontFamily: "SF_Pro_Regular",
-    color: "#1D1D1D",
-    backgroundColor: "#FFFFFF",
-  },
-  actionRow: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-  },
-  confirmBtn: {
-    backgroundColor: "#F87171",
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 120,
-  },
-  confirmBtnText: {
-    fontSize: rf(14),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#FFFFFF",
   },
 });

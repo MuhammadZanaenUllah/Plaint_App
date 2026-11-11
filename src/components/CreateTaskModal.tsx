@@ -1075,7 +1075,12 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     overflow: "hidden",
   },
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 24, paddingTop: 14 },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 32,
+    paddingTop: 14,
+    flexGrow: 1,
+  },
   dragHandleBar: {
     width: "100%",
     alignItems: "center",
