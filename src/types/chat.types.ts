@@ -21,7 +21,13 @@ export type RoomLastMessage = {
   text?: string;
   sender_name?: string;
   createdAt?: string;
-  attachments?: { name: string; url: string }[];
+  attachments?: {
+    name: string;
+    url: string;
+    originalName?: string | null;
+    type?: string;
+    fileType?: string;
+  }[];
 };
 
 export type Room = {
@@ -78,8 +84,22 @@ export type GetOrCreateRoomResponse = {
 
 export type MessageAttachment = {
   name: string;
+  /**
+   * Original uploaded filename. The backend returns this separately from the
+   * stored `name`; it is the most reliable place to find the real extension
+   * (e.g. website voice notes are `voice-note-<ts>.webm`).
+   */
+  originalName?: string | null;
   url: string;
+  /** MIME type when the backend/client provides it. */
   type?: string;
+  mimeType?: string;
+  mime_type?: string;
+  /**
+   * Backend category: `image`, `audio` or `file`. Used to resolve ambiguous
+   * containers such as `.webm` (audio voice note vs. real video).
+   */
+  fileType?: string;
   size?: number;
 };
 

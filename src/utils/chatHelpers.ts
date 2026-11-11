@@ -134,32 +134,99 @@ export function getMessagePostType(message?: {
 /** The marker text every voice-note message carries. */
 export const VOICE_NOTE_TEXT = "🎤 Voice message";
 
-const VOICE_NOTE_AUDIO_EXTS = [
+const AUDIO_EXTS = [
   "mp3",
   "wav",
   "m4a",
   "ogg",
   "caf",
-  "webm",
   "aac",
   "opus",
 ];
+
+const VIDEO_EXTS = ["mp4", "mov", "avi", "webm", "mkv", "m4v", "3gp"];
 
 type AttachmentLike = {
   url?: string | null;
   name?: string | null;
   originalName?: string | null;
   type?: string | null;
+  mimeType?: string | null;
+  mime_type?: string | null;
+  fileType?: string | null;
 };
 
-/** True when an attachment is a playable audio / voice-note file. */
+function attachmentMime(a: AttachmentLike): string {
+  return (a.type ?? a.mimeType ?? a.mime_type ?? "").toLowerCase().trim();
+}
+
+function attachmentFileType(a: AttachmentLike): string {
+  return (a.fileType ?? "").toLowerCase().trim();
+}
+
+function attachmentExt(a: AttachmentLike): string {
+  // Prefer the original uploaded filename: the backend's stored `name`/`url`
+  // may be extension-less or generic. Try each candidate until one has a real
+  // extension, and strip query/hash first.
+  const candidates = [a.originalName, a.url, a.name];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const cleaned = candidate.split(/[?#]/)[0];
+    const match = /\.([a-z0-9]{1,8})$/i.exec(cleaned);
+    if (match) return match[1].toLowerCase();
+  }
+  return "";
+}
+
+function isVoiceNoteFileName(a: AttachmentLike): boolean {
+  const value = `${a.originalName ?? ""} ${a.name ?? ""} ${a.url ?? ""}`;
+  // Both clients generate names like `voice-note-<seconds>s-<ts>.m4a`
+  // (mobile) and `voice-note-<ts>.webm` (website). Requiring a digit avoids
+  // treating an unrelated document such as "voice-note.pdf" as audio.
+  if (!/voice[-_ ]?note[-_ ]?\d/i.test(value)) return false;
+
+  const ext = attachmentExt(a);
+  if (!ext) return true;
+  return AUDIO_EXTS.includes(ext) || ext === "webm" || ext === "mp4";
+}
+
+/**
+ * True when an attachment is a playable audio / voice-note file.
+ *
+ * `.webm` is deliberately ambiguous: browsers use `audio/webm` for website
+ * voice notes but actual `.webm` videos also exist. Only treat `.webm` as
+ * audio when the payload says audio (`type`/`fileType`) or the original file
+ * name is a voice-note file. Otherwise it remains a video.
+ */
 export function isAudioAttachment(a?: AttachmentLike | null): boolean {
   if (!a) return false;
-  if ((a.type ?? "").toLowerCase().startsWith("audio/")) return true;
-  const candidate = `${a.url ?? ""} ${a.name ?? ""}`
-    .split(/[?#]/)[0]
-    .toLowerCase();
-  return VOICE_NOTE_AUDIO_EXTS.some((ext) => candidate.includes(`.${ext}`));
+
+  const mime = attachmentMime(a);
+  const fileType = attachmentFileType(a);
+  if (mime.startsWith("audio/") || fileType === "audio") return true;
+  if (isVoiceNoteFileName(a)) return true;
+
+  const ext = attachmentExt(a);
+  if (!ext || ext === "webm") return false;
+  return AUDIO_EXTS.includes(ext);
+}
+
+/**
+ * True when an attachment should be rendered by the video player. Audio
+ * metadata/voice-note filenames win over the ambiguous `.webm` container, so a
+ * website voice note is never also rendered as a video.
+ */
+export function isVideoAttachment(a?: AttachmentLike | null): boolean {
+  if (!a) return false;
+
+  const mime = attachmentMime(a);
+  const fileType = attachmentFileType(a);
+  if (mime.startsWith("audio/") || fileType === "audio") return false;
+  if (isAudioAttachment(a)) return false;
+  if (fileType === "video") return true;
+
+  const ext = attachmentExt(a);
+  return VIDEO_EXTS.includes(ext) || mime.startsWith("video/");
 }
 
 /**

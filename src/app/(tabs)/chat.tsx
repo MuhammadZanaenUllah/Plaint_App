@@ -37,6 +37,11 @@ import {
     openConversation,
     openRoomConversation,
 } from "@/utils/conversationNavigation";
+import {
+    getCachedVoiceNoteDuration,
+    resolveVoiceNoteDuration,
+    subscribeVoiceNoteDurations,
+} from "@/utils/voiceNoteDuration";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import {
@@ -368,6 +373,20 @@ export default function ChatScreen() {
     // Pending users selected from AddPeopleModal (to pre-fill invite modal)
     const [pendingInviteUsers, setPendingInviteUsers] = useState<Array<{ id: string; name: string; email?: string }>>([]); 
 
+    // Durations resolved from the audio file for website-originated voice notes.
+    // Mobile notes already encode their length in the filename/text.
+    const [voiceDurations, setVoiceDurations] = useState<Record<string, number>>({});
+
+    // A note may be resolved by its bubble/playback while this list is mounted;
+    // pick those durations up without waiting for the next room refresh.
+    useEffect(() => {
+        return subscribeVoiceNoteDurations((url, seconds) => {
+            setVoiceDurations((prev) =>
+                prev[url] === seconds ? prev : { ...prev, [url]: seconds },
+            );
+        });
+    }, []);
+
     // Fetch rooms on mount
     useEffect(() => {
         fetchRooms();
@@ -540,6 +559,52 @@ export default function ChatScreen() {
         // a room jumps to the top in real time when a message arrives.
         return sortRoomsByRecentActivity(filtered);
     }, [visibleRooms, activeChip, searchText, currentUserId]);
+
+    // Website voice notes are `.webm` and do not encode their duration in the
+    // filename or text. Resolve it from the audio metadata (and cache it) so
+    // the list can show "0:04" like mobile-originated notes. Only the last
+    // voice note of each visible room is probed.
+    const pendingVoiceNoteUrls = useMemo(() => {
+        const urls = new Set<string>();
+        displayRooms.forEach((room) => {
+            const audio = (room.last_message?.attachments ?? []).find((a) =>
+                isAudioAttachment(a),
+            );
+            if (!audio?.url) return;
+            const known =
+                getVoiceNoteSecondsFromAttachment(audio) ??
+                getVoiceNoteSecondsFromText(room.last_message?.text ?? "") ??
+                getCachedVoiceNoteDuration(audio.url);
+            if (known == null) urls.add(audio.url);
+        });
+        return Array.from(urls);
+    }, [displayRooms]);
+
+    useEffect(() => {
+        if (pendingVoiceNoteUrls.length === 0) return;
+        let cancelled = false;
+        (async () => {
+            for (let i = 0; i < pendingVoiceNoteUrls.length; i += 3) {
+                const batch = pendingVoiceNoteUrls.slice(i, i + 3);
+                const results = await Promise.all(
+                    batch.map((url) => resolveVoiceNoteDuration(url)),
+                );
+                if (cancelled) return;
+                const updates: Record<string, number> = {};
+                results.forEach((seconds, index) => {
+                    if (seconds != null && seconds > 0) {
+                        updates[batch[index]] = seconds;
+                    }
+                });
+                if (Object.keys(updates).length > 0) {
+                    setVoiceDurations((prev) => ({ ...prev, ...updates }));
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [pendingVoiceNoteUrls]);
 
     // PROJECT MODULE DISABLED
     // Group channels by their parent project for the Projects view
@@ -1185,7 +1250,11 @@ export default function ChatScreen() {
                                     const lastIsVoice = !!lastAudio || isVoiceNoteText(lastText);
                                     const lastVoiceSecs = lastIsVoice
                                         ? (lastAudio
-                                              ? getVoiceNoteSecondsFromAttachment(lastAudio)
+                                              ? getVoiceNoteSecondsFromAttachment(lastAudio) ??
+                                                (lastAudio.url
+                                                    ? voiceDurations[lastAudio.url]
+                                                    : null) ??
+                                                getCachedVoiceNoteDuration(lastAudio.url)
                                               : null) ??
                                           getVoiceNoteSecondsFromText(lastText)
                                         : null;

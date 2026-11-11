@@ -38,6 +38,7 @@ import {
   isAudioAttachment,
   isOwnMessage,
   isRoomUnread,
+  isVideoAttachment,
   isVoiceNoteText,
   isWithinMessageActionWindow,
   resolveFileUrl,
@@ -47,6 +48,11 @@ import {
   markConversationClosed,
   markConversationOpen,
 } from "@/utils/conversationNavigation";
+import {
+  getCachedVoiceNoteDuration,
+  rememberVoiceNoteDuration,
+  resolveVoiceNoteDuration,
+} from "@/utils/voiceNoteDuration";
 import { canDeleteDirectChat } from "@/utils/permissions";
 import {
   attachmentExtension,
@@ -295,7 +301,13 @@ function VoiceNotePlayer({
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(() => {
+    const known =
+      initialDurationSec && initialDurationSec > 0
+        ? initialDurationSec
+        : getCachedVoiceNoteDuration(audioUrl);
+    return known != null && known > 0 ? Math.round(known * 1000) : 0;
+  });
   const waveformBars = useMemo(() => getWaveformBars(audioUrl), [audioUrl]);
   // Smooth waveform progress, driven on the UI thread. Native playback-status
   // updates only arrive ~once per second, so instead of repainting the bars on
@@ -304,6 +316,25 @@ function VoiceNotePlayer({
   const progressPct = useSharedValue(0);
   const durationMs = useSharedValue(0);
   const playingRef = useRef(false);
+
+  // Website-originated notes are `.webm` and do not encode their duration in
+  // the filename or text. Resolve it from the audio metadata so the length is
+  // visible before the note is played. Mobile notes already carry it.
+  useEffect(() => {
+    if (initialDurationSec && initialDurationSec > 0) return;
+    let cancelled = false;
+    resolveVoiceNoteDuration(audioUrl).then((seconds) => {
+      if (!cancelled && seconds != null && seconds > 0) {
+        durationMs.value = seconds * 1000;
+        setDuration(seconds * 1000);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // `durationMs` is a stable shared value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioUrl, initialDurationSec]);
 
   const onFrame = useCallback(
     (frame: { timeSincePreviousFrame: number | null }) => {
@@ -447,6 +478,7 @@ function VoiceNotePlayer({
           if (typeof status.duration === "number" && status.duration > 0) {
             durationMs.value = status.duration * 1000;
             setDuration(status.duration * 1000);
+            rememberVoiceNoteDuration(audioUrl, status.duration);
           }
           if (typeof status.currentTime === "number") {
             // Re-sync the smooth progress to the authoritative position. While
@@ -902,28 +934,28 @@ const dp = StyleSheet.create({
 const ATTACH_TABS = ["Images", "Videos", "Docs", "Links"];
 
 const IMAGE_EXTS = ["jpg", "jpeg", "png", "gif", "webp", "heic"];
-const VIDEO_EXTS = ["mp4", "mov", "avi", "webm", "mkv", "m4v", "3gp"];
 
 function getAttachmentExt(a: MessageAttachment): string {
-  // Prefer `url` over `name` (the server-assigned filename in `name` is
-  // often extension-less/generic, e.g. "attachment") and strip any
-  // query/hash suffix before splitting so `foo.jpg?token=…` still resolves
-  // to `jpg` instead of `jpg?token=…`.
-  const candidate = (a.url || a.name || "").split(/[?#]/)[0];
-  return candidate.split(".").pop()?.toLowerCase() || "";
+  // Prefer the original uploaded filename: the server-assigned `name`/`url`
+  // is often extension-less/generic. Try each candidate until one has a real
+  // extension, and strip any query/hash suffix first.
+  const candidates = [a.originalName, a.url, a.name];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const cleaned = candidate.split(/[?#]/)[0];
+    const match = /\.([a-z0-9]{1,8})$/i.exec(cleaned);
+    if (match) return match[1].toLowerCase();
+  }
+  return "";
 }
 
 function isImageAttachment(a: MessageAttachment): boolean {
+  const mime = (a.type ?? a.mimeType ?? a.mime_type ?? "").toLowerCase();
+  const fileType = (a.fileType ?? "").toLowerCase();
   return (
     IMAGE_EXTS.includes(getAttachmentExt(a)) ||
-    (a.type || "").startsWith("image/")
-  );
-}
-
-function isVideoAttachment(a: MessageAttachment): boolean {
-  return (
-    VIDEO_EXTS.includes(getAttachmentExt(a)) ||
-    (a.type || "").startsWith("video/")
+    mime.startsWith("image/") ||
+    fileType === "image"
   );
 }
 
@@ -2381,39 +2413,20 @@ const MessageBubble = React.memo(function MessageBubble({
       ? getVoiceNoteSeconds({ text: message.text, attachments: null })
       : null);
 
-  const imageAtts = message.attachments?.filter((a) => {
-    const str = (a.url || a.name || "").toLowerCase();
-    return (
-      str.includes(".jpg") ||
-      str.includes(".jpeg") ||
-      str.includes(".png") ||
-      str.includes(".webp") ||
-      str.includes(".gif") ||
-      str.includes(".heic") ||
-      (a.type || "").startsWith("image/")
-    );
-  });
+  const imageAtts = message.attachments?.filter(isImageAttachment);
 
-  const videoAtts = message.attachments?.filter((a) => isVideoAttachment(a));
+  // A voice note must never also appear as a video/doc. The audio attachment
+  // is rendered by VoiceNotePlayer above, so keep it out of the other buckets.
+  const videoAtts = message.attachments?.filter(
+    (a) => isVideoAttachment(a) && a !== audioAtt,
+  );
 
-  const docAtts = message.attachments?.filter((a) => {
-    const str = (a.url || a.name || "").toLowerCase();
-    const isAudio =
-      str.includes(".m4a") ||
-      str.includes(".mp3") ||
-      str.includes(".wav") ||
-      str.includes(".caf") ||
-      str.includes("audio");
-    const isImage =
-      str.includes(".jpg") ||
-      str.includes(".jpeg") ||
-      str.includes(".png") ||
-      str.includes(".webp") ||
-      str.includes(".gif") ||
-      str.includes(".heic") ||
-      (a.type || "").startsWith("image/");
-    return !isAudio && !isImage && !isVideoAttachment(a);
-  });
+  const docAtts = message.attachments?.filter(
+    (a) =>
+      !isImageAttachment(a) &&
+      !isVideoAttachment(a) &&
+      !isAudioAttachment(a),
+  );
 
   const bubbleScale = useRef(new Animated.Value(1)).current;
 
