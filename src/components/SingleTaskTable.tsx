@@ -44,7 +44,6 @@ import {
   type AssignableOwner,
   type SingleTaskTableColumn,
 } from "@/features/tasks/components/list/taskTableLayout";
-import { ReadOnlyRow } from "@/features/tasks/components/list/TaskReadOnlyRow";
 import { SwipeTaskRow } from "@/features/tasks/components/list/TaskSwipeRow";
 import { CustomPullToRefreshBadge } from "@/features/tasks/components/list/TaskTablePrimitives";
 import { taskTableStyles as styles } from "@/features/tasks/components/list/taskTableStyles";
@@ -435,60 +434,71 @@ function SingleTaskTable({
       </View>
 
       {readOnly ? (
-        /* Read-only table (e.g. dependencies) — horizontally scrollable so
-           every configured column gets its own space and never overlaps. The
-           enclosing parent scroll view handles vertical scrolling. */
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          nestedScrollEnabled
-          contentContainerStyle={{
-            paddingBottom: 8,
-          }}
-        >
-          <View style={{ width: metrics.fullTableWidth }}>
-            <View
-              style={[
-                styles.tableHeader,
-                { paddingHorizontal: metrics.innerPadding },
-              ]}
-            >
-              <View style={{ width: 24 }} />
-              {effectiveColumns.map((key) => (
-                <Text
-                  key={key}
-                  style={[styles.colHead, { width: metrics.columnWidths[key] }]}
-                >
-                  {headingFor(key)}
-                </Text>
-              ))}
-              <View style={{ width: metrics.actionWidth }} />
-            </View>
+        /* Read-only table (e.g. dependencies) — swipeable rows reveal the
+           additional fields panel. The enclosing parent scroll view handles
+           vertical scrolling, so no inner scroll container is rendered. */
+        <>
+          <View
+            style={[
+              styles.tableHeader,
+              {
+                paddingHorizontal: metrics.innerPadding,
+                marginLeft: metrics.leftCompensation,
+              },
+            ]}
+          >
+            <View style={{ width: 24 }} />
+            {effectiveColumns.map((key) => (
+              <Text
+                key={key}
+                style={[styles.colHead, { width: metrics.columnWidths[key] }]}
+              >
+                {headingFor(key)}
+              </Text>
+            ))}
+            <View style={{ width: metrics.actionWidth }} />
+          </View>
 
-            {loading ? (
-              <View style={styles.centeredState}>
-                <ActivityIndicator size="small" color="#00DEAB" />
-              </View>
-            ) : augmentedTasks.length === 0 ? (
-              <View style={styles.centeredState}>
-                <Text style={styles.emptyText}>{emptyText}</Text>
-              </View>
-            ) : (
-              augmentedTasks.map((task, rowIndex) => (
-                <ReadOnlyRow
+          {loading ? (
+            <View style={styles.centeredState}>
+              <ActivityIndicator size="small" color="#00DEAB" />
+            </View>
+          ) : augmentedTasks.length === 0 ? (
+            <View style={styles.centeredState}>
+              <Text style={styles.emptyText}>{emptyText}</Text>
+            </View>
+          ) : (
+            augmentedTasks.map((task, rowIndex) => {
+              const taskKey = getTaskIdentityKey(task);
+              return (
+                <SwipeTaskRow
                   key={getTaskKey(task, rowIndex)}
                   item={task}
-                  columns={effectiveColumns}
-                  columnWidths={metrics.columnWidths}
-                  leadingWidth={metrics.leadingWidth}
-                  innerPadding={metrics.innerPadding}
+                  taskKey={taskKey}
+                  rowIndex={rowIndex}
+                  metrics={metrics}
+                  isOpen={openSwipeRow?.taskKey === taskKey}
+                  stage={
+                    openSwipeRow?.taskKey === taskKey
+                      ? openSwipeRow.stage
+                      : null
+                  }
+                  onOpenSwipe={openSwipe}
+                  onCloseSwipe={closeSwipe}
                   onTaskPress={onTaskPress}
+                  onCommentPress={onCommentPress}
+                  onToggleComplete={handleToggleComplete}
+                  onStatusChange={handleStatusChange}
+                  onAssigneeChange={handleAssigneeChange}
                   onRemoveTask={onRemoveTask}
+                  scrollCloseSignal={scrollCloseSignal}
+                  columns={effectiveColumns}
+                  readOnly={readOnly}
                 />
-              ))
-            )}
-          </View>
-        </ScrollView>
+              );
+            })
+          )}
+        </>
       ) : (
         <>
           {/* Custom Pull-To-Refresh Badge */}
@@ -550,6 +560,7 @@ function SingleTaskTable({
                     canAssignProject={canAssignProject}
                     onAddToProjectPress={onAddToProjectPress}
                     onSprintPress={onSprintPress}
+                    onRemoveTask={onRemoveTask}
                     scrollCloseSignal={scrollCloseSignal}
                     columns={effectiveColumns}
                     readOnly={readOnly}
@@ -704,6 +715,7 @@ function SingleTaskTable({
                         canAssignProject={canAssignProject}
                         onAddToProjectPress={onAddToProjectPress}
                         onSprintPress={onSprintPress}
+                        onRemoveTask={onRemoveTask}
                         scrollCloseSignal={scrollCloseSignal}
                         columns={effectiveColumns}
                         readOnly={readOnly}

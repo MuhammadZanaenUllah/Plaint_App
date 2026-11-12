@@ -98,10 +98,14 @@ export function getTableMetrics(
   // Governs the header bar, section header, and data columns (title/created
   // by/due date) — unchanged from the original symmetric 16px-each-side inset,
   // so none of that sizing shifts.
-  const insetTableWidth = Math.max(
-    MIN_TABLE_WIDTH,
-    Math.min(windowWidth - 32, MAX_TABLE_WIDTH),
-  );
+  const desiredTableWidth = Math.min(windowWidth - 32, MAX_TABLE_WIDTH);
+  // A contained table lives inside an already-padded parent (e.g. the task
+  // detail modal). Never let the minimum width push it past that parent's
+  // edge — otherwise the row's right-edge swipe chevron is clipped.
+  const insetTableWidth = contained
+    ? Math.min(Math.max(MIN_TABLE_WIDTH, desiredTableWidth), windowWidth)
+    : Math.max(MIN_TABLE_WIDTH, desiredTableWidth);
+  const narrowContained = contained && insetTableWidth < MIN_TABLE_WIDTH;
   // The container's actual box width — on phones (the common, unclamped
   // case) this is the full window width so the row can be edge-flush on
   // BOTH sides: the closed row's chevron reaches the true right edge, and
@@ -168,11 +172,22 @@ export function getTableMetrics(
   if (isDefaultLayout) {
     const totalWeight = columnKeys.reduce((sum, k) => sum + COL_WEIGHT[k], 0);
     const totalMin = columnKeys.reduce((sum, k) => sum + COL_MIN[k], 0);
-    const excess = Math.max(0, dataWidth - totalMin);
-    for (const k of columnKeys) {
-      columnWidths[k] = Math.round(
-        COL_MIN[k] + (COL_WEIGHT[k] / totalWeight) * excess,
-      );
+    if (narrowContained && dataWidth < totalMin) {
+      // Keep the full row (including the right-edge chevron) inside the
+      // available width by shrinking the columns proportionally.
+      for (const k of columnKeys) {
+        columnWidths[k] = Math.max(
+          1,
+          Math.round((COL_MIN[k] / totalMin) * dataWidth),
+        );
+      }
+    } else {
+      const excess = Math.max(0, dataWidth - totalMin);
+      for (const k of columnKeys) {
+        columnWidths[k] = Math.round(
+          COL_MIN[k] + (COL_WEIGHT[k] / totalWeight) * excess,
+        );
+      }
     }
   } else {
     let sum = 0;

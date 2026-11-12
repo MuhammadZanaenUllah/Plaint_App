@@ -3,7 +3,10 @@
 import DocumentPickerButton from "@/features/attachments/components/DocumentPickerButton";
 import type { SelectedFile } from "@/features/attachments/types/attachment.types";
 import type { TaskAttachment } from "@/features/tasks/types/task.types";
-import { attachmentDisplayName } from "@/features/tasks/utils/taskAttachmentPath";
+import {
+  attachmentDisplayName,
+  normalizeAttachmentName,
+} from "@/features/tasks/utils/taskAttachmentPath";
 import { taskDetailFieldStyles as styles } from "../taskDetailFieldStyles";
 import { Ionicons } from "@expo/vector-icons";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
@@ -118,7 +121,9 @@ export function TaskDetailAttachmentsSection({
                       size={13}
                       color="#00DEAB"
                     />
-                    <Text style={styles.attachTagText}>{attachment}</Text>
+                    <Text style={styles.attachTagText}>
+                      {normalizeAttachmentName(attachment)}
+                    </Text>
                   </TouchableOpacity>
                 ))}
             {hiddenCount > 0 ? (

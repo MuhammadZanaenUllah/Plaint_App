@@ -34,6 +34,7 @@ export const TaskSwipeContent = memo(function TaskSwipeContent({
   onAssigneeSelect,
   canAssignProject,
   onAddToProjectPress,
+  onRemoveTask,
   scrollCloseSignal,
 }: {
   item: TaskRowProps;
@@ -48,6 +49,7 @@ export const TaskSwipeContent = memo(function TaskSwipeContent({
   onAssigneeSelect: (owner: AssignableOwner) => void;
   canAssignProject?: boolean;
   onAddToProjectPress?: (task: TaskRowProps) => void;
+  onRemoveTask?: (task: TaskRowProps) => void;
   scrollCloseSignal?: number;
 }) {
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
@@ -80,6 +82,7 @@ export const TaskSwipeContent = memo(function TaskSwipeContent({
   const canChangeProject =
     canAssignProject === true && item._raw?.can_edit === true;
   const showProject = canChangeProject || !!item.project?.trim();
+  const showRemove = !!onRemoveTask;
 
   if (stage === "actions") {
     return (
@@ -140,7 +143,7 @@ export const TaskSwipeContent = memo(function TaskSwipeContent({
             Status
           </Text>
           <Text style={[styles.swipeHeaderText, styles.swipeCommentColumn]}>
-            Comment
+            {showRemove ? "Remove" : "Comment"}
           </Text>
           {showProject ? (
             <Text style={[styles.swipeHeaderText, styles.swipeProjectColumn]}>
@@ -230,17 +233,29 @@ export const TaskSwipeContent = memo(function TaskSwipeContent({
           )}
         </View>
 
-        <TouchableOpacity
-          style={[styles.swipeCommentCell, styles.swipeCommentColumn]}
-          onPress={() => onCommentPress?.(item)}
-          activeOpacity={0.7}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons name="chatbox-outline" size={18} color="#00DEAB" />
-          {item.comment ? (
-            <Text style={styles.swipeCommentCount}>{item.comment}</Text>
-          ) : null}
-        </TouchableOpacity>
+        {showRemove ? (
+          <TouchableOpacity
+            style={[styles.swipeCommentCell, styles.swipeCommentColumn]}
+            onPress={() => onRemoveTask?.(item)}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Remove dependency"
+          >
+            <Ionicons name="trash-outline" size={17} color="#DC2626" />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.swipeCommentCell, styles.swipeCommentColumn]}
+            onPress={() => onCommentPress?.(item)}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="chatbox-outline" size={18} color="#00DEAB" />
+            {item.comment ? (
+              <Text style={styles.swipeCommentCount}>{item.comment}</Text>
+            ) : null}
+          </TouchableOpacity>
+        )}
 
         {showProject ? (
           canChangeProject ? (

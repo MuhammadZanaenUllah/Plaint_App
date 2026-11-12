@@ -5,6 +5,7 @@ import {
   attachmentDisplayName,
   buildProjectAttachmentPath,
   buildTaskAttachmentPath,
+  normalizeAttachmentName,
 } from "../../src/features/tasks/utils/taskAttachmentPath";
 import { selectAttachmentChips } from "../../src/features/tasks/utils/attachmentDisplay";
 import { buildEffortHistoryRows } from "../../src/features/tasks/utils/effortHistory";
@@ -40,6 +41,31 @@ test("attachment display names keep original or strip the first dash prefix", ()
   assert.equal(attachmentDisplayName("Original.pdf", "123-original.pdf"), "Original.pdf");
   assert.equal(attachmentDisplayName(undefined, "1730269500000-report.pdf"), "report.pdf");
   assert.equal(attachmentDisplayName("", "plain.pdf"), "plain.pdf");
+});
+
+test("attachment display names decode Unicode filenames from the server", () => {
+  const urdu = "تقرير.pdf";
+  const mixed = "تقرير Report.pdf";
+  const mojibake = Buffer.from(urdu, "utf8").toString("latin1");
+  const mixedMojibake = Buffer.from(mixed, "utf8").toString("latin1");
+  const cp1252Mojibake =
+    "\u00D8\u00AA\u00D9\u201A\u00D8\u00B1\u00D9\u0160\u00D8\u00B1.pdf";
+  const percentEncoded = encodeURIComponent(urdu);
+
+  assert.equal(normalizeAttachmentName(mojibake), urdu);
+  assert.equal(normalizeAttachmentName(cp1252Mojibake), urdu);
+  assert.equal(normalizeAttachmentName(percentEncoded), urdu);
+  assert.equal(normalizeAttachmentName(mixedMojibake), mixed);
+  assert.equal(normalizeAttachmentName(urdu), urdu);
+  assert.equal(normalizeAttachmentName("report.pdf"), "report.pdf");
+  assert.equal(normalizeAttachmentName("café.pdf"), "café.pdf");
+  assert.equal(normalizeAttachmentName("100% done.pdf"), "100% done.pdf");
+
+  assert.equal(attachmentDisplayName(mojibake, "123-file.pdf"), urdu);
+  assert.equal(
+    attachmentDisplayName(undefined, `123-${percentEncoded}`),
+    urdu,
+  );
 });
 
 test("attachment chips show three and report the hidden count", () => {

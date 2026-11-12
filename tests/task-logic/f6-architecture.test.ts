@@ -46,6 +46,21 @@ test("contained tables use the inset width without edge compensation", () => {
   assert.equal(metrics.leftCompensation, 0);
 });
 
+test("narrow contained tables fit their container and keep the action edge", () => {
+  const metrics = getTableMetrics(296, DEFAULT_COLUMNS, true);
+  assert.ok(metrics.tableWidth <= 296);
+
+  const columnsWidth = DEFAULT_COLUMNS.reduce(
+    (sum, key) => sum + (metrics.columnWidths[key] ?? 0),
+    0,
+  );
+  // The chevron action area is 10px wide; the whole row content must stay
+  // inside the table so the right-edge indicator is not clipped.
+  const rowContentWidth =
+    metrics.innerPadding + metrics.leadingWidth + columnsWidth + 10;
+  assert.ok(rowContentWidth <= metrics.tableWidth);
+});
+
 test("task row keys fall back to stable index/title/date values", () => {
   assert.equal(getTaskKey({ id: 12 } as never, 0), 12);
   assert.equal(

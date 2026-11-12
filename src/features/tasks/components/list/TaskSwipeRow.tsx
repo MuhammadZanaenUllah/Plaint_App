@@ -57,6 +57,7 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
   canAssignProject,
   onAddToProjectPress,
   onSprintPress,
+  onRemoveTask,
   scrollCloseSignal,
   columns,
   readOnly,
@@ -80,6 +81,7 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
   canAssignProject?: boolean;
   onAddToProjectPress?: (task: TaskRowProps) => void;
   onSprintPress?: (task: TaskRowProps) => void;
+  onRemoveTask?: (task: TaskRowProps) => void;
   columns: SingleTaskTableColumn[];
   readOnly?: boolean;
 }) {
@@ -260,6 +262,7 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
             onAssigneeSelect={handleAssigneeSelect}
             canAssignProject={canAssignProject}
             onAddToProjectPress={onAddToProjectPress}
+            onRemoveTask={onRemoveTask}
             scrollCloseSignal={scrollCloseSignal}
           />
         </Animated.View>
@@ -292,7 +295,8 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
                 }
               />
             ))}
-            {!readOnly && currentStage === null && (
+            {/* Swipe affordance — also shown on read-only dependency rows. */}
+            {currentStage === null && (
               <TouchableOpacity
                 style={styles.actionPress}
                 onPress={() => onOpenSwipe(taskKey, "actions")}

@@ -72,7 +72,6 @@ export type TaskDetailDetailsTabProps = {
 
   dependencies: DependencyData[];
   hasDependencies: boolean;
-  onRemoveDependency: (dependency: DependencyData) => void;
   onAddDependency: () => void;
 
   descriptionAttachmentCount: number;
@@ -168,10 +167,8 @@ export function TaskDetailDetailsTab(props: TaskDetailDetailsTabProps) {
       />
 
       <TaskDetailDependenciesRow
-        dependencies={props.dependencies}
         hasDependencies={props.hasDependencies}
         canManageDependencies={props.canManageDependencies}
-        onRemoveDependency={props.onRemoveDependency}
         onAddDependency={props.onAddDependency}
       />
 

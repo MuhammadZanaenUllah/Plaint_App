@@ -54,6 +54,11 @@ import {
 } from "@/features/tasks/utils/taskAttachmentPath";
 import { selectAttachmentChips } from "@/features/tasks/utils/attachmentDisplay";
 import { buildEffortHistoryRows } from "@/features/tasks/utils/effortHistory";
+import { hasNewComment, newestNoteId } from "@/features/tasks/utils/taskCommentSeen";
+import {
+  loadLastSeenCommentId,
+  saveLastSeenCommentId,
+} from "@/features/tasks/utils/taskCommentSeenStorage";
 import { needsTaskLookupRefresh } from "@/features/tasks/utils/realtime";
 import { reportTaskError } from "@/features/tasks/utils/taskError";
 import {
@@ -454,7 +459,13 @@ export default function TaskDetailModal({
     typeof setTimeout
   > | null>(null);
   const [notes, setNotes] = useState<TaskNote[]>([]);
+  const [notesTaskId, setNotesTaskId] = useState<number | null>(null);
   const [notesLoading, setNotesLoading] = useState(false);
+  const [commentSeen, setCommentSeen] = useState<{
+    key: string;
+    loaded: boolean;
+    lastSeenId: number | null;
+  }>({ key: "", loaded: false, lastSeenId: null });
   const [sendingNote, setSendingNote] = useState(false);
   const [taskDetail, setTaskDetail] = useState<ViewTaskData | null>(null);
   const detailRequestRef = useRef(0);
@@ -1287,6 +1298,7 @@ export default function TaskDetailModal({
       );
       if (requestId !== notesRequestRef.current) return;
       if (Array.isArray(fetched)) {
+        setNotesTaskId(detailTaskId);
         const sanitized = fetched.map((n) => ({
           ...n,
           user_full_name:
@@ -1432,6 +1444,112 @@ export default function TaskDetailModal({
     onReloadNotes: loadNotes,
     onClose: () => sheetRef.current?.close(),
   });
+
+  // New-comment dot state. The marker is stored per user + task, so it only
+  // represents comments read on this device.
+  const detailCommentNotes = taskDetail?.task?.task_notes;
+  const loadedTaskNotes = notesTaskId === detailTaskId ? notes : null;
+  const commentNotes = detailCommentNotes?.length
+    ? detailCommentNotes
+    : loadedTaskNotes;
+  const commentSeenKey =
+    visible && currentUserId && detailTaskId
+      ? `${currentUserId}:${detailTaskId}`
+      : "";
+  const commentSeenReady =
+    commentSeenKey !== "" &&
+    commentSeen.key === commentSeenKey &&
+    commentSeen.loaded;
+  const lastSeenCommentId = commentSeenReady
+    ? commentSeen.lastSeenId
+    : null;
+
+  useEffect(() => {
+    if (!commentSeenKey || !currentUserId || !detailTaskId) return;
+    let cancelled = false;
+    loadLastSeenCommentId(currentUserId, detailTaskId)
+      .then((stored) => {
+        if (cancelled) return;
+        setCommentSeen({
+          key: commentSeenKey,
+          loaded: true,
+          lastSeenId: stored,
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCommentSeen({
+          key: commentSeenKey,
+          loaded: true,
+          lastSeenId: null,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [commentSeenKey, currentUserId, detailTaskId]);
+
+  // First ever open for this task: treat existing comments as already read.
+  // When the Comments tab is already open, the mark-seen effect below handles
+  // the marker instead.
+  useEffect(() => {
+    if (activeTab === "comments") return;
+    if (!commentSeenReady || lastSeenCommentId !== null) return;
+    if (!taskDetail?.task) return;
+    const count = taskDetail.task.notes_count ?? 0;
+    const availableNotes = commentNotes ?? [];
+    if (count > 0 && availableNotes.length === 0) return;
+    const seed = newestNoteId(availableNotes) ?? 0;
+    const timer = setTimeout(() => {
+      setCommentSeen({
+        key: commentSeenKey,
+        loaded: true,
+        lastSeenId: seed,
+      });
+      if (currentUserId && detailTaskId) {
+        void saveLastSeenCommentId(currentUserId, detailTaskId, seed);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [
+    activeTab,
+    commentSeenReady,
+    lastSeenCommentId,
+    taskDetail,
+    commentNotes,
+    commentSeenKey,
+    currentUserId,
+    detailTaskId,
+  ]);
+
+  // Reading the Comments tab marks all currently loaded comments as seen.
+  useEffect(() => {
+    if (activeTab !== "comments" || !commentSeenReady) return;
+    const availableNotes = commentNotes ?? [];
+    if (availableNotes.length === 0) return;
+    const newest = newestNoteId(availableNotes);
+    if (newest === null) return;
+    if (lastSeenCommentId !== null && newest <= lastSeenCommentId) return;
+    const timer = setTimeout(() => {
+      setCommentSeen({
+        key: commentSeenKey,
+        loaded: true,
+        lastSeenId: newest,
+      });
+      if (currentUserId && detailTaskId) {
+        void saveLastSeenCommentId(currentUserId, detailTaskId, newest);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [
+    activeTab,
+    commentSeenReady,
+    commentNotes,
+    lastSeenCommentId,
+    commentSeenKey,
+    currentUserId,
+    detailTaskId,
+  ]);
 
   const handleCommentChange = (text: string) => {
     setCommentText(text);
@@ -1722,6 +1840,10 @@ export default function TaskDetailModal({
   };
 
   const pinnedNotes = notes.filter((n) => n.pin_top === 1);
+  const showCommentDot =
+    activeTab !== "comments" &&
+    commentSeenReady &&
+    hasNewComment(commentNotes ?? [], currentUserId, lastSeenCommentId);
 
   // Use taskDetail data from ViewTask API response, fall back to props
   const apiTask = taskDetail?.task;
@@ -1928,7 +2050,7 @@ export default function TaskDetailModal({
             >
               Comments
             </Text>
-            <View style={styles.tabDot} />
+            {showCommentDot ? <View style={styles.tabDot} /> : null}
           </TouchableOpacity>
         </View>
 
@@ -1995,7 +2117,6 @@ export default function TaskDetailModal({
                     onEffortLogsPress={() => setEffortLogsModalVisible(true)}
                     dependencies={dependencies}
                     hasDependencies={depDisplay.length > 0}
-                    onRemoveDependency={handleRemoveDependency}
                     onAddDependency={() => setDependencyModalVisible(true)}
                     descriptionAttachmentCount={attachmentFiles.length}
                     description={editDescription}

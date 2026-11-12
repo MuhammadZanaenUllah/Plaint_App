@@ -27,8 +27,6 @@ export function TaskDetailDependenciesTable({
         contained
         readOnly
         canReassign={false}
-        columns={["title", "assignedTo", "status", "remove"]}
-        columnHeadings={{ remove: "" }}
         onRemoveTask={(row) => {
           const dep = dependencies.find(
             (entry) => Number(entry.task_id) === Number(row.id),
