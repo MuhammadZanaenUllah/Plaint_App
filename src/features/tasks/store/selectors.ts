@@ -156,15 +156,20 @@ export function selectTabCounts(
   } = {},
 ): Record<TaskTabId, number> {
   const filters = options.filters;
+  const hasFilters = Boolean(
+    filters &&
+      (filters.searchQuery?.trim() ||
+        filters.status ||
+        filters.priority ||
+        filters.createdBy?.length ||
+        filters.assignedTo?.length ||
+        filters.dueFrom ||
+        filters.dueTo),
+  );
   const uniqueTasks = uniqueTasksFromBuckets(state);
   const activeTasks = activeTasksFromBuckets(state);
   const createdTasks = byBucket(state, state.createdByMeIds).filter(isActiveForTabs);
   const assignedTasks = byBucket(state, state.assignedToMeIds).filter(isActiveForTabs);
-  const completedTasks = state.completedIds.length
-    ? byBucket(state, state.completedIds)
-    : Object.values(state.byId).filter((task) =>
-        isCompletedStatus(task.status),
-      );
   const pendingTasks = (
     state.pendingApprovalIds.length
       ? byBucket(state, state.pendingApprovalIds)
@@ -173,6 +178,27 @@ export function selectTabCounts(
   const recurringTasks = state.recurringIds.length
     ? byBucket(state, state.recurringIds)
     : Object.values(state.byId).filter((task) => task.is_recurring);
+
+  // With no active filters the server-provided total is authoritative. This
+  // avoids walking thousands of loaded completed rows on every page/refresh.
+  let completedCount: number;
+  if (!hasFilters) {
+    completedCount =
+      state.completeCount > 0
+        ? state.completeCount
+        : state.completedIds.length > 0
+          ? state.completedIds.length
+          : Object.values(state.byId).filter((task) =>
+              isCompletedStatus(task.status),
+            ).length;
+  } else {
+    const completedTasks = state.completedIds.length
+      ? byBucket(state, state.completedIds)
+      : Object.values(state.byId).filter((task) =>
+          isCompletedStatus(task.status),
+        );
+    completedCount = countMatching(completedTasks, filters);
+  }
 
   const counts: Record<TaskTabId, number> = {
     all: 0,
@@ -183,7 +209,7 @@ export function selectTabCounts(
     assigned: countMatching(assignedTasks, filters),
     pendingApproval: countMatching(pendingTasks, filters),
     recurring: countMatching(recurringTasks, filters),
-    completed: countMatching(completedTasks, filters),
+    completed: completedCount,
   };
 
   const activeContext = createActiveTabContext(now, options);

@@ -2,6 +2,10 @@
 // active tab/search/filter rules. The screen only renders what this returns.
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  COMPLETED_PAGE_SIZE,
+  TASK_PAGE_SIZE,
+} from "../constants/taskConstants";
 import { useShallow } from "zustand/react/shallow";
 import type { TaskRowProps } from "@/components/TaskRow";
 import {
@@ -25,8 +29,16 @@ import type { TaskEntity, TaskListItem, TaskOwner } from "../types/task.types";
 
 export type DashboardRow = TaskRowProps & { _raw: TaskListItem };
 
-const PAGE_SIZE = 20;
-const COMPLETED_PAGE_SIZE = 50;
+type DashboardRowCacheEntry = {
+  owners: TaskOwner[];
+  user: PermissionUser;
+  company: PermissionCompany;
+  row: DashboardRow;
+};
+
+// Entity objects are stable for unchanged tasks, so paging only has to map
+// the newly-arrived rows instead of re-mapping the whole loaded completed set.
+const dashboardRowCache = new WeakMap<TaskEntity, DashboardRowCacheEntry>();
 
 function toDashboardRow(
   entity: TaskEntity,
@@ -34,10 +46,19 @@ function toDashboardRow(
   user: PermissionUser,
   company: PermissionCompany,
 ): DashboardRow {
+  const cached = dashboardRowCache.get(entity);
+  if (
+    cached &&
+    cached.owners === owners &&
+    cached.user === user &&
+    cached.company === company
+  ) {
+    return cached.row;
+  }
   const raw = entity as unknown as TaskListItem;
   const mapped = mapTaskListItem(raw, owners);
   const isComplete = raw.status === "Complete" || raw.status === "Completed";
-  return {
+  const row: DashboardRow = {
     ...mapped,
     // Missing permission flags must be treated as false (contract §6).
     canEditStatus: raw.can_edit_status === true,
@@ -47,6 +68,8 @@ function toDashboardRow(
     subtaskCount: raw.subtask_count ?? 0,
     _raw: raw,
   };
+  dashboardRowCache.set(entity, { owners, user, company, row });
+  return row;
 }
 
 export function useTaskDashboard(
@@ -101,21 +124,23 @@ export function useTaskDashboard(
     return () => clearInterval(timer);
   }, []);
 
-  const rows = useMemo(() => {
+  const filteredEntities = useMemo(() => {
     const scoped = selectTasksForTab(store, filters.activeTab, now, { isAts });
     const filtered = applyTaskFilters(scoped, filters);
-    return (filters.activeTab === "completed" ? filtered : sortTasks(filtered)).map(
-      (entity) => toDashboardRow(entity, store.owners, user, company),
-    );
-  }, [store, filters, now, isAts, user, company]);
+    return filters.activeTab === "completed" ? filtered : sortTasks(filtered);
+  }, [store, filters, now, isAts]);
 
-  const allRows = useMemo(
+  const hasCriticalTask = useMemo(
     () =>
-      Object.values(store.byId).map((entity) =>
-        toDashboardRow(entity, store.owners, user, company),
-      ),
-    [store.byId, store.owners, user, company],
+      isAts
+        ? false
+        : Object.values(store.byId).some(
+            (task) => task.task_priority === "critical",
+          ),
+    [isAts, store.byId],
   );
+
+  const hasAnyTask = Object.keys(store.byId).length > 0;
 
   const countFilters = useMemo(
     () => ({
@@ -149,21 +174,28 @@ export function useTaskDashboard(
     !!filters.dueFrom ||
     !!filters.dueTo;
 
-  const pageSize = filters.activeTab === "completed" ? COMPLETED_PAGE_SIZE : PAGE_SIZE;
+  const pageSize =
+    filters.activeTab === "completed" ? COMPLETED_PAGE_SIZE : TASK_PAGE_SIZE;
   const visibleCount = filters.page * pageSize;
+  // Map only the rows the list can currently render. Mapping thousands of
+  // completed rows up front was the main JS-thread cost while paging.
   const visibleRows = useMemo(
-    () => rows.slice(0, visibleCount),
-    [rows, visibleCount],
+    () =>
+      filteredEntities
+        .slice(0, visibleCount)
+        .map((entity) => toDashboardRow(entity, store.owners, user, company)),
+    [filteredEntities, visibleCount, store.owners, user, company],
   );
 
   return {
-    rows,
-    allRows,
+    rows: visibleRows,
     visibleRows,
     counts,
     pageSize,
     visibleCount,
-    totalCount: rows.length,
+    totalCount: filteredEntities.length,
+    hasCriticalTask,
+    hasAnyTask,
     loading: store.isLoading,
     error: store.error,
     offline: isNetworkErrorMessage(store.error),

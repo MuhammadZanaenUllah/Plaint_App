@@ -23,7 +23,7 @@ import {
   resolveTaskBucket,
   withoutId,
 } from "../utils/taskBuckets";
-import { planCompletedRetention } from "../utils/completedCache";
+import { COMPLETED_PAGE_SIZE } from "../constants/taskConstants";
 
 export type TaskBucket = "assignedToMe" | "createdByMe" | "allOtherTasks";
 
@@ -90,10 +90,9 @@ export type TasksState = {
   applyCreatedTask: (task: TaskListItem | TaskEntity, currentUserId: number) => void;
   patchTask: (taskId: number, patch: Partial<TaskEntity>) => void;
   removeTask: (taskId: number) => void;
+  clearError: () => void;
   reset: () => void;
 };
-
-const MAX_COMPLETED_ROWS = 200;
 
 const initialState = {
   byId: {} as Record<number, TaskEntity>,
@@ -342,12 +341,19 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
         return;
       }
 
+      // Start both requests together. The previous sequential due-then-all
+      // waterfall doubled the time before the dashboard could render.
+      const allPromise = loadAll();
       const due = await loadDue();
       if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
       if (!due.ok) {
+        // The all-tasks request may still be in flight; consume its result so
+        // a late rejection cannot surface as an unhandled promise.
+        void allPromise.catch(() => undefined);
         set({ isLoading: false, error: due.message });
         return;
       }
+      // Paint the due-today slice immediately while the full list finishes.
       set((state) => ({
         byId: entitiesFrom(due.data, state.byId),
         ...lookupPatch(due.data, state),
@@ -372,7 +378,7 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
         lastRefresh: Date.now(),
       }));
 
-      const all = await loadAll();
+      const all = await allPromise;
       if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return;
       if (!all.ok) {
         set({ isLoading: false, error: all.message });
@@ -517,13 +523,110 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
     const key = `complete:${companyId}:${page}`;
     // One generation for the completed pager, not one per page number.
     const token = requestTracker.begin(`complete:${companyId}`);
-    set({ isLoading: true, error: null });
+    // Only show the full-table loader when there is nothing on screen yet.
+    // Loading page N+1 must never clear the rows the user is already reading.
+    const hasExistingRows = get().completedIds.length > 0 || page > 1;
+    set({ error: null, isLoading: !hasExistingRows });
+
+    const applyCompletedFallback = (
+      data: TaskListResponse,
+      fallbackStale: boolean,
+    ) => {
+      const fallbackRows = [
+        ...(data.tasks_assigned_to_me ?? []),
+        ...(data.tasksByme ?? []),
+        ...(data.all_other_tasks ?? []),
+      ].filter((row) =>
+        isCompletedStatus(normalizeApiStatus(String(row.status))),
+      );
+      const fallbackIds = idsOf(fallbackRows);
+      set((state) => {
+        const byId = entitiesFrom(data, state.byId);
+        const keep = new Set<number>([
+          ...fallbackIds,
+          ...state.assignedToMeIds,
+          ...state.createdByMeIds,
+          ...state.allOtherTaskIds,
+          ...state.recurringIds,
+          ...state.pendingApprovalIds,
+        ]);
+        for (const id of state.completedIds) {
+          if (!keep.has(id)) delete byId[id];
+        }
+        return {
+          byId,
+          completedIds: fallbackIds,
+          completedPage: 1,
+          hasMoreCompleted: false,
+          completeCount: Math.max(
+            state.completeCount,
+            data.complete_count ?? 0,
+            fallbackIds.length,
+          ),
+          isLoading: false,
+          error: null,
+          stale: fallbackStale,
+          isPartialLoad: false,
+          lastRefresh: Date.now(),
+        };
+      });
+    };
+
+    // The deployed backend currently rejects the paged completed request with
+    // a 200/Good:false "Internal server error". Fall back to the same filter
+    // without paging, then to the full task list, instead of leaving the tab
+    // permanently broken. The response is still virtualized on the client.
+    const runCompletedFallback = async (failureMessage: string) => {
+      try {
+        const filtered = await dedupe(`complete-fallback:${companyId}`, () =>
+          listWithStaleRetry((waitFresh) =>
+            getFilteredTasks(companyId, "complete", { waitFresh }),
+          ),
+        );
+        if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) {
+          return false;
+        }
+        if (filtered.ok) {
+          applyCompletedFallback(
+            filtered.data,
+            !!filtered.stale || !!filtered.data.stale,
+          );
+          return true;
+        }
+      } catch {
+        // Try the full-list fallback below.
+      }
+
+      try {
+        const allResult = await dedupe(`complete-fallback-all:${companyId}`, () =>
+          listWithStaleRetry((waitFresh) =>
+            getAllTasks(companyId, { waitFresh }),
+          ),
+        );
+        if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) {
+          return false;
+        }
+        if (allResult.ok) {
+          applyCompletedFallback(
+            allResult.data,
+            !!allResult.stale || !!allResult.data.stale,
+          );
+          return true;
+        }
+      } catch {
+        // Surface the original paged failure below.
+      }
+
+      set({ isLoading: false, error: failureMessage });
+      return false;
+    };
+
     let result: ApiResult<TaskListResponse>;
     try {
       result = await dedupe(key, () =>
         listWithStaleRetry((waitFresh) =>
           getFilteredTasks(companyId, "complete", {
-            limit: 50,
+            limit: COMPLETED_PAGE_SIZE,
             page,
             waitFresh,
           }),
@@ -531,17 +634,17 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
       );
     } catch (error) {
       if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return false;
-      set({
-        isLoading: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to load completed tasks.",
-      });
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to load completed tasks.";
+      if (page === 1) return runCompletedFallback(message);
+      set({ isLoading: false, error: message });
       return false;
     }
     if (storeEpoch !== epoch || !requestTracker.isCurrent(token)) return false;
     if (!result.ok) {
+      if (page === 1) return runCompletedFallback(result.message);
       set({ isLoading: false, error: result.message });
       return false;
     }
@@ -553,28 +656,33 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
     ]);
 
     set((state) => {
-      // Bound completed-page retention so long paging sessions do not grow
-      // `byId` without limit (AUD-018).
-      const { retainedIds, removeIds } = planCompletedRetention({
-        previousIds: state.completedIds,
-        pageIds,
-        page,
-        maxRows: MAX_COMPLETED_ROWS,
-        protectedIds: [
+      // Keep every fetched page for the session. Pruning loaded pages makes
+      // older rows vanish while the user scrolls and breaks backward
+      // scrolling; FlatList virtualization keeps the rendered window small.
+      const completedIds =
+        page === 1 ? pageIds : mergeIds(state.completedIds, pageIds);
+      const byId = entitiesFrom(result.data, state.byId);
+      if (page === 1) {
+        // A refresh replaces page 1. Drop stale completed entities that are
+        // no longer in the refreshed page and are not referenced elsewhere.
+        const keep = new Set<number>([
+          ...completedIds,
           ...state.assignedToMeIds,
           ...state.createdByMeIds,
           ...state.allOtherTaskIds,
           ...state.recurringIds,
           ...state.pendingApprovalIds,
-        ],
-      });
-      const byId = entitiesFrom(result.data, state.byId);
-      for (const id of removeIds) delete byId[id];
+        ]);
+        for (const id of state.completedIds) {
+          if (!keep.has(id)) delete byId[id];
+        }
+      }
       return {
         byId,
-        completedIds: retainedIds,
+        completedIds,
         completedPage: page,
-        hasMoreCompleted: result.data.has_more ?? pageIds.length === 50,
+        hasMoreCompleted:
+          result.data.has_more ?? pageIds.length === COMPLETED_PAGE_SIZE,
         completeCount: result.data.complete_count ?? state.completeCount,
         isLoading: false,
         error: null,
@@ -807,6 +915,8 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
       };
     });
   },
+
+  clearError: () => set({ error: null }),
 
   removeTask: (taskId) => {
     set((state) => {

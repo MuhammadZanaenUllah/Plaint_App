@@ -158,6 +158,22 @@ test("created/assigned tabs exclude Complete and Pending-Approval rows", () => {
   assert.equal(counts.completed, 2);
 });
 
+test("completed count uses the server total when filters are inactive", () => {
+  const state: TabState = {
+    byId: { 1: task({ id: 1, status: "Complete" }) },
+    assignedToMeIds: [],
+    createdByMeIds: [],
+    allOtherTaskIds: [],
+    recurringIds: [],
+    pendingApprovalIds: [],
+    completedIds: [1],
+    completeCount: 9123,
+  };
+
+  const counts = selectTabCounts(state, now);
+  assert.equal(counts.completed, 9123);
+});
+
 test("bucket helpers move tasks without leaking across buckets", () => {
   assert.equal(
     resolveTaskBucket({ created_by: 7, assignee: 7, asigned_to: 9 }, 7),

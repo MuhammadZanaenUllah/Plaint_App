@@ -4,7 +4,6 @@ import { useCallback, useMemo } from "react";
 import Icons from "@/constants/icons";
 import { STATUS_COLORS, type StatusType } from "@/components/TaskRow";
 import type { TaskTabId } from "../constants/taskTabs";
-import type { DashboardRow } from "./useTaskDashboard";
 
 const {
   AllTaskIcon: AllTasksIcon,
@@ -24,7 +23,7 @@ type Options = {
   completeCount: number;
   partial: boolean;
   isAts: boolean;
-  allRows: DashboardRow[];
+  hasCriticalTask: boolean;
   activeTab: TaskTabId;
   hasActiveFilters: boolean;
 };
@@ -34,7 +33,7 @@ export function useTaskStats({
   completeCount,
   partial,
   isAts,
-  allRows,
+  hasCriticalTask,
   activeTab,
   hasActiveFilters,
 }: Options) {
@@ -63,8 +62,8 @@ export function useTaskStats({
   );
 
   const showPriority = useMemo(
-    () => isAts || allRows.some((task) => task.taskPriority === "critical"),
-    [allRows, isAts],
+    () => isAts || hasCriticalTask,
+    [hasCriticalTask, isAts],
   );
 
   const statsList = useMemo(

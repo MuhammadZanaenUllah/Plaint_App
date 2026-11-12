@@ -26,6 +26,7 @@ import {
   TASK_PERMISSIONS,
 } from "@/features/tasks/permissions/taskPermissions";
 import { useTaskFiltersStore } from "@/features/tasks/store/taskFiltersStore";
+import { useTasksStore } from "@/features/tasks/store/tasksStore";
 import { useSearch } from "@/context/SearchContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
@@ -51,7 +52,11 @@ import {
   View,
 } from "react-native";
 
-const SCROLL_COMPACT_THRESHOLD = 8;
+// Hysteresis: collapse once the user has scrolled meaningfully, but only
+// expand again near the top. A single low threshold made the compact state
+// bounce while the header itself changed the list viewport height.
+const SCROLL_COLLAPSE_THRESHOLD = 24;
+const SCROLL_EXPAND_THRESHOLD = 4;
 
 export default function TasksScreen() {
   const { state: authState } = useAuth();
@@ -254,7 +259,7 @@ function TasksScreenContent() {
   const overdue = useTaskDelayedPopup({ companyId });
 
   useTaskDeepLink({
-    rows: dashboard.allRows,
+    rows: dashboard.visibleRows,
     companyId,
     loading: dashboard.loading,
     onOpenTask: openTask,
@@ -274,6 +279,8 @@ function TasksScreenContent() {
       if (!tab) return;
 
       useTaskFiltersStore.getState().setActiveTab(tab.id);
+      // A failed completed page must not leave its banner above another tab.
+      useTasksStore.getState().clearError();
 
       if (tab.id === "completed" && companyId && dashboard.completedPage === 0) {
         fetchCompletedPage(companyId, 1);
@@ -296,7 +303,9 @@ function TasksScreenContent() {
 
   const handleScrollOffset = useCallback(
     (offsetY: number) => {
-      const nextCompact = offsetY > SCROLL_COMPACT_THRESHOLD;
+      const nextCompact = lastCompactRef.current
+        ? offsetY > SCROLL_EXPAND_THRESHOLD
+        : offsetY > SCROLL_COLLAPSE_THRESHOLD;
       if (nextCompact === lastCompactRef.current) return;
       lastCompactRef.current = nextCompact;
       setIsHeaderCompact(nextCompact);
@@ -317,7 +326,7 @@ function TasksScreenContent() {
     completeCount: dashboard.completeCount,
     partial: dashboard.partial,
     isAts,
-    allRows: dashboard.allRows,
+    hasCriticalTask: dashboard.hasCriticalTask,
     activeTab: dashboard.filters.activeTab,
     hasActiveFilters: dashboard.hasActiveFilters,
   });
@@ -365,7 +374,7 @@ function TasksScreenContent() {
           tasks={dashboard.visibleRows}
           loading={dashboard.loading}
           error={dashboard.error}
-          hasTasks={dashboard.allRows.length > 0}
+          hasTasks={dashboard.hasAnyTask}
           stale={dashboard.partial || dashboard.stale}
           offline={dashboard.offline}
           activeFilterCount={filters.activeFilterCount}

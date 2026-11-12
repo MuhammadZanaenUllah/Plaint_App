@@ -85,6 +85,12 @@ export const RECURRING_PERIODS: RecurringPeriod[] = [
 export const TASK_REQUEST_TIMEOUT_MS = 30_000;
 export const TASK_UPLOAD_TIMEOUT_MS = 120_000;
 
+// Client-side reveal size for locally filtered lists.
+export const TASK_PAGE_SIZE = 20;
+// The live filter endpoint rejects some smaller limits with a 200/Good:false
+// "Internal server error" response. 50 is the proven working page size.
+export const COMPLETED_PAGE_SIZE = 50;
+
 export const EFFORT_UNITS = ["minutes", "hours", "days"] as const;
 export type EffortUnit = (typeof EFFORT_UNITS)[number];
 

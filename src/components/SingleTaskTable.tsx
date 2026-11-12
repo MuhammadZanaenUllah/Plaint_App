@@ -210,25 +210,29 @@ function SingleTaskTable({
     }
   }, [sectionTitle, virtualized]);
 
-  const augmentedTasks = useMemo(
-    () =>
-      tasks.map((task) => {
-        const key = getTaskIdentityKey(task);
-        const assigneeOverride = assigneeOverrides[key];
-        return {
-          ...task,
-          status: statusOverrides[key] ?? task.status,
-          ...(assigneeOverride
-            ? {
-                assignedTo: assigneeOverride.name,
-                assignedToInitials: assigneeOverride.initials,
-                assignedToAvatar: assigneeOverride.avatar,
-              }
-            : null),
-        };
-      }),
-    [statusOverrides, assigneeOverrides, tasks],
-  );
+  const augmentedTasks = useMemo(() => {
+    const hasOverrides =
+      Object.keys(statusOverrides).length > 0 ||
+      Object.keys(assigneeOverrides).length > 0;
+    // Keep the original row references when nothing was patched locally so
+    // memoized SwipeTaskRow instances are not invalidated on every page load.
+    if (!hasOverrides) return tasks;
+    return tasks.map((task) => {
+      const key = getTaskIdentityKey(task);
+      const assigneeOverride = assigneeOverrides[key];
+      return {
+        ...task,
+        status: statusOverrides[key] ?? task.status,
+        ...(assigneeOverride
+          ? {
+              assignedTo: assigneeOverride.name,
+              assignedToInitials: assigneeOverride.initials,
+              assignedToAvatar: assigneeOverride.avatar,
+            }
+          : null),
+      };
+    });
+  }, [statusOverrides, assigneeOverrides, tasks]);
 
   const handleAssigneeChange = useCallback(
     (task: TaskRowProps, owner: AssignableOwner) => {

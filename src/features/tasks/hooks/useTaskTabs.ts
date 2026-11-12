@@ -3,9 +3,10 @@
 import { useCallback, useRef, useState } from "react";
 import { useTaskFiltersStore } from "../store/taskFiltersStore";
 import type { TaskTabId } from "../constants/taskTabs";
-
-const PAGE_SIZE = 20;
-const COMPLETED_PAGE_SIZE = 50;
+import {
+  COMPLETED_PAGE_SIZE,
+  TASK_PAGE_SIZE,
+} from "../constants/taskConstants";
 
 type Options = {
   companyId: number | null;
@@ -29,7 +30,8 @@ export function useTaskTabs({
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
 
-  const pageSize = activeTab === "completed" ? COMPLETED_PAGE_SIZE : PAGE_SIZE;
+  const pageSize =
+    activeTab === "completed" ? COMPLETED_PAGE_SIZE : TASK_PAGE_SIZE;
   const visibleCount = page * pageSize;
   const hasMore =
     visibleCount < totalCount ||

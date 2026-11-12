@@ -232,10 +232,12 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       state.createdByMe,
       storeSnapshot.createdByMeIds,
     );
+    // Completed rows are paged separately in the dashboard store. Merging
+    // thousands of them into the legacy list here duplicated every completed
+    // row and mapped them again for code that only needs active tasks.
     const nextAllOtherTasks = mergeRows(state.allOtherTasks, [
       ...storeSnapshot.allOtherTaskIds,
       ...storeSnapshot.recurringIds,
-      ...storeSnapshot.completedIds,
     ]);
 
     return {

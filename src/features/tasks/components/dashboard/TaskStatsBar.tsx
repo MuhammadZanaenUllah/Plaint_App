@@ -3,9 +3,9 @@ import StatCard from "@/components/StatCard";
 import {
   ScrollView,
   StyleProp,
-  View,
   ViewStyle,
 } from "react-native";
+import Animated, { LinearTransition } from "react-native-reanimated";
 
 export type TaskStatItem = {
   id: string;
@@ -44,8 +44,9 @@ export default function TaskStatsBar({
       contentContainerStyle={contentContainerStyle}
     >
       {items.map((item) => (
-        <View
+        <Animated.View
           key={item.id}
+          layout={LinearTransition.duration(160)}
           onLayout={(event) => {
             const { x, width } = event.nativeEvent.layout;
             onCardLayout(item.id, x, width);
@@ -59,7 +60,7 @@ export default function TaskStatsBar({
             onPress={() => onPress(item.id)}
             compact={compact}
           />
-        </View>
+        </Animated.View>
       ))}
     </ScrollView>
   );
