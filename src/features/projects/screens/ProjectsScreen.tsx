@@ -28,6 +28,7 @@ import {
   FlatList,
   Keyboard,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
@@ -239,45 +240,54 @@ export default function ProjectsScreen() {
           </TouchableOpacity>
         </View>
 
-        {ownerFilterOpen && (
-          <View style={styles.ownerDropdown}>
-            <TouchableOpacity
-              style={styles.ownerOption}
-              onPress={() => {
-                setOwnerFilter([]);
-                setOwnerFilterOpen(false);
-              }}
-            >
-              <Text style={styles.ownerOptionText}>All owners</Text>
-            </TouchableOpacity>
-            {projectUsers.map((owner) => {
-              const selected = ownerFilter.includes(owner.id);
-              return (
+        {/* Dropdown overlays the status tabs via absolute positioning */}
+        <View style={styles.dropdownAnchor}>
+          {ownerFilterOpen && (
+            <View style={styles.ownerDropdown}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+              >
                 <TouchableOpacity
-                  key={owner.id}
                   style={styles.ownerOption}
                   onPress={() => {
-                    setOwnerFilter((current) =>
-                      current.includes(owner.id)
-                        ? current.filter((id) => id !== owner.id)
-                        : [...current, owner.id],
-                    );
+                    setOwnerFilter([]);
+                    setOwnerFilterOpen(false);
                   }}
                 >
-                  <View style={styles.ownerOptionRow}>
-                    <Text style={styles.ownerOptionText}>
-                      {`${owner.first_name ?? ""} ${owner.last_name ?? ""}`.trim() ||
-                        `User #${owner.id}`}
-                    </Text>
-                    {selected ? (
-                      <Ionicons name="checkmark" size={15} color="#00A876" />
-                    ) : null}
-                  </View>
+                  <Text style={styles.ownerOptionText}>All owners</Text>
                 </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
+                {projectUsers.map((owner) => {
+                  const selected = ownerFilter.includes(owner.id);
+                  return (
+                    <TouchableOpacity
+                      key={owner.id}
+                      style={styles.ownerOption}
+                      onPress={() => {
+                        setOwnerFilter((current) =>
+                          current.includes(owner.id)
+                            ? current.filter((id) => id !== owner.id)
+                            : [...current, owner.id],
+                        );
+                      }}
+                    >
+                      <View style={styles.ownerOptionRow}>
+                        <Text style={styles.ownerOptionText}>
+                          {`${owner.first_name ?? ""} ${owner.last_name ?? ""}`.trim() ||
+                            `User #${owner.id}`}
+                        </Text>
+                        {selected ? (
+                          <Ionicons name="checkmark" size={15} color="#00A876" />
+                        ) : null}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+        </View>
 
         <FlatList
           horizontal
@@ -413,13 +423,26 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Medium",
     flexShrink: 1,
   },
+  dropdownAnchor: {
+    position: "relative",
+    zIndex: 10,
+  },
   ownerDropdown: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
     borderWidth: 1,
     borderColor: "#E5E7EB",
     borderRadius: 10,
-    maxHeight: 180,
-    marginBottom: 8,
-    overflow: "hidden",
+    maxHeight: 220,
+    backgroundColor: "#FFFFFF",
+    zIndex: 10,
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   ownerOption: { paddingHorizontal: 12, paddingVertical: 10 },
   ownerOptionRow: {

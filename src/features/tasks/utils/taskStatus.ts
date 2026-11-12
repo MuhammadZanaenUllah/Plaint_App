@@ -90,7 +90,7 @@ const BASE_TRANSITIONS: Record<string, TaskStatus[]> = {
   Pending: ["In-Progress", "On-Hold", "Complete"],
   "In-Progress": ["Pending", "On-Hold", "Complete"],
   "On-Hold": ["Pending", "In-Progress", "Complete"],
-  Complete: ["Pending", "In-Progress"], // reopen is a separate endpoint/flow
+  Complete: ["Pending", "In-Progress", "On-Hold"], // reopen via API
   "Pending-Approval": ["Complete", "Pending", "In-Progress"],
   Rejected: ["Pending", "In-Progress", "Complete"],
   Recurring: [],

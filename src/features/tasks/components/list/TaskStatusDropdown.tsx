@@ -29,12 +29,27 @@ function getOptions(item: TaskRowProps): { label: string; value: StatusType }[] 
     return options;
   }
   if (item.status === "Completed") {
-    return item.canReopen === true
-      ? [
-          { label: "Reopen as Pending", value: "Pending" },
-          { label: "Reopen as In Progress", value: "In-Progress" },
-        ]
-      : [];
+    const canAnyAction =
+      item.canReopen === true ||
+      item.canEditStatus === true ||
+      item.canApproveReject === true;
+    if (!canAnyAction) return [];
+
+    const options: { label: string; value: StatusType }[] = [];
+
+    // Pending, In Progress, On-Hold, Completed – for canReopen or canEditStatus users
+    if (item.canReopen === true || item.canEditStatus === true) {
+      options.push({ label: "Pending", value: "Pending" });
+      options.push({ label: "In Progress", value: "In-Progress" });
+      options.push({ label: "On-Hold", value: "On Hold" });
+    }
+
+    // Rejected – only for users who can approve/reject
+    if (item.canApproveReject === true) {
+      options.push({ label: "Rejected", value: "Rejected" });
+    }
+
+    return options;
   }
   if (item.canEditStatus !== true) return [];
 

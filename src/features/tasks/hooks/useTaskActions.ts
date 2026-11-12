@@ -166,14 +166,29 @@ export function useTaskActions({
       }
 
       if (isCompletedStatus(currentStatus)) {
-        if (
-          currentStatus !== "Complete" ||
-          !canReopen(task, user, company)
-        ) {
+        if (currentStatus !== "Complete") {
           showInfo("Not Allowed", "Only the task creator can reopen a completed task.");
           return;
         }
-        if (requestedStatus !== "Pending" && requestedStatus !== "In-Progress") return;
+        const canReopenTask = canReopen(task, user, company);
+        const canEditSt = task.can_edit_status === true;
+
+        if (requestedStatus === "On-Hold") {
+          if (!canEditSt && !canReopenTask) {
+            showInfo("Not Allowed", "You don't have permission to change this task's status.");
+            return;
+          }
+          // Fall through to updateTaskStatusApi
+        } else if (requestedStatus === "Pending" || requestedStatus === "In-Progress") {
+          if (!canReopenTask && !canEditSt) {
+            showInfo("Not Allowed", "Only the task creator can reopen a completed task.");
+            return;
+          }
+          // Fall through to updateTaskStatusApi
+        } else {
+          // Any other status (e.g. Complete→Complete) is not a valid transition
+          return;
+        }
       } else {
         if (!canChangeStatus(task, user) || !canChangeStatusTo(task, user, company, requestedStatus)) {
           showInfo("Not Allowed", "You don't have permission to change this task's status.");

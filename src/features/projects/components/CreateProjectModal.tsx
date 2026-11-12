@@ -260,7 +260,12 @@ export default function CreateProjectModal({
               />
             </TouchableOpacity>
             {ownerPickerOpen && (
-              <View style={styles.dropdown}>
+              <ScrollView
+                style={styles.dropdown}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+              >
                 <TouchableOpacity
                   style={styles.dropdownRow}
                   onPress={() => {
@@ -282,7 +287,7 @@ export default function CreateProjectModal({
                     <Text style={styles.dropdownText}>{owner.label}</Text>
                   </TouchableOpacity>
                 ))}
-              </View>
+              </ScrollView>
             )}
 
             <Text style={styles.label}>Due Date *</Text>
@@ -417,7 +422,8 @@ const styles = StyleSheet.create({
     borderColor: "#E5E7EB",
     borderRadius: 10,
     marginTop: 5,
-    maxHeight: 180,
+    maxHeight: 200,
+    overflow: "hidden",
   },
   dropdownRow: { paddingHorizontal: 12, paddingVertical: 10 },
   dropdownText: { fontSize: rf(13), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },

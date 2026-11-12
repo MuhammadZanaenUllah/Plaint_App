@@ -7,7 +7,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -66,7 +65,7 @@ export default function CreateSprintModal({
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView
         style={styles.overlay}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior="padding"
       >
         <Pressable style={styles.backdrop} onPress={saving ? undefined : onClose} />
         <View style={[styles.sheet, { paddingBottom: insets.bottom + 14 }]}>
