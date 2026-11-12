@@ -7,7 +7,6 @@ export default StyleSheet.create({
   statsContent: {
     paddingHorizontal: 16,
     paddingBottom: 4,
-    gap: 6,
     alignItems: "center",
   },
   tableShell: {

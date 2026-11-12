@@ -626,8 +626,8 @@ function SingleTaskTable({
               // also strip their native views while still mounted.
               removeClippedSubviews={false}
               windowSize={7}
-              maxToRenderPerBatch={8}
-              initialNumToRender={12}
+              maxToRenderPerBatch={10}
+              initialNumToRender={20}
               updateCellsBatchingPeriod={50}
               refreshControl={
                 onRefresh ? (

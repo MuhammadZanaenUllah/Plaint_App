@@ -52,11 +52,9 @@ import {
   View,
 } from "react-native";
 
-// Hysteresis: collapse once the user has scrolled meaningfully, but only
-// expand again near the top. A single low threshold made the compact state
-// bounce while the header itself changed the list viewport height.
-const SCROLL_COLLAPSE_THRESHOLD = 24;
-const SCROLL_EXPAND_THRESHOLD = 4;
+// Cards expand only when the list is actually back at the top. Collapsing
+// starts as soon as the list moves away from the top.
+const SCROLL_TOP_OFFSET = 0;
 
 export default function TasksScreen() {
   const { state: authState } = useAuth();
@@ -281,6 +279,9 @@ function TasksScreenContent() {
       useTaskFiltersStore.getState().setActiveTab(tab.id);
       // A failed completed page must not leave its banner above another tab.
       useTasksStore.getState().clearError();
+      // The list scrolls back to the top on tab change; restore the full cards.
+      lastCompactRef.current = false;
+      setIsHeaderCompact(false);
 
       if (tab.id === "completed" && companyId && dashboard.completedPage === 0) {
         fetchCompletedPage(companyId, 1);
@@ -298,14 +299,20 @@ function TasksScreenContent() {
         });
       }
     },
-    [companyId, dashboard.completedPage, fetchCompletedPage, fetchRecurring],
+    [
+      companyId,
+      dashboard.completedPage,
+      fetchCompletedPage,
+      fetchRecurring,
+      setIsHeaderCompact,
+    ],
   );
 
   const handleScrollOffset = useCallback(
     (offsetY: number) => {
-      const nextCompact = lastCompactRef.current
-        ? offsetY > SCROLL_EXPAND_THRESHOLD
-        : offsetY > SCROLL_COLLAPSE_THRESHOLD;
+      // Keep compact while anywhere below the top, regardless of scroll
+      // direction. Expand only when the first task is visible again.
+      const nextCompact = offsetY > SCROLL_TOP_OFFSET;
       if (nextCompact === lastCompactRef.current) return;
       lastCompactRef.current = nextCompact;
       setIsHeaderCompact(nextCompact);

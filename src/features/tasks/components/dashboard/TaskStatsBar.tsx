@@ -43,10 +43,17 @@ export default function TaskStatsBar({
       style={scrollStyle}
       contentContainerStyle={contentContainerStyle}
     >
-      {items.map((item) => (
+      {items.map((item, index) => (
         <Animated.View
           key={item.id}
           layout={LinearTransition.duration(160)}
+          style={{
+            marginRight: index === items.length - 1 ? 0 : 6,
+            // During expansion the full-width card is already laid out while
+            // the wrapper is still growing. Clip the wrapper so the card
+            // cannot paint over the next one.
+            overflow: compact ? "visible" : "hidden",
+          }}
           onLayout={(event) => {
             const { x, width } = event.nativeEvent.layout;
             onCardLayout(item.id, x, width);
