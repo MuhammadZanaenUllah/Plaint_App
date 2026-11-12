@@ -15,6 +15,7 @@ import {
 import {
   ActivityIndicator,
   FlatList,
+  type GestureResponderEvent,
   type LayoutChangeEvent,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -61,14 +62,21 @@ type Props = {
   onStatusChange?: (task: TaskRowProps, newStatus: StatusType) => void;
   onFilterPress?: () => void;
   loading?: boolean;
+  loadError?: boolean;
+  onRetry?: () => void;
   emptyText?: string;
   activeFilterCount?: number;
   hasMore?: boolean;
   loadingMore?: boolean;
+  paginationError?: boolean;
+  onRetryLoadMore?: () => void;
   onLoadMore?: () => void;
   onRefresh?: () => void;
   refreshing?: boolean;
   onScrollOffsetChange?: (offsetY: number) => void;
+  /** Downward drag distance while the list is already at the top. */
+  onTopPullChange?: (pullDistance: number) => void;
+  onTopPullEnd?: () => void;
   // Inline reassignment from the swiped-open row.
   canReassign?: boolean;
   assignableOwners?: AssignableOwner[];
@@ -114,14 +122,20 @@ function SingleTaskTable({
   onStatusChange,
   onFilterPress,
   loading = false,
+  loadError = false,
+  onRetry,
   emptyText = "No tasks found.",
   activeFilterCount = 0,
   hasMore = false,
   loadingMore = false,
+  paginationError = false,
+  onRetryLoadMore,
   onLoadMore,
   onRefresh,
   refreshing = false,
   onScrollOffsetChange,
+  onTopPullChange,
+  onTopPullEnd,
   canReassign = false,
   assignableOwners = [],
   onAssigneeChange,
@@ -306,6 +320,39 @@ function SingleTaskTable({
   const shouldEnableRowScroll = rowContentHeight > rowViewportHeight + 1;
 
   const pullDistance = useSharedValue(0);
+  const scrollOffsetRef = useRef(0);
+  const topTouchStartYRef = useRef(0);
+  const topTouchActiveRef = useRef(false);
+  const topTouchPulledRef = useRef(false);
+
+  const handleTopTouchStart = useCallback(
+    (event: GestureResponderEvent) => {
+      if (!onTopPullChange || scrollOffsetRef.current > 0) return;
+      topTouchStartYRef.current = event.nativeEvent.pageY;
+      topTouchActiveRef.current = true;
+      topTouchPulledRef.current = false;
+    },
+    [onTopPullChange],
+  );
+
+  const handleTopTouchMove = useCallback(
+    (event: GestureResponderEvent) => {
+      if (!topTouchActiveRef.current) return;
+      const pull = event.nativeEvent.pageY - topTouchStartYRef.current;
+      if (pull > 0) topTouchPulledRef.current = true;
+      if (topTouchPulledRef.current) {
+        onTopPullChange?.(Math.max(0, pull));
+      }
+    },
+    [onTopPullChange],
+  );
+
+  const handleTopTouchEnd = useCallback(() => {
+    if (!topTouchActiveRef.current) return;
+    topTouchActiveRef.current = false;
+    if (topTouchPulledRef.current) onTopPullEnd?.();
+    topTouchPulledRef.current = false;
+  }, [onTopPullEnd]);
 
   // Infinite scroll — fire onLoadMore when the user scrolls near the bottom.
   // Also reports the raw scroll offset so the screen can collapse its header.
@@ -313,6 +360,7 @@ function SingleTaskTable({
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { layoutMeasurement, contentOffset, contentSize } =
         event.nativeEvent;
+      scrollOffsetRef.current = contentOffset.y;
       onScrollOffsetChange?.(contentOffset.y);
 
       if (contentOffset.y < 0) {
@@ -347,6 +395,7 @@ function SingleTaskTable({
       hasMore &&
       !loadingMore &&
       !loading &&
+      !paginationError &&
       rowViewportHeight > 0 &&
       rowContentHeight > 0 &&
       rowContentHeight <= rowViewportHeight
@@ -354,7 +403,14 @@ function SingleTaskTable({
       onLoadMore?.();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowContentHeight, rowViewportHeight, hasMore, loading, loadingMore]);
+  }, [
+    rowContentHeight,
+    rowViewportHeight,
+    hasMore,
+    loading,
+    loadingMore,
+    paginationError,
+  ]);
 
   const [lastUpdatedTime, setLastUpdatedTime] = useState<Date>(new Date());
   const syncRotation = useSharedValue(0);
@@ -535,7 +591,7 @@ function SingleTaskTable({
           {virtualized ? (
             <FlatList<TaskRowProps>
               ref={rowsListRef}
-              data={loading ? [] : augmentedTasks}
+              data={augmentedTasks}
               extraData={openSwipeRow}
               keyExtractor={(item, index) => String(getTaskKey(item, index))}
               renderItem={({ item, index }) => {
@@ -571,25 +627,41 @@ function SingleTaskTable({
                   />
                 );
               }}
-              ListHeaderComponent={
-                loading ? (
+              ListEmptyComponent={
+                loading || refreshing ? (
                   <View style={styles.centeredState}>
                     <ActivityIndicator size="small" color="#00DEAB" />
                   </View>
-                ) : null
-              }
-              ListEmptyComponent={
-                !loading ? (
+                ) : loadError ? (
+                  <View style={styles.centeredState}>
+                    <Text style={styles.errorText}>
+                      Unable to load tasks. Please check your internet
+                      connection and try again.
+                    </Text>
+                    {onRetry ? (
+                      <Pressable style={styles.retryButton} onPress={onRetry}>
+                        <Text style={styles.retryText}>Retry</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : (
                   <View style={styles.centeredState}>
                     <Text style={styles.emptyText}>{emptyText}</Text>
                   </View>
-                ) : null
+                )
               }
               ListFooterComponent={
-                !loading && augmentedTasks.length > 0 ? (
+                augmentedTasks.length > 0 ? (
                   <View style={styles.footerState}>
                     {loadingMore ? (
                       <ActivityIndicator size="small" color="#00DEAB" />
+                    ) : paginationError ? (
+                      <Pressable
+                        style={styles.retryButton}
+                        onPress={onRetryLoadMore}
+                      >
+                        <Text style={styles.retryText}>Retry loading more</Text>
+                      </Pressable>
                     ) : null}
                   </View>
                 ) : null
@@ -609,6 +681,10 @@ function SingleTaskTable({
               }
               onScroll={handleScroll}
               onScrollBeginDrag={() => setScrollCloseSignal((n) => n + 1)}
+              onTouchStart={handleTopTouchStart}
+              onTouchMove={handleTopTouchMove}
+              onTouchEnd={handleTopTouchEnd}
+              onTouchCancel={handleTopTouchEnd}
               scrollEventThrottle={16}
               nestedScrollEnabled
               // FlatList's own end-reached detection (rather than the manual
@@ -618,17 +694,19 @@ function SingleTaskTable({
               // virtualized) drives pagination here.
               onEndReachedThreshold={0.4}
               onEndReached={() => {
-                if (hasMore && !loadingMore && !loading) onLoadMore?.();
+                if (hasMore && !loadingMore && !loading && !paginationError) {
+                  onLoadMore?.();
+                }
               }}
               // Off-screen rows carry absolutely-positioned overlays (status/
               // assignee dropdowns, the wide "details" swipe panel) that must
               // not be clipped by the recycler — only unmount them, don't
               // also strip their native views while still mounted.
               removeClippedSubviews={false}
-              windowSize={7}
-              maxToRenderPerBatch={10}
+              windowSize={11}
+              maxToRenderPerBatch={20}
               initialNumToRender={20}
-              updateCellsBatchingPeriod={50}
+              updateCellsBatchingPeriod={16}
               refreshControl={
                 onRefresh ? (
                   <RefreshControl
@@ -662,6 +740,10 @@ function SingleTaskTable({
               }
               onScroll={handleScroll}
               onScrollBeginDrag={() => setScrollCloseSignal((n) => n + 1)}
+              onTouchStart={handleTopTouchStart}
+              onTouchMove={handleTopTouchMove}
+              onTouchEnd={handleTopTouchEnd}
+              onTouchCancel={handleTopTouchEnd}
               scrollEventThrottle={16}
               nestedScrollEnabled
               refreshControl={

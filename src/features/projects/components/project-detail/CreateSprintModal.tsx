@@ -2,6 +2,7 @@ import CalendarPicker from "@/components/CalendarPicker";
 import { toCalendarDateOnly } from "@/features/tasks/utils/taskDate";
 import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -73,9 +74,7 @@ export default function CreateSprintModal({
             <Text style={styles.title}>
               {mode === "create" ? "Create Sprint" : "Change Sprint Date"}
             </Text>
-            <TouchableOpacity onPress={onClose} disabled={saving} hitSlop={8}>
-              <Ionicons name="close" size={22} color="#1D1D1D" />
-            </TouchableOpacity>
+            <ModalCloseButton onPress={onClose} disabled={saving} />
           </View>
 
           <ScrollView keyboardShouldPersistTaps="handled">

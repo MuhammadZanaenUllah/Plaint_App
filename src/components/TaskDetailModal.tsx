@@ -85,7 +85,7 @@ import { openChatDocument } from "@/utils/openChatDocument";
 import { rf } from "@/utils/responsive";
 import { apiStatusToUi } from "@/utils/statusMapper";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
-import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -2014,12 +2014,10 @@ export default function TaskDetailModal({
     >
       <View style={styles.sheetContainer}>
         <View style={styles.dragHandleBar}>
-          <TouchableOpacity
-            style={styles.closeBtn}
+          <ModalCloseButton
             onPress={() => sheetRef.current?.close()}
-          >
-            <Ionicons name="close" size={16} color="#fff" />
-          </TouchableOpacity>
+            style={styles.closeBtn}
+          />
         </View>
 
         <View style={styles.tabs}>
@@ -2287,9 +2285,7 @@ export default function TaskDetailModal({
             <View style={styles.popoverCard}>
               <View style={styles.popoverHeader}>
                 <Text style={styles.popoverTitle}>Edit Comment</Text>
-                <TouchableOpacity onPress={() => setEditingNote(null)} hitSlop={8}>
-                  <Ionicons name="close" size={20} color="#1D1D1D" />
-                </TouchableOpacity>
+                <ModalCloseButton onPress={() => setEditingNote(null)} />
               </View>
               <TextInput
                 style={styles.editCommentInput}
@@ -2429,12 +2425,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 16,
     top: 2,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#1D1D1D",
-    justifyContent: "center",
-    alignItems: "center",
   },
   tabs: {
     flexDirection: "row",

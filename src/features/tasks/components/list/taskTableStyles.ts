@@ -522,6 +522,26 @@ export const taskTableStyles = StyleSheet.create({
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
   },
+  errorText: {
+    paddingHorizontal: 24,
+    fontSize: rf(13),
+    color: "#6B7280",
+    fontFamily: "SF_Pro_Regular",
+    textAlign: "center",
+    lineHeight: rf(19),
+  },
+  retryButton: {
+    marginTop: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: "#00DEAB",
+  },
+  retryText: {
+    fontSize: rf(12),
+    color: "#FFFFFF",
+    fontFamily: "SF_Pro_Medium",
+  },
   footerState: {
     paddingVertical: 24,
     alignItems: "center",

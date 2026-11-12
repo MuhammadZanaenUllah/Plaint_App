@@ -1,6 +1,7 @@
 import type { MappedTaskRow } from "@/utils/statusMapper";
 import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -110,13 +111,7 @@ export default function DependencyModal({
             {/* Header */}
             <View style={styles.header}>
               <Text style={styles.title}>Select Dependencies</Text>
-              <TouchableOpacity
-                onPress={handleClose}
-                hitSlop={8}
-                style={styles.closeBtn}
-              >
-                <Ionicons name="close" size={18} color="#1D1D1D" />
-              </TouchableOpacity>
+              <ModalCloseButton onPress={handleClose} />
             </View>
 
             {/* Search */}
@@ -281,14 +276,6 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
     flex: 1,
-  },
-  closeBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: "#F3F4F6",
-    justifyContent: "center",
-    alignItems: "center",
   },
   searchWrap: {
     flexDirection: "row",

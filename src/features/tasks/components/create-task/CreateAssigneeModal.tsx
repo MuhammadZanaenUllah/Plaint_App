@@ -3,6 +3,7 @@
 
 import type { TaskOwner } from "@/types/task.types";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import {
   Pressable,
   ScrollView,
@@ -50,9 +51,7 @@ export function CreateAssigneeModal({
       <Pressable style={styles.centerModalCard} onPress={() => {}}>
         <View style={styles.centerModalHeader}>
           <Text style={styles.centerModalTitle}>Assign Task</Text>
-          <TouchableOpacity onPress={onClose} hitSlop={8}>
-            <Ionicons name="close" size={20} color="#1D1D1D" />
-          </TouchableOpacity>
+          <ModalCloseButton onPress={onClose} />
         </View>
 
         <View

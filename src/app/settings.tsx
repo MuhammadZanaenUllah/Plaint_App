@@ -16,6 +16,7 @@ import { removeBiometricSession, saveBiometricSession } from "@/utils/token";
 import Avatar from "@/components/Avatar";
 import { getUserAvatarUrl } from "@/utils/userHelpers";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
 import * as FileSystem from "expo-file-system/legacy";
@@ -730,9 +731,7 @@ export default function SettingsScreen() {
           >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Change Password</Text>
-              <TouchableOpacity onPress={() => setPasswordModalVisible(false)}>
-                <Ionicons name="close" size={22} color="#6B7280" />
-              </TouchableOpacity>
+              <ModalCloseButton onPress={() => setPasswordModalVisible(false)} />
             </View>
 
             <Text style={styles.modalLabel}>Current Password</Text>

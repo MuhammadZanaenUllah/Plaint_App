@@ -46,15 +46,20 @@ import {
 import {
   Dimensions,
   Keyboard,
+  Platform,
   Pressable,
   ScrollView,
   Text,
   View,
 } from "react-native";
+import { useSharedValue, withTiming } from "react-native-reanimated";
 
-// Cards expand only when the list is actually back at the top. Collapsing
-// starts as soon as the list moves away from the top.
-const SCROLL_TOP_OFFSET = 0;
+// Progress is tied directly to the scroll offset:
+// - scrolling down collapses over the first 36px
+// - scrolling back up stays compact until the actual top
+// - pulling past the top expands over 72px of overscroll
+const CARD_COLLAPSE_DISTANCE = 36;
+const CARD_EXPAND_DISTANCE = 72;
 
 export default function TasksScreen() {
   const { state: authState } = useAuth();
@@ -118,6 +123,13 @@ function TasksScreenContent() {
 
   const { searchText, isHeaderCompact, setIsHeaderCompact } = useSearch();
   const lastCompactRef = useRef(isHeaderCompact);
+  const statsCollapse = useSharedValue(0);
+  // True while the full cards are latched at the top after an intentional
+  // top overscroll. Starts true so the first render shows full cards.
+  const topExpandedRef = useRef(true);
+  const collapsedRef = useRef(false);
+  const topPullActiveRef = useRef(false);
+  const topPullTouchRef = useRef(0);
   const filters = useTaskFilterController(searchText);
   const dashboard = useTaskDashboard(isAts, authState.user, authState.company);
 
@@ -280,6 +292,11 @@ function TasksScreenContent() {
       // A failed completed page must not leave its banner above another tab.
       useTasksStore.getState().clearError();
       // The list scrolls back to the top on tab change; restore the full cards.
+      topExpandedRef.current = true;
+      collapsedRef.current = false;
+      topPullActiveRef.current = false;
+      topPullTouchRef.current = 0;
+      statsCollapse.set(0);
       lastCompactRef.current = false;
       setIsHeaderCompact(false);
 
@@ -305,20 +322,89 @@ function TasksScreenContent() {
       fetchCompletedPage,
       fetchRecurring,
       setIsHeaderCompact,
+      statsCollapse,
     ],
   );
 
-  const handleScrollOffset = useCallback(
-    (offsetY: number) => {
-      // Keep compact while anywhere below the top, regardless of scroll
-      // direction. Expand only when the first task is visible again.
-      const nextCompact = offsetY > SCROLL_TOP_OFFSET;
+  const syncHeaderCompact = useCallback(
+    (progress: number) => {
+      const nextCompact = progress > 0.5;
       if (nextCompact === lastCompactRef.current) return;
       lastCompactRef.current = nextCompact;
       setIsHeaderCompact(nextCompact);
     },
     [setIsHeaderCompact],
   );
+
+  const handleScrollOffset = useCallback(
+    (offsetY: number) => {
+      // Android has no negative contentOffset during overscroll; its top-pull
+      // path is driven by the touch fallback below.
+      if (Platform.OS === "android" && topPullActiveRef.current) return;
+
+      if (offsetY > CARD_COLLAPSE_DISTANCE) {
+        topExpandedRef.current = false;
+        collapsedRef.current = true;
+      }
+      if (offsetY <= -CARD_EXPAND_DISTANCE) {
+        topExpandedRef.current = true;
+        collapsedRef.current = false;
+      }
+
+      let progress: number;
+      if (offsetY > 0) {
+        // Once collapsed, upward scrolling inside the list must not
+        // progressively expand the cards again.
+        progress = collapsedRef.current
+          ? 1
+          : Math.min(1, offsetY / CARD_COLLAPSE_DISTANCE);
+        if (progress >= 1) collapsedRef.current = true;
+      } else if (topExpandedRef.current) {
+        progress = 0;
+      } else {
+        progress = 1 - Math.min(1, -offsetY / CARD_EXPAND_DISTANCE);
+        if (progress <= 0) {
+          topExpandedRef.current = true;
+          collapsedRef.current = false;
+        }
+      }
+
+      statsCollapse.set(progress);
+      syncHeaderCompact(progress);
+    },
+    [statsCollapse, syncHeaderCompact],
+  );
+
+  // Android fallback: track a downward drag while the list is already at the
+  // top so cards still respond to an actual top overscroll gesture.
+  const handleTopPullChange = useCallback(
+    (pullDistance: number) => {
+      if (Platform.OS !== "android") return;
+      topPullActiveRef.current = true;
+      topPullTouchRef.current = pullDistance;
+      if (pullDistance >= CARD_EXPAND_DISTANCE) {
+        topExpandedRef.current = true;
+        collapsedRef.current = false;
+      }
+      const progress = 1 - Math.min(1, pullDistance / CARD_EXPAND_DISTANCE);
+      statsCollapse.set(progress);
+      syncHeaderCompact(progress);
+    },
+    [statsCollapse, syncHeaderCompact],
+  );
+
+  const handleTopPullEnd = useCallback(() => {
+    if (Platform.OS !== "android") return;
+    topPullActiveRef.current = false;
+    if (topPullTouchRef.current >= CARD_EXPAND_DISTANCE) {
+      topExpandedRef.current = true;
+      collapsedRef.current = false;
+    }
+    const progress = topExpandedRef.current ? 0 : 1;
+    statsCollapse.set(withTiming(progress, { duration: 160 }));
+    syncHeaderCompact(progress);
+    topPullTouchRef.current = 0;
+  }, [statsCollapse, syncHeaderCompact]);
 
   const {
     statsList,
@@ -366,7 +452,7 @@ function TasksScreenContent() {
         <TaskStatsBar
           items={statsList}
           selectedTab={dashboard.filters.activeTab}
-          compact={isHeaderCompact}
+          collapseProgress={statsCollapse}
           scrollRef={statsScrollRef}
           scrollStyle={styles.statsScroll}
           contentContainerStyle={styles.statsContent}
@@ -382,11 +468,10 @@ function TasksScreenContent() {
           loading={dashboard.loading}
           error={dashboard.error}
           hasTasks={dashboard.hasAnyTask}
-          stale={dashboard.partial || dashboard.stale}
-          offline={dashboard.offline}
           activeFilterCount={filters.activeFilterCount}
           hasMore={tabs.hasMore}
           loadingMore={tabs.loadingMore}
+          paginationError={tabs.paginationError}
           refreshing={refreshing}
           containerStyle={styles.tableShell}
           assignableOwners={taskState.taskOwners}
@@ -394,12 +479,15 @@ function TasksScreenContent() {
           onRetry={handleRefresh}
           onRefresh={handleRefresh}
           onLoadMore={tabs.loadMore}
+          onRetryLoadMore={tabs.loadMore}
           onFilterPress={filters.open}
           onTaskPress={openTask}
           onCommentPress={openComments}
           onStatusChange={actions.handleStatusChange}
           onAssigneeChange={actions.handleAssigneeChange}
           onScrollOffsetChange={handleScrollOffset}
+          onTopPullChange={handleTopPullChange}
+          onTopPullEnd={handleTopPullEnd}
           canAssignProject={canAssignProject}
           onAddToProjectPress={assignment.openForTask}
         />

@@ -1,6 +1,7 @@
 // Approval-required picker overlay for the task-detail sheet (AUD-081 phase 4).
 
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import {
   Pressable,
   Text,
@@ -29,9 +30,7 @@ export function TaskDetailApprovalPicker({
       <Pressable style={styles.popoverCard} onPress={(e) => e.stopPropagation()}>
         <View style={styles.popoverHeader}>
           <Text style={styles.popoverTitle}>Approval Required</Text>
-          <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close" size={20} color="#1D1D1D" />
-          </TouchableOpacity>
+          <ModalCloseButton onPress={onClose} />
         </View>
         {[
           { label: "Yes", value: true },

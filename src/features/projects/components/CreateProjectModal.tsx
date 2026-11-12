@@ -18,6 +18,7 @@ import { useTasks } from "@/hooks/useTasks";
 import { rf } from "@/utils/responsive";
 import { showError, showSuccess } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -199,9 +200,7 @@ export default function CreateProjectModal({
         <View style={[styles.sheet, { paddingBottom: insets.bottom + 14 }]}>
           <View style={styles.header}>
             <Text style={styles.title}>Create Project</Text>
-            <TouchableOpacity onPress={onClose} disabled={saving} hitSlop={8}>
-              <Ionicons name="close" size={22} color="#1D1D1D" />
-            </TouchableOpacity>
+            <ModalCloseButton onPress={onClose} disabled={saving} />
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false}>

@@ -1,13 +1,11 @@
 import { rf } from "@/utils/responsive";
-import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import React from "react";
 import {
     Modal,
     Pressable,
-    ScrollView,
     StyleSheet,
     Text,
-    TouchableOpacity,
     View,
 } from "react-native";
 
@@ -93,14 +91,7 @@ export default function LeaveDetailModal({
                     {/* Header */}
                     <View style={styles.header}>
                         <Text style={styles.title}>Leave Details</Text>
-                        <TouchableOpacity
-                            style={styles.closeBtn}
-                            onPress={onClose}
-                            activeOpacity={0.7}
-                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        >
-                            <Ionicons name="close" size={24} color="#1D1D1D" />
-                        </TouchableOpacity>
+                        <ModalCloseButton onPress={onClose} hitSlop={10} />
                     </View>
 
                     {/* Table-like Rows */}
@@ -188,12 +179,6 @@ const styles = StyleSheet.create({
         fontSize: rf(18),
         fontFamily: "SF_Pro_Semibold",
         color: "#1D1D1D",
-    },
-    closeBtn: {
-        width: 32,
-        height: 32,
-        alignItems: "center",
-        justifyContent: "center",
     },
     row: {
         flexDirection: "row",

@@ -1,5 +1,6 @@
 import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
@@ -403,14 +404,10 @@ export default function AddPeopleModal({
               <View style={modalStyles.dragHandlePill} />
             </View>
             <View style={modalStyles.handleWrap}>
-              <TouchableOpacity
-                style={modalStyles.closeBtn}
+              <ModalCloseButton
                 onPress={handleClose}
-                activeOpacity={0.8}
-                hitSlop={8}
-              >
-                <Ionicons name="close" size={12} color="#fff" />
-              </TouchableOpacity>
+                style={modalStyles.closeBtn}
+              />
 
               <Text style={modalStyles.title}>Add People</Text>
             </View>
@@ -554,18 +551,7 @@ const modalStyles = StyleSheet.create({
     position: "absolute",
     top: 14,
     right: 16,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#1D1D1D",
-    justifyContent: "center",
-    alignItems: "center",
     zIndex: 10,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 5,
   },
   title: {
     fontSize: rf(16),

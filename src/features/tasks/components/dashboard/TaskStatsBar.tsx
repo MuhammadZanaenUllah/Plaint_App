@@ -1,11 +1,7 @@
 import React from "react";
 import StatCard from "@/components/StatCard";
-import {
-  ScrollView,
-  StyleProp,
-  ViewStyle,
-} from "react-native";
-import Animated, { LinearTransition } from "react-native-reanimated";
+import { ScrollView, StyleProp, View, ViewStyle } from "react-native";
+import type { SharedValue } from "react-native-reanimated";
 
 export type TaskStatItem = {
   id: string;
@@ -17,7 +13,7 @@ export type TaskStatItem = {
 type Props = {
   items: TaskStatItem[];
   selectedTab: string;
-  compact: boolean;
+  collapseProgress: SharedValue<number>;
   scrollRef: React.Ref<ScrollView>;
   scrollStyle?: StyleProp<ViewStyle>;
   contentContainerStyle?: StyleProp<ViewStyle>;
@@ -28,7 +24,7 @@ type Props = {
 export default function TaskStatsBar({
   items,
   selectedTab,
-  compact,
+  collapseProgress,
   scrollRef,
   scrollStyle,
   contentContainerStyle,
@@ -44,16 +40,9 @@ export default function TaskStatsBar({
       contentContainerStyle={contentContainerStyle}
     >
       {items.map((item, index) => (
-        <Animated.View
+        <View
           key={item.id}
-          layout={LinearTransition.duration(160)}
-          style={{
-            marginRight: index === items.length - 1 ? 0 : 6,
-            // During expansion the full-width card is already laid out while
-            // the wrapper is still growing. Clip the wrapper so the card
-            // cannot paint over the next one.
-            overflow: compact ? "visible" : "hidden",
-          }}
+          style={{ marginRight: index === items.length - 1 ? 0 : 6 }}
           onLayout={(event) => {
             const { x, width } = event.nativeEvent.layout;
             onCardLayout(item.id, x, width);
@@ -65,9 +54,9 @@ export default function TaskStatsBar({
             iconName={item.iconName}
             active={selectedTab === item.id}
             onPress={() => onPress(item.id)}
-            compact={compact}
+            collapseProgress={collapseProgress}
           />
-        </Animated.View>
+        </View>
       ))}
     </ScrollView>
   );

@@ -2,6 +2,7 @@ import { rejectTask } from "@/features/tasks/api/taskApi";
 import { rf } from "@/utils/responsive";
 import { showError, showSuccess } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState } from "react";
 import {
@@ -153,14 +154,7 @@ export default function RejectTaskModal({
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>Reject Task</Text>
-            <TouchableOpacity
-              style={styles.closeBtn}
-              onPress={onClose}
-              disabled={loading}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons name="close" size={20} color="#9CA3AF" />
-            </TouchableOpacity>
+            <ModalCloseButton onPress={onClose} disabled={loading} />
           </View>
 
           {/* Reason text area */}
@@ -383,9 +377,6 @@ const styles = StyleSheet.create({
     fontSize: rf(18),
     fontFamily: "SF_Pro_Bold",
     color: "#1D1D1D",
-  },
-  closeBtn: {
-    padding: 4,
   },
   reasonContainer: {
     borderWidth: 1,

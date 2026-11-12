@@ -2,7 +2,7 @@ import { updateTaskStatus } from "@/features/tasks/api/taskApi";
 import { toMinutes, type EffortUnit } from "@/features/tasks/utils/taskEffort";
 import { rf } from "@/utils/responsive";
 import { showError, showSuccess } from "@/utils/toast";
-import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -81,9 +81,7 @@ export default function ResumeTaskModal({
         <View style={styles.card}>
           <View style={styles.header}>
             <Text style={styles.title}>Resume Task</Text>
-            <TouchableOpacity onPress={onClose} disabled={loading} hitSlop={8}>
-              <Ionicons name="close" size={20} color="#9CA3AF" />
-            </TouchableOpacity>
+            <ModalCloseButton onPress={onClose} disabled={loading} />
           </View>
           <Text style={styles.subtitle}>
             This task was pending approval. Optionally update the estimated effort

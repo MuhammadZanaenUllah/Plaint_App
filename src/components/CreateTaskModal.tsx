@@ -56,7 +56,7 @@ import { extractErrorMessage } from "@/utils/errorHandler";
 import { reportTaskError } from "@/features/tasks/utils/taskError";
 import { rf } from "@/utils/responsive";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
-import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -827,12 +827,10 @@ export default function CreateTaskModal({
           }}
         >
           <View style={styles.dragHandleBar}>
-            <TouchableOpacity
-              style={styles.closeBtn}
+            <ModalCloseButton
               onPress={() => sheetRef.current?.close()}
-            >
-              <Ionicons name="close" size={22} color="#1D1D1D" />
-            </TouchableOpacity>
+              style={styles.closeBtn}
+            />
           </View>
 
           <BottomSheetScrollView
@@ -1099,12 +1097,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 20,
     top: 14,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "transparent",
-    justifyContent: "center",
-    alignItems: "center",
     zIndex: 10,
   },
   bottomActionRow: {

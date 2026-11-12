@@ -4,13 +4,16 @@ import {
   BottomSheetModal,
   BottomSheetScrollView,
   type BottomSheetBackdropProps,
+  type BottomSheetScrollViewMethods,
 } from "@gorhom/bottom-sheet";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const SNAP_POINTS = ["65%", "90%"];
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -372,6 +375,33 @@ export default function FilterModal({
   const [assignedToQuery, setAssignedToQuery] = useState("");
   const [createdByOpen, setCreatedByOpen] = useState(false);
   const [assignedToOpen, setAssignedToOpen] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const scrollRef = useRef<BottomSheetScrollViewMethods>(null);
+  const personRowYRef = useRef<number | null>(null);
+
+  const scrollPersonFieldsIntoView = useCallback(() => {
+    const y = personRowYRef.current;
+    if (y === null) return;
+    // Wait for the keyboard/sheet resize to settle before scrolling.
+    setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 16), animated: true });
+    }, 300);
+  }, []);
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const show = Keyboard.addListener(showEvent, (event) =>
+      setKeyboardHeight(event.endCoordinates.height),
+    );
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   const handleToggleCreatedBy = (owner: FilterPerson) => {
     setSelectedCreatedBy((prev) =>
@@ -615,12 +645,7 @@ export default function FilterModal({
             )}
           </TouchableOpacity>
           <Text style={styles.titleText}>Filter</Text>
-          <TouchableOpacity
-            style={styles.closeBtn}
-            onPress={() => sheetRef.current?.close()}
-          >
-            <Ionicons name="close" size={16} color="#fff" />
-          </TouchableOpacity>
+          <ModalCloseButton onPress={() => sheetRef.current?.close()} />
         </View>
 
         <KeyboardAvoidingView
@@ -628,10 +653,15 @@ export default function FilterModal({
           style={{ flexGrow: 0, flexShrink: 1 }}
         >
           <BottomSheetScrollView
+            ref={scrollRef}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
             style={{ flexGrow: 0, flexShrink: 1 }}
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[
+              styles.scrollContent,
+              keyboardHeight > 0 && { paddingBottom: 240 },
+            ]}
           >
                 {/* Status */}
                 {showStatus && (
@@ -742,7 +772,12 @@ export default function FilterModal({
                 {/* Created By / Assigned To */}
                 {(showCreatedBy || showAssignedTo) && (
                   <>
-                    <View style={styles.personRow}>
+                    <View
+                      style={styles.personRow}
+                      onLayout={(event) => {
+                        personRowYRef.current = event.nativeEvent.layout.y;
+                      }}
+                    >
                       {showCreatedBy && (
                         <PersonPickerField
                           label="Created By"
@@ -754,6 +789,7 @@ export default function FilterModal({
                           onFocus={() => {
                             setCreatedByOpen(true);
                             setAssignedToOpen(false);
+                            scrollPersonFieldsIntoView();
                           }}
                           onCloseDropdown={() => setCreatedByOpen(false)}
                           onToggleOwner={handleToggleCreatedBy}
@@ -771,6 +807,7 @@ export default function FilterModal({
                           onFocus={() => {
                             setAssignedToOpen(true);
                             setCreatedByOpen(false);
+                            scrollPersonFieldsIntoView();
                           }}
                           onCloseDropdown={() => setAssignedToOpen(false)}
                           onToggleOwner={handleToggleAssignedTo}
@@ -1031,14 +1068,6 @@ const styles = StyleSheet.create({
     fontSize: rf(18),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
-  },
-  closeBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: "#1D1D1D",
-    alignItems: "center",
-    justifyContent: "center",
   },
   footer: {
     backgroundColor: "#fff",

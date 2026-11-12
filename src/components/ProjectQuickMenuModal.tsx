@@ -2,6 +2,7 @@ import { Project } from "@/types/project.types";
 import { triggerHaptic } from "@/utils/haptics";
 import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import { useEffect } from "react";
 import {
   Dimensions,
@@ -87,13 +88,7 @@ export default function ProjectQuickMenuModal({
               </View>
             </View>
 
-            <TouchableOpacity
-              onPress={onClose}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              style={styles.closeBtn}
-            >
-              <Ionicons name="close" size={15} color="#9CA3AF" />
-            </TouchableOpacity>
+            <ModalCloseButton onPress={onClose} />
           </View>
 
           <View style={styles.divider} />
@@ -223,11 +218,6 @@ const styles = StyleSheet.create({
     fontSize: rf(11),
     fontFamily: "SF_Pro_Medium",
     color: "#4B5563",
-  },
-  closeBtn: {
-    padding: 3,
-    borderRadius: 10,
-    backgroundColor: "#F9FAFB",
   },
   divider: {
     height: 1,

@@ -60,6 +60,7 @@ import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { getStoredToken } from "@/utils/token";
 import { useAuthToken } from "@/utils/secureImageFetch";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import {
   RecordingPresets,
   createAudioPlayer,
@@ -606,9 +607,7 @@ function AttachmentModal({
         >
           <View style={attModalStyles.header}>
             <Text style={attModalStyles.title}>Share Attachment</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8}>
-              <Ionicons name="close" size={20} color="#9CA3AF" />
-            </TouchableOpacity>
+            <ModalCloseButton onPress={onClose} />
           </View>
           <View style={attModalStyles.optionsRow}>
             <TouchableOpacity
@@ -4045,13 +4044,7 @@ function PinnedMessagesModal({
             </View>
             <Text style={pinnedModalStyles.headerTitle}>Pinned messages</Text>
             <Text style={pinnedModalStyles.headerCount}>{messages.length}</Text>
-            <TouchableOpacity
-              onPress={onClose}
-              hitSlop={10}
-              style={pinnedModalStyles.closeBtn}
-            >
-              <Ionicons name="close" size={20} color="#6B7280" />
-            </TouchableOpacity>
+            <ModalCloseButton onPress={onClose} hitSlop={10} />
           </View>
 
           <ScrollView
@@ -7709,9 +7702,7 @@ export default function ConversationScreen() {
           >
             <View style={styles.forwardHeader}>
               <Text style={styles.forwardTitle}>Forward to</Text>
-              <TouchableOpacity onPress={() => setForwardOpen(false)}>
-                <Ionicons name="close" size={20} color="#9CA3AF" />
-              </TouchableOpacity>
+              <ModalCloseButton onPress={() => setForwardOpen(false)} />
             </View>
             {forwardMsg && (
               <View style={styles.forwardPreview}>

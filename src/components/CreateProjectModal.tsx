@@ -6,6 +6,7 @@ import { Project, ProjectStatus, ProjectUser } from "@/types/project.types";
 import { rf } from "@/utils/responsive";
 import { showError } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -174,14 +175,7 @@ export default function CreateProjectModal({
               {/* ── Header ── */}
               <View style={styles.header}>
                 <Text style={styles.mainTitle}>Create Project</Text>
-                <TouchableOpacity
-                  style={styles.closeBtn}
-                  onPress={handleClose}
-                  activeOpacity={0.7}
-                  hitSlop={8}
-                >
-                  <Ionicons name="close" size={18} color="#1D1D1D" />
-                </TouchableOpacity>
+                <ModalCloseButton onPress={handleClose} />
               </View>
 
               {/* ── Fields ── */}
@@ -427,14 +421,6 @@ const styles = StyleSheet.create({
     fontSize: rf(20),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
-  },
-  closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#F3F4F6",
-    justifyContent: "center",
-    alignItems: "center",
   },
   fieldsContainer: {
     paddingHorizontal: 20,

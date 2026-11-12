@@ -5,6 +5,7 @@ import { rf } from "@/utils/responsive";
 import { showError, showSuccess } from "@/utils/toast";
 import { triggerHaptic } from "@/utils/haptics";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -120,13 +121,7 @@ export default function AssignTaskProjectModal({
                 {task.title}
               </Text>
             </View>
-            <TouchableOpacity
-              style={styles.closeBtn}
-              onPress={onClose}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons name="close" size={20} color="#6B7280" />
-            </TouchableOpacity>
+            <ModalCloseButton onPress={onClose} />
           </View>
 
           {/* Search Box */}
@@ -297,11 +292,6 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
     marginTop: 2,
-  },
-  closeBtn: {
-    padding: 4,
-    borderRadius: 6,
-    backgroundColor: "#F3F4F6",
   },
   searchBar: {
     flexDirection: "row",

@@ -1,5 +1,6 @@
 import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -178,14 +179,7 @@ export default function CreateChannelModal({
                   </View>
                 ) : null}
               </View>
-              <TouchableOpacity
-                style={modalStyles.closeBtn}
-                onPress={handleClose}
-                activeOpacity={0.7}
-                hitSlop={8}
-              >
-                <Ionicons name="close" size={12} color="#fff" />
-              </TouchableOpacity>
+              <ModalCloseButton onPress={handleClose} />
             </View>
 
             <FloatingInput
@@ -261,14 +255,6 @@ const modalStyles = StyleSheet.create({
     fontFamily: "SF_Pro_Medium",
     color: "#00DEAB",
     maxWidth: 200,
-  },
-  closeBtn: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: "#1D1D1D",
-    justifyContent: "center",
-    alignItems: "center",
   },
   nextBtn: {
     backgroundColor: "#00DEAB",

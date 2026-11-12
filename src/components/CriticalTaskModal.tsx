@@ -18,6 +18,7 @@ import { rf } from "@/utils/responsive";
  */
 
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import React, { useCallback, useEffect, useState } from "react";
 import { formatClockTime } from "@/utils/dateFormat";
 import {
@@ -70,9 +71,7 @@ export function CriticalTaskPopUpModal({
       <View style={[popup.overlay, popup.absoluteOverlay]}>
         <View style={popup.card}>
           {/* Close */}
-          <TouchableOpacity style={popup.closeBtn} onPress={onClose} hitSlop={8}>
-            <Ionicons name="close" size={17} color="#6B7280" />
-          </TouchableOpacity>
+          <ModalCloseButton onPress={onClose} style={popup.closeBtn} />
 
           {/* Title */}
           <Text style={popup.title}>Set Critical Priority</Text>
@@ -143,12 +142,6 @@ const popup = StyleSheet.create({
     position: "absolute",
     top: 16,
     right: 16,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#F3F4F6",
-    justifyContent: "center",
-    alignItems: "center",
   },
   title: {
     fontSize: rf(18),
@@ -280,9 +273,7 @@ export function OrderCriticalTasksModal({
                 Drag to set the execution order. Top = highest priority.
               </Text>
             </View>
-            <TouchableOpacity style={order.closeIcon} onPress={onClose} hitSlop={8}>
-              <Ionicons name="close" size={18} color="#6B7280" />
-            </TouchableOpacity>
+            <ModalCloseButton onPress={onClose} style={order.closeIcon} />
           </View>
 
           {/* Table header */}
@@ -462,12 +453,6 @@ const order = StyleSheet.create({
     marginTop: 2,
   },
   closeIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: "#F3F4F6",
-    justifyContent: "center",
-    alignItems: "center",
     marginTop: 2,
   },
   headerTitle: {

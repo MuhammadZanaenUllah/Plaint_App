@@ -5,6 +5,7 @@ import type {
   TaskPriorityLevel,
 } from "@/features/tasks/types/task.types";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import {
   Pressable,
   Text,
@@ -43,9 +44,7 @@ export function TaskDetailPriorityPicker({
       <Pressable style={styles.popoverCard} onPress={(e) => e.stopPropagation()}>
         <View style={styles.popoverHeader}>
           <Text style={styles.popoverTitle}>Task Priority</Text>
-          <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close" size={20} color="#1D1D1D" />
-          </TouchableOpacity>
+          <ModalCloseButton onPress={onClose} />
         </View>
         {hasTaskPriority ? (
           (isAts

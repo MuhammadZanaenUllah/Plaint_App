@@ -11,11 +11,10 @@ type Props = {
   loading: boolean;
   error: string | null;
   hasTasks: boolean;
-  stale: boolean;
-  offline?: boolean;
   activeFilterCount: number;
   hasMore: boolean;
   loadingMore: boolean;
+  paginationError?: boolean;
   refreshing: boolean;
   containerStyle?: StyleProp<ViewStyle>;
   assignableOwners: AssignableOwner[];
@@ -23,12 +22,15 @@ type Props = {
   onRetry: () => void;
   onRefresh: () => void;
   onLoadMore: () => void;
+  onRetryLoadMore?: () => void;
   onFilterPress: () => void;
   onTaskPress: (task: TaskRowProps) => void;
   onCommentPress: (task: TaskRowProps) => void;
   onStatusChange: (task: TaskRowProps, status: StatusType) => void;
   onAssigneeChange: (task: TaskRowProps, owner: AssignableOwner) => void;
   onScrollOffsetChange: (offsetY: number) => void;
+  onTopPullChange?: (pullDistance: number) => void;
+  onTopPullEnd?: () => void;
   canAssignProject?: boolean;
   onAddToProjectPress?: (task: TaskRowProps) => void;
 };
@@ -39,11 +41,10 @@ export default function TaskList({
   loading,
   error,
   hasTasks,
-  stale,
-  offline,
   activeFilterCount,
   hasMore,
   loadingMore,
+  paginationError = false,
   refreshing,
   containerStyle,
   assignableOwners,
@@ -51,24 +52,23 @@ export default function TaskList({
   onRetry,
   onRefresh,
   onLoadMore,
+  onRetryLoadMore,
   onFilterPress,
   onTaskPress,
   onCommentPress,
   onStatusChange,
   onAssigneeChange,
   onScrollOffsetChange,
+  onTopPullChange,
+  onTopPullEnd,
   canAssignProject,
   onAddToProjectPress,
 }: Props) {
   return (
     <TaskListSection
       loading={loading}
-      error={error}
       hasTasks={hasTasks}
-      stale={stale}
-      offline={offline}
       sectionTitle={sectionTitle}
-      onRetry={onRetry}
       containerStyle={containerStyle}
     >
       <TaskTable
@@ -79,13 +79,19 @@ export default function TaskList({
         onStatusChange={onStatusChange}
         onFilterPress={onFilterPress}
         loading={loading}
+        loadError={!!error}
+        onRetry={onRetry}
         activeFilterCount={activeFilterCount}
         hasMore={hasMore}
         loadingMore={loadingMore}
+        paginationError={paginationError}
+        onRetryLoadMore={onRetryLoadMore ?? onLoadMore}
         onLoadMore={onLoadMore}
         onRefresh={onRefresh}
         refreshing={refreshing}
         onScrollOffsetChange={onScrollOffsetChange}
+        onTopPullChange={onTopPullChange}
+        onTopPullEnd={onTopPullEnd}
         canReassign={canReassign}
         assignableOwners={assignableOwners}
         onAssigneeChange={onAssigneeChange}

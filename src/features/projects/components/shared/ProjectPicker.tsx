@@ -2,6 +2,7 @@ import type { ProjectEntity } from "@/features/projects/types/project.types";
 import { projectStatusStyle } from "@/features/projects/utils/projectStatus";
 import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -63,9 +64,7 @@ export default function ProjectPicker({
         <View style={[styles.sheet, { paddingBottom: insets.bottom + 14 }]}>
           <View style={styles.header}>
             <Text style={styles.title}>Select Project</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={8}>
-              <Ionicons name="close" size={22} color="#1D1D1D" />
-            </TouchableOpacity>
+            <ModalCloseButton onPress={onClose} />
           </View>
 
           <View style={styles.searchBox}>

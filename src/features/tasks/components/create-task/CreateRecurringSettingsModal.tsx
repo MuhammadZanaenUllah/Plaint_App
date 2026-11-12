@@ -5,6 +5,7 @@ import { RECURRING_PERIOD_OPTIONS } from "@/features/tasks/components/create-tas
 import type { RecurringPeriod } from "@/features/tasks/types/task.types";
 import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -103,9 +104,7 @@ export function CreateRecurringSettingsModal({
                   </Text>
                 </TouchableOpacity>
               )}
-              <TouchableOpacity onPress={onClose} hitSlop={8}>
-                <Ionicons name="close" size={20} color="#1D1D1D" />
-              </TouchableOpacity>
+              <ModalCloseButton onPress={onClose} />
             </View>
 
             <ScrollView

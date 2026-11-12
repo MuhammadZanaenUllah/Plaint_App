@@ -7,6 +7,7 @@ import { fromMinutes, toMinutes, type EffortUnit } from "@/features/tasks/utils/
 import { rf } from "@/utils/responsive";
 import { showError, showSuccess } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -111,9 +112,7 @@ export default function ReopenTaskModal({
         <View style={styles.card}>
           <View style={styles.header}>
             <Text style={styles.title}>Reopen Task</Text>
-            <TouchableOpacity onPress={onClose} disabled={loading} hitSlop={8}>
-              <Ionicons name="close" size={20} color="#9CA3AF" />
-            </TouchableOpacity>
+            <ModalCloseButton onPress={onClose} disabled={loading} />
           </View>
 
           <Text style={styles.subtitle}>

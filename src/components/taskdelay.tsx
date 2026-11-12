@@ -1,5 +1,6 @@
 import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import { useRef, useState } from "react";
 import {
     Animated,
@@ -98,14 +99,7 @@ export default function TaskDelay({
                     {/* ── Header ─────────────────────────────────────────── */}
                     <View style={styles.header}>
                         <Text style={styles.title}>Task Delayed</Text>
-                        <TouchableOpacity
-                            onPress={handleClose}
-                            hitSlop={10}
-                            activeOpacity={0.5}
-                            style={styles.closeBtn}
-                        >
-                            <Ionicons name="close" size={18} color="#6B7280" />
-                        </TouchableOpacity>
+                        <ModalCloseButton onPress={handleClose} hitSlop={10} />
                     </View>
 
                     {/* ── Body Text ──────────────────────────────────────── */}
@@ -273,14 +267,6 @@ const styles = StyleSheet.create({
         fontWeight: "700",
         color: "#111827",
         letterSpacing: -0.2,
-    },
-    closeBtn: {
-        width: 28,
-        height: 28,
-        alignItems: "center",
-        justifyContent: "center",
-        borderRadius: 14,
-        backgroundColor: "#F3F4F6",
     },
 
     // Body

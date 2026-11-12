@@ -22,6 +22,7 @@ import { rf } from "@/utils/responsive";
  */
 
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import * as Clipboard from "expo-clipboard";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -495,13 +496,7 @@ export default function InviteToChannelModal({
                 {/* ── Header ── */}
                 <View style={modal.header}>
                   <Text style={modal.title}>Invite to Channel</Text>
-                  <TouchableOpacity
-                    style={modal.closeBtn}
-                    onPress={onClose}
-                    hitSlop={8}
-                  >
-                    <Ionicons name="close" size={12} color="#6B7280" />
-                  </TouchableOpacity>
+                  <ModalCloseButton onPress={onClose} />
                 </View>
 
                 {/*
@@ -669,14 +664,6 @@ const modal = StyleSheet.create({
     fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
-  },
-  closeBtn: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: "#F3F4F6",
-    justifyContent: "center",
-    alignItems: "center",
   },
   // Email + permission row
   emailRow: {

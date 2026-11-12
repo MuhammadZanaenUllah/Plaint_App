@@ -2,6 +2,7 @@ import type { Sprint } from "@/features/projects/types/project.types";
 import { formatTaskDueDatePkt } from "@/features/tasks/utils/taskDate";
 import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import {
   ActivityIndicator,
   Modal,
@@ -50,9 +51,7 @@ export default function SprintPicker({
                 {projectName}
               </Text>
             </View>
-            <TouchableOpacity onPress={onClose} disabled={saving} hitSlop={8}>
-              <Ionicons name="close" size={22} color="#1D1D1D" />
-            </TouchableOpacity>
+            <ModalCloseButton onPress={onClose} disabled={saving} />
           </View>
 
           {loading ? <ActivityIndicator color="#00DEAB" style={styles.loader} /> : null}

@@ -6,12 +6,12 @@ import { formatDetailDateTime } from "../taskDetailFormatters";
 import { taskDetailPickerStyles as styles } from "../taskDetailPickerStyles";
 import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import {
   Modal,
   Pressable,
   ScrollView,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 
@@ -65,9 +65,7 @@ export function TaskDetailEffortLogsModal({
               <Ionicons name="time-outline" size={18} color="#1D1D1D" />
               <Text style={styles.popoverTitle}>Effort Logs</Text>
             </View>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={20} color="#1D1D1D" />
-            </TouchableOpacity>
+            <ModalCloseButton onPress={onClose} />
           </View>
 
           <ScrollView

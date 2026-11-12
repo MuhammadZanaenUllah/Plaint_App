@@ -3,6 +3,7 @@
 import { filterAndCapDetailAssignees } from "@/features/tasks/utils/taskOwnerFilter";
 import type { TaskOwner } from "@/types/task.types";
 import { Ionicons } from "@expo/vector-icons";
+import ModalCloseButton from "@/components/ModalCloseButton";
 import {
   Pressable,
   ScrollView,
@@ -39,9 +40,7 @@ export function TaskDetailAssigneePicker({
       <Pressable style={styles.popoverCard} onPress={(e) => e.stopPropagation()}>
         <View style={styles.popoverHeader}>
           <Text style={styles.popoverTitle}>Select Assignee</Text>
-          <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close" size={20} color="#1D1D1D" />
-          </TouchableOpacity>
+          <ModalCloseButton onPress={onClose} />
         </View>
         <View style={styles.popoverSearchWrap}>
           <Ionicons name="search-outline" size={16} color="#9CA3AF" />

@@ -21,6 +21,7 @@ import { useContext, useEffect, useRef } from "react";
 import { AppState, LogBox } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Toast from "react-native-toast-message";
+import { toastConfig } from "@/components/AppToast";
 
 function UpdateLifecycle() {
   useUpdates();
@@ -230,7 +231,7 @@ export default function RootLayout() {
                     <PushNotificationLifecycle />
                     <UpdateLifecycle />
                     <RootNavigator />
-                    <Toast />
+                    <Toast config={toastConfig} />
                   </BottomSheetModalProvider>
                 </PushNotificationProvider>
               {/* PROJECT MODULE DISABLED

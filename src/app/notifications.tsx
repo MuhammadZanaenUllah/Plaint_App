@@ -558,8 +558,8 @@ const styles = StyleSheet.create({
     color: "#0DDFAB",
   },
   markReadText: {
-    fontSize: rf(12),
-    fontFamily: "SF_Pro_Semibold",
+    fontSize: rf(10),
+    fontFamily: "SF_Pro_Medium",
     color: "#556EE6",
   },
   markAllDisabled: {
