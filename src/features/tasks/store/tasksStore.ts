@@ -25,6 +25,12 @@ import {
 } from "../utils/taskBuckets";
 import { COMPLETED_PAGE_SIZE } from "../constants/taskConstants";
 
+// The deployed backend answers the paged Completed request with a 200 but
+// `Good:false` ("Internal server error"). Keep the paged implementation for
+// when the backend fix lands, but do not issue a request that is known to
+// fail: the non-paged Completed list already supports local paging.
+const COMPLETED_SERVER_PAGING_ENABLED = false;
+
 export type TaskBucket = "assignedToMe" | "createdByMe" | "allOtherTasks";
 
 export type TasksState = {
@@ -628,6 +634,10 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
       set({ isLoading: false, error: failureMessage });
       return false;
     };
+
+    if (!COMPLETED_SERVER_PAGING_ENABLED) {
+      return runCompletedFallback("Could not load completed tasks. Please try again.");
+    }
 
     let result: ApiResult<TaskListResponse>;
     try {

@@ -63,7 +63,7 @@ export function CreateAssigneeModal({
         >
           <Ionicons
             name="search-outline"
-            size={18}
+            size={16}
             color={
               assignFocused || assignSearch.length > 0 ? "#1D1D1D" : "#AAAAAA"
             }
@@ -86,7 +86,7 @@ export function CreateAssigneeModal({
           </View>
         ) : (
           <ScrollView
-            style={{ maxHeight: 280 }}
+            style={{ maxHeight: 220 }}
             showsVerticalScrollIndicator={false}
           >
             {filteredUsers.map((user, index) => {
@@ -116,7 +116,7 @@ export function CreateAssigneeModal({
                   {isSelected && (
                     <Ionicons
                       name="checkmark-circle"
-                      size={18}
+                      size={16}
                       color="#0DDFAB"
                     />
                   )}

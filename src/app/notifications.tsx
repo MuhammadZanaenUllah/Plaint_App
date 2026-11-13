@@ -345,8 +345,8 @@ export default function NotificationsScreen() {
                 ]}
               >
                 <FilterIconBlack
-                  width={12}
-                  height={12}
+                  width={10}
+                  height={10}
                   color={activeFilterCount > 0 ? "#fff" : undefined}
                 />
                 {activeFilterCount > 0 ? (
@@ -528,9 +528,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   filterBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 7,
     backgroundColor: "#E6E6E6",
     alignItems: "center",
     justifyContent: "center",
@@ -543,17 +543,17 @@ const styles = StyleSheet.create({
   },
   filterBadge: {
     position: "absolute",
-    top: -12,
-    right: -12,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    top: -10,
+    right: -10,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     backgroundColor: "#1D1D1D",
     alignItems: "center",
     justifyContent: "center",
   },
   filterBadgeText: {
-    fontSize: rf(9),
+    fontSize: rf(8),
     fontFamily: "SF_Pro_Bold",
     color: "#0DDFAB",
   },

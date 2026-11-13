@@ -99,7 +99,7 @@ export default function TaskTableSkeleton({
       >
         <Text style={styles.sectionTitle}>{sectionTitle}</Text>
         <View style={styles.filterBtn}>
-          <FilterIconBlack width={18} height={18} />
+          <FilterIconBlack width={9} height={9} />
         </View>
       </View>
 
@@ -227,9 +227,9 @@ const styles = StyleSheet.create({
     color: "#1F2937",
   },
   filterBtn: {
-    width: 35,
-    height: 35,
-    borderRadius: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 7,
     backgroundColor: "#E6E6E6",
     alignItems: "center",
     justifyContent: "center",

@@ -23,7 +23,7 @@ export function CreateApprovalChip({
     >
       <Ionicons
         name="folder"
-        size={16}
+        size={14}
         color={active || selectedApproval === "Yes" ? "#FFF" : "#6B7280"}
       />
       <Text
@@ -58,7 +58,7 @@ export function CreateApprovalPanel({
         >
           <Ionicons
             name="checkmark"
-            size={14}
+            size={12}
             color={selectedApproval === "Yes" ? "#fff" : "#71717A"}
           />
           <Text
@@ -81,7 +81,7 @@ export function CreateApprovalPanel({
         >
           <Ionicons
             name="close"
-            size={14}
+            size={12}
             color={selectedApproval === "No" ? "#fff" : "#71717A"}
           />
           <Text

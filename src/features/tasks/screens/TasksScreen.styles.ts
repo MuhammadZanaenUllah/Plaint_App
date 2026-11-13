@@ -6,6 +6,7 @@ export default StyleSheet.create({
   statsScroll: { flexGrow: 0 },
   statsContent: {
     paddingHorizontal: 16,
+    paddingTop: 4,
     paddingBottom: 4,
     alignItems: "center",
   },

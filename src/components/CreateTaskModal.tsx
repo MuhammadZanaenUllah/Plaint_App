@@ -1074,17 +1074,17 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 32,
-    paddingTop: 14,
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+    paddingTop: 10,
     flexGrow: 1,
   },
   dragHandleBar: {
     width: "100%",
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 12,
-    paddingBottom: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
     position: "relative",
   },
   dragHandlePill: {
@@ -1095,13 +1095,13 @@ const styles = StyleSheet.create({
   },
   closeBtn: {
     position: "absolute",
-    right: 20,
-    top: 14,
+    right: 16,
+    top: 10,
     zIndex: 10,
   },
   bottomActionRow: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingHorizontal: 16,
+    paddingTop: 10,
     backgroundColor: "#fff",
     borderTopWidth: 1,
     borderTopColor: "#F3F4F6",
@@ -1110,14 +1110,14 @@ const styles = StyleSheet.create({
   // Create button
   createBtn: {
     backgroundColor: "#00DEAB",
-    borderRadius: 14,
-    paddingVertical: 16,
+    borderRadius: 12,
+    paddingVertical: 12,
     alignItems: "center",
     justifyContent: "center",
     width: "100%",
   },
   createBtnText: {
-    fontSize: rf(15),
+    fontSize: rf(13),
     color: "#FFFFFF",
     fontFamily: "SF_Pro_Semibold",
   },

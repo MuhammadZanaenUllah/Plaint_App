@@ -18,7 +18,7 @@ export function CreatePriorityChip({
       style={[styles.designChip, styles.designChipDark]}
       onPress={onPress}
     >
-      <Ionicons name="star" size={16} color="#FFF" />
+      <Ionicons name="star" size={14} color="#FFF" />
       <Text
         allowFontScaling={false}
         style={[styles.designChipText, styles.designChipTextWhite]}
@@ -59,7 +59,7 @@ export function CreatePriorityPanel({
             onPress={() => onSelectPriority(p.value)}
           >
             {isSelected ? (
-              <Ionicons name="checkmark" size={14} color="#fff" />
+              <Ionicons name="checkmark" size={12} color="#fff" />
             ) : (
               <View style={[styles.pillDot, { backgroundColor: p.dot }]} />
             )}

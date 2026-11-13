@@ -21,7 +21,7 @@ export function CreateDependenciesChip({
     >
       <Ionicons
         name="git-compare-outline"
-        size={16}
+        size={14}
         color={selectedCount > 0 ? "#FFF" : "#6B7280"}
       />
       <Text

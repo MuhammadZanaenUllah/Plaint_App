@@ -22,7 +22,7 @@ export function CreateAssigneeChip({
     >
       <Ionicons
         name="people"
-        size={16}
+        size={14}
         color={active || !!effectiveAssigneeName ? "#FFF" : "#6B7280"}
       />
       <Text
@@ -61,7 +61,7 @@ export function CreateAssigneePanel({
         rightIcon="search-outline"
       />
       <ScrollView
-        style={{ maxHeight: 220, marginTop: 12 }}
+        style={{ maxHeight: 180, marginTop: 8 }}
         nestedScrollEnabled
         showsVerticalScrollIndicator={false}
       >
@@ -95,7 +95,7 @@ export function CreateAssigneePanel({
                 {isSelected && (
                   <Ionicons
                     name="checkmark"
-                    size={18}
+                    size={16}
                     color="#00DFAB"
                     style={{ marginLeft: "auto" }}
                   />

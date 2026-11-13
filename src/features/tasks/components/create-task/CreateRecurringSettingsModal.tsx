@@ -95,7 +95,7 @@ export function CreateRecurringSettingsModal({
                 <TouchableOpacity onPress={onTurnOff} style={{ marginRight: 12 }}>
                   <Text
                     style={{
-                      fontSize: rf(13),
+                      fontSize: rf(12),
                       color: "#EF4444",
                       fontFamily: "SF_Pro_Medium",
                     }}
@@ -116,7 +116,7 @@ export function CreateRecurringSettingsModal({
             <View style={styles.fieldRow}>
               <Ionicons
                 name="calendar-outline"
-                size={20}
+                size={16}
                 color="#1D1D1D"
                 style={styles.fieldIcon}
               />
@@ -139,7 +139,7 @@ export function CreateRecurringSettingsModal({
                         )?.label
                       : "+ Add Period"}
                   </Text>
-                  <Ionicons name="chevron-down" size={14} color="#6B7280" />
+                  <Ionicons name="chevron-down" size={12} color="#6B7280" />
                 </TouchableOpacity>
 
                 {periodDropdownOpen && (
@@ -170,7 +170,7 @@ export function CreateRecurringSettingsModal({
               <View style={styles.fieldRow}>
                 <Ionicons
                   name="ban-outline"
-                  size={20}
+                  size={16}
                   color="#1D1D1D"
                   style={styles.fieldIcon}
                 />
@@ -208,7 +208,7 @@ export function CreateRecurringSettingsModal({
               <View style={styles.fieldRow}>
                 <Ionicons
                   name="calendar-outline"
-                  size={20}
+                  size={16}
                   color="#1D1D1D"
                   style={styles.fieldIcon}
                 />
@@ -246,7 +246,7 @@ export function CreateRecurringSettingsModal({
               <View style={styles.fieldRow}>
                 <Ionicons
                   name="calendar-outline"
-                  size={20}
+                  size={16}
                   color="#1D1D1D"
                   style={styles.fieldIcon}
                 />
@@ -269,7 +269,7 @@ export function CreateRecurringSettingsModal({
                 <View style={styles.fieldRow}>
                   <Ionicons
                     name="calendar-outline"
-                    size={20}
+                    size={16}
                     color="#1D1D1D"
                     style={styles.fieldIcon}
                   />
@@ -288,7 +288,7 @@ export function CreateRecurringSettingsModal({
                 <View style={styles.fieldRow}>
                   <Ionicons
                     name="calendar-outline"
-                    size={20}
+                    size={16}
                     color="#1D1D1D"
                     style={styles.fieldIcon}
                   />
@@ -310,7 +310,7 @@ export function CreateRecurringSettingsModal({
             <View style={styles.fieldRow}>
               <Ionicons
                 name="time-outline"
-                size={20}
+                size={16}
                 color="#1D1D1D"
                 style={styles.fieldIcon}
               />
@@ -329,7 +329,7 @@ export function CreateRecurringSettingsModal({
             <View style={styles.fieldRow}>
               <Ionicons
                 name="repeat-outline"
-                size={20}
+                size={16}
                 color="#1D1D1D"
                 style={styles.fieldIcon}
               />

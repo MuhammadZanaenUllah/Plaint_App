@@ -178,11 +178,13 @@ function TasksScreenContent() {
     refreshingRef.current = true;
     setRefreshing(true);
     try {
-      await fetchAllTasks(companyId, { silent: true });
+      const main = fetchAllTasks(companyId, { silent: true });
       if (dashboard.filters.activeTab === "completed") {
-        await fetchCompletedPage(companyId, 1);
+        await Promise.all([main, fetchCompletedPage(companyId, 1)]);
       } else if (dashboard.filters.activeTab === "recurring") {
-        await fetchRecurring(companyId, { force: true });
+        await Promise.all([main, fetchRecurring(companyId, { force: true })]);
+      } else {
+        await main;
       }
       tabs.resetPagination();
     } finally {

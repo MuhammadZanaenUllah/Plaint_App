@@ -119,9 +119,6 @@ function taskReducer(state: TaskState, action: TaskAction): TaskState {
 export type TaskContextValue = {
   state: TaskState;
   companyId: number | null;
-  mappedAssignedToMe: MappedTaskRow[];
-  mappedCreatedByMe: MappedTaskRow[];
-  mappedAllOtherTasks: MappedTaskRow[];
   allMappedTasks: MappedTaskRow[];
   dueTodayCount: number;
   totalCount: number;
@@ -298,63 +295,32 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     state.isPartialLoad,
   ]);
 
-  const mappedAssignedToMe = useMemo(
-    () =>
-      mapTaskListResponse({
-        tasks_assigned_to_me: effectiveState.assignedToMe,
-        tasksByme: [],
-        all_other_tasks: [],
-        task_owner: effectiveState.taskOwners,
-        priority: [],
-        status: [],
-      }).assignedToMe,
-    [effectiveState.assignedToMe, effectiveState.taskOwners],
-  );
-
-  const mappedCreatedByMe = useMemo(
-    () =>
-      mapTaskListResponse({
-        tasks_assigned_to_me: [],
-        tasksByme: effectiveState.createdByMe,
-        all_other_tasks: [],
-        task_owner: effectiveState.taskOwners,
-        priority: [],
-        status: [],
-      }).createdByMe,
-    [effectiveState.createdByMe, effectiveState.taskOwners],
-  );
-
-  const mappedAllOtherTasks = useMemo(
-    () =>
-      mapTaskListResponse({
-        tasks_assigned_to_me: [],
-        tasksByme: [],
-        all_other_tasks: effectiveState.allOtherTasks,
-        task_owner: effectiveState.taskOwners,
-        priority: [],
-        status: [],
-      }).allOtherTasks,
-    [effectiveState.allOtherTasks, effectiveState.taskOwners],
-  );
-
-  // Reuses the already-mapped arrays above instead of re-running
-  // mapTaskListItem over every task a second time â€” /tasks/all returns
-  // 500+ tasks for some companies, so this used to double the per-tab-switch
-  // mapping cost for no reason.
-  const allMappedTasks = useMemo(
-    () => {
-      const unique = new Map<number, MappedTaskRow>();
-      for (const task of [
-        ...mappedAssignedToMe,
-        ...mappedCreatedByMe,
-        ...mappedAllOtherTasks,
-      ]) {
-        unique.set(Number(task.id), task);
-      }
-      return [...unique.values()];
-    },
-    [mappedAssignedToMe, mappedCreatedByMe, mappedAllOtherTasks],
-  );
+  // A single mapping pass over the deduplicated active rows. The old code
+  // mapped each bucket separately and then merged the mapped results, which
+  // paid for three mapTaskListResponse setups on every store update.
+  const allMappedTasks = useMemo(() => {
+    const unique = new Map<number, TaskListItem>();
+    for (const task of [
+      ...effectiveState.assignedToMe,
+      ...effectiveState.createdByMe,
+      ...effectiveState.allOtherTasks,
+    ]) {
+      unique.set(Number(task.id), task);
+    }
+    return mapTaskListResponse({
+      tasks_assigned_to_me: [...unique.values()],
+      tasksByme: [],
+      all_other_tasks: [],
+      task_owner: effectiveState.taskOwners,
+      priority: [],
+      status: [],
+    }).assignedToMe;
+  }, [
+    effectiveState.assignedToMe,
+    effectiveState.createdByMe,
+    effectiveState.allOtherTasks,
+    effectiveState.taskOwners,
+  ]);
 
   const totalCount = allMappedTasks.length;
 
@@ -633,9 +599,6 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     () => ({
       state: effectiveState,
       companyId,
-      mappedAssignedToMe,
-      mappedCreatedByMe,
-      mappedAllOtherTasks,
       allMappedTasks,
       dueTodayCount: storeSnapshot.dueTodayCount,
       totalCount,
@@ -652,9 +615,6 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     [
       effectiveState,
       companyId,
-      mappedAssignedToMe,
-      mappedCreatedByMe,
-      mappedAllOtherTasks,
       allMappedTasks,
       storeSnapshot.dueTodayCount,
       totalCount,

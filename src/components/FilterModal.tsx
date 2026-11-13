@@ -11,7 +11,6 @@ import { Ionicons } from "@expo/vector-icons";
 import ModalCloseButton from "@/components/ModalCloseButton";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-const SNAP_POINTS = ["65%", "90%"];
 import {
   ActivityIndicator,
   Keyboard,
@@ -23,12 +22,13 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import CalendarPicker from "./CalendarPicker";
 import FloatingInput from "./FloatingInput";
+
+const SNAP_POINTS = ["65%", "90%"];
 
 export type FilterPerson = {
   id: number;
@@ -177,7 +177,7 @@ function PersonPickerField({
                 onPress={() => onToggleOwner(owner)}
                 hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
               >
-                <Ionicons name="close-circle" size={16} color="#6B7280" />
+                <Ionicons name="close-circle" size={14} color="#6B7280" />
               </TouchableOpacity>
             </View>
           ))}
@@ -211,7 +211,7 @@ function PersonPickerField({
             onPress={() => onChangeQuery("")}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+            <Ionicons name="close-circle" size={16} color="#9CA3AF" />
           </TouchableOpacity>
         ) : (
           // Tapping an already-focused TextInput doesn't re-fire onFocus, so
@@ -224,7 +224,7 @@ function PersonPickerField({
           >
             <Ionicons
               name={open ? "chevron-up" : "chevron-down"}
-              size={18}
+              size={16}
               color="#9CA3AF"
             />
           </TouchableOpacity>
@@ -236,11 +236,11 @@ function PersonPickerField({
         <View style={styles.personInlineList}>
           {filtered.length === 0 ? (
             <View style={styles.personEmptyRow}>
-              <Ionicons name="search-outline" size={15} color="#B3B3B3" />
+              <Ionicons name="search-outline" size={13} color="#B3B3B3" />
               <Text style={styles.personEmpty}>No matches found</Text>
             </View>
           ) : (
-            <View style={{ maxHeight: 200 }}>
+            <View style={{ maxHeight: 180 }}>
               <ScrollView
                 nestedScrollEnabled
                 keyboardShouldPersistTaps="handled"
@@ -275,13 +275,13 @@ function PersonPickerField({
                       {isSelected ? (
                         <Ionicons
                           name="checkmark-circle"
-                          size={18}
+                          size={16}
                           color="#0DDFAB"
                         />
                       ) : (
                         <Ionicons
                           name="add-circle-outline"
-                          size={18}
+                          size={16}
                           color="#D1D5DB"
                         />
                       )}
@@ -339,12 +339,6 @@ export default function FilterModal({
   // offset that mismatch shows up as an empty gap between the sheet and the
   // keyboard once it's open.
   const insets = useSafeAreaInsets();
-  // Neither a native `{ fraction }` snap point nor RNHostView's
-  // `matchContents` reliably synced the sheet's presented height with the
-  // hosted RN content's own layout, so the 80% look is faked in RN instead:
-  // the sheet stays at the "full" snap point and sheetContainer is given
-  // this explicit height directly.
-  const { height: windowHeight } = useWindowDimensions();
   const [selectedStatus, setSelectedStatus] = useState<string | null>(
     initialStatus,
   );
@@ -647,7 +641,7 @@ export default function FilterModal({
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={handleReset} disabled={resetting}>
             {resetting ? (
-              <ActivityIndicator size="small" color="#1D1D1D" />
+              <ActivityIndicator size="small" color="#9CA3AF" />
             ) : (
               <Text style={styles.resetText}>Reset</Text>
             )}
@@ -658,17 +652,19 @@ export default function FilterModal({
 
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={{ flexGrow: 0, flexShrink: 1 }}
+          style={{ flex: 1 }}
         >
           <BottomSheetScrollView
             ref={scrollRef}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
-            style={{ flexGrow: 0, flexShrink: 1 }}
+            style={{ flex: 1 }}
             contentContainerStyle={[
               styles.scrollContent,
-              keyboardHeight > 0 && { paddingBottom: 240 },
+              keyboardHeight > 0 && {
+                paddingBottom: keyboardHeight + 80,
+              },
             ]}
           >
                 {/* Status */}
@@ -963,7 +959,7 @@ export default function FilterModal({
                         ? `Calendar (${startDate ? startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}${endDate ? " - " + endDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""})`
                         : "Calendar"}
                     </Text>
-                    <Ionicons name="calendar" size={22} color="#00DEAB" />
+                    <Ionicons name="calendar" size={18} color="#00DEAB" />
                   </View>
                 </TouchableOpacity>
 
@@ -1031,6 +1027,7 @@ const styles = StyleSheet.create({
   },
   sheetContainer: {
     width: "100%",
+    flex: 1,
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -1063,64 +1060,64 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 10,
   },
   resetText: {
-    fontSize: rf(16),
-    color: "#1D1D1D",
+    fontSize: rf(14),
+    color: "#9CA3AF",
     fontFamily: "SF_Pro_Medium",
   },
   titleText: {
-    fontSize: rf(18),
+    fontSize: rf(16),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
   footer: {
     backgroundColor: "#fff",
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingHorizontal: 14,
+    paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: "#F3F4F6",
   },
-  scrollContent: { paddingHorizontal: 16, paddingBottom: 16 },
+  scrollContent: { paddingHorizontal: 14, paddingBottom: 16 },
   sectionLabel: {
-    fontSize: rf(16),
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
-    marginBottom: 12,
+    marginBottom: 10,
   },
   chipsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 16,
+    gap: 6,
+    marginBottom: 12,
   },
   chip: {
-    height: 34,
+    height: 30,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#F4F4F5",
-    borderRadius: 20,
-    paddingHorizontal: 12,
+    borderRadius: 16,
+    paddingHorizontal: 10,
   },
   chipleavetype: {
-    height: 34,
+    height: 30,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#F4F4F5",
-    borderRadius: 20,
-    paddingHorizontal: 12,
+    borderRadius: 16,
+    paddingHorizontal: 10,
   },
   dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    marginRight: 6,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 5,
   },
   chipText: {
-    fontSize: rf(13),
+    fontSize: rf(12),
     color: "#18181B",
     fontFamily: "SF_Pro_Medium",
   },
@@ -1131,58 +1128,58 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: "#E6E6E6",
-    marginBottom: 16,
+    marginBottom: 12,
   },
   personRow: {
     flexDirection: "column",
-    gap: 8,
-    marginBottom: 16,
+    gap: 6,
+    marginBottom: 12,
   },
   personFieldContainer: {
     width: "100%",
-    marginVertical: 4,
+    marginVertical: 2,
   },
   selectedPersonChipsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 8,
+    gap: 4,
+    marginBottom: 6,
     alignItems: "center",
   },
   selectedPersonChip: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#F3F4F6",
-    borderRadius: 16,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    gap: 6,
+    borderRadius: 14,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    gap: 4,
   },
   personAvatarSmall: {
-    width: 20,
-    height: 20,
-    borderRadius: 5,
+    width: 18,
+    height: 18,
+    borderRadius: 4,
     backgroundColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
   },
   personAvatarTextSmall: {
-    fontSize: rf(10),
+    fontSize: rf(9),
     fontFamily: "SF_Pro_Bold",
     color: "#374151",
   },
   selectedPersonChipText: {
-    fontSize: rf(12),
+    fontSize: rf(11),
     color: "#1F2937",
     fontFamily: "SF_Pro_Medium",
-    maxWidth: 120,
+    maxWidth: 110,
   },
   clearAllBtn: {
     paddingHorizontal: 6,
-    paddingVertical: 4,
+    paddingVertical: 3,
   },
   clearAllText: {
-    fontSize: rf(12),
+    fontSize: rf(11),
     color: "#EF4444",
     fontFamily: "SF_Pro_Medium",
   },
@@ -1196,42 +1193,42 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   personInlineList: {
-    marginTop: 6,
-    marginBottom: 6,
+    marginTop: 4,
+    marginBottom: 4,
     backgroundColor: "#FFFFFF",
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    paddingVertical: 4,
-    paddingHorizontal: 6,
+    paddingVertical: 3,
+    paddingHorizontal: 5,
   },
   personOption: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 8,
+    gap: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
+    borderRadius: 6,
   },
   personOptionSelected: {
     backgroundColor: "#F0FDF4",
   },
   personAvatar: {
-    width: 26,
-    height: 26,
-    borderRadius: 6,
+    width: 24,
+    height: 24,
+    borderRadius: 5,
     backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
   },
   personAvatarText: {
-    fontSize: rf(12),
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Bold",
     color: "#374151",
   },
   personOptionText: {
     flex: 1,
-    fontSize: rf(13),
+    fontSize: rf(12),
     color: "#1F2937",
     fontFamily: "SF_Pro_Regular",
   },
@@ -1247,7 +1244,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   personEmpty: {
-    fontSize: rf(13),
+    fontSize: rf(12),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
   },
@@ -1255,10 +1252,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 12,
+    marginBottom: 10,
   },
   calHeaderText: {
-    fontSize: rf(16),
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
     textDecorationLine: "underline",
@@ -1283,13 +1280,13 @@ const styles = StyleSheet.create({
   },
   applyBtn: {
     backgroundColor: "#0DDFAB",
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 10,
+    paddingVertical: 11,
     alignItems: "center",
   },
   applyBtnDisabled: { opacity: 0.7 },
   applyText: {
-    fontSize: rf(16),
+    fontSize: rf(14),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Bold",
   },

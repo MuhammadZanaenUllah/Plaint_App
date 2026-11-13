@@ -40,7 +40,7 @@ export function TaskAttachmentsField({
                 onPress={() => onDownload(file)}
                 hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
               >
-                <Ionicons name="download-outline" size={14} color="#0DDFAB" />
+                <Ionicons name="download-outline" size={12} color="#0DDFAB" />
               </TouchableOpacity>
               <Text style={styles.tagText} numberOfLines={1}>
                 {file.name}
@@ -64,9 +64,9 @@ const styles = StyleSheet.create({
   attachInlineRow: {
     flexDirection: "column",
     alignItems: "stretch",
-    gap: 10,
-    marginTop: 8,
-    marginBottom: 12,
+    gap: 8,
+    marginTop: 6,
+    marginBottom: 10,
   },
   tagsScroll: { flexGrow: 0, marginBottom: 8, overflow: "visible" },
   tagsScrollContent: {
@@ -77,27 +77,27 @@ const styles = StyleSheet.create({
   tag: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 4,
     backgroundColor: "#1D1D1D",
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    marginRight: 8,
-    maxWidth: 220,
+    borderRadius: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    marginRight: 6,
+    maxWidth: 200,
   },
   tagText: {
     flex: 1,
-    fontSize: rf(12.5),
+    fontSize: rf(11.5),
     color: "#0DDFAB",
     fontFamily: "SF_Pro_Regular",
   },
   tagClose: {
-    marginLeft: 4,
+    marginLeft: 3,
   },
   tagCloseText: {
-    fontSize: rf(13),
+    fontSize: rf(11),
     color: "#0DDFAB",
     fontFamily: "SF_Pro_Regular",
-    lineHeight: 16,
+    lineHeight: 14,
   },
 });

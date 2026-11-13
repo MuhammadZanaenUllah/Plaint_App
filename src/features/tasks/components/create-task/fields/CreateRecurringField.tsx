@@ -21,7 +21,7 @@ export function CreateRecurringChip({
     >
       <Ionicons
         name="alarm-outline"
-        size={16}
+        size={14}
         color={isRecurringEnabled ? "#FFF" : "#6B7280"}
       />
       <Text

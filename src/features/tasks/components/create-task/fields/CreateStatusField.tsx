@@ -24,7 +24,7 @@ export function CreateStatusChip({
     >
       <Ionicons
         name="sync-circle-outline"
-        size={16}
+        size={14}
         color={active || !!effectiveStatus ? "#FFF" : "#6B7280"}
       />
       <Text
@@ -72,7 +72,7 @@ export function CreateStatusPanel({
               onPress={() => onSelectStatus(s.value)}
             >
               {isSelected ? (
-                <Ionicons name="checkmark" size={14} color="#fff" />
+                <Ionicons name="checkmark" size={12} color="#fff" />
               ) : (
                 <View style={[styles.pillDot, { backgroundColor: s.color }]} />
               )}

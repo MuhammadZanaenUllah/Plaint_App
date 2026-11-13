@@ -151,7 +151,7 @@ export default function AppHeader({
               onPress={() => setSearchOpen(!searchOpen)}
               hitSlop={8}
             >
-              <Ionicons name="search-outline" size={22} color="#000000" />
+              <Ionicons name="search-outline" size={18} color="#000000" />
             </TouchableOpacity>
           )}
 
@@ -215,7 +215,7 @@ export default function AppHeader({
           <Pressable onPress={(e) => e.stopPropagation()}>
             <View style={styles.searchRow}>
               <View style={styles.searchBox}>
-                <Ionicons name="search-outline" size={18} color="#9CA3AF" />
+                <Ionicons name="search-outline" size={16} color="#9CA3AF" />
                 <TextInput
                   style={styles.searchInput}
                   placeholder={placeholder}

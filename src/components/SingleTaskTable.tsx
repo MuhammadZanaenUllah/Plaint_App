@@ -53,6 +53,9 @@ export { DEFAULT_COLUMNS };
 
 const { FilterIcon } = Icons;
 
+const rowKeyExtractor = (item: TaskRowProps, index: number) =>
+  String(getTaskKey(item, index));
+
 type Props = {
   sectionTitle: string;
   tasks: TaskRowProps[];
@@ -323,11 +326,16 @@ function SingleTaskTable({
         event.nativeEvent;
 
       if (contentOffset.y < 0) {
-        pullDistance.value = -contentOffset.y;
-      } else {
+        const next = -contentOffset.y;
+        if (pullDistance.value !== next) pullDistance.value = next;
+      } else if (pullDistance.value !== 0) {
         pullDistance.value = 0;
       }
 
+      // FlatList's onEndReached drives pagination in the virtualized path;
+      // running the manual threshold math there too duplicates work on every
+      // scroll frame.
+      if (virtualized) return;
       if (!hasMore || loadingMore || loading) return;
       const threshold = 40;
       if (
@@ -337,7 +345,7 @@ function SingleTaskTable({
         onLoadMore?.();
       }
     },
-    [hasMore, loadingMore, loading, onLoadMore, pullDistance],
+    [hasMore, loadingMore, loading, onLoadMore, pullDistance, virtualized],
   );
 
   // If the current page doesn't fill the viewport (e.g. tall screens), load the
@@ -363,6 +371,62 @@ function SingleTaskTable({
     loadingMore,
     paginationError,
   ]);
+
+  const renderRow = useCallback(
+    ({ item, index }: { item: TaskRowProps; index: number }) => {
+      const taskKey = getTaskIdentityKey(item);
+      return (
+        <SwipeTaskRow
+          item={item}
+          taskKey={taskKey}
+          rowIndex={index}
+          metrics={metrics}
+          isOpen={openSwipeRow?.taskKey === taskKey}
+          stage={
+            openSwipeRow?.taskKey === taskKey ? openSwipeRow.stage : null
+          }
+          onOpenSwipe={openSwipe}
+          onCloseSwipe={closeSwipe}
+          onTaskPress={onTaskPress}
+          onCommentPress={onCommentPress}
+          onToggleComplete={handleToggleComplete}
+          onStatusChange={handleStatusChange}
+          canReassign={canReassign}
+          assignableOwners={assignableOwners}
+          onAssigneeChange={handleAssigneeChange}
+          canAssignProject={canAssignProject}
+          onAddToProjectPress={onAddToProjectPress}
+          onSprintPress={onSprintPress}
+          onRemoveTask={onRemoveTask}
+          swipeVariant={swipeVariant}
+          scrollCloseSignal={scrollCloseSignal}
+          columns={effectiveColumns}
+          readOnly={readOnly}
+        />
+      );
+    },
+    [
+      assignableOwners,
+      canAssignProject,
+      canReassign,
+      closeSwipe,
+      effectiveColumns,
+      handleAssigneeChange,
+      handleStatusChange,
+      handleToggleComplete,
+      metrics,
+      onAddToProjectPress,
+      onCommentPress,
+      onRemoveTask,
+      onSprintPress,
+      onTaskPress,
+      openSwipe,
+      openSwipeRow,
+      readOnly,
+      scrollCloseSignal,
+      swipeVariant,
+    ],
+  );
 
   const [lastUpdatedTime, setLastUpdatedTime] = useState<Date>(new Date());
   const syncRotation = useSharedValue(0);
@@ -431,7 +495,7 @@ function SingleTaskTable({
           >
             {({ pressed }) => (
               <View>
-                <FilterIcon width={12} height={12} />
+                <FilterIcon width={9} height={9} />
                 {activeFilterCount > 0 ? (
                   <View style={styles.filterBadge}>
                     <Text style={styles.filterBadgeText}>
@@ -546,41 +610,8 @@ function SingleTaskTable({
               ref={rowsListRef}
               data={augmentedTasks}
               extraData={openSwipeRow}
-              keyExtractor={(item, index) => String(getTaskKey(item, index))}
-              renderItem={({ item, index }) => {
-                const taskKey = getTaskIdentityKey(item);
-                return (
-                  <SwipeTaskRow
-                    item={item}
-                    taskKey={taskKey}
-                    rowIndex={index}
-                    metrics={metrics}
-                    isOpen={openSwipeRow?.taskKey === taskKey}
-                    stage={
-                      openSwipeRow?.taskKey === taskKey
-                        ? openSwipeRow.stage
-                        : null
-                    }
-                    onOpenSwipe={openSwipe}
-                    onCloseSwipe={closeSwipe}
-                    onTaskPress={onTaskPress}
-                    onCommentPress={onCommentPress}
-                    onToggleComplete={handleToggleComplete}
-                    onStatusChange={handleStatusChange}
-                    canReassign={canReassign}
-                    assignableOwners={assignableOwners}
-                    onAssigneeChange={handleAssigneeChange}
-                    canAssignProject={canAssignProject}
-                    onAddToProjectPress={onAddToProjectPress}
-                    onSprintPress={onSprintPress}
-                    onRemoveTask={onRemoveTask}
-                    swipeVariant={swipeVariant}
-                    scrollCloseSignal={scrollCloseSignal}
-                    columns={effectiveColumns}
-                    readOnly={readOnly}
-                  />
-                );
-              }}
+              keyExtractor={rowKeyExtractor}
+              renderItem={renderRow}
               ListEmptyComponent={
                 loading || refreshing ? (
                   <View style={styles.centeredState}>
@@ -634,7 +665,9 @@ function SingleTaskTable({
                 setRowContentHeight(height)
               }
               onScroll={handleScroll}
-              onScrollBeginDrag={() => setScrollCloseSignal((n) => n + 1)}
+              onScrollBeginDrag={() => {
+                if (openSwipeRow) setScrollCloseSignal((n) => n + 1);
+              }}
               scrollEventThrottle={16}
               nestedScrollEnabled
               // FlatList's own end-reached detection (rather than the manual
@@ -651,12 +684,13 @@ function SingleTaskTable({
               // Off-screen rows carry absolutely-positioned overlays (status/
               // assignee dropdowns, the wide "details" swipe panel) that must
               // not be clipped by the recycler — only unmount them, don't
-              // also strip their native views while still mounted.
+              // also strip their native views while still mounted. This also
+              // prevents blank rows during fast upward flings on Android.
               removeClippedSubviews={false}
-              windowSize={5}
-              maxToRenderPerBatch={8}
+              windowSize={9}
+              maxToRenderPerBatch={12}
               initialNumToRender={16}
-              updateCellsBatchingPeriod={50}
+              updateCellsBatchingPeriod={16}
               refreshControl={
                 onRefresh ? (
                   <RefreshControl
@@ -689,7 +723,9 @@ function SingleTaskTable({
                 setRowContentHeight(height)
               }
               onScroll={handleScroll}
-              onScrollBeginDrag={() => setScrollCloseSignal((n) => n + 1)}
+              onScrollBeginDrag={() => {
+                if (openSwipeRow) setScrollCloseSignal((n) => n + 1);
+              }}
               scrollEventThrottle={16}
               nestedScrollEnabled
               refreshControl={

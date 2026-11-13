@@ -69,7 +69,7 @@ export function CreateTaskTitleDescription({
             onChangeHTML={onChangeDescription}
             onFocus={onDescriptionFocus}
             onBlur={onDescriptionBlur}
-            editorHeight={44}
+            editorHeight={38}
             containerStyle={styles.descEditor}
             autoFocus={false}
             borderless={false}
@@ -88,7 +88,7 @@ export function CreateTaskTitleDescription({
               >
                 <Ionicons
                   name="document-text-outline"
-                  size={18}
+                  size={16}
                   color="#9CA3AF"
                 />
                 <Text style={styles.descIdlePlaceholder}>Description</Text>

@@ -34,7 +34,7 @@ export function CreateDueDateEffortChip({
       >
         <Ionicons
           name="time"
-          size={16}
+          size={14}
           color={active || !!effortHours ? "#FFF" : "#6B7280"}
         />
         <Text
@@ -60,7 +60,7 @@ export function CreateDueDateEffortChip({
     >
       <Ionicons
         name="calendar"
-        size={16}
+        size={14}
         color={active || !!effectiveDueDate ? "#FFF" : "#6B7280"}
       />
       <Text
@@ -134,7 +134,7 @@ export function CreateDueDateEffortPanel({
               >
                 {effortUnitAbbrev}
               </Text>
-              <Ionicons name="chevron-down" size={14} color="#1D1D1D" />
+              <Ionicons name="chevron-down" size={12} color="#1D1D1D" />
             </TouchableOpacity>
 
             {effortUnitOpen && (

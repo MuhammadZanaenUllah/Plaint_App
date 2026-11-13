@@ -124,25 +124,9 @@ export function useTaskDashboard(
     return () => clearInterval(timer);
   }, []);
 
-  const filteredEntities = useMemo(() => {
-    const scoped = selectTasksForTab(store, filters.activeTab, now, { isAts });
-    const filtered = applyTaskFilters(scoped, filters);
-    return filters.activeTab === "completed" ? filtered : sortTasks(filtered);
-  }, [store, filters, now, isAts]);
-
-  const hasCriticalTask = useMemo(
-    () =>
-      isAts
-        ? false
-        : Object.values(store.byId).some(
-            (task) => task.task_priority === "critical",
-          ),
-    [isAts, store.byId],
-  );
-
-  const hasAnyTask = Object.keys(store.byId).length > 0;
-
-  const countFilters = useMemo(
+  // Keep pagination out of this memo: changing `page` must not re-filter or
+  // re-sort every task. Only the filter values themselves invalidate it.
+  const filterValues = useMemo(
     () => ({
       searchQuery: filters.searchQuery,
       status: filters.status,
@@ -163,7 +147,25 @@ export function useTaskDashboard(
     ],
   );
 
-  const counts = useTaskTabCounts(store, now, isAts, countFilters);
+  const filteredEntities = useMemo(() => {
+    const scoped = selectTasksForTab(store, filters.activeTab, now, { isAts });
+    const filtered = applyTaskFilters(scoped, filterValues);
+    return filters.activeTab === "completed" ? filtered : sortTasks(filtered);
+  }, [store, filters.activeTab, filterValues, now, isAts]);
+
+  const hasCriticalTask = useMemo(
+    () =>
+      isAts
+        ? false
+        : Object.values(store.byId).some(
+            (task) => task.task_priority === "critical",
+          ),
+    [isAts, store.byId],
+  );
+
+  const hasAnyTask = Object.keys(store.byId).length > 0;
+
+  const counts = useTaskTabCounts(store, now, isAts, filterValues);
 
   const hasActiveFilters =
     !!filters.searchQuery ||
