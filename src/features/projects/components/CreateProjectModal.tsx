@@ -15,7 +15,7 @@ import { reportTaskError } from "@/features/tasks/utils/taskError";
 import { validateAttachment } from "@/features/tasks/utils/taskValidation";
 import { toCalendarDateOnly, pktTodayStart } from "@/features/tasks/utils/taskDate";
 import { useTasks } from "@/hooks/useTasks";
-import { rf } from "@/utils/responsive";
+import { prf } from "@/utils/responsive";
 import { showError, showSuccess } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
 import ModalCloseButton from "@/components/ModalCloseButton";
@@ -377,11 +377,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 8,
   },
-  title: { fontSize: rf(18), fontFamily: "SF_Pro_Semibold", color: "#1D1D1D" },
+  title: { fontSize: prf(18), fontFamily: "SF_Pro_Semibold", color: "#1D1D1D" },
   label: {
     marginTop: 12,
     marginBottom: 6,
-    fontSize: rf(12),
+    fontSize: prf(12),
     fontFamily: "SF_Pro_Semibold",
     color: "#6B7280",
   },
@@ -391,7 +391,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 11,
-    fontSize: rf(14),
+    fontSize: prf(14),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
   },
@@ -404,7 +404,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  chipText: { fontSize: rf(12), color: "#4B5563", fontFamily: "SF_Pro_Medium" },
+  chipText: { fontSize: prf(12), color: "#4B5563", fontFamily: "SF_Pro_Medium" },
   selectRow: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
@@ -415,7 +415,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  selectText: { fontSize: rf(13), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+  selectText: { fontSize: prf(13), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
   dropdown: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
@@ -425,10 +425,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   dropdownRow: { paddingHorizontal: 12, paddingVertical: 10 },
-  dropdownText: { fontSize: rf(13), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+  dropdownText: { fontSize: prf(13), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
   calendarWrap: { marginTop: 8, borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 10, padding: 6 },
   attachmentRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  attachHint: { fontSize: rf(12), color: "#9CA3AF", fontFamily: "SF_Pro_Regular" },
+  attachHint: { fontSize: prf(12), color: "#9CA3AF", fontFamily: "SF_Pro_Regular" },
   attachTag: {
     flexDirection: "row",
     alignItems: "center",
@@ -440,7 +440,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginTop: 6,
   },
-  attachText: { flex: 1, fontSize: rf(12), color: "#374151", fontFamily: "SF_Pro_Regular" },
+  attachText: { flex: 1, fontSize: prf(12), color: "#374151", fontFamily: "SF_Pro_Regular" },
   createBtn: {
     marginTop: 16,
     backgroundColor: "#00DEAB",
@@ -448,7 +448,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: "center",
   },
-  createText: { color: "#fff", fontSize: rf(15), fontFamily: "SF_Pro_Semibold" },
+  createText: { color: "#fff", fontSize: prf(15), fontFamily: "SF_Pro_Semibold" },
 });
 
 

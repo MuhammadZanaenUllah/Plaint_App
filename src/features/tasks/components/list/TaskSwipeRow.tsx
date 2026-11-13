@@ -58,6 +58,7 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
   onAddToProjectPress,
   onSprintPress,
   onRemoveTask,
+  swipeVariant = "default",
   scrollCloseSignal,
   columns,
   readOnly,
@@ -82,6 +83,7 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
   onAddToProjectPress?: (task: TaskRowProps) => void;
   onSprintPress?: (task: TaskRowProps) => void;
   onRemoveTask?: (task: TaskRowProps) => void;
+  swipeVariant?: "default" | "project";
   columns: SingleTaskTableColumn[];
   readOnly?: boolean;
 }) {
@@ -262,7 +264,9 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
             onAssigneeSelect={handleAssigneeSelect}
             canAssignProject={canAssignProject}
             onAddToProjectPress={onAddToProjectPress}
+            onSprintPress={onSprintPress}
             onRemoveTask={onRemoveTask}
+            swipeVariant={swipeVariant}
             scrollCloseSignal={scrollCloseSignal}
           />
         </Animated.View>

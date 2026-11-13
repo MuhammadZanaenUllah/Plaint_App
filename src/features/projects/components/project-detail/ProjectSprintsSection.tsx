@@ -1,7 +1,7 @@
 import type { Sprint } from "@/features/projects/types/project.types";
 import { projectStatusStyle } from "@/features/projects/utils/projectStatus";
 import { formatTaskDueDatePkt } from "@/features/tasks/utils/taskDate";
-import { rf } from "@/utils/responsive";
+import { prf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   sectionTitle: {
-    fontSize: rf(15),
+    fontSize: prf(15),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Semibold",
   },
@@ -117,19 +117,19 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   addText: {
-    fontSize: rf(11.5),
+    fontSize: prf(11.5),
     color: "#00A876",
     fontFamily: "SF_Pro_Semibold",
   },
   loader: { marginVertical: 10 },
   errorText: {
-    fontSize: rf(12),
+    fontSize: prf(12),
     color: "#DC2626",
     fontFamily: "SF_Pro_Regular",
     marginBottom: 6,
   },
   emptyText: {
-    fontSize: rf(12),
+    fontSize: prf(12),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
     paddingVertical: 6,
@@ -148,14 +148,14 @@ const styles = StyleSheet.create({
   rowMain: { flex: 1, flexDirection: "row", alignItems: "center", gap: 7 },
   name: {
     flexShrink: 1,
-    fontSize: rf(13),
+    fontSize: prf(13),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Medium",
   },
   badge: { borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
-  badgeText: { fontSize: rf(10), fontFamily: "SF_Pro_Semibold" },
+  badgeText: { fontSize: prf(10), fontFamily: "SF_Pro_Semibold" },
   date: {
-    fontSize: rf(11.5),
+    fontSize: prf(11.5),
     color: "#6B7280",
     fontFamily: "SF_Pro_Regular",
   },

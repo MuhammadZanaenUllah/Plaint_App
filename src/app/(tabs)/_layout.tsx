@@ -1,6 +1,6 @@
 import CustomTabBar from "@/components/CustomTabBar";
 import AppHeader from "@/components/headerapp";
-import { SearchProvider, useSearch } from "@/context/SearchContext";
+import { SearchProvider } from "@/context/SearchContext";
 import { useAuth } from "@/hooks/useAuth";
 import { markTabsRouteMounted } from "@/utils/conversationNavigation";
 import { Tabs, useSegments } from "expo-router";
@@ -31,7 +31,6 @@ const HEADER_CONFIGS: Record<string, HeaderConfig> = {
     greeting: "Tasks",
     subGreeting: "Assign tasks, track progress, and boost productivity.",
     showSearch: true,
-    forceSearchOpen: true,
     placeholder: "Search Tasks...",
   },
   leaves: {
@@ -50,7 +49,6 @@ const DEFAULT_CONFIG: HeaderConfig = {
 function TabLayoutContent() {
   const { state: authState } = useAuth();
   const insets = useSafeAreaInsets();
-  const { isHeaderCompact } = useSearch();
   const segments = useSegments();
   const currentRoute = segments[segments.length - 1] ?? "tasks";
 
@@ -68,10 +66,7 @@ function TabLayoutContent() {
         }
       : (HEADER_CONFIGS[currentRoute] ?? DEFAULT_CONFIG);
 
-  const forceSearchOpen =
-    currentRoute === "tasks"
-      ? config.forceSearchOpen && !isHeaderCompact
-      : config.forceSearchOpen;
+  const forceSearchOpen = config.forceSearchOpen;
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>

@@ -1,7 +1,6 @@
 import React from "react";
 import StatCard from "@/components/StatCard";
 import { ScrollView, StyleProp, View, ViewStyle } from "react-native";
-import type { SharedValue } from "react-native-reanimated";
 
 export type TaskStatItem = {
   id: string;
@@ -13,7 +12,6 @@ export type TaskStatItem = {
 type Props = {
   items: TaskStatItem[];
   selectedTab: string;
-  collapseProgress: SharedValue<number>;
   scrollRef: React.Ref<ScrollView>;
   scrollStyle?: StyleProp<ViewStyle>;
   contentContainerStyle?: StyleProp<ViewStyle>;
@@ -24,7 +22,6 @@ type Props = {
 export default function TaskStatsBar({
   items,
   selectedTab,
-  collapseProgress,
   scrollRef,
   scrollStyle,
   contentContainerStyle,
@@ -54,7 +51,6 @@ export default function TaskStatsBar({
             iconName={item.iconName}
             active={selectedTab === item.id}
             onPress={() => onPress(item.id)}
-            collapseProgress={collapseProgress}
           />
         </View>
       ))}

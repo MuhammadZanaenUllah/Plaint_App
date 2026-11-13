@@ -1,6 +1,6 @@
 import CalendarPicker from "@/components/CalendarPicker";
 import { toCalendarDateOnly } from "@/features/tasks/utils/taskDate";
-import { rf } from "@/utils/responsive";
+import { prf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import ModalCloseButton from "@/components/ModalCloseButton";
 import { useEffect, useState } from "react";
@@ -172,11 +172,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 8,
   },
-  title: { fontSize: rf(18), fontFamily: "SF_Pro_Semibold", color: "#1D1D1D" },
+  title: { fontSize: prf(18), fontFamily: "SF_Pro_Semibold", color: "#1D1D1D" },
   label: {
     marginTop: 12,
     marginBottom: 6,
-    fontSize: rf(12),
+    fontSize: prf(12),
     fontFamily: "SF_Pro_Semibold",
     color: "#6B7280",
   },
@@ -186,12 +186,12 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 11,
-    fontSize: rf(14),
+    fontSize: prf(14),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
   },
   readOnlyValue: {
-    fontSize: rf(14),
+    fontSize: prf(14),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
     paddingVertical: 10,
@@ -206,7 +206,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  selectText: { fontSize: rf(13), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+  selectText: { fontSize: prf(13), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
   calendarWrap: {
     marginTop: 8,
     borderWidth: 1,
@@ -216,7 +216,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     marginTop: 10,
-    fontSize: rf(12),
+    fontSize: prf(12),
     color: "#DC2626",
     fontFamily: "SF_Pro_Regular",
   },
@@ -227,5 +227,5 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: "center",
   },
-  saveText: { color: "#fff", fontSize: rf(15), fontFamily: "SF_Pro_Semibold" },
+  saveText: { color: "#fff", fontSize: prf(15), fontFamily: "SF_Pro_Semibold" },
 });

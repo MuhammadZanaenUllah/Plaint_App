@@ -1,6 +1,6 @@
 import type { ProjectEntity } from "@/features/projects/types/project.types";
 import { projectStatusStyle } from "@/features/projects/utils/projectStatus";
-import { rf } from "@/utils/responsive";
+import { prf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import ModalCloseButton from "@/components/ModalCloseButton";
 import { useEffect, useMemo, useState } from "react";
@@ -145,7 +145,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
-  title: { fontSize: rf(18), fontFamily: "SF_Pro_Semibold", color: "#1D1D1D" },
+  title: { fontSize: prf(18), fontFamily: "SF_Pro_Semibold", color: "#1D1D1D" },
   searchBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    fontSize: rf(13),
+    fontSize: prf(13),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
     padding: 0,
@@ -172,21 +172,21 @@ const styles = StyleSheet.create({
     borderBottomColor: "#F3F4F6",
   },
   createText: {
-    fontSize: rf(13),
+    fontSize: prf(13),
     color: "#00A876",
     fontFamily: "SF_Pro_Semibold",
   },
   loader: { marginVertical: 12 },
   errorText: {
     marginTop: 10,
-    fontSize: rf(12),
+    fontSize: prf(12),
     color: "#DC2626",
     fontFamily: "SF_Pro_Regular",
   },
   list: { marginTop: 4 },
   emptyText: {
     paddingVertical: 16,
-    fontSize: rf(12.5),
+    fontSize: prf(12.5),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
     textAlign: "center",
@@ -201,10 +201,10 @@ const styles = StyleSheet.create({
   },
   rowName: {
     flex: 1,
-    fontSize: rf(13.5),
+    fontSize: prf(13.5),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
   },
   badge: { borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
-  badgeText: { fontSize: rf(10), fontFamily: "SF_Pro_Semibold" },
+  badgeText: { fontSize: prf(10), fontFamily: "SF_Pro_Semibold" },
 });

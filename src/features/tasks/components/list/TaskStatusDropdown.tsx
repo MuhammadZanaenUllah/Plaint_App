@@ -8,9 +8,14 @@ import { rf } from "@/utils/responsive";
 type Props = {
   item: TaskRowProps;
   onSelect: (status: StatusType) => void;
+  /** Project rows allow completing directly from any active status. */
+  variant?: "default" | "project";
 };
 
-function getOptions(item: TaskRowProps): { label: string; value: StatusType }[] {
+function getOptions(
+  item: TaskRowProps,
+  variant: "default" | "project",
+): { label: string; value: StatusType }[] {
   if (item.status === "Pending-Approval") {
     const options: { label: string; value: StatusType }[] = [];
     if (item.canApproveReject === true) {
@@ -56,6 +61,7 @@ function getOptions(item: TaskRowProps): { label: string; value: StatusType }[] 
   // Completing is only offered once the task is active (contract §3.12).
   const statusName = String(item.status);
   const canComplete =
+    variant === "project" ||
     statusName === "In-Progress" ||
     statusName === "In Review" ||
     statusName === "In Testing";
@@ -83,10 +89,14 @@ function getOptions(item: TaskRowProps): { label: string; value: StatusType }[] 
   return statuses;
 }
 
-const TaskStatusDropdown = memo(function TaskStatusDropdown({ item, onSelect }: Props) {
+const TaskStatusDropdown = memo(function TaskStatusDropdown({
+  item,
+  onSelect,
+  variant = "default",
+}: Props) {
   return (
     <>
-      {getOptions(item).map(({ label, value }) => {
+      {getOptions(item, variant).map(({ label, value }) => {
         const color = STATUS_COLORS[value]?.text ?? "#6B7280";
         const isActive = value === item.status;
         return (

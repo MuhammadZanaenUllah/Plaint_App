@@ -8,10 +8,8 @@ import TaskDetailModal, {
 } from "@/components/TaskDetailModal";
 import RejectTaskModal from "@/components/RejectTaskModal";
 import ReopenTaskModal from "@/features/tasks/components/task-detail/ReopenTaskModal";
-import SingleTaskTable, {
-  type AssignableOwner,
-  type SingleTaskTableColumn,
-} from "@/components/SingleTaskTable";
+import type { AssignableOwner } from "@/components/SingleTaskTable";
+import ProjectTasksTable from "@/features/projects/components/project-detail/ProjectTasksTable";
 import type { StatusType, TaskRowProps } from "@/components/TaskRow";
 import {
   approveTask,
@@ -21,6 +19,7 @@ import {
   viewTask,
 } from "@/features/tasks/api/taskApi";
 import {
+  canApproveReject as canApproveRejectTask,
   canReopen as canReopenTask,
   hasPermission,
   TASK_PERMISSIONS,
@@ -82,7 +81,7 @@ import { sortProjectTasks } from "@/features/projects/utils/projectTaskSort";
 import { useAuth } from "@/hooks/useAuth";
 import { useTasks } from "@/hooks/useTasks";
 import { openChatDocument } from "@/utils/openChatDocument";
-import { rf } from "@/utils/responsive";
+import { prf } from "@/utils/responsive";
 import { mapTaskListItem } from "@/utils/statusMapper";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
@@ -302,11 +301,7 @@ export default function ProjectDetailScreen() {
         canEditStatus: task.can_edit_status === true,
         canReassign: task.can_edit === true && hasEditPermission,
         canReopen: canReopenTask(task, authState.user, authState.company),
-        canApproveReject:
-          task.status === "Pending-Approval" &&
-          (Number(task.created_by) === Number(authState.user?.id) ||
-            (authState.user?.role_title ?? "").trim().toLowerCase() ===
-              "company admin"),
+        canApproveReject: canApproveRejectTask(task, authState.user),
       })),
     [
       authState.user,
@@ -316,11 +311,6 @@ export default function ProjectDetailScreen() {
       sprintNames,
       taskState.taskOwners,
     ],
-  );
-
-  const projectTaskColumns = useMemo<SingleTaskTableColumn[]>(
-    () => ["title", "createdBy", "assignedTo", "dueDate", "sprint", "status"],
-    [],
   );
 
   const openTask = useCallback(
@@ -371,13 +361,8 @@ export default function ProjectDetailScreen() {
     if (!raw || !taskId) return;
     const current = normalizeApiStatus(String(raw.status));
     const requested = normalizeApiStatus(String(next));
-    const admin =
-      (authState.user?.role_title ?? "").trim().toLowerCase() === "company admin";
-    const creator =
-      Number(raw.created_by ?? 0) === Number(authState.user?.id ?? 0);
     const isApproval = current === "Pending-Approval" && requested === "Complete";
-    const canApproveReject =
-      current === "Pending-Approval" && (admin || creator);
+    const canApproveReject = canApproveRejectTask(raw, authState.user);
     const canApprove = isApproval && canApproveReject;
 
     // A Company Admin can approve/reject a Pending-Approval task even when the
@@ -402,6 +387,17 @@ export default function ProjectDetailScreen() {
         showError("Not Allowed", "Only the task creator can reopen this task.");
         return;
       }
+      setReopenTargetTaskId(taskId);
+      setReopenModalVisible(true);
+      return;
+    }
+    // Completed tasks (non-ATS included) use the same reopen flow as the
+    // main Tasks screen instead of a direct status update.
+    if (
+      isCompletedStatus(current) &&
+      (requested === "Pending" || requested === "In-Progress") &&
+      canReopenTask(raw, authState.user, authState.company)
+    ) {
       setReopenTargetTaskId(taskId);
       setReopenModalVisible(true);
       return;
@@ -817,11 +813,11 @@ export default function ProjectDetailScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
-            {isAts ? (
+            {/* {isAts ? (
               <Text style={styles.muted}>
                 Due date is scheduled by the ATS engine and is read-only.
               </Text>
-            ) : null}
+            ) : null} */}
             {dateOpen && canEditProjectDueDate && (
               <View style={styles.calendarWrap}>
                 <CalendarPicker
@@ -911,11 +907,8 @@ export default function ProjectDetailScreen() {
               </Text>
               <Text style={styles.muted}>{openTaskCount} open</Text>
             </View>
-            <SingleTaskTable
-              sectionTitle=""
+            <ProjectTasksTable
               tasks={rows}
-              columns={projectTaskColumns}
-              contained
               canReassign={hasEditPermission}
               assignableOwners={(taskState.taskOwners ?? []).map((owner) => ({
                 id: owner.id,
@@ -1013,10 +1006,10 @@ export default function ProjectDetailScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#fff" },
-  content: { paddingHorizontal: 16, paddingBottom: 40 },
+  content: { paddingHorizontal: 14, paddingBottom: 32 },
   inlineError: {
     marginTop: 8,
-    fontSize: rf(12),
+    fontSize: prf(12),
     color: "#B45309",
     fontFamily: "SF_Pro_Regular",
   },
@@ -1027,13 +1020,13 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   emptyTitle: {
-    fontSize: rf(16),
+    fontSize: prf(16),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
   emptyText: {
     marginTop: 5,
-    fontSize: rf(12.5),
+    fontSize: prf(12.5),
     fontFamily: "SF_Pro_Regular",
     color: "#9CA3AF",
     textAlign: "center",
@@ -1045,16 +1038,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 9,
   },
-  retryText: { color: "#fff", fontSize: rf(13), fontFamily: "SF_Pro_Semibold" },
+  retryText: { color: "#fff", fontSize: prf(13), fontFamily: "SF_Pro_Semibold" },
   field: { marginTop: 6, marginBottom: 8 },
   fieldLabel: {
-    fontSize: rf(11),
+    fontSize: prf(11),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Semibold",
     marginBottom: 4,
   },
   titleInput: {
-    fontSize: rf(19),
+    fontSize: prf(19),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Semibold",
     paddingVertical: 4,
@@ -1063,24 +1056,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 9,
+    paddingVertical: 7,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
   infoLabel: {
-    fontSize: rf(12),
+    fontSize: prf(12),
     color: "#6B7280",
     fontFamily: "SF_Pro_Semibold",
   },
   infoValueBtn: { maxWidth: "62%" },
   infoValue: {
-    fontSize: rf(13),
+    fontSize: prf(13),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
     textAlign: "right",
   },
   statusBadge: { borderRadius: 12, paddingHorizontal: 9, paddingVertical: 4 },
-  statusText: { fontSize: rf(11), fontFamily: "SF_Pro_Semibold" },
+  statusText: { fontSize: prf(11), fontFamily: "SF_Pro_Semibold" },
   chipsWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1090,11 +1083,11 @@ const styles = StyleSheet.create({
   chip: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
-  chipText: { fontSize: rf(12), color: "#4B5563", fontFamily: "SF_Pro_Medium" },
+  chipText: { fontSize: prf(12), color: "#4B5563", fontFamily: "SF_Pro_Medium" },
   dropdown: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
@@ -1103,8 +1096,8 @@ const styles = StyleSheet.create({
     marginVertical: 6,
     overflow: "hidden",
   },
-  dropdownRow: { paddingHorizontal: 12, paddingVertical: 10 },
-  dropdownText: { fontSize: rf(13), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+  dropdownRow: { paddingHorizontal: 10, paddingVertical: 8 },
+  dropdownText: { fontSize: prf(13), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
   calendarWrap: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
@@ -1115,7 +1108,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     marginTop: 18,
     marginBottom: 8,
-    fontSize: rf(15),
+    fontSize: prf(15),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Semibold",
   },
@@ -1130,9 +1123,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E7EB",
     borderRadius: 10,
-    minHeight: 90,
-    padding: 12,
-    fontSize: rf(13),
+    minHeight: 80,
+    padding: 10,
+    fontSize: prf(13),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
   },
@@ -1140,10 +1133,10 @@ const styles = StyleSheet.create({
     marginTop: 14,
     backgroundColor: "#00DEAB",
     borderRadius: 10,
-    paddingVertical: 13,
+    paddingVertical: 11,
     alignItems: "center",
   },
-  saveText: { color: "#fff", fontSize: rf(14), fontFamily: "SF_Pro_Semibold" },
+  saveText: { color: "#fff", fontSize: prf(14), fontFamily: "SF_Pro_Semibold" },
   attachRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1151,19 +1144,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#F3F4F6",
     borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    marginBottom: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    marginBottom: 5,
   },
   attachMain: { flexDirection: "row", alignItems: "center", gap: 6, flex: 1 },
   attachText: {
     flex: 1,
-    fontSize: rf(12),
+    fontSize: prf(12),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
   },
   muted: {
-    fontSize: rf(12),
+    fontSize: prf(12),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
   },

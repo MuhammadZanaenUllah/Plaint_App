@@ -15,7 +15,6 @@ import {
 import {
   ActivityIndicator,
   FlatList,
-  type GestureResponderEvent,
   type LayoutChangeEvent,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -71,12 +70,10 @@ type Props = {
   paginationError?: boolean;
   onRetryLoadMore?: () => void;
   onLoadMore?: () => void;
+  /** Project rows replace the comment/project cells with a Sprint cell. */
+  swipeVariant?: "default" | "project";
   onRefresh?: () => void;
   refreshing?: boolean;
-  onScrollOffsetChange?: (offsetY: number) => void;
-  /** Downward drag distance while the list is already at the top. */
-  onTopPullChange?: (pullDistance: number) => void;
-  onTopPullEnd?: () => void;
   // Inline reassignment from the swiped-open row.
   canReassign?: boolean;
   assignableOwners?: AssignableOwner[];
@@ -131,11 +128,9 @@ function SingleTaskTable({
   paginationError = false,
   onRetryLoadMore,
   onLoadMore,
+  swipeVariant = "default",
   onRefresh,
   refreshing = false,
-  onScrollOffsetChange,
-  onTopPullChange,
-  onTopPullEnd,
   canReassign = false,
   assignableOwners = [],
   onAssigneeChange,
@@ -320,48 +315,12 @@ function SingleTaskTable({
   const shouldEnableRowScroll = rowContentHeight > rowViewportHeight + 1;
 
   const pullDistance = useSharedValue(0);
-  const scrollOffsetRef = useRef(0);
-  const topTouchStartYRef = useRef(0);
-  const topTouchActiveRef = useRef(false);
-  const topTouchPulledRef = useRef(false);
-
-  const handleTopTouchStart = useCallback(
-    (event: GestureResponderEvent) => {
-      if (!onTopPullChange || scrollOffsetRef.current > 0) return;
-      topTouchStartYRef.current = event.nativeEvent.pageY;
-      topTouchActiveRef.current = true;
-      topTouchPulledRef.current = false;
-    },
-    [onTopPullChange],
-  );
-
-  const handleTopTouchMove = useCallback(
-    (event: GestureResponderEvent) => {
-      if (!topTouchActiveRef.current) return;
-      const pull = event.nativeEvent.pageY - topTouchStartYRef.current;
-      if (pull > 0) topTouchPulledRef.current = true;
-      if (topTouchPulledRef.current) {
-        onTopPullChange?.(Math.max(0, pull));
-      }
-    },
-    [onTopPullChange],
-  );
-
-  const handleTopTouchEnd = useCallback(() => {
-    if (!topTouchActiveRef.current) return;
-    topTouchActiveRef.current = false;
-    if (topTouchPulledRef.current) onTopPullEnd?.();
-    topTouchPulledRef.current = false;
-  }, [onTopPullEnd]);
 
   // Infinite scroll — fire onLoadMore when the user scrolls near the bottom.
-  // Also reports the raw scroll offset so the screen can collapse its header.
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { layoutMeasurement, contentOffset, contentSize } =
         event.nativeEvent;
-      scrollOffsetRef.current = contentOffset.y;
-      onScrollOffsetChange?.(contentOffset.y);
 
       if (contentOffset.y < 0) {
         pullDistance.value = -contentOffset.y;
@@ -378,14 +337,7 @@ function SingleTaskTable({
         onLoadMore?.();
       }
     },
-    [
-      hasMore,
-      loadingMore,
-      loading,
-      onLoadMore,
-      onScrollOffsetChange,
-      pullDistance,
-    ],
+    [hasMore, loadingMore, loading, onLoadMore, pullDistance],
   );
 
   // If the current page doesn't fill the viewport (e.g. tall screens), load the
@@ -479,7 +431,7 @@ function SingleTaskTable({
           >
             {({ pressed }) => (
               <View>
-                <FilterIcon width={18} height={18} />
+                <FilterIcon width={12} height={12} />
                 {activeFilterCount > 0 ? (
                   <View style={styles.filterBadge}>
                     <Text style={styles.filterBadgeText}>
@@ -551,6 +503,7 @@ function SingleTaskTable({
                   onStatusChange={handleStatusChange}
                   onAssigneeChange={handleAssigneeChange}
                   onRemoveTask={onRemoveTask}
+                  swipeVariant={swipeVariant}
                   scrollCloseSignal={scrollCloseSignal}
                   columns={effectiveColumns}
                   readOnly={readOnly}
@@ -621,6 +574,7 @@ function SingleTaskTable({
                     onAddToProjectPress={onAddToProjectPress}
                     onSprintPress={onSprintPress}
                     onRemoveTask={onRemoveTask}
+                    swipeVariant={swipeVariant}
                     scrollCloseSignal={scrollCloseSignal}
                     columns={effectiveColumns}
                     readOnly={readOnly}
@@ -681,10 +635,6 @@ function SingleTaskTable({
               }
               onScroll={handleScroll}
               onScrollBeginDrag={() => setScrollCloseSignal((n) => n + 1)}
-              onTouchStart={handleTopTouchStart}
-              onTouchMove={handleTopTouchMove}
-              onTouchEnd={handleTopTouchEnd}
-              onTouchCancel={handleTopTouchEnd}
               scrollEventThrottle={16}
               nestedScrollEnabled
               // FlatList's own end-reached detection (rather than the manual
@@ -740,10 +690,6 @@ function SingleTaskTable({
               }
               onScroll={handleScroll}
               onScrollBeginDrag={() => setScrollCloseSignal((n) => n + 1)}
-              onTouchStart={handleTopTouchStart}
-              onTouchMove={handleTopTouchMove}
-              onTouchEnd={handleTopTouchEnd}
-              onTouchCancel={handleTopTouchEnd}
               scrollEventThrottle={16}
               nestedScrollEnabled
               refreshControl={
@@ -802,6 +748,7 @@ function SingleTaskTable({
                         onAddToProjectPress={onAddToProjectPress}
                         onSprintPress={onSprintPress}
                         onRemoveTask={onRemoveTask}
+                        swipeVariant={swipeVariant}
                         scrollCloseSignal={scrollCloseSignal}
                         columns={effectiveColumns}
                         readOnly={readOnly}

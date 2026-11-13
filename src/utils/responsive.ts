@@ -22,6 +22,16 @@ export function responsiveFontSize(size: number): number {
 export const rf = responsiveFontSize;
 
 /**
+ * Slightly denser type scale used by the Projects module so its cards, forms
+ * and pickers stay visually consistent with the chat screens.
+ */
+export function projectResponsiveFontSize(size: number): number {
+  return responsiveFontSize(size * 0.85);
+}
+
+export const prf = projectResponsiveFontSize;
+
+/**
  * Globally enforces allowFontScaling = false across all React Native <Text> and <TextInput>
  * components to prevent OS-level system font scaling from breaking app layout.
  */

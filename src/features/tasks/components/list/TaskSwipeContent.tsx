@@ -34,7 +34,9 @@ export const TaskSwipeContent = memo(function TaskSwipeContent({
   onAssigneeSelect,
   canAssignProject,
   onAddToProjectPress,
+  onSprintPress,
   onRemoveTask,
+  swipeVariant = "default",
   scrollCloseSignal,
 }: {
   item: TaskRowProps;
@@ -49,7 +51,9 @@ export const TaskSwipeContent = memo(function TaskSwipeContent({
   onAssigneeSelect: (owner: AssignableOwner) => void;
   canAssignProject?: boolean;
   onAddToProjectPress?: (task: TaskRowProps) => void;
+  onSprintPress?: (task: TaskRowProps) => void;
   onRemoveTask?: (task: TaskRowProps) => void;
+  swipeVariant?: "default" | "project";
   scrollCloseSignal?: number;
 }) {
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
@@ -83,6 +87,10 @@ export const TaskSwipeContent = memo(function TaskSwipeContent({
     canAssignProject === true && item._raw?.can_edit === true;
   const showProject = canChangeProject || !!item.project?.trim();
   const showRemove = !!onRemoveTask;
+  const showSprint = swipeVariant === "project";
+  const sprintLabel = item.sprint?.trim() || "No Sprint";
+  const canChangeSprint =
+    !!onSprintPress && item.canEditSprint !== false;
 
   if (stage === "actions") {
     return (
@@ -142,14 +150,24 @@ export const TaskSwipeContent = memo(function TaskSwipeContent({
           <Text style={[styles.swipeHeaderText, styles.swipeStatusColumn]}>
             Status
           </Text>
-          <Text style={[styles.swipeHeaderText, styles.swipeCommentColumn]}>
-            {showRemove ? "Remove" : "Comment"}
-          </Text>
-          {showProject ? (
-            <Text style={[styles.swipeHeaderText, styles.swipeProjectColumn]}>
-              Project
+          {showSprint ? (
+            <Text style={[styles.swipeHeaderText, styles.swipeSprintColumn]}>
+              Sprint
             </Text>
-          ) : null}
+          ) : (
+            <>
+              <Text style={[styles.swipeHeaderText, styles.swipeCommentColumn]}>
+                {showRemove ? "Remove" : "Comment"}
+              </Text>
+              {showProject ? (
+                <Text
+                  style={[styles.swipeHeaderText, styles.swipeProjectColumn]}
+                >
+                  Project
+                </Text>
+              ) : null}
+            </>
+          )}
         </View>
       </View>
 
@@ -233,55 +251,106 @@ export const TaskSwipeContent = memo(function TaskSwipeContent({
           )}
         </View>
 
-        {showRemove ? (
-          <TouchableOpacity
-            style={[styles.swipeCommentCell, styles.swipeCommentColumn]}
-            onPress={() => onRemoveTask?.(item)}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityLabel="Remove dependency"
-          >
-            <Ionicons name="trash-outline" size={17} color="#DC2626" />
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={[styles.swipeCommentCell, styles.swipeCommentColumn]}
-            onPress={() => onCommentPress?.(item)}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons name="chatbox-outline" size={18} color="#00DEAB" />
-            {item.comment ? (
-              <Text style={styles.swipeCommentCount}>{item.comment}</Text>
-            ) : null}
-          </TouchableOpacity>
-        )}
-
-        {showProject ? (
-          canChangeProject ? (
-            <TouchableOpacity
-              style={[styles.swipeProjectCell, styles.swipeProjectColumn]}
-              onPress={() => onAddToProjectPress?.(item)}
-              activeOpacity={0.7}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityLabel="Add to project"
-            >
-              <Ionicons name="folder-outline" size={18} color="#00DEAB" />
-              {item.project?.trim() ? (
-                <Text style={styles.swipeProjectName} numberOfLines={1}>
-                  {item.project}
+        {showSprint ? (
+          <View style={styles.swipeSprintColumn}>
+            {canChangeSprint ? (
+              <TouchableOpacity
+                style={styles.swipeSprintCell}
+                onPress={() => onSprintPress?.(item)}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Change sprint"
+              >
+                <Ionicons
+                  name="flag-outline"
+                  size={15}
+                  color={item.sprint?.trim() ? "#00DEAB" : "#9CA3AF"}
+                />
+                <Text
+                  style={[
+                    styles.swipeSprintText,
+                    !item.sprint?.trim() && styles.swipeSprintTextMuted,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {sprintLabel}
                 </Text>
-              ) : null}
-            </TouchableOpacity>
-          ) : (
-            <View style={[styles.swipeProjectCell, styles.swipeProjectColumn]}>
-              <Ionicons name="folder-outline" size={15} color="#00A876" />
-              <Text style={styles.swipeProjectName} numberOfLines={1}>
-                {item.project}
-              </Text>
-            </View>
-          )
-        ) : null}
+                <Ionicons name="chevron-down" size={12} color="#6B7280" />
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.swipeSprintCell}>
+                <Ionicons
+                  name="flag-outline"
+                  size={15}
+                  color={item.sprint?.trim() ? "#00A876" : "#9CA3AF"}
+                />
+                <Text
+                  style={[
+                    styles.swipeSprintText,
+                    !item.sprint?.trim() && styles.swipeSprintTextMuted,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {sprintLabel}
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : (
+          <>
+            {showRemove ? (
+              <TouchableOpacity
+                style={[styles.swipeCommentCell, styles.swipeCommentColumn]}
+                onPress={() => onRemoveTask?.(item)}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Remove dependency"
+              >
+                <Ionicons name="trash-outline" size={17} color="#DC2626" />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.swipeCommentCell, styles.swipeCommentColumn]}
+                onPress={() => onCommentPress?.(item)}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="chatbox-outline" size={18} color="#00DEAB" />
+                {item.comment ? (
+                  <Text style={styles.swipeCommentCount}>{item.comment}</Text>
+                ) : null}
+              </TouchableOpacity>
+            )}
+
+            {showProject ? (
+              canChangeProject ? (
+                <TouchableOpacity
+                  style={[styles.swipeProjectCell, styles.swipeProjectColumn]}
+                  onPress={() => onAddToProjectPress?.(item)}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel="Add to project"
+                >
+                  <Ionicons name="folder-outline" size={18} color="#00DEAB" />
+                  {item.project?.trim() ? (
+                    <Text style={styles.swipeProjectName} numberOfLines={1}>
+                      {item.project}
+                    </Text>
+                  ) : null}
+                </TouchableOpacity>
+              ) : (
+                <View
+                  style={[styles.swipeProjectCell, styles.swipeProjectColumn]}
+                >
+                  <Ionicons name="folder-outline" size={15} color="#00A876" />
+                  <Text style={styles.swipeProjectName} numberOfLines={1}>
+                    {item.project}
+                  </Text>
+                </View>
+              )
+            ) : null}
+          </>
+        )}
       </View>
 
       {statusPickerOpen ? (
@@ -293,6 +362,7 @@ export const TaskSwipeContent = memo(function TaskSwipeContent({
           <View style={styles.swipeDropdown}>
             <TaskStatusDropdown
               item={item}
+              variant={swipeVariant}
               onSelect={(status) => {
                 onStatusSelect(status);
                 setStatusPickerOpen(false);

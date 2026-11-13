@@ -28,9 +28,6 @@ type Props = {
   onCommentPress: (task: TaskRowProps) => void;
   onStatusChange: (task: TaskRowProps, status: StatusType) => void;
   onAssigneeChange: (task: TaskRowProps, owner: AssignableOwner) => void;
-  onScrollOffsetChange: (offsetY: number) => void;
-  onTopPullChange?: (pullDistance: number) => void;
-  onTopPullEnd?: () => void;
   canAssignProject?: boolean;
   onAddToProjectPress?: (task: TaskRowProps) => void;
 };
@@ -58,9 +55,6 @@ export default function TaskList({
   onCommentPress,
   onStatusChange,
   onAssigneeChange,
-  onScrollOffsetChange,
-  onTopPullChange,
-  onTopPullEnd,
   canAssignProject,
   onAddToProjectPress,
 }: Props) {
@@ -89,9 +83,6 @@ export default function TaskList({
         onLoadMore={onLoadMore}
         onRefresh={onRefresh}
         refreshing={refreshing}
-        onScrollOffsetChange={onScrollOffsetChange}
-        onTopPullChange={onTopPullChange}
-        onTopPullEnd={onTopPullEnd}
         canReassign={canReassign}
         assignableOwners={assignableOwners}
         onAssigneeChange={onAssigneeChange}

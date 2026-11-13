@@ -411,6 +411,25 @@ export const taskTableStyles = StyleSheet.create({
     flex: 1,
     minWidth: 60,
   },
+  swipeSprintColumn: {
+    flex: 1,
+    minWidth: 92,
+  },
+  swipeSprintCell: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 8,
+    gap: 4,
+  },
+  swipeSprintText: {
+    flexShrink: 1,
+    fontSize: rf(10),
+    color: "#00A876",
+    fontFamily: "SF_Pro_Medium",
+  },
+  swipeSprintTextMuted: {
+    color: "#9CA3AF",
+  },
   swipeValues: {
     height: 54,
     flexDirection: "row",

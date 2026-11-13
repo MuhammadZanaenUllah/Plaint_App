@@ -19,7 +19,7 @@ import {
   reportTaskError,
 } from "@/features/tasks/utils/taskError";
 import { useAuth } from "@/hooks/useAuth";
-import { rf } from "@/utils/responsive";
+import { prf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -159,21 +159,21 @@ export default function ProjectsScreen() {
           </View>
           <View style={styles.cardMeta}>
             <View style={styles.metaItem}>
-              <Ionicons name="list-outline" size={13} color="#9CA3AF" />
+              <Ionicons name="list-outline" size={11} color="#9CA3AF" />
               <Text style={styles.metaText}>{taskCount} tasks</Text>
             </View>
             <View style={styles.metaItem}>
-              <Ionicons name="person-outline" size={13} color="#9CA3AF" />
+              <Ionicons name="person-outline" size={11} color="#9CA3AF" />
               <Text style={styles.metaText} numberOfLines={1}>
                 {owner}
               </Text>
             </View>
             <View style={styles.metaItem}>
-              <Ionicons name="calendar-outline" size={13} color="#9CA3AF" />
+              <Ionicons name="calendar-outline" size={11} color="#9CA3AF" />
               <Text style={styles.metaText}>{due}</Text>
             </View>
             <View style={styles.metaItem}>
-              <Ionicons name="person-add-outline" size={13} color="#9CA3AF" />
+              <Ionicons name="person-add-outline" size={11} color="#9CA3AF" />
               <Text style={styles.metaText} numberOfLines={1}>
                 By {createdBy}
               </Text>
@@ -206,7 +206,7 @@ export default function ProjectsScreen() {
         rightActions={
           canCreate ? (
             <TouchableOpacity onPress={() => setCreateVisible(true)} hitSlop={8}>
-              <Ionicons name="add-circle" size={26} color="#00DEAB" />
+              <Ionicons name="add-circle" size={22} color="#00DEAB" />
             </TouchableOpacity>
           ) : undefined
         }
@@ -215,7 +215,7 @@ export default function ProjectsScreen() {
       <Pressable style={styles.body} onPress={Keyboard.dismiss}>
         <View style={styles.searchRow}>
           <View style={styles.searchBox}>
-            <Ionicons name="search-outline" size={17} color="#9CA3AF" />
+            <Ionicons name="search-outline" size={15} color="#9CA3AF" />
             <TextInput
               style={styles.searchInput}
               value={search}
@@ -228,13 +228,13 @@ export default function ProjectsScreen() {
             style={styles.ownerBtn}
             onPress={() => setOwnerFilterOpen((prev) => !prev)}
           >
-            <Ionicons name="person-outline" size={15} color="#6B7280" />
+            <Ionicons name="person-outline" size={13} color="#6B7280" />
             <Text style={styles.ownerBtnText} numberOfLines={1}>
               {ownerLabel}
             </Text>
             <Ionicons
               name={ownerFilterOpen ? "chevron-up" : "chevron-down"}
-              size={14}
+              size={12}
               color="#6B7280"
             />
           </TouchableOpacity>
@@ -278,7 +278,7 @@ export default function ProjectsScreen() {
                             `User #${owner.id}`}
                         </Text>
                         {selected ? (
-                          <Ionicons name="checkmark" size={15} color="#00A876" />
+                          <Ionicons name="checkmark" size={13} color="#00A876" />
                         ) : null}
                       </View>
                     </TouchableOpacity>
@@ -358,7 +358,7 @@ export default function ProjectsScreen() {
             maxToRenderPerBatch={8}
             windowSize={7}
             removeClippedSubviews
-            contentContainerStyle={{ paddingBottom: 32, gap: 10 }}
+            contentContainerStyle={{ paddingBottom: 28, gap: 8 }}
             ListEmptyComponent={
               <View style={styles.center}>
                 <Ionicons name="folder-open-outline" size={34} color="#D1D5DB" />
@@ -393,16 +393,16 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 7,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 42,
+    borderRadius: 9,
+    paddingHorizontal: 10,
+    height: 38,
   },
   searchInput: {
     flex: 1,
-    fontSize: rf(14),
+    fontSize: prf(14),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
     padding: 0,
@@ -410,15 +410,15 @@ const styles = StyleSheet.create({
   ownerBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 4,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    maxWidth: 150,
+    borderRadius: 9,
+    paddingHorizontal: 8,
+    maxWidth: 140,
   },
   ownerBtnText: {
-    fontSize: rf(12),
+    fontSize: prf(12),
     color: "#4B5563",
     fontFamily: "SF_Pro_Medium",
     flexShrink: 1,
@@ -452,46 +452,46 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   ownerOptionText: {
-    fontSize: rf(13),
+    fontSize: prf(13),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
   },
   statusRow: { flexGrow: 0, marginBottom: 10 },
   inlineError: {
     marginBottom: 8,
-    fontSize: rf(12),
+    fontSize: prf(12),
     color: "#B45309",
     fontFamily: "SF_Pro_Regular",
   },
   statusChip: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   statusChipText: {
-    fontSize: rf(12),
+    fontSize: prf(12),
     color: "#4B5563",
     fontFamily: "SF_Pro_Medium",
   },
   card: {
     borderWidth: 1,
     borderColor: "#F0F0F0",
-    borderRadius: 14,
+    borderRadius: 12,
     backgroundColor: "#FFFFFF",
-    padding: 14,
+    padding: 11,
   },
-  cardTop: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
+  cardTop: { flexDirection: "row", gap: 8, alignItems: "flex-start" },
   projectName: {
     flex: 1,
-    fontSize: rf(15),
+    fontSize: prf(15),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Semibold",
   },
-  statusBadge: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
-  statusText: { fontSize: rf(10.5), fontFamily: "SF_Pro_Semibold" },
-  cardMeta: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 10 },
+  statusBadge: { borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
+  statusText: { fontSize: prf(10.5), fontFamily: "SF_Pro_Semibold" },
+  cardMeta: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
   metaItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -499,7 +499,7 @@ const styles = StyleSheet.create({
     maxWidth: "48%",
   },
   metaText: {
-    fontSize: rf(11.5),
+    fontSize: prf(11.5),
     color: "#6B7280",
     fontFamily: "SF_Pro_Regular",
   },
@@ -511,13 +511,13 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     marginTop: 8,
-    fontSize: rf(15),
+    fontSize: prf(15),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Semibold",
   },
   emptyText: {
     marginTop: 4,
-    fontSize: rf(12.5),
+    fontSize: prf(12.5),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
     textAlign: "center",
@@ -530,7 +530,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 9,
   },
-  retryText: { color: "#fff", fontSize: rf(13), fontFamily: "SF_Pro_Semibold" },
+  retryText: { color: "#fff", fontSize: prf(13), fontFamily: "SF_Pro_Semibold" },
 });
 
 

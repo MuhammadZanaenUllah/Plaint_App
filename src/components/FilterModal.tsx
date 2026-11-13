@@ -3,6 +3,7 @@ import {
   BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetScrollView,
+  BottomSheetTextInput,
   type BottomSheetBackdropProps,
   type BottomSheetScrollViewMethods,
 } from "@gorhom/bottom-sheet";
@@ -196,6 +197,7 @@ function PersonPickerField({
               ? `${label} (${selectedOwners.length})`
               : label
           }
+          inputComponent={BottomSheetTextInput}
           value={query}
           onChangeText={(text) => {
             onChangeQuery(text);
@@ -378,6 +380,7 @@ export default function FilterModal({
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const scrollRef = useRef<BottomSheetScrollViewMethods>(null);
   const personRowYRef = useRef<number | null>(null);
+  const personPickerOpenRef = useRef(false);
 
   const scrollPersonFieldsIntoView = useCallback(() => {
     const y = personRowYRef.current;
@@ -393,15 +396,20 @@ export default function FilterModal({
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent =
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const show = Keyboard.addListener(showEvent, (event) =>
-      setKeyboardHeight(event.endCoordinates.height),
-    );
+    const show = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+      if (personPickerOpenRef.current) scrollPersonFieldsIntoView();
+    });
     const hide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
     return () => {
       show.remove();
       hide.remove();
     };
-  }, []);
+  }, [scrollPersonFieldsIntoView]);
+
+  useEffect(() => {
+    personPickerOpenRef.current = createdByOpen || assignedToOpen;
+  }, [assignedToOpen, createdByOpen]);
 
   const handleToggleCreatedBy = (owner: FilterPerson) => {
     setSelectedCreatedBy((prev) =>

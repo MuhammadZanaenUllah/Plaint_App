@@ -345,8 +345,8 @@ export default function NotificationsScreen() {
                 ]}
               >
                 <FilterIconBlack
-                  width={18}
-                  height={18}
+                  width={12}
+                  height={12}
                   color={activeFilterCount > 0 ? "#fff" : undefined}
                 />
                 {activeFilterCount > 0 ? (

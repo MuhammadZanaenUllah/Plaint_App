@@ -1,6 +1,6 @@
 import type { Sprint } from "@/features/projects/types/project.types";
 import { formatTaskDueDatePkt } from "@/features/tasks/utils/taskDate";
-import { rf } from "@/utils/responsive";
+import { prf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import ModalCloseButton from "@/components/ModalCloseButton";
 import {
@@ -118,17 +118,17 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     marginBottom: 10,
   },
-  title: { fontSize: rf(18), fontFamily: "SF_Pro_Semibold", color: "#1D1D1D" },
+  title: { fontSize: prf(18), fontFamily: "SF_Pro_Semibold", color: "#1D1D1D" },
   subtitle: {
     marginTop: 2,
-    fontSize: rf(12),
+    fontSize: prf(12),
     color: "#6B7280",
     fontFamily: "SF_Pro_Regular",
   },
   loader: { marginVertical: 12 },
   errorText: {
     marginTop: 10,
-    fontSize: rf(12),
+    fontSize: prf(12),
     color: "#DC2626",
     fontFamily: "SF_Pro_Regular",
   },
@@ -142,12 +142,12 @@ const styles = StyleSheet.create({
   },
   rowName: {
     flex: 1,
-    fontSize: rf(13.5),
+    fontSize: prf(13.5),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
   },
   dateBadge: {
-    fontSize: rf(10.5),
+    fontSize: prf(10.5),
     color: "#4B5563",
     backgroundColor: "#F3F4F6",
     borderRadius: 8,
@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
   },
   savingText: {
     marginTop: 10,
-    fontSize: rf(12),
+    fontSize: prf(12),
     color: "#6B7280",
     fontFamily: "SF_Pro_Regular",
     textAlign: "center",

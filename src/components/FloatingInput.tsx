@@ -1,5 +1,5 @@
 import { rf } from "@/utils/responsive";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import {
   Animated,
   NativeSyntheticEvent,
@@ -18,6 +18,8 @@ interface FloatingInputProps extends TextInputProps {
   secureToggle?: boolean;
   rightIcon?: keyof typeof Ionicons.glyphMap;
   containerStyle?: ViewStyle;
+  /** Lets a bottom sheet use BottomSheetTextInput for keyboard handling. */
+  inputComponent?: ComponentType<any>;
 }
 
 export default function FloatingInput({
@@ -30,11 +32,13 @@ export default function FloatingInput({
   onBlur,
   containerStyle,
   style,
+  inputComponent,
   ...rest
 }: FloatingInputProps) {
   const [focused, setFocused] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<any>(null);
+  const Input = (inputComponent ?? TextInput) as ComponentType<any>;
 
   const floated = focused || !!value;
   const anim = useRef(new Animated.Value(floated ? 1 : 0)).current;
@@ -91,7 +95,7 @@ export default function FloatingInput({
         {label}
       </Animated.Text>
 
-      <TextInput
+      <Input
         ref={inputRef}
         allowFontScaling={false}
         style={[styles.input, (secureToggle || rightIcon) && { paddingRight: 40 }, style]}

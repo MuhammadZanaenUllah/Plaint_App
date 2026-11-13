@@ -404,12 +404,8 @@ export default function AddPeopleModal({
               <View style={modalStyles.dragHandlePill} />
             </View>
             <View style={modalStyles.handleWrap}>
-              <ModalCloseButton
-                onPress={handleClose}
-                style={modalStyles.closeBtn}
-              />
-
               <Text style={modalStyles.title}>Add People</Text>
+              <ModalCloseButton onPress={handleClose} />
             </View>
 
             <View style={modalStyles.body}>
@@ -530,7 +526,12 @@ const modalStyles = StyleSheet.create({
     backgroundColor: "#D1D5DB",
   },
   handleWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
     paddingTop: 10,
+    marginBottom: 12,
   },
   body: {
     flex: 1,
@@ -547,18 +548,11 @@ const modalStyles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#F3F4F6",
   },
-  closeBtn: {
-    position: "absolute",
-    top: 14,
-    right: 16,
-    zIndex: 10,
-  },
   title: {
+    flexShrink: 1,
     fontSize: rf(16),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
-    marginHorizontal: 20,
-    marginBottom: 12,
   },
   channelControls: {
     marginHorizontal: 20,
