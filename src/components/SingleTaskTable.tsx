@@ -642,7 +642,7 @@ function SingleTaskTable({
               // on a plain ScrollView's bounce/contentInset behavior and
               // doesn't reliably fire near the bottom on iOS once rows are
               // virtualized) drives pagination here.
-              onEndReachedThreshold={0.4}
+              onEndReachedThreshold={0.2}
               onEndReached={() => {
                 if (hasMore && !loadingMore && !loading && !paginationError) {
                   onLoadMore?.();
@@ -653,10 +653,10 @@ function SingleTaskTable({
               // not be clipped by the recycler — only unmount them, don't
               // also strip their native views while still mounted.
               removeClippedSubviews={false}
-              windowSize={11}
-              maxToRenderPerBatch={20}
-              initialNumToRender={20}
-              updateCellsBatchingPeriod={16}
+              windowSize={5}
+              maxToRenderPerBatch={8}
+              initialNumToRender={16}
+              updateCellsBatchingPeriod={50}
               refreshControl={
                 onRefresh ? (
                   <RefreshControl

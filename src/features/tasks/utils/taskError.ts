@@ -84,7 +84,7 @@ export function taskErrorMessage(value: unknown, fallback = "Something went wron
     case "timeout":
       return "The request timed out. Please try again.";
     case "permission":
-      return "You do not have permission to perform this action.";
+      return "You don't have permission to do that. Please contact your company admin if you need access.";
     case "not_found":
       return "This item no longer exists. Refresh and try again.";
     case "auth":

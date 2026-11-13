@@ -150,7 +150,7 @@ export default function ProjectDetailModal({
         setDescription(d.description ?? project.description ?? "");
       }
     } catch (err) {
-      showError(extractErrorMessage(err));
+      showError("Project Detail", extractErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -297,10 +297,10 @@ export default function ProjectDetailModal({
         fetchProjects({ silent: true }).catch(() => {});
         onClose();
       } else {
-        showError(res.data || "Failed to update project");
+        showError("Update Failed", res.data || "Could not update the project.");
       }
     } catch (err) {
-      showError(extractErrorMessage(err));
+      showError("Update Failed", extractErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -325,7 +325,7 @@ export default function ProjectDetailModal({
           }
         }
       } catch (err) {
-        showError(extractErrorMessage(err));
+        showError("Status Update Failed", extractErrorMessage(err));
       }
     },
     [updateTaskStatusApi, companyId, companyIdentifier, project?.id, resetTaskPagination],
@@ -350,7 +350,7 @@ export default function ProjectDetailModal({
           }
         }
       } catch (err) {
-        showError(extractErrorMessage(err));
+        showError("Reassignment Failed", extractErrorMessage(err));
       }
     },
     [companyId, companyIdentifier, project?.id, resetTaskPagination],

@@ -86,6 +86,7 @@ import { rf } from "@/utils/responsive";
 import { apiStatusToUi } from "@/utils/statusMapper";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import ModalCloseButton from "@/components/ModalCloseButton";
+import { Ionicons } from "@expo/vector-icons";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -99,6 +100,7 @@ import {
   Keyboard,
   Modal,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -474,6 +476,8 @@ export default function TaskDetailModal({
   const [replyToNote, setReplyToNote] = useState<TaskNote | null>(null);
   const [editingNote, setEditingNote] = useState<TaskNote | null>(null);
   const [editingNoteText, setEditingNoteText] = useState("");
+  const [deleteNoteTarget, setDeleteNoteTarget] = useState<TaskNote | null>(null);
+  const [deletingNote, setDeletingNote] = useState(false);
   const [dependencies, setDependencies] = useState<DependencyData[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [dependencyModalVisible, setDependencyModalVisible] = useState(false);
@@ -1344,6 +1348,8 @@ export default function TaskDetailModal({
       setReplyToNote(null);
       setEditingNote(null);
       setEditingNoteText("");
+      setDeleteNoteTarget(null);
+      setDeletingNote(false);
       setDependencyModalVisible(false);
       setCriticalPromptVisible(false);
       setDetailOrderModalVisible(false);
@@ -1368,6 +1374,8 @@ export default function TaskDetailModal({
       setReplyToNote(null);
       setEditingNote(null);
       setEditingNoteText("");
+      setDeleteNoteTarget(null);
+      setDeletingNote(false);
     }
   }, [visible, initialTab, task?.taskId, loadTaskDetail, loadDependencies]);
 
@@ -1696,33 +1704,29 @@ export default function TaskDetailModal({
       showError("Not Allowed", "You can only delete your own notes.");
       return;
     }
-    Alert.alert(
-      "Delete Comment",
-      "Are you sure you want to delete this comment? This action cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const result = await deleteNoteApi(note.id, {
-                company_id: companyId,
-                company_identifier: companyIdentifier,
-              });
-              if (!result.ok) {
-                showError("Delete Failed", result.message);
-                return;
-              }
-              showSuccess("Success", "Comment deleted.");
-              await loadNotes();
-            } catch {
-              showError("Delete Failed", "Could not delete this comment.");
-            }
-          },
-        },
-      ],
-    );
+    setDeleteNoteTarget(note);
+  };
+
+  const confirmDeleteNote = async () => {
+    if (!deleteNoteTarget) return;
+    setDeletingNote(true);
+    try {
+      const result = await deleteNoteApi(deleteNoteTarget.id, {
+        company_id: companyId,
+        company_identifier: companyIdentifier,
+      });
+      if (!result.ok) {
+        showError("Delete Failed", result.message);
+        return;
+      }
+      showSuccess("Success", "Comment deleted.");
+      setDeleteNoteTarget(null);
+      await loadNotes();
+    } catch {
+      showError("Delete Failed", "Could not delete this comment.");
+    } finally {
+      setDeletingNote(false);
+    }
   };
 
   const handlePinNote = async (note: TaskNote) => {
@@ -2315,6 +2319,61 @@ export default function TaskDetailModal({
         </Modal>
       )}
 
+      <Modal
+        transparent
+        animationType="fade"
+        visible={deleteNoteTarget !== null}
+        onRequestClose={() => {
+          if (!deletingNote) setDeleteNoteTarget(null);
+        }}
+      >
+        <Pressable
+          style={styles.confirmOverlay}
+          onPress={() => {
+            if (!deletingNote) setDeleteNoteTarget(null);
+          }}
+        >
+          <Pressable
+            style={styles.confirmCard}
+            onPress={(event) => event.stopPropagation()}
+          >
+            <View style={styles.confirmIconBadge}>
+              <Ionicons name="trash-outline" size={28} color="#EF4444" />
+            </View>
+            <Text style={styles.confirmTitle}>Delete Comment</Text>
+            <Text style={styles.confirmDescription}>
+              Are you sure you want to delete this comment? This action cannot be
+              undone.
+            </Text>
+            <View style={styles.confirmActionRow}>
+              <TouchableOpacity
+                style={styles.confirmCancelBtn}
+                activeOpacity={0.8}
+                disabled={deletingNote}
+                onPress={() => setDeleteNoteTarget(null)}
+              >
+                <Text style={styles.confirmCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.confirmDeleteBtn,
+                  deletingNote && { opacity: 0.7 },
+                ]}
+                activeOpacity={0.85}
+                disabled={deletingNote}
+                onPress={() => void confirmDeleteNote()}
+              >
+                {deletingNote ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.confirmDeleteText}>Delete</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <DependencyModal
         visible={dependencyModalVisible}
         onClose={() => setDependencyModalVisible(false)}
@@ -2533,5 +2592,80 @@ const styles = StyleSheet.create({
     fontSize: rf(15),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
+  },
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 32,
+  },
+  confirmCard: {
+    width: "100%",
+    maxWidth: 320,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 22,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  confirmIconBadge: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+    backgroundColor: "#FEE2E2",
+  },
+  confirmTitle: {
+    fontSize: rf(19),
+    fontFamily: "SF_Pro_Bold",
+    color: "#1D1D1D",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  confirmDescription: {
+    fontSize: rf(14),
+    fontFamily: "SF_Pro_Regular",
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  confirmActionRow: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+  confirmCancelBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmCancelText: {
+    fontSize: rf(15),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#4B5563",
+  },
+  confirmDeleteBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: "#EF4444",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmDeleteText: {
+    fontSize: rf(15),
+    fontFamily: "SF_Pro_Bold",
+    color: "#FFFFFF",
   },
 });

@@ -35,6 +35,7 @@ import {
   canCreateProject,
 } from "@/features/projects/permissions/projectPermissions";
 import { showError } from "@/utils/toast";
+import { MODULE_ACCESS_MESSAGES } from "@/utils/errorHandler";
 import { StatusBar } from "expo-status-bar";
 import {
   useCallback,
@@ -86,8 +87,7 @@ export default function TasksScreen() {
               lineHeight: 19,
             }}
           >
-            Your account does not have the Tasks module or the tasks-list
-            permission. Please contact your company admin.
+            {MODULE_ACCESS_MESSAGES.tasks}
           </Text>
         </View>
       </View>

@@ -4,7 +4,7 @@
 import { StatusType, TaskRowProps } from "@/components/TaskRow";
 import { renderCounters } from "@/features/tasks/dev/counters";
 import { resolveSwipeSettle } from "@/features/tasks/utils/taskSwipeSettle";
-import { memo, useCallback, useEffect, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { TouchableOpacity, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -94,6 +94,7 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
   const hasStarted = useSharedValue(false);
   const isDragging = useSharedValue(false);
   const isOpenValue = useSharedValue(isOpen);
+  const hasMountedRef = useRef(false);
   const currentStage = isOpen ? stage : null;
   const revealWidth =
     currentStage === "details"
@@ -116,6 +117,13 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
     // Do not fight the live gesture. The finalize handler snaps immediately on
     // the UI thread; this effect handles state driven from outside the gesture.
     if (isDragging.value) return;
+    if (!hasMountedRef.current) {
+      // Avoid scheduling a spring for every row that mounts while scrolling.
+      hasMountedRef.current = true;
+      translateX.value = -revealWidth;
+      wrapHeight.value = rowHeight;
+      return;
+    }
     translateX.value = withSpring(-revealWidth, SWIPE_SPRING);
     wrapHeight.value = withSpring(rowHeight, SWIPE_SPRING);
   }, [revealWidth, rowHeight, translateX, wrapHeight, isDragging]);

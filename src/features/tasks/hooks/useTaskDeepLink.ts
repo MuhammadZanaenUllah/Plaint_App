@@ -42,7 +42,10 @@ export function useTaskDeepLink({
           : null;
 
     if (!targetTab) {
-      showError("Invalid task filter", `Unsupported filter: ${rawFilter}`);
+      showError(
+        "Invalid task link",
+        "This link uses a filter that isn't supported in the app. Please open the task from Tasks.",
+      );
       router.setParams({ filter: undefined });
       return;
     }

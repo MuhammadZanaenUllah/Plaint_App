@@ -642,7 +642,7 @@ export default function ChatScreen() {
                     ),
                 )
                 .catch(() =>
-                    showError("Error", "Could not update notifications"),
+                    showError("Error", "Could not update notification settings."),
                 );
         },
         [muteRoom, currentUserId],
@@ -662,8 +662,8 @@ export default function ChatScreen() {
                     showError(
                         "Error",
                         unread
-                            ? "Could not mark chat as read"
-                            : "Could not mark chat as unread",
+                            ? "Could not mark this chat as read."
+                            : "Could not mark this chat as unread.",
                     ),
                 );
         },

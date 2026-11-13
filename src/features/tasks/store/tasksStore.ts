@@ -523,10 +523,18 @@ export const useTasksStore = create<TasksState>()((set, get) => ({
     const key = `complete:${companyId}:${page}`;
     // One generation for the completed pager, not one per page number.
     const token = requestTracker.begin(`complete:${companyId}`);
-    // Only show the full-table loader when there is nothing on screen yet.
     // Loading page N+1 must never clear the rows the user is already reading.
-    const hasExistingRows = get().completedIds.length > 0 || page > 1;
-    set({ error: null, isLoading: !hasExistingRows });
+    // On the very first completed-page load, hide any locally-known completed
+    // ids until the full initial page arrives so the tab never flashes a
+    // partial single row before the batch.
+    const firstCompletedLoad = page === 1 && get().completedPage === 0;
+    const hasExistingRows =
+      !firstCompletedLoad && (get().completedIds.length > 0 || page > 1);
+    set({
+      error: null,
+      isLoading: !hasExistingRows,
+      ...(firstCompletedLoad ? { completedIds: [] as number[] } : null),
+    });
 
     const applyCompletedFallback = (
       data: TaskListResponse,

@@ -63,7 +63,12 @@ export function useTaskTabs({
       setLoadingMore(true);
       setPaginationState({ key: paginationKey, error: false });
       try {
+        const startedAt = Date.now();
         const loaded = await fetchCompletedPage(companyId, completedPage + 1);
+        const remaining = 180 - (Date.now() - startedAt);
+        if (remaining > 0) {
+          await new Promise((resolve) => setTimeout(resolve, remaining));
+        }
         setPaginationState({ key: paginationKey, error: !loaded });
         if (loaded) setPage(page + 1);
       } catch {
@@ -75,7 +80,19 @@ export function useTaskTabs({
       return;
     }
 
-    setPage(page + 1);
+    // Locally revealed pages are synchronous; keep the footer loader visible
+    // for a short beat so the user can see that the next batch is arriving.
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    setPaginationState({ key: paginationKey, error: false });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      if (!loadingMoreRef.current) return;
+      setPage(useTaskFiltersStore.getState().page + 1);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
   }, [
     activeTab,
     companyId,

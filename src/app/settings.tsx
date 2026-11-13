@@ -246,7 +246,10 @@ export default function SettingsScreen() {
         );
       } catch (err: any) {
         setPushEnabled(prev);
-        showError(err?.message ?? "Failed to update notification settings");
+        showError(
+          "Update Failed",
+          err?.message ?? "Could not update notification settings.",
+        );
       } finally {
         setPushLoading(false);
       }
@@ -315,7 +318,10 @@ export default function SettingsScreen() {
           showSuccess("Local cache and temporary files cleared successfully");
         } catch (err) {
           console.log("[Cache] Clear error:", err);
-          showError("Failed to clear some cache files");
+          showError(
+            "Clear Cache Failed",
+            "Some cached files couldn't be removed. Please try again.",
+          );
         }
       },
     });
@@ -323,15 +329,21 @@ export default function SettingsScreen() {
 
   const handlePasswordChange = () => {
     if (!oldPassword || !newPassword || !confirmPassword) {
-      showError("Please fill out all password fields");
+      showError("Missing Information", "Please fill in all password fields.");
       return;
     }
     if (newPassword !== confirmPassword) {
-      showError("New passwords do not match");
+      showError(
+        "Passwords Don't Match",
+        "Your new password and confirmation don't match.",
+      );
       return;
     }
     if (newPassword.length < 6) {
-      showError("New password must be at least 6 characters");
+      showError(
+        "Password Too Short",
+        "Your new password must be at least 6 characters.",
+      );
       return;
     }
 

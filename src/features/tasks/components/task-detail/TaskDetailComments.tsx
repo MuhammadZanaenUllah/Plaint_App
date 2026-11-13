@@ -7,6 +7,7 @@ import { mentionMarkupToDisplay } from "@/utils/chatHelpers";
 import { rf } from "@/utils/responsive";
 import { attachmentDisplayName } from "@/features/tasks/utils/taskAttachmentPath";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { formatApiDateTime } from "./taskDetailFormatters";
 
@@ -105,8 +106,36 @@ export function CommentBubble({
   index?: number;
   onOpenAttachment?: (path: string, name?: string) => void;
 }) {
-  const isOwn = comment.user_id === currentUserId;
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const [openReaction, setOpenReaction] = useState<string | null>(null);
+  const isOwn = Number(comment.user_id) === Number(currentUserId);
   const isPinned = comment.pin_top === 1;
+  const hasMyReaction = comment.reactions?.some(
+    (r) => Number(r.user_id) === Number(currentUserId),
+  );
+  const reactionGroups = Array.from(
+    (comment.reactions ?? []).reduce(
+      (groups, reaction) => {
+        const existing = groups.get(reaction.emoji);
+        const mine = Number(reaction.user_id) === Number(currentUserId);
+        if (existing) {
+          existing.names.push(reaction.user_name);
+          existing.mine = existing.mine || mine;
+        } else {
+          groups.set(reaction.emoji, {
+            emoji: reaction.emoji,
+            names: [reaction.user_name],
+            mine,
+          });
+        }
+        return groups;
+      },
+      new Map<string, { emoji: string; names: string[]; mine: boolean }>(),
+    ).values(),
+  );
+  const openReactionGroup = reactionGroups.find(
+    (group) => group.emoji === openReaction,
+  );
 
   const rawDate =
     comment.created_at ||
@@ -121,14 +150,12 @@ export function CommentBubble({
         <Avatar
           name={comment.user_name}
           imagePath={comment.user_image}
-          size={20}
+          size={18}
           borderRadius={5}
-          fontSize={9}
+          fontSize={8}
         />
-        <View style={styles.bubbleNameRow}>
-          <Text style={styles.bubbleName}>{comment.user_name}</Text>
-          <Text style={styles.bubbleTime}>{formatApiDateTime(rawDate)}</Text>
-        </View>
+        <Text style={styles.bubbleName}>{comment.user_name}</Text>
+        <Text style={styles.bubbleTime}>{formatApiDateTime(rawDate)}</Text>
       </View>
 
       {comment.reply_to && (
@@ -163,39 +190,78 @@ export function CommentBubble({
         </TouchableOpacity>
       ) : null}
 
-      {comment.reactions && comment.reactions.length > 0 && (
+      {reactionGroups.length > 0 && (
         <View style={styles.reactionsRow}>
-          {comment.reactions.map((r, i) => (
-            <View key={i} style={styles.reactionBadge}>
-              <Text style={styles.reactionText}>{r.emoji}</Text>
-              <Text style={styles.reactionCount}>
-                {r.user_name.split(" ")[0]}
-              </Text>
-            </View>
+          {reactionGroups.map((group) => (
+            <TouchableOpacity
+              key={group.emoji}
+              style={[
+                styles.reactionBadge,
+                group.mine && styles.reactionBadgeMine,
+              ]}
+              onPress={() =>
+                setOpenReaction((current) =>
+                  current === group.emoji ? null : group.emoji,
+                )
+              }
+            >
+              <Text style={styles.reactionText}>{group.emoji}</Text>
+              <Text style={styles.reactionCount}>{group.names.length}</Text>
+            </TouchableOpacity>
           ))}
+        </View>
+      )}
+
+      {openReactionGroup && (
+        <Text style={styles.reactionNamesText}>
+          {openReactionGroup.names.join(", ")}
+        </Text>
+      )}
+
+      {canPinReact && reactionPickerOpen && (
+        <View style={styles.reactionPicker}>
+          {REACTION_EMOJIS.map((emoji) => {
+            const active = comment.reactions?.some(
+              (r) =>
+                Number(r.user_id) === Number(currentUserId) &&
+                r.emoji === emoji,
+            );
+            return (
+              <TouchableOpacity
+                key={emoji}
+                style={[
+                  styles.reactionPickerItem,
+                  active && styles.reactionActionActive,
+                ]}
+                onPress={() => {
+                  onReactionToggle?.(emoji, comment.id ?? 0);
+                  setReactionPickerOpen(false);
+                }}
+              >
+                <Text style={styles.reactionActionEmoji}>{emoji}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       )}
 
       <View style={styles.bubbleActions}>
         {canPinReact && (
           <>
-            {REACTION_EMOJIS.map((emoji) => {
-              const active = comment.reactions?.some(
-                (r) => r.user_id === currentUserId && r.emoji === emoji,
-              );
-              return (
-                <TouchableOpacity
-                  key={emoji}
-                  style={[
-                    styles.actionBtn,
-                    active && styles.reactionActionActive,
-                  ]}
-                  onPress={() => onReactionToggle?.(emoji, comment.id ?? 0)}
-                >
-                  <Text style={styles.reactionActionEmoji}>{emoji}</Text>
-                </TouchableOpacity>
-              );
-            })}
+            <TouchableOpacity
+              style={[
+                styles.actionBtn,
+                (hasMyReaction || reactionPickerOpen) &&
+                  styles.reactionActionActive,
+              ]}
+              onPress={() => setReactionPickerOpen((open) => !open)}
+            >
+              <Ionicons
+                name="happy-outline"
+                size={14}
+                color={hasMyReaction ? "#00A876" : "#9CA3AF"}
+              />
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.actionBtn}
@@ -203,7 +269,7 @@ export function CommentBubble({
             >
               <MaterialCommunityIcons
                 name={isPinned ? "pin" : "pin-outline"}
-                size={15}
+                size={13}
                 color={isPinned ? "#00DEAB" : "#9CA3AF"}
               />
             </TouchableOpacity>
@@ -215,7 +281,7 @@ export function CommentBubble({
             style={styles.actionBtn}
             onPress={() => onEdit?.(comment)}
           >
-            <Ionicons name="pencil-outline" size={15} color="#9CA3AF" />
+            <Ionicons name="pencil-outline" size={13} color="#9CA3AF" />
           </TouchableOpacity>
         )}
 
@@ -223,7 +289,7 @@ export function CommentBubble({
           style={styles.actionBtn}
           onPress={() => onReply?.(comment)}
         >
-          <Ionicons name="arrow-undo-outline" size={15} color="#9CA3AF" />
+          <Ionicons name="arrow-undo-outline" size={13} color="#9CA3AF" />
         </TouchableOpacity>
 
         {isOwn && canDeleteOwn && (
@@ -231,7 +297,7 @@ export function CommentBubble({
             style={styles.actionBtn}
             onPress={() => onDelete?.(comment)}
           >
-            <Ionicons name="trash-outline" size={15} color="#9CA3AF" />
+            <Ionicons name="trash-outline" size={13} color="#9CA3AF" />
           </TouchableOpacity>
         )}
       </View>
@@ -243,8 +309,8 @@ const styles = StyleSheet.create({
   bubble: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 10,
+    padding: 10,
     backgroundColor: "#FFFFFF",
   },
   pinnedCard: {
@@ -258,8 +324,8 @@ const styles = StyleSheet.create({
   bubbleHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 8,
-    gap: 5,
+    marginBottom: 6,
+    gap: 4,
   },
   bubbleNameRow: {
     flex: 1,
@@ -268,46 +334,49 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   bubbleName: {
-    fontSize: rf(12),
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
+    flex: 1,
   },
   bubbleTime: {
-    fontSize: rf(9),
+    fontSize: rf(8),
     color: "#D1D5DB",
     fontFamily: "SF_Pro_Regular",
+    flexShrink: 0,
   },
   pinIcon: { marginLeft: "auto" },
   bubbleText: {
-    fontSize: rf(13),
+    fontSize: rf(12),
     color: "#1D1D1D",
-    lineHeight: 20,
+    lineHeight: 18,
     fontFamily: "SF_Pro_Regular",
   },
   bubbleActions: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-    gap: 12,
+    alignSelf: "flex-end",
+    gap: 10,
+    marginTop: 6,
   },
   reactionsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginTop: 8,
+    gap: 4,
+    marginTop: 6,
     flexWrap: "wrap",
   },
   reactionBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 3,
     backgroundColor: "#F3F4F6",
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  reactionBadgeMine: {
+    backgroundColor: "#E6FBF6",
   },
   reactionText: { fontSize: rf(12) },
   reactionCount: {
@@ -315,7 +384,31 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     fontFamily: "SF_Pro_Regular",
   },
-  actionBtn: { padding: 2 },
+  reactionNamesText: {
+    marginTop: 4,
+    fontSize: rf(9),
+    color: "#6B7280",
+    fontFamily: "SF_Pro_Regular",
+  },
+  actionBtn: { padding: 1 },
+  reactionPicker: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-end",
+    flexWrap: "wrap",
+    gap: 4,
+    marginTop: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+    backgroundColor: "#F9FAFB",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 8,
+  },
+  reactionPickerItem: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
   reactionActionActive: {
     backgroundColor: "#E6FBF6",
     borderRadius: 6,
@@ -324,7 +417,7 @@ const styles = StyleSheet.create({
     fontSize: rf(14),
   },
   noteAttachmentChip: {
-    marginTop: 8,
+    marginTop: 6,
     alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",

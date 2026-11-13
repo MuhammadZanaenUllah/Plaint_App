@@ -305,7 +305,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!isCompanyAdmin && !isSaasAdmin) {
         if (!(ud.user_permissions ?? []).length) {
           throw new Error(
-            "No permission assigned to you. Please contact company admin or hr to add permissions",
+            "Your account doesn't have any permissions yet. Please contact your company admin or HR to request access.",
           );
         }
         if (!successRes.user.company?.policy) {

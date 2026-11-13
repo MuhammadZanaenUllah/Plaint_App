@@ -14,7 +14,7 @@ export const taskDetailCommentsTabStyles = StyleSheet.create({
     paddingTop: 16,
   },
   commentsList: { flex: 1 },
-  commentsListContent: { gap: 12, paddingBottom: 16 },
+  commentsListContent: { gap: 8, paddingBottom: 16 },
   emptyComments: {
     flex: 1,
     justifyContent: "center",

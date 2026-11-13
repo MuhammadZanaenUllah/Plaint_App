@@ -979,7 +979,7 @@ function LinkifiedText({
             style={styles.linkText}
             onPress={() =>
               Linking.openURL(part).catch(() =>
-                showError("Error", "Could not open link"),
+                showError("Error", "Could not open this link."),
               )
             }
           >
@@ -1752,7 +1752,7 @@ function AttachmentCluster({
 }) {
   const openDoc = (doc: MessageAttachment) => {
     openChatDocument(doc.url, decodeAttachmentName(doc.name)).catch(() =>
-      showError("Error", "Could not open attachment"),
+      showError("Error", "Could not open this attachment."),
     );
   };
 
@@ -1767,7 +1767,7 @@ function AttachmentCluster({
     try {
       await downloadChatAttachment(doc.url, decodeAttachmentName(doc.name));
     } catch {
-      showError("Error", "Could not download document");
+      showError("Error", "Could not download this document.");
     } finally {
       setDownloadingDocKey(null);
     }
@@ -2097,7 +2097,7 @@ function ImageViewerModal({
     try {
       await downloadChatAttachment(current.url, current.name);
     } catch {
-      showError("Error", "Could not download image");
+      showError("Error", "Could not download this image.");
     } finally {
       setDownloading(false);
     }
@@ -2210,7 +2210,7 @@ function VideoViewerModal({
     try {
       await downloadChatAttachment(url, name);
     } catch {
-      showError("Error", "Could not download video");
+      showError("Error", "Could not download this video.");
     } finally {
       setDownloading(false);
     }
@@ -3385,7 +3385,7 @@ function PostTypeCreateModal({
   const handleCreate = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      showError("Validation", "Post type name is required");
+      showError("Validation", "Please enter a post type name.");
       return;
     }
     setSaving(true);
@@ -3393,7 +3393,7 @@ function PostTypeCreateModal({
       await onCreate(trimmed, color, icon);
       onClose();
     } catch {
-      showError("Error", "Could not create post type");
+      showError("Error", "Could not create the post type.");
     } finally {
       setSaving(false);
     }
@@ -4980,7 +4980,7 @@ export default function ConversationScreen() {
       setIsRecording(true);
     } catch (err) {
       console.log("[Audio] Start recording error:", err);
-      showError("Error", "Could not start audio recording");
+      showError("Error", "Could not start audio recording.");
     } finally {
       recordingBusyRef.current = false;
     }
@@ -5060,7 +5060,7 @@ export default function ConversationScreen() {
       });
     } catch (err) {
       console.log("[Audio] Send voice note error:", err);
-      showError("Error", "Failed to send voice note");
+      showError("Error", "Could not send the voice note.");
     } finally {
       setSending(false);
       recordingBusyRef.current = false;
@@ -5324,7 +5324,7 @@ export default function ConversationScreen() {
         showSuccess("Message updated");
       } catch (err) {
         console.log("[Conv] Edit error:", err);
-        showError("Error", "Failed to update message");
+        showError("Error", "Could not update this message.");
         setEditingMsg(targetMsg);
         setMessage(textToSave);
       } finally {
@@ -5583,7 +5583,7 @@ export default function ConversationScreen() {
         fetchRoomPermissions(roomId).catch(() => {});
         showSuccess("Permission updated", `${member.name}: ${permission}`);
       } catch {
-        showError("Error", "Could not update permission");
+        showError("Error", "Could not update the permission.");
       }
     },
     [
@@ -5612,7 +5612,7 @@ export default function ConversationScreen() {
       await removeMember(roomId, target.id);
       showSuccess("Removed", `${target.name} was removed from the channel`);
     } catch {
-      showError("Error", "Could not remove member");
+      showError("Error", "Could not remove this member.");
     }
   };
 
@@ -5645,7 +5645,7 @@ export default function ConversationScreen() {
                 if (selectedPostType === name) setSelectedPostType(null);
                 showSuccess("Post type deleted", name);
               } catch {
-                showError("Error", "Could not delete post type");
+                showError("Error", "Could not delete the post type.");
               }
             },
           },
@@ -5693,7 +5693,7 @@ export default function ConversationScreen() {
         setForwardOpen(false);
         setForwardMsg(null);
       } catch {
-        showError("Error", "Failed to forward message");
+        showError("Error", "Could not forward this message.");
       } finally {
         setForwarding(false);
       }
@@ -5865,7 +5865,7 @@ export default function ConversationScreen() {
         showInfo("Notifications on", "You'll get notified for this conversation");
       }
     } catch {
-      showError("Error", "Could not update notification settings");
+      showError("Error", "Could not update notification settings.");
     }
   };
 
@@ -5878,7 +5878,7 @@ export default function ConversationScreen() {
       await markUnread(roomId);
       router.back();
     } catch {
-      showError("Error", "Could not mark chat as unread");
+      showError("Error", "Could not mark this chat as unread.");
     }
   };
 
@@ -5901,7 +5901,7 @@ export default function ConversationScreen() {
       }
       router.back();
     } catch {
-      showError("Error", "Could not delete chat");
+      showError("Error", "Could not delete this chat.");
     }
   };
 
@@ -5920,7 +5920,7 @@ export default function ConversationScreen() {
       await leaveRoom(roomId);
       router.back();
     } catch {
-      showError("Error", "Could not leave channel");
+      showError("Error", "Could not leave this channel.");
     }
   };
 
@@ -5941,7 +5941,7 @@ export default function ConversationScreen() {
               await clearMessages(roomId);
               showSuccess("Chat history cleared");
             } catch {
-              showError("Error", "Could not clear chat history");
+              showError("Error", "Could not clear the chat history.");
             }
           },
         },
@@ -6112,7 +6112,7 @@ export default function ConversationScreen() {
         await downloadChatAttachment(att.url, decodeAttachmentName(att.name));
       }
     } catch {
-      showError("Error", "Could not download attachment");
+      showError("Error", "Could not download this attachment.");
     }
   }, []);
 
@@ -7531,7 +7531,7 @@ export default function ConversationScreen() {
           // Safety net (mirrors the API guard in ChatContext): only your own
           // messages are deletable, and "everyone" only within the 1h window.
           if (!isOwnMessage(deleteModalMsg, currentUserId)) {
-            showError("Error", "You can only delete your own messages");
+            showError("Error", "You can only delete your own messages.");
             return;
           }
           const effectiveDeleteFor =

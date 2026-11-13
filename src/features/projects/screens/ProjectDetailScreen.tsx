@@ -79,6 +79,7 @@ import {
 } from "@/features/projects/utils/projectValidation";
 import { sortProjectTasks } from "@/features/projects/utils/projectTaskSort";
 import { useAuth } from "@/hooks/useAuth";
+import { MODULE_ACCESS_MESSAGES } from "@/utils/errorHandler";
 import { useTasks } from "@/hooks/useTasks";
 import { openChatDocument } from "@/utils/openChatDocument";
 import { prf } from "@/utils/responsive";
@@ -639,7 +640,7 @@ export default function ProjectDetailScreen() {
         <View style={styles.center}>
           <Text style={styles.emptyTitle}>Projects unavailable</Text>
           <Text style={styles.emptyText}>
-            Your account does not have the project-list permission.
+            {MODULE_ACCESS_MESSAGES.projects}
           </Text>
         </View>
       </SafeAreaView>

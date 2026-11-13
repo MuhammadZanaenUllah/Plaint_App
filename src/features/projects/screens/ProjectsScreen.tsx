@@ -19,6 +19,7 @@ import {
   reportTaskError,
 } from "@/features/tasks/utils/taskError";
 import { useAuth } from "@/hooks/useAuth";
+import { MODULE_ACCESS_MESSAGES } from "@/utils/errorHandler";
 import { prf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -192,7 +193,7 @@ export default function ProjectsScreen() {
         <View style={styles.center}>
           <Text style={styles.emptyTitle}>Projects unavailable</Text>
           <Text style={styles.emptyText}>
-            Your account does not have the project-list permission.
+            {MODULE_ACCESS_MESSAGES.projects}
           </Text>
         </View>
       </SafeAreaView>
