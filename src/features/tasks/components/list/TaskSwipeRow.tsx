@@ -4,7 +4,7 @@
 import { StatusType, TaskRowProps } from "@/components/TaskRow";
 import { renderCounters } from "@/features/tasks/dev/counters";
 import { resolveSwipeSettle } from "@/features/tasks/utils/taskSwipeSettle";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { TouchableOpacity, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -95,13 +95,7 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
   const isDragging = useSharedValue(false);
   const isOpenValue = useSharedValue(isOpen);
   const hasMountedRef = useRef(false);
-  // The swipe panel is hidden behind the row while closed. Mounting it for
-  // every row makes scrolling expensive, so defer it until the row is opened
-  // or a pan begins.
-  const [panelMounted, setPanelMounted] = useState(isOpen);
-  const mountPanel = useCallback(() => setPanelMounted(true), []);
   const currentStage = isOpen ? stage : null;
-  const showSwipePanel = panelMounted || currentStage !== null;
   const revealWidth =
     currentStage === "details"
       ? metrics.swipeContentWidth
@@ -183,10 +177,6 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
           cancelAnimation(wrapHeight);
           isDragging.value = true;
           gestureStartX.value = translateX.value;
-          // Mount on touch-down so the panel is ready before the first
-          // horizontal frame; only the touched row pays this cost, not every
-          // row in the list.
-          runOnJS(mountPanel)();
         })
         .onStart((event) => {
           if (!isOpenValue.value && event.translationX > 0) return;
@@ -258,7 +248,6 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
       isDragging,
       isOpenValue,
       metrics.swipeContentWidth,
-      mountPanel,
       settleSwipe,
       stage,
       translateX,
@@ -285,26 +274,24 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
             },
           ]}
         >
-          {showSwipePanel ? (
-            <TaskSwipeContent
-              item={item}
-              stage={currentStage ?? "actions"}
-              onClose={onCloseSwipe}
-              onBackToActions={handleBackToActions}
-              onRevealDetails={handleRevealDetails}
-              onStatusSelect={handleStatusSelect}
-              onCommentPress={onCommentPress}
-              canReassign={canReassign}
-              assignableOwners={assignableOwners}
-              onAssigneeSelect={handleAssigneeSelect}
-              canAssignProject={canAssignProject}
-              onAddToProjectPress={onAddToProjectPress}
-              onSprintPress={onSprintPress}
-              onRemoveTask={onRemoveTask}
-              swipeVariant={swipeVariant}
-              scrollCloseSignal={scrollCloseSignal}
-            />
-          ) : null}
+          <TaskSwipeContent
+            item={item}
+            stage={currentStage ?? "actions"}
+            onClose={onCloseSwipe}
+            onBackToActions={handleBackToActions}
+            onRevealDetails={handleRevealDetails}
+            onStatusSelect={handleStatusSelect}
+            onCommentPress={onCommentPress}
+            canReassign={canReassign}
+            assignableOwners={assignableOwners}
+            onAssigneeSelect={handleAssigneeSelect}
+            canAssignProject={canAssignProject}
+            onAddToProjectPress={onAddToProjectPress}
+            onSprintPress={onSprintPress}
+            onRemoveTask={onRemoveTask}
+            swipeVariant={swipeVariant}
+            scrollCloseSignal={scrollCloseSignal}
+          />
         </Animated.View>
 
         <Animated.View style={animatedRowStyle}>
@@ -339,10 +326,7 @@ export const SwipeTaskRow = memo(function SwipeTaskRow({
             {currentStage === null && (
               <TouchableOpacity
                 style={styles.actionPress}
-                onPress={() => {
-                  mountPanel();
-                  onOpenSwipe(taskKey, "actions");
-                }}
+                onPress={() => onOpenSwipe(taskKey, "actions")}
                 activeOpacity={0.8}
               >
                 <WaveChevronBadge />

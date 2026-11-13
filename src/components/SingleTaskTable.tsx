@@ -84,6 +84,9 @@ type Props = {
   canAssignProject?: boolean;
   onAddToProjectPress?: (task: TaskRowProps) => void;
   onSprintPress?: (task: TaskRowProps) => void;
+  /** Optional add-task row rendered at the end of the table. */
+  onAddTaskPress?: () => void;
+  addTaskLabel?: string;
   /** Read-only dependency tables render a remove action cell. */
   onRemoveTask?: (task: TaskRowProps) => void;
   // Optional column configuration. When omitted, the classic task layout is
@@ -140,6 +143,8 @@ function SingleTaskTable({
   canAssignProject = false,
   onAddToProjectPress,
   onSprintPress,
+  onAddTaskPress,
+  addTaskLabel = "+ Add Task",
   onRemoveTask,
   columns,
   columnHeadings,
@@ -636,20 +641,32 @@ function SingleTaskTable({
                 )
               }
               ListFooterComponent={
-                augmentedTasks.length > 0 ? (
-                  <View style={styles.footerState}>
-                    {loadingMore ? (
-                      <ActivityIndicator size="small" color="#00DEAB" />
-                    ) : paginationError ? (
-                      <Pressable
-                        style={styles.retryButton}
-                        onPress={onRetryLoadMore}
-                      >
-                        <Text style={styles.retryText}>Retry loading more</Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                ) : null
+                <>
+                  {onAddTaskPress ? (
+                    <Pressable
+                      style={styles.addTaskFooter}
+                      onPress={onAddTaskPress}
+                    >
+                      <Text style={styles.addTaskFooterText}>
+                        {addTaskLabel}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  {augmentedTasks.length > 0 ? (
+                    <View style={styles.footerState}>
+                      {loadingMore ? (
+                        <ActivityIndicator size="small" color="#00DEAB" />
+                      ) : paginationError ? (
+                        <Pressable
+                          style={styles.retryButton}
+                          onPress={onRetryLoadMore}
+                        >
+                          <Text style={styles.retryText}>Retry loading more</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ) : null}
+                </>
               }
               showsVerticalScrollIndicator={false}
               style={styles.rowsScroll}
@@ -792,6 +809,15 @@ function SingleTaskTable({
                     );
                   })
                 : null}
+
+              {onAddTaskPress ? (
+                <Pressable
+                  style={styles.addTaskFooter}
+                  onPress={onAddTaskPress}
+                >
+                  <Text style={styles.addTaskFooterText}>{addTaskLabel}</Text>
+                </Pressable>
+              ) : null}
 
               {!loading && augmentedTasks.length > 0 ? (
                 <View style={styles.footerState}>

@@ -12,6 +12,7 @@ type Props = {
   onStatusChange: (task: TaskRowProps, status: StatusType) => void;
   onAssigneeChange: (task: TaskRowProps, owner: AssignableOwner) => void;
   onSprintPress: (task: TaskRowProps) => void;
+  onAddTaskPress?: () => void;
   emptyText?: string;
 };
 
@@ -28,6 +29,7 @@ export default function ProjectTasksTable({
   onStatusChange,
   onAssigneeChange,
   onSprintPress,
+  onAddTaskPress,
   emptyText = "No tasks in this project.",
 }: Props) {
   return (
@@ -43,6 +45,8 @@ export default function ProjectTasksTable({
       onStatusChange={onStatusChange}
       onAssigneeChange={onAssigneeChange}
       onSprintPress={onSprintPress}
+      onAddTaskPress={onAddTaskPress}
+      addTaskLabel="+ Add Task"
       emptyText={emptyText}
     />
   );

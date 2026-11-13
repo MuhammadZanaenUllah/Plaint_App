@@ -2,6 +2,7 @@ import CalendarPicker from "@/components/CalendarPicker";
 import DocumentPickerButton from "@/features/attachments/components/DocumentPickerButton";
 import type { SelectedFile } from "@/features/attachments/types/attachment.types";
 import ScreenHeader from "@/components/ScreenHeader";
+import CreateTaskModal from "@/components/CreateTaskModal";
 import TaskDetailModal, {
   buildTaskDetailFromViewTask,
   type TaskDetail,
@@ -20,6 +21,7 @@ import {
 } from "@/features/tasks/api/taskApi";
 import {
   canApproveReject as canApproveRejectTask,
+  canCreateTask,
   canReopen as canReopenTask,
   hasPermission,
   TASK_PERMISSIONS,
@@ -148,6 +150,7 @@ export default function ProjectDetailScreen() {
   const [rejectTargetTaskId, setRejectTargetTaskId] = useState<number | null>(null);
   const [reopenModalVisible, setReopenModalVisible] = useState(false);
   const [reopenTargetTaskId, setReopenTargetTaskId] = useState<number | null>(null);
+  const [createTaskVisible, setCreateTaskVisible] = useState(false);
 
   const refresh = useCallback(() => {
     if (projectId) {
@@ -260,6 +263,7 @@ export default function ProjectDetailScreen() {
     [projectSprints],
   );
 
+  const canAddTask = canCreateTask(authState.user, authState.company);
   const canEditProjectDueDate = canEditNow && !isAts;
   const projectDueMinDate = useMemo(() => {
     const latest = latestProjectDependencyDate(
@@ -880,7 +884,7 @@ export default function ProjectDetailScreen() {
                   style={styles.attachMain}
                   onPress={() => handleOpenAttachment(attachment)}
                 >
-                  <Ionicons name="download-outline" size={15} color="#00DEAB" />
+                  <Ionicons name="download-outline" size={13} color="#00DEAB" />
                   <Text style={styles.attachText} numberOfLines={1}>
                     {attachmentDisplayName(
                       attachment.original_name,
@@ -893,7 +897,7 @@ export default function ProjectDetailScreen() {
                     onPress={() => handleDeleteAttachment(attachment)}
                     hitSlop={8}
                   >
-                    <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                    <Ionicons name="trash-outline" size={14} color="#EF4444" />
                   </TouchableOpacity>
                 )}
               </View>
@@ -927,6 +931,9 @@ export default function ProjectDetailScreen() {
                 if (!projectDetail) return;
                 assignment.openSprintForTask(row, projectDetail);
               }}
+              onAddTaskPress={
+                canAddTask ? () => setCreateTaskVisible(true) : undefined
+              }
               emptyText="No tasks in this project."
             />
           </ScrollView>
@@ -1001,13 +1008,22 @@ export default function ProjectDetailScreen() {
         companyId={companyId}
         companyIdentifier={companyIdentifier}
       />
+
+      {canAddTask ? (
+        <CreateTaskModal
+          visible={createTaskVisible}
+          onClose={() => setCreateTaskVisible(false)}
+          onCreated={() => refresh()}
+          projectId={projectId}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#fff" },
-  content: { paddingHorizontal: 14, paddingBottom: 32 },
+  content: { paddingHorizontal: 12, paddingBottom: 24 },
   inlineError: {
     marginTop: 8,
     fontSize: prf(12),
@@ -1021,95 +1037,95 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   emptyTitle: {
-    fontSize: prf(16),
+    fontSize: prf(14),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
   },
   emptyText: {
-    marginTop: 5,
-    fontSize: prf(12.5),
+    marginTop: 4,
+    fontSize: prf(11.5),
     fontFamily: "SF_Pro_Regular",
     color: "#9CA3AF",
     textAlign: "center",
   },
   retryBtn: {
-    marginTop: 12,
+    marginTop: 10,
     backgroundColor: "#00DEAB",
-    borderRadius: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 9,
+    borderRadius: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
   },
-  retryText: { color: "#fff", fontSize: prf(13), fontFamily: "SF_Pro_Semibold" },
-  field: { marginTop: 6, marginBottom: 8 },
+  retryText: { color: "#fff", fontSize: prf(12), fontFamily: "SF_Pro_Semibold" },
+  field: { marginTop: 4, marginBottom: 6 },
   fieldLabel: {
-    fontSize: prf(11),
+    fontSize: prf(10),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Semibold",
-    marginBottom: 4,
+    marginBottom: 3,
   },
   titleInput: {
-    fontSize: prf(19),
+    fontSize: prf(16),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Semibold",
-    paddingVertical: 4,
+    paddingVertical: 3,
   },
   infoRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 7,
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
   infoLabel: {
-    fontSize: prf(12),
+    fontSize: prf(11),
     color: "#6B7280",
     fontFamily: "SF_Pro_Semibold",
   },
   infoValueBtn: { maxWidth: "62%" },
   infoValue: {
-    fontSize: prf(13),
+    fontSize: prf(12),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
     textAlign: "right",
   },
-  statusBadge: { borderRadius: 12, paddingHorizontal: 9, paddingVertical: 4 },
-  statusText: { fontSize: prf(11), fontFamily: "SF_Pro_Semibold" },
+  statusBadge: { borderRadius: 10, paddingHorizontal: 7, paddingVertical: 3 },
+  statusText: { fontSize: prf(10), fontFamily: "SF_Pro_Semibold" },
   chipsWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    paddingVertical: 8,
+    gap: 6,
+    paddingVertical: 6,
   },
   chip: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    borderRadius: 14,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    borderRadius: 12,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
   },
-  chipText: { fontSize: prf(12), color: "#4B5563", fontFamily: "SF_Pro_Medium" },
+  chipText: { fontSize: prf(11), color: "#4B5563", fontFamily: "SF_Pro_Medium" },
   dropdown: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    borderRadius: 10,
+    borderRadius: 8,
     maxHeight: 180,
-    marginVertical: 6,
+    marginVertical: 4,
     overflow: "hidden",
   },
-  dropdownRow: { paddingHorizontal: 10, paddingVertical: 8 },
-  dropdownText: { fontSize: prf(13), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
+  dropdownRow: { paddingHorizontal: 8, paddingVertical: 6 },
+  dropdownText: { fontSize: prf(12), color: "#1D1D1D", fontFamily: "SF_Pro_Regular" },
   calendarWrap: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    borderRadius: 10,
-    padding: 6,
-    marginVertical: 8,
+    borderRadius: 8,
+    padding: 4,
+    marginVertical: 6,
   },
   sectionTitle: {
-    marginTop: 18,
-    marginBottom: 8,
-    fontSize: prf(15),
+    marginTop: 14,
+    marginBottom: 6,
+    fontSize: prf(13),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Semibold",
   },
@@ -1117,47 +1133,47 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 18,
-    marginBottom: 8,
+    marginTop: 14,
+    marginBottom: 6,
   },
   descriptionInput: {
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    borderRadius: 10,
-    minHeight: 80,
-    padding: 10,
-    fontSize: prf(13),
+    borderRadius: 8,
+    minHeight: 68,
+    padding: 8,
+    fontSize: prf(12),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
   },
   saveBtn: {
-    marginTop: 14,
+    marginTop: 10,
     backgroundColor: "#00DEAB",
-    borderRadius: 10,
-    paddingVertical: 11,
+    borderRadius: 8,
+    paddingVertical: 9,
     alignItems: "center",
   },
-  saveText: { color: "#fff", fontSize: prf(14), fontFamily: "SF_Pro_Semibold" },
+  saveText: { color: "#fff", fontSize: prf(12), fontFamily: "SF_Pro_Semibold" },
   attachRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     borderWidth: 1,
     borderColor: "#F3F4F6",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 7,
-    marginBottom: 5,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    marginBottom: 4,
   },
-  attachMain: { flexDirection: "row", alignItems: "center", gap: 6, flex: 1 },
+  attachMain: { flexDirection: "row", alignItems: "center", gap: 5, flex: 1 },
   attachText: {
     flex: 1,
-    fontSize: prf(12),
+    fontSize: prf(11),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
   },
   muted: {
-    fontSize: prf(12),
+    fontSize: prf(11),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
   },

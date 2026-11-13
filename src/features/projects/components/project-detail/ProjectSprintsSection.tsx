@@ -36,7 +36,7 @@ export default function ProjectSprintsSection({
         <Text style={styles.sectionTitle}>Sprints ({sprints.length})</Text>
         {canManage ? (
           <TouchableOpacity style={styles.addBtn} onPress={onCreate} hitSlop={8}>
-            <Ionicons name="add" size={15} color="#00A876" />
+            <Ionicons name="add" size={12} color="#00A876" />
             <Text style={styles.addText}>Create Sprint</Text>
           </TouchableOpacity>
         ) : null}
@@ -74,14 +74,14 @@ export default function ProjectSprintsSection({
                   hitSlop={8}
                   accessibilityLabel="Change sprint date"
                 >
-                  <Ionicons name="calendar-outline" size={17} color="#00A876" />
+                  <Ionicons name="calendar-outline" size={14} color="#00A876" />
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => onDelete(sprint)}
                   hitSlop={8}
                   accessibilityLabel="Delete sprint"
                 >
-                  <Ionicons name="trash-outline" size={17} color="#EF4444" />
+                  <Ionicons name="trash-outline" size={14} color="#EF4444" />
                 </TouchableOpacity>
               </View>
             ) : null}
@@ -93,71 +93,71 @@ export default function ProjectSprintsSection({
 }
 
 const styles = StyleSheet.create({
-  container: { marginTop: 18 },
+  container: { marginTop: 14 },
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   sectionTitle: {
-    fontSize: prf(15),
+    fontSize: prf(13),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Semibold",
   },
   addBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: 2,
     borderWidth: 1,
     borderColor: "#D1FAE5",
     backgroundColor: "#ECFDF5",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
+    borderRadius: 7,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
   },
   addText: {
-    fontSize: prf(11.5),
+    fontSize: prf(10.5),
     color: "#00A876",
     fontFamily: "SF_Pro_Semibold",
   },
-  loader: { marginVertical: 10 },
+  loader: { marginVertical: 8 },
   errorText: {
-    fontSize: prf(12),
+    fontSize: prf(11),
     color: "#DC2626",
     fontFamily: "SF_Pro_Regular",
-    marginBottom: 6,
+    marginBottom: 4,
   },
   emptyText: {
-    fontSize: prf(12),
+    fontSize: prf(11),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
-    paddingVertical: 6,
+    paddingVertical: 4,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     borderWidth: 1,
     borderColor: "#F3F4F6",
-    borderRadius: 9,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    marginBottom: 6,
+    borderRadius: 7,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    marginBottom: 4,
   },
-  rowMain: { flex: 1, flexDirection: "row", alignItems: "center", gap: 7 },
+  rowMain: { flex: 1, flexDirection: "row", alignItems: "center", gap: 5 },
   name: {
     flexShrink: 1,
-    fontSize: prf(13),
+    fontSize: prf(12),
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Medium",
   },
-  badge: { borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
-  badgeText: { fontSize: prf(10), fontFamily: "SF_Pro_Semibold" },
+  badge: { borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
+  badgeText: { fontSize: prf(9), fontFamily: "SF_Pro_Semibold" },
   date: {
-    fontSize: prf(11.5),
+    fontSize: prf(10.5),
     color: "#6B7280",
     fontFamily: "SF_Pro_Regular",
   },
-  actions: { flexDirection: "row", alignItems: "center", gap: 10 },
+  actions: { flexDirection: "row", alignItems: "center", gap: 8 },
 });

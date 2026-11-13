@@ -394,7 +394,7 @@ export default function SettingsScreen() {
             style={styles.backBtn}
             activeOpacity={0.7}
           >
-            <Ionicons name="arrow-back" size={22} color="#1D1D1D" />
+            <Ionicons name="chevron-back" size={22} color="#1D1D1D" />
           </TouchableOpacity>
           <View style={styles.headerTitleWrap}>
             <Text style={styles.headerTitle}>App Settings</Text>
@@ -414,8 +414,8 @@ export default function SettingsScreen() {
           <Avatar
             name={fullName}
             imagePath={user?.image}
-            size={54}
-            borderRadius={27}
+            size={44}
+            borderRadius={22}
           />
           <View style={styles.profileInfo}>
             <Text style={styles.userName}>{fullName}</Text>
@@ -442,7 +442,7 @@ export default function SettingsScreen() {
               <View style={styles.rowIconWrap}>
                 <Ionicons
                   name="notifications-outline"
-                  size={20}
+                  size={16}
                   color="#00DEAB"
                 />
               </View>
@@ -465,6 +465,8 @@ export default function SettingsScreen() {
                 value={pushEnabled}
                 onValueChange={handlePushToggle}
                 disabled={pushLoading}
+
+                style={styles.smallSwitch}
                 trackColor={{ false: "#E2E8F0", true: "#00DEAB" }}
                 thumbColor="#FFFFFF"
                 ios_backgroundColor="#E2E8F0"
@@ -477,7 +479,7 @@ export default function SettingsScreen() {
               <View style={styles.rowIconWrap}>
                 <Ionicons
                   name="volume-medium-outline"
-                  size={20}
+                  size={16}
                   color="#00DEAB"
                 />
               </View>
@@ -490,6 +492,8 @@ export default function SettingsScreen() {
               <Switch
                 value={soundEnabled}
                 onValueChange={setSoundEnabled}
+
+                style={styles.smallSwitch}
                 trackColor={{ false: "#E2E8F0", true: "#00DEAB" }}
                 thumbColor="#FFFFFF"
                 ios_backgroundColor="#E2E8F0"
@@ -500,7 +504,7 @@ export default function SettingsScreen() {
 
             {/* <View style={styles.row}>
               <View style={styles.rowIconWrap}>
-                <Ionicons name="mail-outline" size={20} color="#00DEAB" />
+                <Ionicons name="mail-outline" size={16} color="#00DEAB" />
               </View>
               <View style={styles.rowTextWrap}>
                 <Text style={styles.rowTitle}>Email Summary</Text>
@@ -523,7 +527,7 @@ export default function SettingsScreen() {
               <View style={styles.rowIconWrap}>
                 <Ionicons
                   name="finger-print-outline"
-                  size={20}
+                  size={16}
                   color="#00DEAB"
                 />
               </View>
@@ -536,6 +540,8 @@ export default function SettingsScreen() {
               <Switch
                 value={hapticsEnabled}
                 onValueChange={handleHapticsToggle}
+
+                style={styles.smallSwitch}
                 trackColor={{ false: "#E2E8F0", true: "#00DEAB" }}
                 thumbColor="#FFFFFF"
                 ios_backgroundColor="#E2E8F0"
@@ -586,7 +592,7 @@ export default function SettingsScreen() {
               <View style={styles.rowIconWrap}>
                 <Ionicons
                   name="finger-print-outline"
-                  size={20}
+                  size={16}
                   color="#00DEAB"
                 />
               </View>
@@ -599,6 +605,7 @@ export default function SettingsScreen() {
               <Switch
                 value={biometricsEnabled}
                 onValueChange={handleBiometricToggle}
+                style={styles.smallSwitch}
                 trackColor={{ false: "#E2E8F0", true: "#00DEAB" }}
                 thumbColor="#FFFFFF"
                 ios_backgroundColor="#E2E8F0"
@@ -615,7 +622,7 @@ export default function SettingsScreen() {
               <View style={styles.rowIconWrap}>
                 <Ionicons
                   name="lock-closed-outline"
-                  size={20}
+                  size={16}
                   color="#3B82F6"
                 />
               </View>
@@ -640,7 +647,7 @@ export default function SettingsScreen() {
               <View style={styles.rowIconWrap}>
                 <Ionicons
                   name="shield-checkmark-outline"
-                  size={20}
+                  size={16}
                   color="#3B82F6"
                 />
               </View>
@@ -666,7 +673,7 @@ export default function SettingsScreen() {
               onPress={handleClearCache}
             >
               <View style={styles.rowIconWrap}>
-                <Ionicons name="trash-outline" size={20} color="#EF4444" />
+                <Ionicons name="trash-outline" size={16} color="#EF4444" />
               </View>
               <View style={styles.rowTextWrap}>
                 <Text style={styles.rowTitle}>Clear Cache</Text>
@@ -688,7 +695,7 @@ export default function SettingsScreen() {
               <View style={styles.rowIconWrap}>
                 <Ionicons
                   name="information-circle-outline"
-                  size={20}
+                  size={16}
                   color="#6B7280"
                 />
               </View>
@@ -703,7 +710,7 @@ export default function SettingsScreen() {
 
             {/* <View style={styles.row}>
               <View style={styles.rowIconWrap}>
-                <Ionicons name="server-outline" size={20} color="#6B7280" />
+                <Ionicons name="server-outline" size={16} color="#6B7280" />
               </View>
               <View style={styles.rowTextWrap}>
                 <Text style={styles.rowTitle}>Environment</Text>
@@ -719,7 +726,7 @@ export default function SettingsScreen() {
           activeOpacity={0.85}
           onPress={handleLogout}
         >
-          <MaterialCommunityIcons name="logout" size={20} color="#EF4444" />
+          <MaterialCommunityIcons name="logout" size={16} color="#EF4444" />
           <Text style={styles.logoutButtonText}>Sign Out</Text>
         </TouchableOpacity>
 
@@ -865,18 +872,17 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
-    gap: 12,
+    gap: 8,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#F3F4F6",
+    width: 28,
+    height: 32,
+    backgroundColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -884,29 +890,29 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerTitle: {
-    fontSize: rf(18),
+    fontSize: rf(16),
     fontFamily: "SF_Pro_Bold",
     color: "#1D1D1D",
   },
   headerSubtitle: {
-    fontSize: rf(12),
+    fontSize: rf(10.5),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
     marginTop: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: 14,
+    paddingTop: 12,
   },
   profileCard: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 10,
+    padding: 12,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    marginBottom: 20,
+    marginBottom: 14,
     shadowColor: "#000",
     shadowOpacity: 0.03,
     shadowRadius: 6,
@@ -933,25 +939,25 @@ const styles = StyleSheet.create({
     fontSize: rf(18),
   },
   profileInfo: {
-    marginLeft: 12,
+    marginLeft: 10,
     flex: 1,
   },
   userName: {
-    fontSize: rf(16),
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Bold",
     color: "#1D1D1D",
   },
   userRole: {
-    fontSize: rf(12),
+    fontSize: rf(10.5),
     fontFamily: "SF_Pro_Medium",
     color: "#00DEAB",
-    marginTop: 2,
+    marginTop: 1,
   },
   userEmail: {
-    fontSize: rf(11),
+    fontSize: rf(10),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
-    marginTop: 2,
+    marginTop: 1,
   },
   companyBadge: {
     backgroundColor: "#E6FBF7",
@@ -962,24 +968,24 @@ const styles = StyleSheet.create({
     borderColor: "#B2F2E5",
   },
   companyBadgeText: {
-    fontSize: rf(10),
+    fontSize: rf(9),
     fontFamily: "SF_Pro_Semibold",
     color: "#00A881",
   },
   section: {
-    marginBottom: 20,
+    marginBottom: 14,
   },
   sectionHeader: {
-    fontSize: rf(11),
+    fontSize: rf(9.5),
     fontFamily: "SF_Pro_Bold",
     color: "#6B7280",
     letterSpacing: 0.8,
-    marginBottom: 8,
+    marginBottom: 6,
     marginLeft: 4,
   },
   card: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#E5E7EB",
     overflow: "hidden",
@@ -987,25 +993,25 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   clickableRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   rowIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 8,
     backgroundColor: "#F0FDF9",
     borderWidth: 1,
     borderColor: "#E0F8F2",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
+    marginRight: 8,
   },
   rowTextWrap: {
     flex: 1,
@@ -1016,31 +1022,34 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   rowTitle: {
-    fontSize: rf(14),
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Medium",
     color: "#1D1D1D",
   },
   rowSub: {
-    fontSize: rf(12),
+    fontSize: rf(10.5),
     fontFamily: "SF_Pro_Regular",
     color: "#6B7280",
-    marginTop: 2,
+    marginTop: 1,
+  },
+  smallSwitch: {
+    transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }],
   },
   divider: {
     height: 1,
     backgroundColor: "#F3F4F6",
-    marginLeft: 64,
+    marginLeft: 52,
   },
   intensityContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 14,
+    paddingHorizontal: 12,
+    paddingBottom: 10,
     paddingTop: 2,
   },
   intensityLabel: {
-    fontSize: rf(12),
+    fontSize: rf(10.5),
     fontFamily: "SF_Pro_Medium",
     color: "#6B7280",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   segmentedContainer: {
     flexDirection: "row",
@@ -1051,10 +1060,10 @@ const styles = StyleSheet.create({
   },
   segmentedBtn: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 6,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 8,
+    borderRadius: 7,
   },
   segmentedBtnActive: {
     backgroundColor: "#FFFFFF",
@@ -1065,7 +1074,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   segmentedBtnText: {
-    fontSize: rf(12),
+    fontSize: rf(10.5),
     fontFamily: "SF_Pro_Medium",
     color: "#6B7280",
   },
@@ -1074,33 +1083,33 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Bold",
   },
   actionLinkText: {
-    fontSize: rf(13),
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Semibold",
     color: "#EF4444",
   },
   tagText: {
-    fontSize: rf(11),
+    fontSize: rf(9),
     fontFamily: "SF_Pro_Medium",
     color: "#10B981",
     backgroundColor: "#ECFDF5",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 5,
   },
   logoutButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#FEF2F2",
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 10,
+    paddingVertical: 10,
     borderWidth: 1,
     borderColor: "#FCA5A5",
-    gap: 8,
-    marginTop: 4,
+    gap: 6,
+    marginTop: 2,
   },
   logoutButtonText: {
-    fontSize: rf(14),
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Bold",
     color: "#EF4444",
   },

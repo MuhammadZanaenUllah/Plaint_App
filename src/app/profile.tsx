@@ -106,7 +106,7 @@ function InfoRow({
     <View style={[styles.infoRow, !isLast && styles.infoRowBorder]}>
       <View style={styles.infoLeft}>
         <View style={styles.iconWrap}>
-          <Ionicons name={icon} size={18} color={Colors.primary} />
+          <Ionicons name={icon} size={16} color={Colors.primary} />
         </View>
         <Text style={styles.infoLabel}>{label}</Text>
       </View>
@@ -131,11 +131,11 @@ function AccountRow({
     >
       <View style={styles.infoLeft}>
         <View style={styles.iconWrap}>
-          <Ionicons name={icon} size={18} color={Colors.primary} />
+          <Ionicons name={icon} size={16} color={Colors.primary} />
         </View>
         <Text style={styles.infoLabel}>{label}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={16} color="#BCBCBC" />
+      <Ionicons name="chevron-forward" size={14} color="#BCBCBC" />
     </TouchableOpacity>
   );
 }
@@ -168,12 +168,17 @@ export default function Profile() {
       {/* ── Header ── */}
       <View style={styles.topBar}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
-          <Ionicons name="arrow-back" size={22} color="#1D1D1D" />
+          <Ionicons name="chevron-back" size={22} color="#1D1D1D" />
         </TouchableOpacity>
         <Text style={styles.topBarTitle}>Profile</Text>
         <View style={styles.topBarRight}>
-          <TouchableOpacity style={styles.topBarIcon} activeOpacity={0.7}>
-            <Ionicons name="settings-outline" size={22} color="#1D1D1D" />
+          <TouchableOpacity
+            style={styles.topBarIcon}
+            activeOpacity={0.7}
+            hitSlop={8}
+            onPress={() => router.push("/settings")}
+          >
+            <Ionicons name="settings-outline" size={18} color="#1D1D1D" />
           </TouchableOpacity>
           {/* <TouchableOpacity style={styles.topBarIcon} activeOpacity={0.7}>
             <View style={styles.bellWrap}>
@@ -212,8 +217,8 @@ export default function Profile() {
                       "User"
                     }
                     imagePath={user?.image}
-                    size={84}
-                    borderRadius={42}
+                    size={74}
+                    borderRadius={37}
                   />
                 )}
               </View>
@@ -225,7 +230,7 @@ export default function Profile() {
               onPress={pickImage}
               activeOpacity={0.8}
             >
-              <Ionicons name="camera" size={14} color="#fff" />
+              <Ionicons name="camera" size={12} color="#fff" />
             </TouchableOpacity>
           </View>
           <Text style={styles.profileName}>Muhammad Hamza</Text>
@@ -233,7 +238,7 @@ export default function Profile() {
           <View style={styles.contactQuickRow}>
             <View style={styles.contactQuickItem}>
               <View style={styles.iconWrap}>
-                <Ionicons name="mail-outline" size={15} color={Colors.primary} />
+                <Ionicons name="mail-outline" size={13} color={Colors.primary} />
               </View>
               <Text style={styles.contactQuickText}>hamza@email.com</Text>
             </View>
@@ -241,7 +246,7 @@ export default function Profile() {
           <View style={styles.contactQuickRow}> 
             <View style={styles.contactQuickItem}>
               <View style={styles.iconWrap}>
-                <Ionicons name="call-outline" size={15} color={Colors.primary} />
+                <Ionicons name="call-outline" size={13} color={Colors.primary} />
               </View>
               <Text style={styles.contactQuickText}>+92 XXX XXXXXXX</Text>
             </View>
@@ -315,16 +320,16 @@ export default function Profile() {
       {/* ── Settings & Logout ── */}
       <View style={styles.logoutWrap}>
         <TouchableOpacity
-          style={[styles.logoutBtn, { backgroundColor: "#F3F4F6", marginBottom: 10 }]}
+          style={[styles.logoutBtn, { backgroundColor: "#F3F4F6", marginBottom: 8 }]}
           activeOpacity={0.85}
           onPress={() => router.push("/settings")}
         >
-          <Ionicons name="settings-outline" size={20} color="#1D1D1D" />
+          <Ionicons name="settings-outline" size={16} color="#1D1D1D" />
           <Text style={[styles.logoutText, { color: "#1D1D1D" }]}>App Settings</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.logoutBtn} activeOpacity={0.85} onPress={() => router.replace("/login")}>
-          <Feather name="log-out" size={20} color="#fff" />
+          <Feather name="log-out" size={16} color="#fff" />
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
       </View>
@@ -344,23 +349,23 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     backgroundColor: "#fff",
   },
   backBtn: {
-    marginRight: 8,
+    marginRight: 6,
   },
   topBarTitle: {
     flex: 1,
-    fontSize: rf(20),
+    fontSize: rf(17),
     fontFamily: "SF_Pro_Bold",
     color: "#1D1D1D",
   },
   topBarRight: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 8,
   },
   topBarIcon: {
     justifyContent: "center",
@@ -406,43 +411,43 @@ const styles = StyleSheet.create({
   avatarSection: {
     backgroundColor: "#fff",
     alignItems: "center",
-    paddingTop: 24,
-    paddingBottom: 24,
-    marginBottom: 12,
+    paddingTop: 18,
+    paddingBottom: 18,
+    marginBottom: 10,
   },
   // Profile ring container (for positioning the camera badge)
   profileRingContainer: {
     position: "relative",
-    marginBottom: 14,
+    marginBottom: 10,
   },
   profileRing: {
-    width: 104,
-    height: 104,
-    borderRadius: 52,
-    borderWidth: 2.5,
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    borderWidth: 2,
     borderColor: Colors.primary,
     justifyContent: "center",
     alignItems: "center",
     padding: 3,
   },
   profileImageWrap: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     overflow: "hidden",
     backgroundColor: "#F0F0F0",
     justifyContent: "center",
     alignItems: "center",
   },
   profileImageFull: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
   },
   profileImagePlaceholder: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     backgroundColor: "#EBEBEB",
     justifyContent: "center",
     alignItems: "center",
@@ -452,9 +457,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 2,
     right: 2,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: Colors.primary,
     justifyContent: "center",
     alignItems: "center",
@@ -467,16 +472,16 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   profileName: {
-    fontSize: rf(20),
+    fontSize: rf(17),
     fontFamily: "SF_Pro_Bold",
     color: "#1D1D1D",
-    marginBottom: 4,
+    marginBottom: 3,
   },
   profileRole: {
-    fontSize: rf(13),
+    fontSize: rf(11.5),
     fontFamily: "SF_Pro_Regular",
     color: "#6B6B6B",
-    marginBottom: 10,
+    marginBottom: 6,
   },
   contactQuickRow: {
     marginBottom: 4,
@@ -488,7 +493,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   contactQuickText: {
-    fontSize: rf(13),
+    fontSize: rf(11.5),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
   },
@@ -497,11 +502,11 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: "#fff",
     marginHorizontal: 14,
-    marginBottom: 12,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 4,
+    marginBottom: 10,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 3,
     shadowColor: "#000",
     shadowOpacity: 0.04,
     shadowRadius: 6,
@@ -509,10 +514,10 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   cardTitle: {
-    fontSize: rf(15),
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Semibold",
     color: "#1D1D1D",
-    marginBottom: 12,
+    marginBottom: 8,
   },
 
   // Info row
@@ -520,7 +525,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   infoRowBorder: {
     borderBottomWidth: 1,
@@ -532,20 +537,20 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   iconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 7,
     backgroundColor: "#F0FBF7",
     justifyContent: "center",
     alignItems: "center",
   },
   infoLabel: {
-    fontSize: rf(14),
+    fontSize: rf(12.5),
     fontFamily: "SF_Pro_Regular",
     color: "#1D1D1D",
   },
   infoValue: {
-    fontSize: rf(13),
+    fontSize: rf(11.5),
     fontFamily: "SF_Pro_Regular",
     color: "#6B6B6B",
     flexShrink: 1,
@@ -555,22 +560,22 @@ const styles = StyleSheet.create({
 
   // Logout
   logoutWrap: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
+    paddingHorizontal: 14,
+    paddingBottom: 18,
     paddingTop: 0,
     // backgroundColor: "#F5F5F5",
   },
   logoutBtn: {
     backgroundColor: Colors.primary,
-    borderRadius: 10,
-    height: 54,
+    borderRadius: 9,
+    height: 44,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
+    gap: 8,
   },
   logoutText: {
-    fontSize: rf(16),
+    fontSize: rf(14),
     fontFamily: "SF_Pro_Semibold",
     color: "#fff",
   },

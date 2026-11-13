@@ -571,4 +571,19 @@ export const taskTableStyles = StyleSheet.create({
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
   },
+  addTaskFooter: {
+    marginTop: 6,
+    paddingVertical: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#F9FAFB",
+  },
+  addTaskFooterText: {
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#00A876",
+  },
 });

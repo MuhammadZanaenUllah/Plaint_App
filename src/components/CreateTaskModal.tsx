@@ -77,7 +77,13 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-type Props = { visible: boolean; onClose: () => void; onCreated?: () => void };
+type Props = {
+  visible: boolean;
+  onClose: () => void;
+  onCreated?: () => void;
+  projectId?: number | null;
+  sprintId?: number | null;
+};
 
 // Mirrors the previous "half"/"full" snap points from the @expo/ui sheet.
 const SNAP_POINTS = ["50%", "70%"];
@@ -86,6 +92,8 @@ export default function CreateTaskModal({
   visible,
   onClose,
   onCreated,
+  projectId = null,
+  sprintId = null,
 }: Props) {
   // Compensates KeyboardAvoidingView's padding for the home-indicator safe
   // area, otherwise that inset shows up as an empty gap above the keyboard.
@@ -402,8 +410,8 @@ export default function CreateTaskModal({
       recurringMonthDate,
       recurringAnnualMonth,
       recurringAnnualDate,
-      projectId: null,
-      sprintId: null,
+      projectId,
+      sprintId,
       parentId: 0,
       dependsOn: isAdvanced ? selectedDependencies : [],
       attachments,

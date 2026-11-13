@@ -1,4 +1,6 @@
 import ScreenHeader from "@/components/ScreenHeader";
+import CalendarPicker from "@/components/CalendarPicker";
+import AnimatedFAB from "@/components/AnimatedFAB";
 import {
   canCreateProject,
   canViewProjects,
@@ -13,7 +15,10 @@ import {
   projectStatusStyle,
 } from "@/features/projects/utils/projectStatus";
 import CreateProjectModal from "@/features/projects/components/CreateProjectModal";
-import { formatTaskDueDatePkt } from "@/features/tasks/utils/taskDate";
+import {
+  formatTaskDueDatePkt,
+  toPktDateOnly,
+} from "@/features/tasks/utils/taskDate";
 import {
   isNetworkErrorMessage,
   reportTaskError,
@@ -28,6 +33,7 @@ import {
   ActivityIndicator,
   FlatList,
   Keyboard,
+  Modal,
   Pressable,
   ScrollView,
   Text,
@@ -64,9 +70,13 @@ export default function ProjectsScreen() {
   } = useProjectsStore();
 
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
   const [ownerFilter, setOwnerFilter] = useState<number[]>([]);
   const [ownerFilterOpen, setOwnerFilterOpen] = useState(false);
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [createVisible, setCreateVisible] = useState(false);
 
   useEffect(() => {
@@ -109,6 +119,8 @@ export default function ProjectsScreen() {
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
+    const startKey = startDate ? toPktDateOnly(startDate) : "";
+    const endKey = endDate ? toPktDateOnly(endDate) : "";
     return projects.filter((project) => {
       if (statusFilter !== "All" && project.status !== statusFilter) return false;
       if (
@@ -117,17 +129,18 @@ export default function ProjectsScreen() {
       ) {
         return false;
       }
+      if (startKey || endKey) {
+        const dueKey = toPktDateOnly(project.due_date);
+        if (!dueKey) return false;
+        if (startKey && dueKey < startKey) return false;
+        if (endKey && dueKey > endKey) return false;
+      }
       if (query && !project.name.toLowerCase().includes(query)) return false;
       return true;
     });
-  }, [ownerFilter, projects, search, statusFilter]);
+  }, [endDate, ownerFilter, projects, search, startDate, statusFilter]);
 
-  const ownerLabel =
-    ownerFilter.length === 0
-      ? "All owners"
-      : ownerFilter.length === 1
-        ? ownerNames.get(ownerFilter[0]) ?? "Owner"
-        : `${ownerFilter.length} owners`;
+
 
   const renderProject = useCallback(
     ({ item }: { item: ProjectEntity }) => {
@@ -205,41 +218,68 @@ export default function ProjectsScreen() {
       <ScreenHeader
         title="Projects"
         rightActions={
-          canCreate ? (
-            <TouchableOpacity onPress={() => setCreateVisible(true)} hitSlop={8}>
-              <Ionicons name="add-circle" size={22} color="#00DEAB" />
+          <>
+            <TouchableOpacity
+              onPress={() => setSearchOpen((open) => !open)}
+              hitSlop={8}
+            >
+              <Ionicons name="search-outline" size={18} color="#1D1D1D" />
             </TouchableOpacity>
-          ) : undefined
+            <TouchableOpacity
+              onPress={() => setDatePickerOpen(true)}
+              hitSlop={8}
+            >
+              <Ionicons
+                name="calendar-outline"
+                size={18}
+                color={startDate || endDate ? "#00A876" : "#1D1D1D"}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setOwnerFilterOpen((open) => !open)}
+              hitSlop={8}
+            >
+              <Ionicons
+                name="person-outline"
+                size={18}
+                color={ownerFilter.length > 0 ? "#00A876" : "#1D1D1D"}
+              />
+            </TouchableOpacity>
+          </>
         }
       />
 
-      <Pressable style={styles.body} onPress={Keyboard.dismiss}>
-        <View style={styles.searchRow}>
-          <View style={styles.searchBox}>
-            <Ionicons name="search-outline" size={15} color="#9CA3AF" />
-            <TextInput
-              style={styles.searchInput}
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Search projects..."
-              placeholderTextColor="#9CA3AF"
-            />
-          </View>
-          <TouchableOpacity
-            style={styles.ownerBtn}
-            onPress={() => setOwnerFilterOpen((prev) => !prev)}
+      <Pressable
+        style={styles.body}
+        onPress={() => {
+          Keyboard.dismiss();
+          if (searchOpen) setSearchOpen(false);
+        }}
+      >
+        {searchOpen ? (
+          <Pressable
+            style={styles.searchBarRow}
+            onPress={(event) => event.stopPropagation()}
           >
-            <Ionicons name="person-outline" size={13} color="#6B7280" />
-            <Text style={styles.ownerBtnText} numberOfLines={1}>
-              {ownerLabel}
-            </Text>
-            <Ionicons
-              name={ownerFilterOpen ? "chevron-up" : "chevron-down"}
-              size={12}
-              color="#6B7280"
-            />
-          </TouchableOpacity>
-        </View>
+            <View style={styles.searchBox}>
+              <Ionicons name="search-outline" size={14} color="#9CA3AF" />
+              <TextInput
+                style={styles.searchInput}
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Search projects..."
+                placeholderTextColor="#9CA3AF"
+              />
+              {search.length > 0 ? (
+                <TouchableOpacity onPress={() => setSearch("")} hitSlop={8}>
+                  <Ionicons name="close-circle" size={15} color="#9CA3AF" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </Pressable>
+        ) : null}
+
+
 
         {/* Dropdown overlays the status tabs via absolute positioning */}
         <View style={styles.dropdownAnchor}>
@@ -359,19 +399,68 @@ export default function ProjectsScreen() {
             maxToRenderPerBatch={8}
             windowSize={7}
             removeClippedSubviews
-            contentContainerStyle={{ paddingBottom: 28, gap: 8 }}
+            contentContainerStyle={{ paddingBottom: 96, gap: 8 }}
             ListEmptyComponent={
               <View style={styles.center}>
                 <Ionicons name="folder-open-outline" size={34} color="#D1D5DB" />
                 <Text style={styles.emptyTitle}>No projects found</Text>
                 <Text style={styles.emptyText}>
-                  Try a different status, owner or search.
+                  Try a different status, owner, date or search.
                 </Text>
               </View>
             }
           />
         )}
       </Pressable>
+
+      <Modal
+        visible={datePickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDatePickerOpen(false)}
+      >
+        <Pressable
+          style={styles.calOverlay}
+          onPress={() => setDatePickerOpen(false)}
+        >
+          <Pressable
+            style={styles.calPopup}
+            onPress={(event) => event.stopPropagation()}
+          >
+            <View style={styles.calHeader}>
+              <Text style={styles.calTitle}>Project due date</Text>
+              <TouchableOpacity
+                hitSlop={8}
+                onPress={() => {
+                  setStartDate(null);
+                  setEndDate(null);
+                  setDatePickerOpen(false);
+                }}
+              >
+                <Text style={styles.calClearText}>Clear</Text>
+              </TouchableOpacity>
+            </View>
+            {datePickerOpen ? (
+              <CalendarPicker
+                key="project-date-range"
+                startDate={startDate}
+                endDate={endDate}
+                onSelectStart={setStartDate}
+                onSelectEnd={setEndDate}
+                onDone={() => setDatePickerOpen(false)}
+              />
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {canCreate ? (
+        <AnimatedFAB
+          onPress={() => setCreateVisible(true)}
+          iconName="create-new-folder"
+          animated={false}
+        />
+      ) : null}
 
       <CreateProjectModal
         visible={createVisible}
@@ -389,9 +478,9 @@ export default function ProjectsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#fff" },
   body: { flex: 1, paddingHorizontal: 16 },
-  searchRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
+  searchBarRow: { marginBottom: 8, width: "100%" },
   searchBox: {
-    flex: 1,
+    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
@@ -407,22 +496,6 @@ const styles = StyleSheet.create({
     color: "#1D1D1D",
     fontFamily: "SF_Pro_Regular",
     padding: 0,
-  },
-  ownerBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 9,
-    paddingHorizontal: 8,
-    maxWidth: 140,
-  },
-  ownerBtnText: {
-    fontSize: prf(12),
-    color: "#4B5563",
-    fontFamily: "SF_Pro_Medium",
-    flexShrink: 1,
   },
   dropdownAnchor: {
     position: "relative",
@@ -532,6 +605,37 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   retryText: { color: "#fff", fontSize: prf(13), fontFamily: "SF_Pro_Semibold" },
+  calOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 16,
+  },
+  calPopup: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 8,
+  },
+  calHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 8,
+    paddingBottom: 6,
+  },
+  calTitle: {
+    fontSize: prf(13),
+    color: "#1D1D1D",
+    fontFamily: "SF_Pro_Semibold",
+  },
+  calClearText: {
+    fontSize: prf(12),
+    color: "#EF4444",
+    fontFamily: "SF_Pro_Medium",
+  },
 });
 
 

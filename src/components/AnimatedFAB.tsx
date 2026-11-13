@@ -19,6 +19,7 @@ interface AnimatedFABProps {
   iconName?: keyof typeof MaterialIcons.glyphMap;
   size?: number;
   color?: string;
+  animated?: boolean;
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -29,6 +30,7 @@ export default function AnimatedFAB({
   iconName = "add",
   size = 32,
   color = "#1D1D1D",
+  animated = true,
 }: AnimatedFABProps) {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const isFocused = useIsFocused();
@@ -58,7 +60,7 @@ export default function AnimatedFAB({
     // withRepeat(-1) loop below never stops, forcing a native render frame
     // every ~16ms for the life of the app even while the user is on a
     // different tab entirely.
-    if (!isFocused) {
+    if (!animated || !isFocused) {
       cancelAnimation(pulseScale);
       cancelAnimation(pulseOpacity);
       pulseScale.value = 1;
@@ -75,14 +77,16 @@ export default function AnimatedFAB({
       -1,
       false,
     );
-  }, [isFocused, pulseScale, pulseOpacity]);
+  }, [animated, isFocused, pulseScale, pulseOpacity]);
 
   const handlePressIn = () => {
+    if (!animated) return;
     scale.value = withSpring(0.88, { damping: 10, stiffness: 200 });
     rotation.value = withSpring(45, { damping: 12, stiffness: 180 });
   };
 
   const handlePressOut = () => {
+    if (!animated) return;
     scale.value = withSpring(1, { damping: 8, stiffness: 140 });
     rotation.value = withSpring(0, { damping: 10, stiffness: 140 });
   };
@@ -102,6 +106,14 @@ export default function AnimatedFAB({
 
   if (keyboardVisible) {
     return <View style={{ height: 0 }} />;
+  }
+
+  if (!animated) {
+    return (
+      <Pressable style={[styles.container, style]} onPress={onPress}>
+        <MaterialIcons name={iconName} size={size} color={color} />
+      </Pressable>
+    );
   }
 
   return (

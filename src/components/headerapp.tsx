@@ -168,8 +168,9 @@ export default function AppHeader({
             <Avatar
               name={`${authState.user?.first_name ?? ""} ${authState.user?.last_name ?? ""}`}
               imagePath={authState.user?.image}
-              size={30}
-              borderRadius={5}
+              size={22}
+              borderRadius={4}
+              fontSize={8}
               backgroundColor="#1D1D1D"
             />
           </TouchableOpacity>
