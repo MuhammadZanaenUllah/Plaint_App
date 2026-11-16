@@ -14,10 +14,10 @@ index 777403d..35838ed 100644
  </manifest>
 diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitChatNotification.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitChatNotification.kt
 new file mode 100644
-index 0000000..09894cc
+index 0000000..13c61ff
 --- /dev/null
 +++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitChatNotification.kt
-@@ -0,0 +1,779 @@
+@@ -0,0 +1,910 @@
 +package expo.modules.notifications.notifications.presentation
 +
 +import android.app.NotificationChannel
@@ -43,37 +43,23 @@ index 0000000..09894cc
 +import expo.modules.notifications.service.NotificationsService
 +import org.json.JSONArray
 +import org.json.JSONObject
++import java.text.SimpleDateFormat
 +import java.util.Date
++import java.util.Locale
++import java.util.TimeZone
 +import java.util.UUID
 +
 +/**
 + * Planit chat notification aggregation.
 + *
-+ * All chat notifications live inside one Android notification group. Instead of
-+ * one child notification per message, there is exactly one child notification
-+ * per unique sender. Sender entries are updated in place as new messages
-+ * arrive, so the expanded notification shows:
++ * All chat notifications live in one Android notification group. There is one
++ * child notification per unique sender, and every unread message from that
++ * sender is kept so the child can show an InboxStyle history.
 + *
-+ *   Planit - 10 new messages
-+ *     Nida Mumtaz (5) - latest preview
-+ *     Awais Zulfiqar (3) - latest preview
-+ *     Hamza (2) - latest preview
-+ *
-+ * Each sender entry is independently clickable. Android does not support
-+ * per-line click targets in MessagingStyle/InboxStyle, so one grouped child
-+ * notification per sender is the reliable way to keep navigation working.
-+ *
-+ * Sender identity:
-+ *  - Preferred: `data.sender_id` from the push payload (stable across rooms).
-+ *  - Fallback: `data.sender_name`, then a display name parsed from the
-+ *    human-readable notification body (`"Name: preview"` /
-+ *    `"Name sent you a message"`). The fallback cannot distinguish two users
-+ *    with exactly the same display name; see
-+ *    BACKEND_CHAT_NOTIFICATION_SENDER_AGGREGATION.md.
-+ *
-+ * State is persisted in SharedPreferences so aggregation survives process
-+ * recreation and terminated-state delivery. Message ids are de-duplicated so a
-+ * repeated push delivery does not increment counters.
++ * Android limitation: a notification group is flat. The collapsed group shows
++ * the Planit summary; expanding it shows the sender children. The sender rows
++ * cannot be injected into the collapsed group itself without a custom
++ * RemoteViews layout, which is not reliable across Android versions/OEMs.
 + */
 +object PlanitChatNotification {
 +  const val GROUP_KEY = "pk.planit.CHAT_NOTIFICATIONS"
@@ -85,10 +71,12 @@ index 0000000..09894cc
 +  private const val SENDER_TAG_PREFIX = "pk.planit.chat.sender."
 +
 +  private const val PREFS_NAME = "planit_chat_notification_senders"
-+  private const val PREFS_KEY = "senders"
++  private const val PREFS_MESSAGES = "messages_v2"
 +  private const val PREFS_SEEN = "seen_ids"
++  private const val MAX_STORED_MESSAGES = 500
++  private const val MAX_CHILD_LINES = 4
 +  private const val MAX_SENDERS = 12
-+  private const val MAX_SEEN = 200
++  private const val MAX_SEEN = 500
 +  private const val MAX_LINES = 8
 +  private const val MAX_PREVIEW = 512
 +
@@ -123,7 +111,20 @@ index 0000000..09894cc
 +    val senderName: String?,
 +    val preview: String,
 +    val roomId: String?,
-+    val messageId: String?
++    val messageId: String?,
++    val timestamp: Long?
++  )
++
++  private data class StoredMessage(
++    val id: String,
++    val senderKey: String,
++    val senderId: String?,
++    val senderName: String,
++    val preview: String,
++    val roomId: String?,
++    val time: Long,
++    val receivedAt: Long,
++    val channelId: String?
 +  )
 +
 +  private data class SenderAggregate(
@@ -134,7 +135,8 @@ index 0000000..09894cc
 +    val preview: String,
 +    val roomId: String?,
 +    val lastTime: Long,
-+    val channelId: String?
++    val channelId: String?,
++    val messages: List<StoredMessage>
 +  ) {
 +    val tag: String get() = tagFor(key)
 +  }
@@ -183,6 +185,13 @@ index 0000000..09894cc
 +      data?.optString("room_id"),
 +      data?.optString("roomId")
 +    )
++    val timestamp = parseTimestamp(
++      firstNonBlank(
++        data?.optString("created_at"),
++        data?.optString("createdAt"),
++        data?.optString("timestamp")
++      )
++    )
 +
 +    var preview: String? = explicitPreview
 +    if (senderName == null) {
@@ -197,13 +206,16 @@ index 0000000..09894cc
 +    return ParsedChat(
 +      senderId = senderId?.takeIf { it.isNotBlank() },
 +      senderName = cleanName(senderName),
-+      preview = preview
-+        ?.trim()
-+        ?.take(MAX_PREVIEW)
-+        ?.takeIf { it.isNotBlank() }
++      preview = normalizePreview(
++        preview ?: "Sent you a message",
++        cleanName(senderName)
++      )
++        .take(MAX_PREVIEW)
++        .takeIf { it.isNotBlank() }
 +        ?: "Sent you a message",
 +      roomId = roomId?.takeIf { it.isNotBlank() },
-+      messageId = messageId?.takeIf { it.isNotBlank() }
++      messageId = messageId?.takeIf { it.isNotBlank() },
++      timestamp = timestamp
 +    )
 +  }
 +
@@ -236,19 +248,8 @@ index 0000000..09894cc
 +      !parsed.senderName.isNullOrBlank() -> "name:${normalizeName(parsed.senderName)}"
 +      else -> "message:${currentMessageId ?: UUID.randomUUID()}"
 +    }
-+    val currentTag = tagFor(senderKey)
 +
 +    val active = activeNotifications(systemNotificationManager)
-+    val activeSenderTags = active
-+      .filter { statusBarNotification ->
-+        val tag = statusBarNotification.tag
-+        tag != null &&
-+          tag != SUMMARY_TAG &&
-+          statusBarNotification.id != SUMMARY_ID &&
-+          tag.startsWith(SENDER_TAG_PREFIX)
-+      }
-+      .mapNotNull { it.tag }
-+      .toSet()
 +
 +    // Remove legacy per-message chat children from older app versions.
 +    active.forEach { statusBarNotification ->
@@ -262,93 +263,94 @@ index 0000000..09894cc
 +      }
 +    }
 +
-+    // Drop sender entries whose child notification is no longer visible. This
-+    // also means tapping/reading a sender starts their counter at 1 next time.
-+    val senders = loadSenders(context)
-+      .filter { it.tag in activeSenderTags }
-+      .toMutableList()
++    // Never drop stored messages here. A row may be temporarily absent while a
++    // read is failing; removing its messages would lose unread state. Explicit
++    // dismissal and a successful markRoomRead are the only paths that clear
++    // messages.
++    val messages = loadMessages(context).toMutableList()
 +
-+    // Smooth migration: once the backend starts sending sender_id, fold any
-+    // still-visible display-name-keyed entry for the same sender into the new
-+    // stable-id entry instead of showing the sender twice.
-+    var carryCount = 0
-+    if (!parsed.senderId.isNullOrBlank() && !parsed.senderName.isNullOrBlank()) {
-+      val normalizedName = normalizeName(parsed.senderName)
-+      val legacyIndex = senders.indexOfFirst {
-+        it.tag != currentTag &&
-+          it.senderId == null &&
-+          normalizeName(it.senderName) == normalizedName
-+      }
-+      if (legacyIndex >= 0) {
-+        val legacy = senders.removeAt(legacyIndex)
-+        carryCount = legacy.count
-+        runCatching { systemNotificationManager.cancel(legacy.tag, CHILD_ID) }
-+      }
-+    }
-+
-+    val existingIndex = senders.indexOfFirst { it.tag == currentTag }
-+    val existing = senders.getOrNull(existingIndex)
 +    val channelId = resolveChannelId(context, notification)
-+    val now = System.currentTimeMillis()
-+    val senderId = parsed.senderId ?: existing?.senderId
-+    val senderName = parsed.senderName
-+      ?: existing?.senderName
-+      ?: "New message"
-+    // Only the latest message's room is used as the tap destination. If a push
-+    // ever arrives without a room id, tapping falls back to the Chat list
-+    // instead of navigating to a stale room.
-+    val roomId = parsed.roomId
++    val receivedAt = System.currentTimeMillis()
++    val stored = StoredMessage(
++      id = currentMessageId ?: UUID.randomUUID().toString(),
++      senderKey = senderKey,
++      senderId = parsed.senderId,
++      senderName = parsed.senderName ?: "New message",
++      preview = parsed.preview,
++      roomId = parsed.roomId,
++      time = parsed.timestamp ?: receivedAt,
++      receivedAt = receivedAt,
++      channelId = channelId
++    )
 +
-+    val baseCount = (existing?.count ?: 0) + carryCount
++    messages.removeAll { it.id == stored.id }
++    messages.add(stored)
 +
-+    val aggregate = if (existing != null) {
-+      existing.copy(
-+        senderId = senderId,
-+        senderName = senderName,
-+        count = baseCount + 1,
-+        preview = parsed.preview,
-+        roomId = roomId,
-+        lastTime = now,
-+        channelId = channelId ?: existing.channelId
-+      )
++    val trimmed = if (messages.size > MAX_STORED_MESSAGES) {
++      messages.sortedBy { it.receivedAt }.takeLast(MAX_STORED_MESSAGES).toMutableList()
 +    } else {
-+      SenderAggregate(
-+        key = senderKey,
-+        senderId = senderId,
-+        senderName = senderName,
-+        count = baseCount + 1,
-+        preview = parsed.preview,
-+        roomId = roomId,
-+        lastTime = now,
-+        channelId = channelId
-+      )
++      messages
 +    }
 +
-+    if (existingIndex >= 0) {
-+      senders[existingIndex] = aggregate
-+    } else {
-+      senders.add(aggregate)
-+    }
-+
-+    // Keep the most recent senders if the group grows too large.
-+    val overflow = (senders.size - MAX_SENDERS).coerceAtLeast(0)
-+    val trimmed = if (overflow > 0) {
-+      val newest = senders.sortedByDescending { it.lastTime }.take(MAX_SENDERS).toSet()
-+      senders.filter { it !in newest }.forEach { dropped ->
-+        runCatching { systemNotificationManager.cancel(dropped.tag, CHILD_ID) }
-+      }
-+      senders.filter { it in newest }.sortedBy { it.lastTime }.toMutableList()
-+    } else {
-+      senders
-+    }
-+
-+    saveSenders(context, trimmed)
++    saveMessages(context, trimmed)
 +    if (currentMessageId != null) {
 +      saveSeen(context, (seen + currentMessageId).takeLast(MAX_SEEN))
 +    }
 +
-+    postSenderChild(context, notificationManager, aggregate)
-+    postSummary(context, notificationManager, trimmed)
++    val aggregates = aggregate(trimmed)
++    val wantedTags = aggregates.map { it.tag }.toSet()
++    active.forEach { statusBarNotification ->
++      val tag = statusBarNotification.tag ?: return@forEach
++      if (tag.startsWith(SENDER_TAG_PREFIX) && tag !in wantedTags) {
++        runCatching { systemNotificationManager.cancel(tag, statusBarNotification.id) }
++      }
++    }
++
++    // Update every sender row, but only the sender that just received a
++    // message is allowed to alert.
++    aggregates.forEach { sender ->
++      postSenderChild(
++        context,
++        notificationManager,
++        sender,
++        alert = sender.key == senderKey
++      )
++    }
++    postSummary(context, notificationManager, aggregates)
++  }
++
++  /**
++   * Called after the backend successfully marks a room as read. Removes only
++   * messages belonging to that room and recalculates every sender from the
++   * remaining messages (including messages from the same sender in other
++   * rooms).
++   *
++   * [beforeTime] is the device time captured before the read request. Messages
++   * received after that time are left unread so a message that raced the read
++   * request is not lost.
++   */
++  @Synchronized
++  fun markRoomRead(context: Context, roomId: String?, beforeTime: Long?) {
++    if (roomId.isNullOrBlank()) {
++      return
++    }
++    val all = loadMessages(context)
++    val remaining = all.filterNot { message ->
++      message.roomId == roomId &&
++        (beforeTime == null || message.receivedAt <= beforeTime)
++    }
++    if (remaining.size == all.size) {
++      return
++    }
++    saveMessages(context, remaining)
++    val systemNotificationManager =
++      context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
++    rebuildNotifications(
++      context,
++      systemNotificationManager,
++      aggregate(remaining),
++      alert = false
++    )
 +  }
 +
 +  @Synchronized
@@ -358,9 +360,8 @@ index 0000000..09894cc
 +    }
 +    val systemNotificationManager =
 +      context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-+    val notificationManager = NotificationManagerCompat.from(context)
 +    val active = activeNotifications(systemNotificationManager)
-+    val activeSenderTags = active
++    val activeTags = active
 +      .filter { statusBarNotification ->
 +        val currentTag = statusBarNotification.tag
 +        currentTag != null &&
@@ -372,13 +373,66 @@ index 0000000..09894cc
 +      .mapNotNull { it.tag }
 +      .toSet()
 +
-+    val remaining = loadSenders(context).filter { it.tag != tag && it.tag in activeSenderTags }
-+    saveSenders(context, remaining)
-+    if (remaining.isEmpty()) {
++    val remaining = loadMessages(context)
++      .filterNot { tagFor(it.senderKey) == tag }
++    saveMessages(context, remaining)
++    // Only summarize rows that are still visible. Keep any stored messages for
++    // other senders so a failed read does not delete their unread state.
++    val activeAggregates = aggregate(
++      remaining.filter { tagFor(it.senderKey) in activeTags }
++    )
++    if (activeAggregates.isEmpty()) {
 +      cancelSummary(systemNotificationManager)
 +    } else {
-+      postSummary(context, notificationManager, remaining)
++      postSummary(
++        context,
++        NotificationManagerCompat.from(context),
++        activeAggregates
++      )
 +    }
++  }
++
++  private fun rebuildNotifications(
++    context: Context,
++    systemNotificationManager: NotificationManager,
++    aggregates: List<SenderAggregate>,
++    alert: Boolean
++  ) {
++    val notificationManager = NotificationManagerCompat.from(context)
++    val active = activeNotifications(systemNotificationManager)
++    val wantedTags = aggregates.map { it.tag }.toSet()
++    active.forEach { statusBarNotification ->
++      val tag = statusBarNotification.tag ?: return@forEach
++      if (tag.startsWith(SENDER_TAG_PREFIX) && tag !in wantedTags) {
++        runCatching { systemNotificationManager.cancel(tag, statusBarNotification.id) }
++      }
++    }
++    aggregates.forEach { sender ->
++      postSenderChild(context, notificationManager, sender, alert)
++    }
++    if (aggregates.isEmpty()) {
++      cancelSummary(systemNotificationManager)
++    } else {
++      postSummary(context, notificationManager, aggregates)
++    }
++  }
++
++  private fun aggregate(messages: List<StoredMessage>): List<SenderAggregate> {
++    return messages.groupBy { it.senderKey }.map { (key, list) ->
++      val sorted = list.sortedBy { it.time }
++      val latest = sorted.last()
++      SenderAggregate(
++        key = key,
++        senderId = latest.senderId,
++        senderName = latest.senderName,
++        count = sorted.size,
++        preview = latest.preview,
++        roomId = latest.roomId,
++        lastTime = latest.time,
++        channelId = sorted.lastOrNull { it.channelId != null }?.channelId,
++        messages = sorted
++      )
++    }.sortedBy { it.lastTime }
 +  }
 +
 +  private fun extractFromText(text: String, title: String): Pair<String?, String?> {
@@ -422,10 +476,38 @@ index 0000000..09894cc
 +    return text
 +  }
 +
++  /**
++   * Group and channel pushes use "Sender name: preview" in the body. The data
++   * payload usually has the clean preview, but older/fallback payloads can
++   * still include the sender prefix. Strip only an exact leading sender name so
++   * the notification never repeats the sender inside the message line.
++   */
++  private fun normalizePreview(raw: String, senderName: String?): String {
++    var preview = raw.trim()
++    if (preview.isEmpty() || senderName.isNullOrBlank()) {
++      return preview
++    }
++    val quotedName = Regex.escape(senderName.trim())
++    val prefixes = listOf(
++      Regex("^$quotedName\\s*:\\s*", RegexOption.IGNORE_CASE),
++      Regex("^$quotedName\\s*-\\s*", RegexOption.IGNORE_CASE),
++      Regex("^$quotedName\\s+", RegexOption.IGNORE_CASE)
++    )
++    for (prefix in prefixes) {
++      val stripped = preview.replaceFirst(prefix, "").trim()
++      if (stripped.isNotEmpty() && stripped != preview) {
++        preview = stripped
++        break
++      }
++    }
++    return preview
++  }
++
 +  private fun postSenderChild(
 +    context: Context,
 +    notificationManager: NotificationManagerCompat,
-+    sender: SenderAggregate
++    sender: SenderAggregate,
++    alert: Boolean
 +  ) {
 +    val channelId = sender.channelId ?: fallbackChannelId(context)
 +    val builder = if (channelId != null) {
@@ -437,21 +519,40 @@ index 0000000..09894cc
 +    builder.setSmallIcon(resolveSmallIcon(context))
 +    resolveColor(context)?.let { builder.color = it }
 +    resolveLargeIcon(context)?.let { builder.setLargeIcon(it) }
-+    builder.setContentTitle(sender.senderName)
++    builder.setContentTitle("${sender.senderName} (${sender.count})")
 +    builder.setContentText(sender.preview)
-+    builder.setSubText("${sender.count} ${messageWord(sender.count)}")
 +    builder.setNumber(sender.count)
-+    builder.setStyle(NotificationCompat.BigTextStyle().bigText(sender.preview))
++
++    // MessagingStyle is intentionally not used here. On Android 12+/OEM
++    // SystemUI the child title becomes "conversationTitle: senderName", which
++    // repeats the sender, and the child's subText/number are not drawn in the
++    // grouped row. InboxStyle gives us a stable sender/count title and a
++    // readable list of the accumulated unread messages.
++    val shown = sender.messages.takeLast(MAX_CHILD_LINES)
++    val hidden = sender.messages.size - shown.size
++    val inboxStyle = NotificationCompat.InboxStyle()
++      .setBigContentTitle(
++        "${sender.senderName} (${sender.count} ${messageWord(sender.count)})"
++      )
++    if (hidden > 0) {
++      inboxStyle.addLine("$hidden earlier ${messageWord(hidden)}")
++    }
++    shown.forEach { message -> inboxStyle.addLine(message.preview) }
++    builder.setStyle(inboxStyle)
++
 +    builder.setWhen(sender.lastTime)
 +    builder.setShowWhen(true)
 +    builder.setPriority(NotificationCompat.PRIORITY_HIGH)
 +    builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
-+    builder.setAutoCancel(true)
-+    // Every new message updates this child in place, but should alert again.
-+    builder.setOnlyAlertOnce(false)
++    // Do not auto-cancel on tap. The row is removed only after the backend
++    // read succeeds (markRoomRead), so a failed read cannot silently clear it.
++    builder.setAutoCancel(false)
++    builder.setOnlyAlertOnce(!alert)
 +    builder.setGroup(GROUP_KEY)
 +    builder.setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
-+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
++    if (!alert) {
++      builder.setSilent(true)
++    } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
 +      builder.setDefaults(NotificationCompat.DEFAULT_ALL)
 +    }
 +    builder.setContentIntent(senderIntent(context, sender))
@@ -485,8 +586,8 @@ index 0000000..09894cc
 +    resolveColor(context)?.let { builder.color = it }
 +    resolveLargeIcon(context)?.let { builder.setLargeIcon(it) }
 +    builder.setContentTitle("Planit")
-+    builder.setContentText("$total new ${messageWord(total)}")
-+    builder.setSubText("$total new ${messageWord(total)}")
++    builder.setContentText("${latest.senderName} (${latest.count}) - ${latest.preview}")
++    builder.setSubText("$total unread ${messageWord(total)}")
 +    builder.setNumber(total)
 +    builder.setWhen(latest.lastTime)
 +    builder.setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -503,7 +604,7 @@ index 0000000..09894cc
 +    val inboxStyle = NotificationCompat.InboxStyle()
 +      .setBigContentTitle("Planit")
 +    shown.forEach { inboxStyle.addLine(lineFor(it)) }
-+    inboxStyle.setSummaryText("$total new ${messageWord(total)}")
++    inboxStyle.setSummaryText("$total unread ${messageWord(total)}")
 +    builder.setStyle(inboxStyle)
 +
 +    builder.setContentIntent(chatListIntent(context))
@@ -515,6 +616,8 @@ index 0000000..09894cc
 +  }
 +
 +  private fun messageWord(count: Int): String = if (count == 1) "message" else "messages"
++
++  private fun senderWord(count: Int): String = if (count == 1) "sender" else "senders"
 +
 +  private fun tagFor(key: String): String = SENDER_TAG_PREFIX + key
 +
@@ -548,6 +651,31 @@ index 0000000..09894cc
 +        !trimmed.equals("null", ignoreCase = true)
 +      ) {
 +        return trimmed
++      }
++    }
++    return null
++  }
++
++  private fun parseTimestamp(raw: String?): Long? {
++    if (raw.isNullOrBlank()) {
++      return null
++    }
++    val patterns = listOf(
++      "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
++      "yyyy-MM-dd'T'HH:mm:ss'Z'",
++      "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
++      "yyyy-MM-dd'T'HH:mm:ssXXX"
++    )
++    for (pattern in patterns) {
++      try {
++        val format = SimpleDateFormat(pattern, Locale.US)
++        format.timeZone = TimeZone.getTimeZone("UTC")
++        val parsed = format.parse(raw)
++        if (parsed != null) {
++          return parsed.time
++        }
++      } catch (ignored: Exception) {
++        // Try the next pattern.
 +      }
 +    }
 +    return null
@@ -713,22 +841,24 @@ index 0000000..09894cc
 +    }.getOrNull()
 +  }
 +
-+  private fun loadSenders(context: Context): MutableList<SenderAggregate> {
-+    val raw = prefs(context).getString(PREFS_KEY, null) ?: return mutableListOf()
++  private fun loadMessages(context: Context): MutableList<StoredMessage> {
++    val raw = prefs(context).getString(PREFS_MESSAGES, null) ?: return mutableListOf()
 +    return runCatching {
 +      val array = JSONArray(raw)
 +      MutableList(array.length()) { index ->
 +        val item = array.getJSONObject(index)
-+        SenderAggregate(
-+          key = item.getString("key"),
++        val time = item.optLong("time", 0L)
++        StoredMessage(
++          id = item.getString("id"),
++          senderKey = item.getString("senderKey"),
 +          senderId = item.optString("senderId")
 +            .takeIf { it.isNotBlank() && it != "null" },
 +          senderName = item.optString("senderName").ifBlank { "New message" },
-+          count = item.optInt("count", 1).coerceAtLeast(1),
 +          preview = item.optString("preview").ifBlank { "Sent you a message" },
 +          roomId = item.optString("roomId")
 +            .takeIf { it.isNotBlank() && it != "null" },
-+          lastTime = item.optLong("lastTime", 0L),
++          time = time,
++          receivedAt = item.optLong("receivedAt", time),
 +          channelId = item.optString("channelId")
 +            .takeIf { it.isNotBlank() && it != "null" }
 +        )
@@ -736,23 +866,24 @@ index 0000000..09894cc
 +    }.getOrDefault(mutableListOf())
 +  }
 +
-+  private fun saveSenders(context: Context, senders: List<SenderAggregate>) {
++  private fun saveMessages(context: Context, messages: List<StoredMessage>) {
 +    val array = JSONArray()
-+    senders.forEach { sender ->
++    messages.forEach { message ->
 +      array.put(
 +        JSONObject().apply {
-+          put("key", sender.key)
-+          put("senderId", sender.senderId ?: JSONObject.NULL)
-+          put("senderName", sender.senderName)
-+          put("count", sender.count)
-+          put("preview", sender.preview)
-+          put("roomId", sender.roomId ?: JSONObject.NULL)
-+          put("lastTime", sender.lastTime)
-+          put("channelId", sender.channelId ?: JSONObject.NULL)
++          put("id", message.id)
++          put("senderKey", message.senderKey)
++          put("senderId", message.senderId ?: JSONObject.NULL)
++          put("senderName", message.senderName)
++          put("preview", message.preview)
++          put("roomId", message.roomId ?: JSONObject.NULL)
++          put("time", message.time)
++          put("receivedAt", message.receivedAt)
++          put("channelId", message.channelId ?: JSONObject.NULL)
 +        }
 +      )
 +    }
-+    prefs(context).edit().putString(PREFS_KEY, array.toString()).commit()
++    prefs(context).edit().putString(PREFS_MESSAGES, array.toString()).commit()
 +  }
 +
 +  private fun loadSeen(context: Context): MutableList<String> {
@@ -781,7 +912,7 @@ index 0000000..09894cc
 +
 +/**
 + * Receives the delete intent attached to a sender child notification and keeps
-+ * the persisted aggregate state and the group summary in sync when the user
++ * the persisted message state and the group summary in sync when the user
 + * dismisses or clears a chat notification.
 + */
 +class PlanitChatNotificationDismissReceiver : BroadcastReceiver() {
@@ -794,6 +925,39 @@ index 0000000..09894cc
 +      PlanitChatNotification.onSenderDismissed(context, tag)
 +    } catch (e: Exception) {
 +      Log.e("PlanitChatNotification", "Failed to handle notification dismissal.", e)
++    }
++  }
++}
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitNotificationModule.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitNotificationModule.kt
+new file mode 100644
+index 0000000..fc0cb83
+--- /dev/null
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitNotificationModule.kt
+@@ -0,0 +1,27 @@
++package expo.modules.notifications.notifications.presentation
++
++import expo.modules.kotlin.exception.Exceptions
++import expo.modules.kotlin.modules.Module
++import expo.modules.kotlin.modules.ModuleDefinition
++
++/**
++ * JS bridge for the native Planit chat notification state.
++ *
++ * The app calls `markRoomRead` only after the backend read request succeeds, so
++ * the notification counts are not cleared prematurely on a failed read.
++ */
++class PlanitNotificationModule : Module() {
++  override fun definition() = ModuleDefinition {
++    Name("PlanitNotificationModule")
++
++    Function("markRoomRead") { roomId: String, beforeTime: Double? ->
++      val context = appContext.reactContext
++        ?: throw Exceptions.ReactContextLost()
++      PlanitChatNotification.markRoomRead(
++        context,
++        roomId,
++        beforeTime?.toLong()
++      )
 +    }
 +  }
 +}
@@ -1000,3 +1164,15 @@ index eecdae8..1a278f2 100644
    }
  
    protected open fun createNotificationRequest(
+diff --git a/node_modules/expo-notifications/expo-module.config.json b/node_modules/expo-notifications/expo-module.config.json
+index d43f95e..b2770e4 100644
+--- a/node_modules/expo-notifications/expo-module.config.json
++++ b/node_modules/expo-notifications/expo-module.config.json
+@@ -26,6 +26,7 @@
+       "expo.modules.notifications.notifications.handling.NotificationsHandler",
+       "expo.modules.notifications.permissions.NotificationPermissionsModule",
+       "expo.modules.notifications.notifications.presentation.ExpoNotificationPresentationModule",
++      "expo.modules.notifications.notifications.presentation.PlanitNotificationModule",
+       "expo.modules.notifications.notifications.scheduling.NotificationScheduler",
+       "expo.modules.notifications.serverregistration.ServerRegistrationModule",
+       "expo.modules.notifications.tokens.PushTokenModule",

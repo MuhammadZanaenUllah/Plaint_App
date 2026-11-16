@@ -1,7 +1,7 @@
 import * as authService from "@/services/api/auth.service";
 import { setAuthFailureHandler } from "@/services/api/client";
 import { getModules } from "@/services/api/modules.service";
-import { onSocketEvent } from "@/services/socket/socketService";
+import { onSocketEvent, setSocketAuthFailureHandler } from "@/services/socket/socketService";
 import { Company, UserData } from "@/types/auth.types";
 import { invalidateAuthTokenCache } from "@/utils/secureImageFetch";
 import {
@@ -12,6 +12,7 @@ import {
   getStoredUser,
   isSessionExpired,
   isTokenExpired,
+  removeBiometricSession,
   saveBiometricSession,
   setSessionExpiresAt,
   setStoredCompany,
@@ -162,9 +163,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    setAuthFailureHandler(() => {
-      dispatch({ type: "LOGOUT" });
-    });
+    const handleAuthFailure = () => {
+      // The rejected token must not be restored again (including by the
+      // biometric session), otherwise login/session restore can loop on an
+      // invalid or deactivated token.
+      Promise.all([clearAllAuth(), removeBiometricSession()])
+        .catch(() => {})
+        .finally(() => {
+          invalidateAuthTokenCache();
+          dispatch({ type: "LOGOUT" });
+        });
+    };
+    setAuthFailureHandler(handleAuthFailure);
+    setSocketAuthFailureHandler(handleAuthFailure);
+    return () => {
+      setSocketAuthFailureHandler(null);
+    };
   }, []);
 
   // Live permission refresh (website App.js): the backend emits `role_update`

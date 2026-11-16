@@ -86,6 +86,23 @@ export type PushNotificationData = {
   room_id?: string;
   filter?: string;
   screen?: string;
+  // Chat sender aggregation / message metadata.
+  sender_id?: string;
+  sender_name?: string;
+  message_id?: string;
+  message?: string;
+  created_at?: string;
+  attachment_type?: string;
+  duration_seconds?: string;
+  // Task event metadata.
+  event_id?: string;
+  notification_id?: string;
+  event_type?: string;
+  task_title?: string;
+  actor_id?: string;
+  actor_name?: string;
+  comment_preview?: string;
+  count?: string;
 };
 
 export type PushNotificationPayload = {

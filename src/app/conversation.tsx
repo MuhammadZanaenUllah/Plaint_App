@@ -5350,6 +5350,9 @@ export default function ConversationScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!roomId || !currentUserId) return;
+      let active = true;
+      let roomOpenRequested = false;
+
       const markReadAndAck = () => {
         markRead(roomId).catch(() => {});
         // Chain on connect so a resume before the socket is up (cold start,
@@ -5359,12 +5362,47 @@ export default function ConversationScreen() {
           .then(() => socketService.emitMessagesRead(roomId, currentUserId))
           .catch(() => {});
       };
+
+      // The backend suppresses pushes for a room while it is open. Report the
+      // room as open only while this screen is focused and the app is active.
+      const openRoom = () => {
+        if (roomOpenRequested) return;
+        roomOpenRequested = true;
+        socketService
+          .connectSocket()
+          .then(() => {
+            if (!active || !roomOpenRequested) return;
+            socketService.emitRoomOpened(roomId);
+          })
+          .catch(() => {
+            if (active) roomOpenRequested = false;
+          });
+      };
+
+      const closeRoom = () => {
+        if (!roomOpenRequested) return;
+        roomOpenRequested = false;
+        socketService.emitRoomClosed(roomId);
+      };
+
+      if (AppState.currentState === "active") {
+        openRoom();
+      }
       // Re-run on refocus (navigating back to this screen).
       markReadAndAck();
       const subscription = AppState.addEventListener("change", (nextState) => {
-        if (nextState === "active") markReadAndAck();
+        if (nextState === "active") {
+          openRoom();
+          markReadAndAck();
+        } else {
+          closeRoom();
+        }
       });
-      return () => subscription.remove();
+      return () => {
+        active = false;
+        closeRoom();
+        subscription.remove();
+      };
     }, [roomId, currentUserId, markRead]),
   );
 
