@@ -58,6 +58,7 @@ import {
   attachmentExtension,
   decodeAttachmentName,
   downloadChatAttachment,
+  downloadChatAttachmentToCache,
   openChatDocument,
 } from "@/utils/openChatDocument";
 import { formatFileSize } from "@/services/api/upload.service";
@@ -104,6 +105,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  SectionList,
   StyleProp,
   StyleSheet,
   Text,
@@ -134,6 +136,18 @@ const { ChatIcon: MainChatIcon } = Icons;
 // Long-press delay shared by message bubbles and their attachments, so opening
 // the action toolbar feels identical wherever the press lands.
 const ATTACHMENT_LONG_PRESS_DELAY = 250;
+
+type ForwardSection = { title: string; data: Room[] };
+
+/** Display name used by the forward picker (matches the old inline logic). */
+function getForwardRoomDisplayName(room: Room, currentUserId: number): string {
+  const otherMembers = room.members?.filter((m) => m.id !== currentUserId);
+  return (
+    room.name ||
+    otherMembers?.map((m) => `${m.first_name} ${m.last_name}`).join(", ") ||
+    "Chat"
+  );
+}
 
 // How long a jumped-to (quoted reply / pinned) message stays highlighted.
 // WhatsApp-style: one sustained highlight, not a flash.
@@ -5188,7 +5202,42 @@ export default function ConversationScreen() {
   // Forward
   const [forwardOpen, setForwardOpen] = useState(false);
   const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null);
-  const [forwarding, setForwarding] = useState(false);
+  const [forwardSearch, setForwardSearch] = useState("");
+  // Per-room send status so the loader / "Sent" marker only affects the row
+  // the user actually tapped, and the modal can stay open for more targets.
+  const [forwardStatus, setForwardStatus] = useState<
+    Record<string, "sending" | "sent" | "error">
+  >({});
+  // Attachments are downloaded once per forward session and reused for every
+  // target room instead of being re-fetched for each one. The promise is cached
+  // so rapid taps on several rooms share a single download.
+  const forwardAttachmentsRef = useRef<{
+    messageId: string;
+    promise: Promise<{ uri: string; name: string; type: string }[]>;
+  } | null>(null);
+
+  // Split the room list into Inbox (1:1 DMs) and Channels, filtered by the
+  // modal's search box. Project rooms are hidden while the Projects module is
+  // disabled project-wide.
+  const forwardSections = useMemo<ForwardSection[]>(() => {
+    const query = forwardSearch.trim().toLowerCase();
+    const visible = state.rooms.filter((room) =>
+      getForwardRoomDisplayName(room, currentUserId)
+        .toLowerCase()
+        .includes(query),
+    );
+    const sections: ForwardSection[] = [
+      {
+        title: "Inbox",
+        data: visible.filter((room) => room.type === "direct"),
+      },
+      {
+        title: "Channels",
+        data: visible.filter((room) => room.type === "channel"),
+      },
+    ];
+    return sections.filter((section) => section.data.length > 0);
+  }, [state.rooms, currentUserId, forwardSearch]);
   const toggleFilter = (tab: FilterTab) => {
     setActiveFilter((prev) => (prev === tab ? null : tab));
   };
@@ -5753,26 +5802,74 @@ export default function ConversationScreen() {
     [toggleReaction, currentUserId, canReact],
   );
 
+  const closeForwardModal = useCallback(() => {
+    setForwardOpen(false);
+    setForwardMsg(null);
+    setForwardSearch("");
+    setForwardStatus({});
+    forwardAttachmentsRef.current = null;
+  }, []);
+
   const handleForward = useCallback(
     async (room: Room) => {
       if (!forwardMsg) return;
-      setForwarding(true);
+      const roomKey = String(room._id ?? room.id);
+      const currentStatus = forwardStatus[roomKey];
+      if (currentStatus === "sending" || currentStatus === "sent") return;
+
+      setForwardStatus((prev) => ({ ...prev, [roomKey]: "sending" }));
       try {
+        // Backend media is auth-gated, so remote attachment URLs cannot be
+        // re-uploaded as-is. Download each one through the secure-file proxy
+        // into the local cache first, then forward it as a normal upload.
+        // Reuse the downloaded files when forwarding to multiple rooms.
+        let cache = forwardAttachmentsRef.current;
+        if (!cache || cache.messageId !== forwardMsg._id) {
+          const promise = Promise.all(
+            (forwardMsg.attachments ?? []).map(async (att) => {
+              const local = await downloadChatAttachmentToCache(
+                att.url,
+                decodeAttachmentName(att.name),
+              );
+              if (!local) return null;
+              return {
+                uri: local.uri,
+                name: local.fileName,
+                type: att.type || att.mimeType || att.mime_type || local.mime,
+              };
+            }),
+          ).then((downloaded) =>
+            downloaded.filter(
+              (att): att is { uri: string; name: string; type: string } =>
+                !!att,
+            ),
+          );
+          const entry = { messageId: forwardMsg._id, promise };
+          forwardAttachmentsRef.current = entry;
+          // A failed download must not poison the cache; allow a retry.
+          promise.catch(() => {
+            if (forwardAttachmentsRef.current === entry) {
+              forwardAttachmentsRef.current = null;
+            }
+          });
+          cache = entry;
+        }
+        const attachments = await cache.promise;
+
         await sendMessage({
           room_id: room._id,
           text: forwardMsg.text,
           is_forwarded: true,
           forwarded_from_name: forwardMsg.sender_name || "Someone",
+          ...(attachments.length > 0 ? { attachments } : {}),
         });
-        setForwardOpen(false);
-        setForwardMsg(null);
+        setForwardStatus((prev) => ({ ...prev, [roomKey]: "sent" }));
       } catch {
+        setForwardStatus((prev) => ({ ...prev, [roomKey]: "error" }));
         showError("Error", "Failed to forward message");
-      } finally {
-        setForwarding(false);
       }
     },
-    [forwardMsg, sendMessage],
+    [forwardMsg, forwardStatus, sendMessage],
   );
 
   const handleMore = useCallback(
@@ -7563,6 +7660,9 @@ export default function ConversationScreen() {
         }}
         onForward={() => {
           if (selectedMsgForModal?.message) {
+            forwardAttachmentsRef.current = null;
+            setForwardStatus({});
+            setForwardSearch("");
             setForwardMsg(selectedMsgForModal.message);
             setForwardOpen(true);
           }
@@ -7764,70 +7864,123 @@ export default function ConversationScreen() {
         visible={forwardOpen}
         transparent
         animationType="slide"
-        onRequestClose={() => setForwardOpen(false)}
+        onRequestClose={closeForwardModal}
       >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setForwardOpen(false)}
-        >
-          <View
-            style={styles.forwardPickerContainer}
-            onStartShouldSetResponder={() => true}
-          >
+        <View style={styles.modalOverlay}>
+          <Pressable
+            style={styles.forwardBackdrop}
+            onPress={closeForwardModal}
+          />
+          <View style={styles.forwardPickerContainer}>
             <View style={styles.forwardHeader}>
               <Text style={styles.forwardTitle}>Forward to</Text>
-              <TouchableOpacity onPress={() => setForwardOpen(false)}>
-                <Ionicons name="close" size={20} color="#9CA3AF" />
+              <TouchableOpacity onPress={closeForwardModal}>
+                <Ionicons name="close" size={16} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
             {forwardMsg && (
               <View style={styles.forwardPreview}>
                 <Text style={styles.forwardPreviewLabel}>Message:</Text>
-                <Text style={styles.forwardPreviewText} numberOfLines={2}>
+                <Text style={styles.forwardPreviewText} numberOfLines={1}>
                   {forwardMsg.text}
                 </Text>
               </View>
             )}
-            <FlatList
-              data={state.rooms}
+            <View style={styles.forwardSearchRow}>
+              <Ionicons name="search" size={13} color="#9CA3AF" />
+              <TextInput
+                style={styles.forwardSearchInput}
+                value={forwardSearch}
+                onChangeText={setForwardSearch}
+                placeholder="Search chats or channels"
+                placeholderTextColor="#9CA3AF"
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+              {forwardSearch.length > 0 && (
+                <TouchableOpacity onPress={() => setForwardSearch("")}>
+                  <Ionicons name="close-circle" size={14} color="#C4C4C4" />
+                </TouchableOpacity>
+              )}
+            </View>
+            <SectionList
+              sections={forwardSections}
+              style={styles.forwardList}
               keyExtractor={(item: Room, idx: number) =>
                 String(item._id ?? item.id ?? `room-${idx}`)
               }
+              stickySectionHeadersEnabled={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              removeClippedSubviews={false}
+              renderSectionHeader={({ section }) => (
+                <View style={styles.forwardSectionHeader}>
+                  <Text style={styles.forwardSectionTitle}>
+                    {section.title}
+                  </Text>
+                </View>
+              )}
+              ListEmptyComponent={
+                <View style={styles.forwardEmpty}>
+                  <Text style={styles.forwardEmptyText}>
+                    No chats or channels found
+                  </Text>
+                </View>
+              }
               renderItem={({ item: room }) => {
-                const otherMembers = room.members?.filter(
-                  (m) => m.id !== currentUserId,
+                const displayName = getForwardRoomDisplayName(
+                  room,
+                  currentUserId,
                 );
-                const displayName =
-                  room.name ||
-                  otherMembers
-                    ?.map((m) => `${m.first_name} ${m.last_name}`)
-                    .join(", ") ||
-                  "Chat";
+                const status =
+                  forwardStatus[String(room._id ?? room.id)] ?? "idle";
                 return (
-                  <TouchableOpacity
-                    style={styles.forwardRoomRow}
-                    onPress={() => handleForward(room)}
-                    disabled={forwarding}
-                  >
+                  <View style={styles.forwardRoomRow}>
                     <Avatar
                       name={displayName}
                       imagePath={getRoomAvatar(room, currentUserId)}
-                      size={28}
-                      borderRadius={6}
-                      fontSize={12}
+                      size={20}
+                      borderRadius={5}
+                      fontSize={9}
                     />
                     <Text style={styles.forwardRoomName} numberOfLines={1}>
                       {displayName}
                     </Text>
-                    {forwarding && (
-                      <ActivityIndicator size="small" color="#00DEAB" />
-                    )}
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.forwardSendBtn,
+                        status === "sent" && styles.forwardSendBtnSent,
+                      ]}
+                      onPress={() => handleForward(room)}
+                      disabled={status === "sending" || status === "sent"}
+                      activeOpacity={0.8}
+                    >
+                      {status === "sending" ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : status === "sent" ? (
+                        <>
+                          <Ionicons
+                            name="checkmark"
+                            size={10}
+                            color={TEAL}
+                          />
+                          <Text style={styles.forwardSendBtnSentText}>
+                            Sent
+                          </Text>
+                        </>
+                      ) : (
+                        <Text style={styles.forwardSendBtnText}>
+                          {status === "error" ? "Retry" : "Send"}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
                 );
               }}
             />
           </View>
-        </Pressable>
+        </View>
       </Modal>
     </View>
   );
@@ -8700,49 +8853,105 @@ const styles = StyleSheet.create({
   },
 
   // ── Forward Picker ──
+  forwardBackdrop: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
   forwardPickerContainer: {
     backgroundColor: "#fff",
-    borderRadius: 16,
-    width: "85%",
-    maxHeight: "70%",
+    borderRadius: 12,
+    width: "86%",
+    maxHeight: "88%",
+    minHeight: 0,
     overflow: "hidden",
+    zIndex: 1,
+  },
+  forwardList: {
+    flexGrow: 0,
+    flexShrink: 1,
+    minHeight: 0,
   },
   forwardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
   forwardTitle: {
-    fontSize: rf(16),
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Medium",
     color: TEXT_PRIMARY,
   },
-  forwardPreview: {
+  forwardSearchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 30,
+    marginHorizontal: 12,
+    marginTop: 7,
+    marginBottom: 3,
+    paddingHorizontal: 8,
+    borderRadius: 7,
+    backgroundColor: "#F3F4F6",
+    gap: 6,
+  },
+  forwardSearchInput: {
+    flex: 1,
+    padding: 0,
+    fontSize: rf(11.5),
+    fontFamily: "SF_Pro_Regular",
+    color: TEXT_PRIMARY,
+  },
+  forwardSectionHeader: {
+    paddingHorizontal: 12,
+    paddingTop: 7,
+    paddingBottom: 3,
+    backgroundColor: "#fff",
+  },
+  forwardSectionTitle: {
+    fontSize: rf(9.5),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#8A8A8A",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  forwardEmpty: {
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 24,
+    alignItems: "center",
+  },
+  forwardEmptyText: {
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Regular",
+    color: TEXT_SECONDARY,
+  },
+  forwardPreview: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     backgroundColor: "#F9FAFB",
   },
   forwardPreviewLabel: {
-    fontSize: rf(11),
+    fontSize: rf(9),
     fontFamily: "SF_Pro_Medium",
     color: TEXT_SECONDARY,
-    marginBottom: 4,
+    marginBottom: 1,
   },
   forwardPreviewText: {
-    fontSize: rf(13),
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
   },
   forwardRoomRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
+    height: 24,
+    paddingHorizontal: 12,
+    gap: 7,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
@@ -8761,9 +8970,33 @@ const styles = StyleSheet.create({
   },
   forwardRoomName: {
     flex: 1,
-    fontSize: rf(14),
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
+  },
+  forwardSendBtn: {
+    minWidth: 44,
+    height: 20,
+    borderRadius: 4,
+    backgroundColor: TEAL,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  forwardSendBtnSent: {
+    backgroundColor: "#E8FBF5",
+  },
+  forwardSendBtnText: {
+    color: "#fff",
+    fontSize: rf(10),
+    fontFamily: "SF_Pro_Medium",
+  },
+  forwardSendBtnSentText: {
+    color: TEAL,
+    fontSize: rf(10),
+    fontFamily: "SF_Pro_Medium",
+    marginLeft: 2,
   },
 
   // ── Edit Message ──
