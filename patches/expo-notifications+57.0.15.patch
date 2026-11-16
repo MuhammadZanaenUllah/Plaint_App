@@ -14,10 +14,10 @@ index 777403d..35838ed 100644
  </manifest>
 diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitChatNotification.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitChatNotification.kt
 new file mode 100644
-index 0000000..13c61ff
+index 0000000..749be20
 --- /dev/null
 +++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitChatNotification.kt
-@@ -0,0 +1,910 @@
+@@ -0,0 +1,1009 @@
 +package expo.modules.notifications.notifications.presentation
 +
 +import android.app.NotificationChannel
@@ -33,6 +33,7 @@ index 0000000..13c61ff
 +import android.util.Log
 +import androidx.core.app.NotificationCompat
 +import androidx.core.app.NotificationManagerCompat
++import androidx.core.app.Person
 +import expo.modules.notifications.notifications.interfaces.INotificationContent
 +import expo.modules.notifications.notifications.model.Notification
 +import expo.modules.notifications.notifications.model.NotificationAction
@@ -52,14 +53,14 @@ index 0000000..13c61ff
 +/**
 + * Planit chat notification aggregation.
 + *
-+ * All chat notifications live in one Android notification group. There is one
-+ * child notification per unique sender, and every unread message from that
-+ * sender is kept so the child can show an InboxStyle history.
++ * All chat notifications live in one Android notification group. Direct
++ * messages are aggregated per sender. Group/channel messages are aggregated per
++ * room, so the child can show the channel name plus sender-labelled history.
 + *
 + * Android limitation: a notification group is flat. The collapsed group shows
-+ * the Planit summary; expanding it shows the sender children. The sender rows
-+ * cannot be injected into the collapsed group itself without a custom
-+ * RemoteViews layout, which is not reliable across Android versions/OEMs.
++ * the Planit summary; expanding it shows the children. The rows cannot be
++ * injected into the collapsed group itself without a custom RemoteViews layout,
++ * which is not reliable across Android versions/OEMs.
 + */
 +object PlanitChatNotification {
 +  const val GROUP_KEY = "pk.planit.CHAT_NOTIFICATIONS"
@@ -69,13 +70,16 @@ index 0000000..13c61ff
 +
 +  private const val CHILD_ID = 0
 +  private const val SENDER_TAG_PREFIX = "pk.planit.chat.sender."
++  private const val ROOM_TAG_PREFIX = "pk.planit.chat.room."
++  private const val SENDER_KEY_PREFIX = "sender:"
++  private const val ROOM_KEY_PREFIX = "room:"
 +
 +  private const val PREFS_NAME = "planit_chat_notification_senders"
-+  private const val PREFS_MESSAGES = "messages_v2"
++  private const val PREFS_MESSAGES = "messages_v3"
 +  private const val PREFS_SEEN = "seen_ids"
 +  private const val MAX_STORED_MESSAGES = 500
 +  private const val MAX_CHILD_LINES = 4
-+  private const val MAX_SENDERS = 12
++  private const val MAX_ROOM_STYLE_MESSAGES = 200
 +  private const val MAX_SEEN = 500
 +  private const val MAX_LINES = 8
 +  private const val MAX_PREVIEW = 512
@@ -105,12 +109,19 @@ index 0000000..13c61ff
 +    "sent a message",
 +    "sent you a message"
 +  )
++  private val genericEventTitles = setOf(
++    "new mention",
++    "added you to a channel",
++    "invited you to a channel"
++  )
 +
 +  data class ParsedChat(
 +    val senderId: String?,
 +    val senderName: String?,
 +    val preview: String,
 +    val roomId: String?,
++    val roomName: String?,
++    val isRoomMessage: Boolean,
 +    val messageId: String?,
 +    val timestamp: Long?
 +  )
@@ -122,15 +133,19 @@ index 0000000..13c61ff
 +    val senderName: String,
 +    val preview: String,
 +    val roomId: String?,
++    val roomName: String?,
++    val isRoomMessage: Boolean,
 +    val time: Long,
 +    val receivedAt: Long,
 +    val channelId: String?
 +  )
 +
-+  private data class SenderAggregate(
++  private data class ChatAggregate(
 +    val key: String,
-+    val senderId: String?,
-+    val senderName: String,
++    val isRoom: Boolean,
++    val title: String,
++    val latestSenderId: String?,
++    val latestSenderName: String,
 +    val count: Int,
 +    val preview: String,
 +    val roomId: String?,
@@ -138,7 +153,7 @@ index 0000000..13c61ff
 +    val channelId: String?,
 +    val messages: List<StoredMessage>
 +  ) {
-+    val tag: String get() = tagFor(key)
++    val tag: String get() = tagForKey(key)
 +  }
 +
 +  fun isChat(content: INotificationContent): Boolean {
@@ -203,17 +218,34 @@ index 0000000..13c61ff
 +      preview = previewFromText(text, senderName)
 +    }
 +
++    val resolvedSenderName = cleanName(senderName)
++    val resolvedRoomId = roomId?.takeIf { it.isNotBlank() }
++    val roomName = if (
++      !resolvedSenderName.isNullOrBlank() &&
++      !resolvedRoomId.isNullOrBlank() &&
++      title.isNotBlank() &&
++      !title.equals(resolvedSenderName, ignoreCase = true) &&
++      title.lowercase() !in genericEventTitles &&
++      text.startsWith("$resolvedSenderName:", ignoreCase = true)
++    ) {
++      title.take(80).trim()
++    } else {
++      null
++    }
++
 +    return ParsedChat(
 +      senderId = senderId?.takeIf { it.isNotBlank() },
-+      senderName = cleanName(senderName),
++      senderName = resolvedSenderName,
 +      preview = normalizePreview(
 +        preview ?: "Sent you a message",
-+        cleanName(senderName)
++        resolvedSenderName
 +      )
 +        .take(MAX_PREVIEW)
 +        .takeIf { it.isNotBlank() }
 +        ?: "Sent you a message",
-+      roomId = roomId?.takeIf { it.isNotBlank() },
++      roomId = resolvedRoomId,
++      roomName = roomName,
++      isRoomMessage = roomName != null,
 +      messageId = messageId?.takeIf { it.isNotBlank() },
 +      timestamp = timestamp
 +    )
@@ -256,7 +288,7 @@ index 0000000..13c61ff
 +      val tag = statusBarNotification.tag ?: return@forEach
 +      if (
 +        tag != SUMMARY_TAG &&
-+        !tag.startsWith(SENDER_TAG_PREFIX) &&
++        !isChildTag(tag) &&
 +        statusBarNotification.notification.group == GROUP_KEY
 +      ) {
 +        runCatching { systemNotificationManager.cancel(tag, statusBarNotification.id) }
@@ -278,10 +310,13 @@ index 0000000..13c61ff
 +      senderName = parsed.senderName ?: "New message",
 +      preview = parsed.preview,
 +      roomId = parsed.roomId,
++      roomName = parsed.roomName,
++      isRoomMessage = parsed.isRoomMessage,
 +      time = parsed.timestamp ?: receivedAt,
 +      receivedAt = receivedAt,
 +      channelId = channelId
 +    )
++    val newAggregateKey = aggregateKey(stored)
 +
 +    messages.removeAll { it.id == stored.id }
 +    messages.add(stored)
@@ -301,19 +336,19 @@ index 0000000..13c61ff
 +    val wantedTags = aggregates.map { it.tag }.toSet()
 +    active.forEach { statusBarNotification ->
 +      val tag = statusBarNotification.tag ?: return@forEach
-+      if (tag.startsWith(SENDER_TAG_PREFIX) && tag !in wantedTags) {
++      if (isChildTag(tag) && tag !in wantedTags) {
 +        runCatching { systemNotificationManager.cancel(tag, statusBarNotification.id) }
 +      }
 +    }
 +
-+    // Update every sender row, but only the sender that just received a
-+    // message is allowed to alert.
-+    aggregates.forEach { sender ->
-+      postSenderChild(
++    // Update every child, but only the sender/room that just received a message
++    // is allowed to alert.
++    aggregates.forEach { aggregate ->
++      postChild(
 +        context,
 +        notificationManager,
-+        sender,
-+        alert = sender.key == senderKey
++        aggregate,
++        alert = aggregate.key == newAggregateKey
 +      )
 +    }
 +    postSummary(context, notificationManager, aggregates)
@@ -321,7 +356,7 @@ index 0000000..13c61ff
 +
 +  /**
 +   * Called after the backend successfully marks a room as read. Removes only
-+   * messages belonging to that room and recalculates every sender from the
++   * messages belonging to that room and recalculates every child from the
 +   * remaining messages (including messages from the same sender in other
 +   * rooms).
 +   *
@@ -354,7 +389,7 @@ index 0000000..13c61ff
 +  }
 +
 +  @Synchronized
-+  fun onSenderDismissed(context: Context, tag: String?) {
++  fun onChildDismissed(context: Context, tag: String?) {
 +    if (tag.isNullOrBlank()) {
 +      return
 +    }
@@ -367,19 +402,19 @@ index 0000000..13c61ff
 +        currentTag != null &&
 +          currentTag != SUMMARY_TAG &&
 +          statusBarNotification.id != SUMMARY_ID &&
-+          currentTag.startsWith(SENDER_TAG_PREFIX) &&
++          isChildTag(currentTag) &&
 +          currentTag != tag
 +      }
 +      .mapNotNull { it.tag }
 +      .toSet()
 +
 +    val remaining = loadMessages(context)
-+      .filterNot { tagFor(it.senderKey) == tag }
++      .filterNot { tagForMessage(it) == tag }
 +    saveMessages(context, remaining)
 +    // Only summarize rows that are still visible. Keep any stored messages for
-+    // other senders so a failed read does not delete their unread state.
++    // other children so a failed read does not delete their unread state.
 +    val activeAggregates = aggregate(
-+      remaining.filter { tagFor(it.senderKey) in activeTags }
++      remaining.filter { tagForMessage(it) in activeTags }
 +    )
 +    if (activeAggregates.isEmpty()) {
 +      cancelSummary(systemNotificationManager)
@@ -395,7 +430,7 @@ index 0000000..13c61ff
 +  private fun rebuildNotifications(
 +    context: Context,
 +    systemNotificationManager: NotificationManager,
-+    aggregates: List<SenderAggregate>,
++    aggregates: List<ChatAggregate>,
 +    alert: Boolean
 +  ) {
 +    val notificationManager = NotificationManagerCompat.from(context)
@@ -403,12 +438,12 @@ index 0000000..13c61ff
 +    val wantedTags = aggregates.map { it.tag }.toSet()
 +    active.forEach { statusBarNotification ->
 +      val tag = statusBarNotification.tag ?: return@forEach
-+      if (tag.startsWith(SENDER_TAG_PREFIX) && tag !in wantedTags) {
++      if (isChildTag(tag) && tag !in wantedTags) {
 +        runCatching { systemNotificationManager.cancel(tag, statusBarNotification.id) }
 +      }
 +    }
-+    aggregates.forEach { sender ->
-+      postSenderChild(context, notificationManager, sender, alert)
++    aggregates.forEach { aggregate ->
++      postChild(context, notificationManager, aggregate, alert)
 +    }
 +    if (aggregates.isEmpty()) {
 +      cancelSummary(systemNotificationManager)
@@ -417,22 +452,57 @@ index 0000000..13c61ff
 +    }
 +  }
 +
-+  private fun aggregate(messages: List<StoredMessage>): List<SenderAggregate> {
-+    return messages.groupBy { it.senderKey }.map { (key, list) ->
++  private fun aggregate(messages: List<StoredMessage>): List<ChatAggregate> {
++    return messages.groupBy { aggregateKey(it) }.map { (key, list) ->
 +      val sorted = list.sortedBy { it.time }
 +      val latest = sorted.last()
-+      SenderAggregate(
++      val isRoom = key.startsWith(ROOM_KEY_PREFIX)
++      val roomName = if (isRoom) {
++        sorted.asReversed().firstOrNull { !it.roomName.isNullOrBlank() }?.roomName
++          ?: "Channel"
++      } else {
++        null
++      }
++      ChatAggregate(
 +        key = key,
-+        senderId = latest.senderId,
-+        senderName = latest.senderName,
++        isRoom = isRoom,
++        title = roomName ?: latest.senderName,
++        latestSenderId = latest.senderId,
++        latestSenderName = latest.senderName,
 +        count = sorted.size,
 +        preview = latest.preview,
-+        roomId = latest.roomId,
++        roomId = latest.roomId
++          ?: sorted.asReversed().firstOrNull { it.roomId != null }?.roomId,
 +        lastTime = latest.time,
 +        channelId = sorted.lastOrNull { it.channelId != null }?.channelId,
 +        messages = sorted
 +      )
 +    }.sortedBy { it.lastTime }
++  }
++
++  private fun aggregateKey(message: StoredMessage): String {
++    val roomId = message.roomId
++    return if (message.isRoomMessage && !roomId.isNullOrBlank()) {
++      ROOM_KEY_PREFIX + roomId
++    } else {
++      SENDER_KEY_PREFIX + message.senderKey
++    }
++  }
++
++  private fun tagForKey(key: String): String {
++    return if (key.startsWith(ROOM_KEY_PREFIX)) {
++      ROOM_TAG_PREFIX + key.removePrefix(ROOM_KEY_PREFIX)
++    } else {
++      SENDER_TAG_PREFIX + key.removePrefix(SENDER_KEY_PREFIX)
++    }
++  }
++
++  private fun tagForMessage(message: StoredMessage): String {
++    return tagForKey(aggregateKey(message))
++  }
++
++  private fun isChildTag(tag: String): Boolean {
++    return tag.startsWith(SENDER_TAG_PREFIX) || tag.startsWith(ROOM_TAG_PREFIX)
 +  }
 +
 +  private fun extractFromText(text: String, title: String): Pair<String?, String?> {
@@ -503,13 +573,13 @@ index 0000000..13c61ff
 +    return preview
 +  }
 +
-+  private fun postSenderChild(
++  private fun postChild(
 +    context: Context,
 +    notificationManager: NotificationManagerCompat,
-+    sender: SenderAggregate,
++    aggregate: ChatAggregate,
 +    alert: Boolean
 +  ) {
-+    val channelId = sender.channelId ?: fallbackChannelId(context)
++    val channelId = aggregate.channelId ?: fallbackChannelId(context)
 +    val builder = if (channelId != null) {
 +      NotificationCompat.Builder(context, channelId)
 +    } else {
@@ -519,28 +589,46 @@ index 0000000..13c61ff
 +    builder.setSmallIcon(resolveSmallIcon(context))
 +    resolveColor(context)?.let { builder.color = it }
 +    resolveLargeIcon(context)?.let { builder.setLargeIcon(it) }
-+    builder.setContentTitle("${sender.senderName} (${sender.count})")
-+    builder.setContentText(sender.preview)
-+    builder.setNumber(sender.count)
++    builder.setContentTitle("${aggregate.title} (${aggregate.count})")
++    builder.setNumber(aggregate.count)
 +
-+    // MessagingStyle is intentionally not used here. On Android 12+/OEM
-+    // SystemUI the child title becomes "conversationTitle: senderName", which
-+    // repeats the sender, and the child's subText/number are not drawn in the
-+    // grouped row. InboxStyle gives us a stable sender/count title and a
-+    // readable list of the accumulated unread messages.
-+    val shown = sender.messages.takeLast(MAX_CHILD_LINES)
-+    val hidden = sender.messages.size - shown.size
-+    val inboxStyle = NotificationCompat.InboxStyle()
-+      .setBigContentTitle(
-+        "${sender.senderName} (${sender.count} ${messageWord(sender.count)})"
-+      )
-+    if (hidden > 0) {
-+      inboxStyle.addLine("$hidden earlier ${messageWord(hidden)}")
++    if (aggregate.isRoom) {
++      // Room children carry the channel identity and the sender-labelled
++      // conversation history. MessagingStyle renders that history inline when
++      // the group is expanded, unlike InboxStyle's big-content-only history.
++      builder.setContentText("${aggregate.latestSenderName}: ${aggregate.preview}")
++      val userPerson = Person.Builder().setName("You").setKey("me").build()
++      val style = NotificationCompat.MessagingStyle(userPerson)
++      style.setGroupConversation(true)
++      style.setConversationTitle("${aggregate.title} (${aggregate.count})")
++      aggregate.messages.takeLast(MAX_ROOM_STYLE_MESSAGES).forEach { message ->
++        val senderPerson = Person.Builder()
++          .setName(message.senderName)
++          .setKey(message.senderId ?: normalizeName(message.senderName))
++          .setImportant(true)
++          .build()
++        style.addMessage(message.preview, message.time, senderPerson)
++      }
++      builder.setStyle(style)
++    } else {
++      // Direct messages keep the compact InboxStyle sender row. The count is in
++      // the title because grouped MessagingStyle children do not draw subText
++      // or number consistently across OEMs.
++      builder.setContentText(aggregate.preview)
++      val shown = aggregate.messages.takeLast(MAX_CHILD_LINES)
++      val hidden = aggregate.messages.size - shown.size
++      val inboxStyle = NotificationCompat.InboxStyle()
++        .setBigContentTitle(
++          "${aggregate.title} (${aggregate.count} ${messageWord(aggregate.count)})"
++        )
++      if (hidden > 0) {
++        inboxStyle.addLine("$hidden earlier ${messageWord(hidden)}")
++      }
++      shown.forEach { message -> inboxStyle.addLine(message.preview) }
++      builder.setStyle(inboxStyle)
 +    }
-+    shown.forEach { message -> inboxStyle.addLine(message.preview) }
-+    builder.setStyle(inboxStyle)
 +
-+    builder.setWhen(sender.lastTime)
++    builder.setWhen(aggregate.lastTime)
 +    builder.setShowWhen(true)
 +    builder.setPriority(NotificationCompat.PRIORITY_HIGH)
 +    builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -555,27 +643,27 @@ index 0000000..13c61ff
 +    } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
 +      builder.setDefaults(NotificationCompat.DEFAULT_ALL)
 +    }
-+    builder.setContentIntent(senderIntent(context, sender))
-+    builder.setDeleteIntent(dismissIntent(context, sender))
-+    notificationManager.notify(sender.tag, CHILD_ID, builder.build())
++    builder.setContentIntent(childIntent(context, aggregate))
++    builder.setDeleteIntent(dismissIntent(context, aggregate))
++    notificationManager.notify(aggregate.tag, CHILD_ID, builder.build())
 +  }
 +
 +  private fun postSummary(
 +    context: Context,
 +    notificationManager: NotificationManagerCompat,
-+    senders: List<SenderAggregate>
++    aggregates: List<ChatAggregate>
 +  ) {
-+    if (senders.isEmpty()) {
++    if (aggregates.isEmpty()) {
 +      val manager =
 +        context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 +      cancelSummary(manager)
 +      return
 +    }
 +
-+    val sorted = senders.sortedByDescending { it.lastTime }
-+    val total = senders.sumOf { it.count }
++    val sorted = aggregates.sortedByDescending { it.lastTime }
++    val total = aggregates.sumOf { it.count }
 +    val latest = sorted.first()
-+    val channelId = summaryChannelId(context, senders)
++    val channelId = summaryChannelId(context, aggregates)
 +    val builder = if (channelId != null) {
 +      NotificationCompat.Builder(context, channelId)
 +    } else {
@@ -586,7 +674,7 @@ index 0000000..13c61ff
 +    resolveColor(context)?.let { builder.color = it }
 +    resolveLargeIcon(context)?.let { builder.setLargeIcon(it) }
 +    builder.setContentTitle("Planit")
-+    builder.setContentText("${latest.senderName} (${latest.count}) - ${latest.preview}")
++    builder.setContentText(lineFor(latest))
 +    builder.setSubText("$total unread ${messageWord(total)}")
 +    builder.setNumber(total)
 +    builder.setWhen(latest.lastTime)
@@ -611,15 +699,16 @@ index 0000000..13c61ff
 +    notificationManager.notify(SUMMARY_TAG, SUMMARY_ID, builder.build())
 +  }
 +
-+  private fun lineFor(sender: SenderAggregate): String {
-+    return "${sender.senderName} (${sender.count}) - ${sender.preview}"
++  private fun lineFor(aggregate: ChatAggregate): String {
++    return if (aggregate.isRoom) {
++      "${aggregate.title} (${aggregate.count}) - " +
++        "${aggregate.latestSenderName}: ${aggregate.preview}"
++    } else {
++      "${aggregate.title} (${aggregate.count}) - ${aggregate.preview}"
++    }
 +  }
 +
 +  private fun messageWord(count: Int): String = if (count == 1) "message" else "messages"
-+
-+  private fun senderWord(count: Int): String = if (count == 1) "sender" else "senders"
-+
-+  private fun tagFor(key: String): String = SENDER_TAG_PREFIX + key
 +
 +  private fun normalizeName(name: String): String {
 +    return name.trim().replace(Regex("\\s+"), " ").lowercase()
@@ -681,17 +770,22 @@ index 0000000..13c61ff
 +    return null
 +  }
 +
-+  private fun senderIntent(context: Context, sender: SenderAggregate): PendingIntent {
++  private fun childIntent(context: Context, aggregate: ChatAggregate): PendingIntent {
 +    val body = JSONObject().put("type", "chat")
-+    sender.roomId?.let { body.put("room_id", it) }
-+    sender.senderId?.let { body.put("sender_id", it) }
++    aggregate.roomId?.let { body.put("room_id", it) }
++    aggregate.latestSenderId?.let { body.put("sender_id", it) }
++    val text = if (aggregate.isRoom) {
++      "${aggregate.latestSenderName}: ${aggregate.preview}"
++    } else {
++      aggregate.preview
++    }
 +    val content = NotificationContent.Builder()
-+      .setTitle(sender.senderName)
-+      .setText(sender.preview)
++      .setTitle(aggregate.title)
++      .setText(text)
 +      .setBody(body)
 +      .build()
-+    val request = NotificationRequest(sender.tag, content, null)
-+    val notification = Notification(request, Date(sender.lastTime))
++    val request = NotificationRequest(aggregate.tag, content, null)
++    val notification = Notification(request, Date(aggregate.lastTime))
 +    val action = NotificationAction(
 +      NotificationResponse.DEFAULT_ACTION_IDENTIFIER,
 +      null,
@@ -704,12 +798,12 @@ index 0000000..13c61ff
 +    )
 +  }
 +
-+  private fun dismissIntent(context: Context, sender: SenderAggregate): PendingIntent {
++  private fun dismissIntent(context: Context, aggregate: ChatAggregate): PendingIntent {
 +    val intent = Intent(context, PlanitChatNotificationDismissReceiver::class.java).apply {
-+      putExtra(DISMISS_EXTRA_TAG, sender.tag)
++      putExtra(DISMISS_EXTRA_TAG, aggregate.tag)
 +    }
 +    val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-+    return PendingIntent.getBroadcast(context, sender.tag.hashCode(), intent, flags)
++    return PendingIntent.getBroadcast(context, aggregate.tag.hashCode(), intent, flags)
 +  }
 +
 +  private fun chatListIntent(context: Context): PendingIntent {
@@ -747,15 +841,15 @@ index 0000000..13c61ff
 +
 +  private fun summaryChannelId(
 +    context: Context,
-+    senders: List<SenderAggregate>
++    aggregates: List<ChatAggregate>
 +  ): String? {
 +    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
 +      return null
 +    }
 +    val manager =
 +      context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-+    senders.forEach { sender ->
-+      val id = sender.channelId
++    aggregates.forEach { aggregate ->
++      val id = aggregate.channelId
 +      if (!id.isNullOrBlank() && manager.getNotificationChannel(id) != null) {
 +        return id
 +      }
@@ -857,6 +951,9 @@ index 0000000..13c61ff
 +          preview = item.optString("preview").ifBlank { "Sent you a message" },
 +          roomId = item.optString("roomId")
 +            .takeIf { it.isNotBlank() && it != "null" },
++          roomName = item.optString("roomName")
++            .takeIf { it.isNotBlank() && it != "null" },
++          isRoomMessage = item.optBoolean("isRoomMessage", false),
 +          time = time,
 +          receivedAt = item.optLong("receivedAt", time),
 +          channelId = item.optString("channelId")
@@ -877,6 +974,8 @@ index 0000000..13c61ff
 +          put("senderName", message.senderName)
 +          put("preview", message.preview)
 +          put("roomId", message.roomId ?: JSONObject.NULL)
++          put("roomName", message.roomName ?: JSONObject.NULL)
++          put("isRoomMessage", message.isRoomMessage)
 +          put("time", message.time)
 +          put("receivedAt", message.receivedAt)
 +          put("channelId", message.channelId ?: JSONObject.NULL)
@@ -911,7 +1010,7 @@ index 0000000..13c61ff
 +}
 +
 +/**
-+ * Receives the delete intent attached to a sender child notification and keeps
++ * Receives the delete intent attached to a chat child notification and keeps
 + * the persisted message state and the group summary in sync when the user
 + * dismisses or clears a chat notification.
 + */
@@ -922,7 +1021,7 @@ index 0000000..13c61ff
 +      return
 +    }
 +    try {
-+      PlanitChatNotification.onSenderDismissed(context, tag)
++      PlanitChatNotification.onChildDismissed(context, tag)
 +    } catch (e: Exception) {
 +      Log.e("PlanitChatNotification", "Failed to handle notification dismissal.", e)
 +    }
