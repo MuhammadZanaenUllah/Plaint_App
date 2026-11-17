@@ -11,6 +11,9 @@ import {
   setHapticsEnabledCache,
   triggerHaptic,
 } from "@/utils/haptics";
+import * as authService from "@/services/api/auth.service";
+import { extractErrorMessage } from "@/utils/errorHandler";
+import { PASSWORD_RULE, PASSWORD_RULE_TEXT } from "@/utils/passwordRules";
 import { showError, showSuccess } from "@/utils/toast";
 import { removeBiometricSession, saveBiometricSession } from "@/utils/token";
 import Avatar from "@/components/Avatar";
@@ -327,7 +330,7 @@ export default function SettingsScreen() {
     });
   };
 
-  const handlePasswordChange = () => {
+  const handlePasswordChange = async () => {
     if (!oldPassword || !newPassword || !confirmPassword) {
       showError("Missing Information", "Please fill in all password fields.");
       return;
@@ -339,23 +342,29 @@ export default function SettingsScreen() {
       );
       return;
     }
-    if (newPassword.length < 6) {
-      showError(
-        "Password Too Short",
-        "Your new password must be at least 6 characters.",
-      );
+    if (!PASSWORD_RULE.test(newPassword)) {
+      showError("Password Too Weak", PASSWORD_RULE_TEXT);
       return;
     }
 
     setUpdatingPassword(true);
-    setTimeout(() => {
-      setUpdatingPassword(false);
+    try {
+      const res = await authService.changeMyPassword(oldPassword, newPassword);
+      if (!res || res.Good === false) {
+        // e.g. "Your current password is not correct." from the server
+        showError("Password Not Changed", extractErrorMessage(res));
+        return;
+      }
       setPasswordModalVisible(false);
       setOldPassword("");
       setNewPassword("");
       setConfirmPassword("");
       showSuccess("Password updated successfully");
-    }, 1000);
+    } catch (error) {
+      showError("Password Not Changed", extractErrorMessage(error));
+    } finally {
+      setUpdatingPassword(false);
+    }
   };
 
   const handleLogout = () => {

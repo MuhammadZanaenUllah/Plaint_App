@@ -35,10 +35,18 @@ export async function resetPassword(data: ResetPasswordRequest) {
   );
 }
 
+/** Logged-in user changes their own password (Settings). */
+export async function changeMyPassword(currentPassword: string, password: string) {
+  return apiPost<{ Good: boolean; data?: string; message?: string }>(
+    "/user/my-account",
+    { password, currentPassword }
+  );
+}
+
 export async function initialPasswordReset(
   data: InitialPasswordResetRequest
 ) {
-  return apiPost<{ Good: boolean; data: string }>(
+  return apiPost<{ Good: boolean; data?: string; message?: string }>(
     "/user/initial-password-reset",
     data
   );

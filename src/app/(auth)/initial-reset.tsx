@@ -5,6 +5,7 @@ import Images from "@/constants/images";
 import { useAuth } from "@/hooks/useAuth";
 import { Colors } from "@/theme/root";
 import { extractErrorMessage } from "@/utils/errorHandler";
+import { PASSWORD_RULE, PASSWORD_RULE_TEXT } from "@/utils/passwordRules";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { router } from "expo-router";
 import { useState } from "react";
@@ -39,8 +40,8 @@ export default function InitialPasswordReset() {
       showInfo("Validation", "Passwords do not match.");
       return;
     }
-    if (newPassword.length < 6) {
-      showInfo("Validation", "Password must be at least 6 characters.");
+    if (!PASSWORD_RULE.test(newPassword)) {
+      showInfo("Password Too Weak", PASSWORD_RULE_TEXT);
       return;
     }
 

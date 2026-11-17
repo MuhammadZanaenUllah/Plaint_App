@@ -4,6 +4,7 @@ import { setAuthFailureHandler } from "@/services/api/client";
 import { getCompanyModules } from "@/services/api/modules.service";
 import { onSocketEvent, setSocketAuthFailureHandler } from "@/services/socket/socketService";
 import { Company, UserData } from "@/types/auth.types";
+import { extractErrorMessage } from "@/utils/errorHandler";
 import { invalidateAuthTokenCache } from "@/utils/secureImageFetch";
 import {
   clearAllAuth,
@@ -138,6 +139,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Latest auth state for socket handlers (registered once, no stale closure).
   const stateRef = useRef(state);
+  // Default password from a first login, kept in memory only (never stored)
+  // until the initial reset sends it as `currentPassword`.
+  const defaultPasswordRef = useRef("");
   stateRef.current = state;
 
   useEffect(() => {
@@ -299,6 +303,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if ("isDefaultPassword" in res && res.isDefaultPassword) {
+        defaultPasswordRef.current = password;
         dispatch({ type: "DEFAULT_PASSWORD", email: res.userEmail });
         return;
       }
@@ -402,6 +407,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    defaultPasswordRef.current = "";
     resetTaskStores();
     await clearAllAuth();
     invalidateAuthTokenCache();
@@ -415,11 +421,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const setInitialPassword = useCallback(
     async (email: string, password: string, confirmPassword: string) => {
       try {
-        await authService.initialPasswordReset({
+        const res = await authService.initialPasswordReset({
           email,
           password,
           confirmPassword,
+          currentPassword: defaultPasswordRef.current,
         });
+        // apiPost resolves with error bodies too; a refused reset must not
+        // be reported as success.
+        if (!res || res.Good === false) {
+          throw new Error(extractErrorMessage(res));
+        }
+        defaultPasswordRef.current = "";
         dispatch({ type: "LOGOUT" });
       } catch (error) {
         throw error;

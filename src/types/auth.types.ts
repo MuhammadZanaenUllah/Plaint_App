@@ -90,6 +90,8 @@ export type InitialPasswordResetRequest = {
   email: string;
   password: string;
   confirmPassword: string;
+  /** The default password the user just logged in with (server requires it). */
+  currentPassword: string;
 };
 
 export type InitialPasswordResetResponse = {
