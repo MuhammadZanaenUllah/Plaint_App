@@ -1,6 +1,25 @@
-import { Dimensions, PixelRatio, Text as RNText, TextInput as RNTextInput } from "react-native";
+import { Dimensions, PixelRatio, Text as RNText, TextInput as RNTextInput, useWindowDimensions } from "react-native";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
+/**
+ * On tablets every screen renders in a centered column of this width (see
+ * RootLayout). Anything sized from the screen width and laid out inside a
+ * screen must use the content width below, not the window width. Full-window
+ * overlays (RN <Modal>, toasts) keep using the window size.
+ */
+export const CONTENT_MAX_WIDTH = 720;
+
+/** Width of the app's content column; updates on rotation / iPad split view. */
+export function useContentWidth(): number {
+  const { width } = useWindowDimensions();
+  return Math.min(width, CONTENT_MAX_WIDTH);
+}
+
+/** Non-hook read of the content width, for event handlers. */
+export function getContentWidth(): number {
+  return Math.min(Dimensions.get("window").width, CONTENT_MAX_WIDTH);
+}
 
 // Base width standard (375px - standard mobile design baseline)
 const BASE_WIDTH = 375;

@@ -13,6 +13,7 @@
         "dark": "./assets/images/ios-icon-dark.png",
         "tinted": "./assets/images/ios-icon-monochrome.png"
       },
+      "supportsTablet": true,
       "bundleIdentifier": "pk.planit",
       "appleTeamId": "Y9Q8B6NUBB",
       "googleServicesFile": "./assets/files/GoogleService-Info.plist",

@@ -1,13 +1,12 @@
 //this is the onboarding screen 
 import TopMintGlow from "@/components/gradientheader";
-import { rf } from "@/utils/responsive";
+import { rf, useContentWidth } from "@/utils/responsive";
 import { Colors } from "@/theme/root";
 import useAppFonts from "@/theme/useAppFonts";
 import { router } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { useEffect, useRef, useState } from "react";
 import {
-  Dimensions,
   Image,
   ScrollView,
   StyleSheet,
@@ -18,7 +17,6 @@ import {
 
 import Images from "@/constants/images";
 
-const { width: SW } = Dimensions.get("window");
 
 const SLIDES = [
   Images.MainBanner,
@@ -42,6 +40,12 @@ export default function OnboardingScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [active, setActive] = useState(0);
+  // Slides are as wide as the content column (centered column on tablets).
+  const SW = useContentWidth();
+  const SWRef = useRef(SW);
+  useEffect(() => {
+    SWRef.current = SW;
+  }, [SW]);
 
   // useEffect(() => {
   //   const interval = setInterval(() => {
@@ -74,7 +78,7 @@ export default function OnboardingScreen() {
         const next = (prev + 1) % SLIDES.length;
 
         scrollRef.current?.scrollTo({
-          x: next * SW,
+          x: next * SWRef.current,
           animated: true,
         });
 
@@ -134,7 +138,7 @@ export default function OnboardingScreen() {
           }}
         >
           {SLIDES.map((src, i) => (
-            <View key={i} style={styles.slide}>
+            <View key={i} style={[styles.slide, { width: SW }]}>
               <Image source={src} style={styles.bannerImage} resizeMode="contain" />
             </View>
           ))}
@@ -185,7 +189,6 @@ const styles = StyleSheet.create({
   // },
   slider: { flex: 1 },
   slide: {
-    width: SW,
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
