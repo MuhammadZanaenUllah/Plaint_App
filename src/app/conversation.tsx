@@ -54,6 +54,7 @@ import {
   resolveVoiceNoteDuration,
 } from "@/utils/voiceNoteDuration";
 import { canDeleteDirectChat } from "@/utils/permissions";
+import { canViewProjects } from "@/features/projects/permissions/projectPermissions";
 import {
   attachmentExtension,
   decodeAttachmentName,
@@ -138,7 +139,17 @@ const { ChatIcon: MainChatIcon } = Icons;
 // the action toolbar feels identical wherever the press lands.
 const ATTACHMENT_LONG_PRESS_DELAY = 250;
 
-type ForwardSection = { title: string; data: Room[] };
+type ForwardSection = {
+  title: string;
+  data: Room[];
+  /**
+   * Set for project groups: the section header is an interactive project row
+   * and `data` holds the project's child channels when expanded.
+   */
+  projectId?: number;
+  channelCount?: number;
+  collapsed?: boolean;
+};
 
 /** Display name used by the forward picker (matches the old inline logic). */
 function getForwardRoomDisplayName(room: Room, currentUserId: number): string {
@@ -4474,6 +4485,10 @@ export default function ConversationScreen() {
   const authState = useAuth();
   const currentUserId = authState?.state?.user?.id ?? 0;
   const currentUser = authState?.state?.user ?? null;
+  const currentCompany = authState?.state?.company ?? null;
+  // Project rooms/channels only appear in the forward picker when the user can
+  // see projects (same gate the chat list uses).
+  const canSeeProjects = canViewProjects(currentUser, currentCompany);
   const currentUserName = authState?.state?.user
     ? `${authState.state.user.first_name} ${authState.state.user.last_name}`.trim() ||
       `User #${currentUserId}`
@@ -5208,29 +5223,87 @@ export default function ConversationScreen() {
     messageId: string;
     promise: Promise<{ uri: string; name: string; type: string }[]>;
   } | null>(null);
+  // Project groups are collapsed by default in the picker; expanding reveals
+  // that project's chat channels underneath its name.
+  const [forwardExpandedProjects, setForwardExpandedProjects] = useState<
+    Set<number>
+  >(new Set());
 
-  // Split the room list into Inbox (1:1 DMs) and Channels, filtered by the
-  // modal's search box. Project rooms are hidden while the Projects module is
-  // disabled project-wide.
+  const toggleForwardProject = useCallback((projectId: number) => {
+    setForwardExpandedProjects((previous) => {
+      const next = new Set(previous);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+  }, []);
+
+  // Inbox (1:1 DMs), standalone Channels, then one collapsible group per
+  // project (project name followed by its chat channels). Everything is
+  // filtered by the modal's search box.
   const forwardSections = useMemo<ForwardSection[]>(() => {
     const query = forwardSearch.trim().toLowerCase();
-    const visible = state.rooms.filter((room) =>
+    const matches = (room: Room) =>
       getForwardRoomDisplayName(room, currentUserId)
         .toLowerCase()
-        .includes(query),
+        .includes(query);
+    const visible = state.rooms.filter(matches);
+
+    const projectRooms = canSeeProjects
+      ? state.rooms.filter((room) => room.type === "project")
+      : [];
+    const projectRoomIds = new Set(projectRooms.map((room) => room.id));
+    const channels = visible.filter(
+      (room) =>
+        room.type === "channel" &&
+        (room.parent_id == null ||
+          !projectRoomIds.has(Number(room.parent_id))),
     );
-    const sections: ForwardSection[] = [
+
+    const projectSections: ForwardSection[] = projectRooms
+      .map<ForwardSection | null>((project) => {
+        const children = state.rooms.filter(
+          (room) =>
+            room.type === "channel" &&
+            room.parent_id != null &&
+            Number(room.parent_id) === project.id,
+        );
+        // A project is listed when its own name matches or any of its channels
+        // match the search. While searching, matching groups auto-expand so the
+        // matching channels are visible without an extra tap.
+        const childMatches = children.some(matches);
+        if (query && !matches(project) && !childMatches) return null;
+        const expanded =
+          forwardExpandedProjects.has(project.id) ||
+          (query.length > 0 && (matches(project) || childMatches));
+        return {
+          title: getForwardRoomDisplayName(project, currentUserId),
+          projectId: project.id,
+          channelCount: children.length,
+          collapsed: !expanded,
+          data: expanded ? children : [],
+        };
+      })
+      .filter((section): section is ForwardSection => section !== null);
+
+    return [
       {
         title: "Inbox",
         data: visible.filter((room) => room.type === "direct"),
       },
       {
         title: "Channels",
-        data: visible.filter((room) => room.type === "channel"),
+        data: channels,
       },
-    ];
-    return sections.filter((section) => section.data.length > 0);
-  }, [state.rooms, currentUserId, forwardSearch]);
+      ...projectSections,
+    ].filter((section) => section.data.length > 0 || section.projectId != null);
+  }, [
+    state.rooms,
+    currentUserId,
+    forwardSearch,
+    forwardExpandedProjects,
+    canSeeProjects,
+  ]);
   const toggleFilter = (tab: FilterTab) => {
     setActiveFilter((prev) => (prev === tab ? null : tab));
   };
@@ -5838,6 +5911,7 @@ export default function ConversationScreen() {
     setForwardMsg(null);
     setForwardSearch("");
     setForwardStatus({});
+    setForwardExpandedProjects(new Set());
     forwardAttachmentsRef.current = null;
   }, []);
 
@@ -7694,6 +7768,7 @@ export default function ConversationScreen() {
             forwardAttachmentsRef.current = null;
             setForwardStatus({});
             setForwardSearch("");
+            setForwardExpandedProjects(new Set());
             setForwardMsg(selectedMsgForModal.message);
             setForwardOpen(true);
           }
@@ -7943,13 +8018,47 @@ export default function ConversationScreen() {
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               removeClippedSubviews={false}
-              renderSectionHeader={({ section }) => (
-                <View style={styles.forwardSectionHeader}>
-                  <Text style={styles.forwardSectionTitle}>
-                    {section.title}
-                  </Text>
-                </View>
-              )}
+              renderSectionHeader={({ section }) => {
+                if (section.projectId != null) {
+                  const projectId = section.projectId;
+                  const channelCount = section.channelCount ?? 0;
+                  return (
+                    <TouchableOpacity
+                      style={styles.forwardProjectHeader}
+                      activeOpacity={0.75}
+                      onPress={() => toggleForwardProject(projectId)}
+                    >
+                      <Ionicons
+                        name={
+                          section.collapsed ? "chevron-forward" : "chevron-down"
+                        }
+                        size={13}
+                        color="#6B7280"
+                      />
+                      <Text
+                        style={[
+                          styles.forwardSectionTitle,
+                          styles.forwardProjectTitle,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {section.title}
+                      </Text>
+                      <Text style={styles.forwardProjectCount}>
+                        {channelCount}{" "}
+                        {channelCount === 1 ? "channel" : "channels"}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                }
+                return (
+                  <View style={styles.forwardSectionHeader}>
+                    <Text style={styles.forwardSectionTitle}>
+                      {section.title}
+                    </Text>
+                  </View>
+                );
+              }}
               ListEmptyComponent={
                 <View style={styles.forwardEmpty}>
                   <Text style={styles.forwardEmptyText}>
@@ -7957,7 +8066,7 @@ export default function ConversationScreen() {
                   </Text>
                 </View>
               }
-              renderItem={({ item: room }) => {
+              renderItem={({ item: room, section }) => {
                 const displayName = getForwardRoomDisplayName(
                   room,
                   currentUserId,
@@ -7965,7 +8074,13 @@ export default function ConversationScreen() {
                 const status =
                   forwardStatus[String(room._id ?? room.id)] ?? "idle";
                 return (
-                  <View style={styles.forwardRoomRow}>
+                  <View
+                    style={[
+                      styles.forwardRoomRow,
+                      section.projectId != null &&
+                        styles.forwardRoomRowNested,
+                    ]}
+                  >
                     <Avatar
                       name={displayName}
                       imagePath={getRoomAvatar(room, currentUserId)}
@@ -8948,6 +9063,32 @@ const styles = StyleSheet.create({
     color: "#8A8A8A",
     letterSpacing: 0.4,
     textTransform: "uppercase",
+  },
+  forwardProjectHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+    backgroundColor: "#fff",
+  },
+  forwardProjectTitle: {
+    flexShrink: 1,
+    fontSize: rf(11),
+    fontFamily: "SF_Pro_Semibold",
+    color: TEXT_PRIMARY,
+    letterSpacing: 0,
+    textTransform: "none",
+  },
+  forwardProjectCount: {
+    marginLeft: "auto",
+    fontSize: rf(9.5),
+    fontFamily: "SF_Pro_Regular",
+    color: "#8A8A8A",
+  },
+  forwardRoomRowNested: {
+    paddingLeft: 27,
   },
   forwardEmpty: {
     paddingHorizontal: 16,

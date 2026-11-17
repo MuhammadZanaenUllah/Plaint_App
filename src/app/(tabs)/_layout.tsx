@@ -67,30 +67,35 @@ function TabLayoutContent() {
       : (HEADER_CONFIGS[currentRoute] ?? DEFAULT_CONFIG);
 
   const forceSearchOpen = config.forceSearchOpen;
+  // The Projects screen renders its own ScreenHeader (with search/filter
+  // actions), so the shared tab header is skipped there to avoid a double bar.
+  const hideHeader = currentRoute === "projects";
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
       {/* Transparent status bar with dark content, matching the conversation
           screen (`<StatusBar style="dark" />`) instead of the light app default. */}
       <StatusBar style="dark" />
-      <Animated.View
-        layout={LinearTransition.duration(180)}
-        style={{
-          overflow: "visible",
-          zIndex: 99999,
-          paddingTop: insets.top,
-          backgroundColor: "#fff",
-        }}
-      >
-        <AppHeader
-          greeting={config.greeting}
-          subGreeting={config.subGreeting}
-          showSearch={config.showSearch}
-          showFilter={config.showFilter}
-          forceSearchOpen={forceSearchOpen}
-          placeholder={config.placeholder}
-        />
-      </Animated.View>
+      {!hideHeader && (
+        <Animated.View
+          layout={LinearTransition.duration(180)}
+          style={{
+            overflow: "visible",
+            zIndex: 99999,
+            paddingTop: insets.top,
+            backgroundColor: "#fff",
+          }}
+        >
+          <AppHeader
+            greeting={config.greeting}
+            subGreeting={config.subGreeting}
+            showSearch={config.showSearch}
+            showFilter={config.showFilter}
+            forceSearchOpen={forceSearchOpen}
+            placeholder={config.placeholder}
+          />
+        </Animated.View>
+      )}
       <Tabs
         initialRouteName="tasks"
         screenOptions={{
@@ -101,6 +106,7 @@ function TabLayoutContent() {
       >
         <Tabs.Screen name="tasks" />
         {/* <Tabs.Screen name="leaves" /> */}
+        <Tabs.Screen name="projects" />
         <Tabs.Screen name="chat" />
       </Tabs>
     </View>

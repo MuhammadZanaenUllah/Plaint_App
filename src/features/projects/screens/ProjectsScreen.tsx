@@ -202,7 +202,7 @@ export default function ProjectsScreen() {
   if (!canView) {
     return (
       <SafeAreaView style={styles.root}>
-        <ScreenHeader title="Projects" />
+        <ScreenHeader title="Projects" showBack={false} />
         <View style={styles.center}>
           <Text style={styles.emptyTitle}>Projects unavailable</Text>
           <Text style={styles.emptyText}>
@@ -217,6 +217,7 @@ export default function ProjectsScreen() {
     <SafeAreaView style={styles.root}>
       <ScreenHeader
         title="Projects"
+        showBack={false}
         rightActions={
           <>
             <TouchableOpacity
