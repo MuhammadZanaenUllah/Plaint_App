@@ -1,12 +1,13 @@
 //this is the onboarding screen 
 import TopMintGlow from "@/components/gradientheader";
-import { rf, useContentWidth } from "@/utils/responsive";
+import { FORM_MAX_WIDTH, rf } from "@/utils/responsive";
 import { Colors } from "@/theme/root";
 import useAppFonts from "@/theme/useAppFonts";
 import { router } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { useEffect, useRef, useState } from "react";
 import {
+  useWindowDimensions,
   Image,
   ScrollView,
   StyleSheet,
@@ -40,8 +41,8 @@ export default function OnboardingScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [active, setActive] = useState(0);
-  // Slides are as wide as the content column (centered column on tablets).
-  const SW = useContentWidth();
+  // Slides are as wide as the screen; live for rotation / split view.
+  const { width: SW } = useWindowDimensions();
   const SWRef = useRef(SW);
   useEffect(() => {
     SWRef.current = SW;
@@ -198,6 +199,9 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   bottomHalf: {
+    width: "100%",
+    maxWidth: FORM_MAX_WIDTH, // tablets: keep the text and button readable
+    alignSelf: "center",
     backgroundColor: "#FFFFFF",
     paddingHorizontal: 15,
     paddingTop: 20,

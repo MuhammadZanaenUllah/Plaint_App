@@ -1,4 +1,4 @@
-import { CONTENT_MAX_WIDTH, rf, useContentWidth } from "@/utils/responsive";
+import { MESSAGE_MAX_WIDTH, rf } from "@/utils/responsive";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import AddPeopleModal from "@/components/AddPeopleModal";
 import InviteToChannelModal, {
@@ -1236,9 +1236,10 @@ function AttachmentsPanel({
   onOpenVideo?: (url: string, name?: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState("Images");
-  const contentWidth = useContentWidth();
+  // Live window width: follows rotation / iPad split view.
+  const { width: windowWidth } = useWindowDimensions();
   const thumbSize =
-    Math.floor((contentWidth - ATTACHMENT_GRID_GAP * 4) / 3) -
+    Math.floor((windowWidth - ATTACHMENT_GRID_GAP * 4) / 3) -
     ATTACHMENT_GRID_GAP;
 
   const imageAttachments = useMemo(
@@ -1467,7 +1468,7 @@ const ap = StyleSheet.create({
     overflow: "hidden",
   },
   imageThumb: {
-    // width/height come from the content width (AttachmentsPanel).
+    // width/height come from the window width (AttachmentsPanel).
     backgroundColor: "#EDEEF1",
   },
   emptyTab: {
@@ -2869,9 +2870,7 @@ function WhatsAppMessageModal({
       ? message.text
       : "";
 
-  const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
-  // Keep the menu over the content column (tablets) instead of the screen edges.
-  const sideInset = Math.max(20, (screenWidth - CONTENT_MAX_WIDTH) / 2 + 20);
+  const screenHeight = Dimensions.get("window").height;
   const clampedY = targetY
     ? Math.max(90, Math.min(targetY - 70, screenHeight - 430))
     : screenHeight * 0.25;
@@ -2913,8 +2912,6 @@ function WhatsAppMessageModal({
             waModalStyles.focusedWrapper,
             {
               top: clampedY,
-              left: sideInset,
-              right: sideInset,
               opacity: fadeAnim,
               transform: [{ scale: scaleAnim }],
             },
@@ -8278,6 +8275,7 @@ const styles = StyleSheet.create({
   },
   incomingContent: {
     flex: 1,
+    maxWidth: MESSAGE_MAX_WIDTH, // tablets: keep long messages readable
     alignItems: "flex-start",
   },
   senderMeta: {
@@ -8305,6 +8303,7 @@ const styles = StyleSheet.create({
   },
   outgoingContent: {
     flex: 1,
+    maxWidth: MESSAGE_MAX_WIDTH, // tablets: keep long messages readable
     alignItems: "flex-end",
   },
   senderMetaOutgoing: {

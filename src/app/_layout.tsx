@@ -17,8 +17,8 @@ import useAppFonts from "@/theme/useAppFonts";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { type ReactNode, useContext, useCallback, useEffect, useRef } from "react";
-import { AppState, LogBox, StyleSheet, useWindowDimensions, View } from "react-native";
+import { useContext, useCallback, useEffect, useRef } from "react";
+import { AppState, LogBox } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Toast from "react-native-toast-message";
 import { toastConfig } from "@/components/AppToast";
@@ -28,7 +28,7 @@ function UpdateLifecycle() {
   return null;
 }
 
-import { CONTENT_MAX_WIDTH, setupGlobalFontScaling } from "@/utils/responsive";
+import { setupGlobalFontScaling } from "@/utils/responsive";
 
 // Disable automatic system font scaling globally across all <Text> and <TextInput> components
 setupGlobalFontScaling();
@@ -252,37 +252,6 @@ function RootNavigator() {
   );
 }
 
-// Tablets (iPad, Android tablets) show the phone layout in a centered column
-// instead of stretching it edge to edge; phones are unaffected.
-function ContentColumn({ children }: { children: ReactNode }) {
-  const { width } = useWindowDimensions();
-  return (
-    <View
-      style={[
-        columnStyles.column,
-        width > CONTENT_MAX_WIDTH && columnStyles.framed,
-      ]}
-    >
-      {children}
-    </View>
-  );
-}
-
-const columnStyles = StyleSheet.create({
-  column: {
-    flex: 1,
-    width: "100%",
-    maxWidth: CONTENT_MAX_WIDTH,
-    alignSelf: "center",
-    overflow: "hidden",
-  },
-  framed: {
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderRightWidth: StyleSheet.hairlineWidth,
-    borderColor: "#E5E7EB",
-  },
-});
-
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#fff" }}>
@@ -297,9 +266,7 @@ export default function RootLayout() {
                   <BottomSheetModalProvider>
                     <PushNotificationLifecycle />
                     <UpdateLifecycle />
-                    <ContentColumn>
-                      <RootNavigator />
-                    </ContentColumn>
+                    <RootNavigator />
                     <Toast config={toastConfig} />
                   </BottomSheetModalProvider>
                 </PushNotificationProvider>

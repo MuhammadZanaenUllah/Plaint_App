@@ -1,4 +1,4 @@
-import { rf } from "@/utils/responsive";
+import { FORM_MAX_WIDTH, rf } from "@/utils/responsive";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 import FloatingInput from "@/components/FloatingInput";
@@ -199,6 +199,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   content: {
+    width: "100%",
+    maxWidth: FORM_MAX_WIDTH, // tablets: keep the form readable
+    alignSelf: "center",
     paddingHorizontal: 20,
     paddingVertical: 24,
     justifyContent: "center",

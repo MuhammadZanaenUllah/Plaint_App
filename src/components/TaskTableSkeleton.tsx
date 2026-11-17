@@ -10,7 +10,7 @@ import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
 // accent bar). Copy exactly instead of re-deriving, so it can't drift again
 // silently the next time the real table's metrics change.
 const ROW_HEIGHT = 35;
-const MAX_TABLE_WIDTH = 640;
+const MAX_TABLE_WIDTH = Number.POSITIVE_INFINITY; // no cap: full width on tablets too (was 640)
 const MIN_TABLE_WIDTH = 320;
 
 function getTableMetrics(windowWidth: number) {

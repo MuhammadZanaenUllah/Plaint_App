@@ -35,7 +35,6 @@ import {
   canCreateProject,
 } from "@/features/projects/permissions/projectPermissions";
 import { showError } from "@/utils/toast";
-import { getContentWidth } from "@/utils/responsive";
 import { MODULE_ACCESS_MESSAGES } from "@/utils/errorHandler";
 import { StatusBar } from "expo-status-bar";
 import {
@@ -46,6 +45,7 @@ import {
   useState,
 } from "react";
 import {
+  Dimensions,
   Keyboard,
   Pressable,
   ScrollView,
@@ -285,7 +285,7 @@ function TasksScreenContent() {
 
       const layout = cardLayoutsRef.current[tabId];
       if (layout && statsScrollRef.current) {
-        const screenWidth = getContentWidth();
+        const screenWidth = Dimensions.get("window").width;
         statsScrollRef.current.scrollTo({
           x: Math.max(0, layout.x + layout.width / 2 - screenWidth / 2),
           animated: true,

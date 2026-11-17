@@ -1,4 +1,4 @@
-import { rf } from "@/utils/responsive";
+import { FORM_MAX_WIDTH, rf } from "@/utils/responsive";
 import FloatingInput from "@/components/FloatingInput";
 import TopMintGlow from "@/components/gradientheader";
 import Images from "@/constants/images";
@@ -142,6 +142,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   content: {
+    width: "100%",
+    maxWidth: FORM_MAX_WIDTH, // tablets: keep the form readable
+    alignSelf: "center",
     paddingHorizontal: 20,
     paddingVertical: 24,
     justifyContent: "center",

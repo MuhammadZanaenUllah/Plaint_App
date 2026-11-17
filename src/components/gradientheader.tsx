@@ -1,16 +1,15 @@
 import {
     StyleSheet,
+    useWindowDimensions,
     View
 } from 'react-native';
-import { useContentWidth } from '@/utils/responsive';
 
 
 
 
 
 export default function TopMintGlow() {
-    // Centered in the content column (tablets), not the whole screen.
-    const screenWidth = useContentWidth();
+    const { width: screenWidth } = useWindowDimensions();
     const layers = 40;
     const size = Math.max(screenWidth * 1.5, 520);
 
