@@ -82,8 +82,7 @@ const CHIP_DATA = [
     { id: "unread", label: "Unread" },
     { id: "read", label: "Read" },
     { id: "channels", label: "Channels" },
-    // PROJECT MODULE DISABLED
-    // { id: "projects", label: "Projects" },
+    { id: "projects", label: "Projects" },
 ];
 
 // ─── Swipeable chat row ───────────────────────────────────────────────────────
@@ -362,8 +361,7 @@ export default function ChatScreen() {
         () =>
             CHIP_DATA.filter((chip) => {
                 if (chip.id === "channels") return perms.hasChatRead;
-                // PROJECT MODULE DISABLED
-                // if (chip.id === "projects") return perms.hasProjectRead;
+                if (chip.id === "projects") return perms.hasProjectRead;
                 return true;
             }),
         [perms]
@@ -552,6 +550,24 @@ export default function ChatScreen() {
             ];
             break;
         }
+            case "projects": {
+                // Projects chip: only chats that belong to a project — the
+                // project room itself plus its child channels. Direct messages
+                // and standalone channels are excluded.
+                const projectRooms = filterRoomsByType(rooms, "project");
+                const projectRoomIds = new Set(
+                    projectRooms.map((room) => room.id),
+                );
+                base = [
+                    ...projectRooms,
+                    ...filterRoomsByType(rooms, "channel").filter(
+                        (room) =>
+                            room.parent_id != null &&
+                            projectRoomIds.has(Number(room.parent_id)),
+                    ),
+                ];
+                break;
+            }
             case "unread":
                 base = filterUnreadRooms(directRooms);
                 break;
@@ -1172,14 +1188,6 @@ export default function ChatScreen() {
                                 </View>
                             );
                         })}
-                        {perms.hasProjectRead && (
-                            <TouchableOpacity
-                                style={styles.chipButton}
-                                onPress={() => router.push("/projects" as never)}
-                            >
-                                <Text style={styles.chipText}>Projects</Text>
-                            </TouchableOpacity>
-                        )}
                     </ScrollView>
 
                     {displayRooms.length > 0 ? (
@@ -1373,7 +1381,7 @@ export default function ChatScreen() {
                                 })
                             )}
                             */}
-                            {activeChip === "channels" ? (
+                            {activeChip === "channels" || activeChip === "projects" ? (
                                 <>
                                     {displayRooms
                                         .filter((room) => room.type === "project")
@@ -1496,9 +1504,10 @@ export default function ChatScreen() {
                                                 </View>
                                             );
                                         })}
-                                    {displayRooms
-                                        .filter((room) => room.type === "channel")
-                                        .map(renderRoomRow)}
+                                    {activeChip === "channels" &&
+                                        displayRooms
+                                            .filter((room) => room.type === "channel")
+                                            .map(renderRoomRow)}
                                 </>
                             ) : (
                                 displayRooms.map(renderRoomRow)
@@ -1547,6 +1556,26 @@ export default function ChatScreen() {
                                 <Text style={styles.workspaceDescription}>
                                     You don't have permission to create channels.
                                 </Text>
+                            )}
+                        </View>
+                    ) : activeChip === "projects" ? (
+                        <View style={styles.workspaceContainer}>
+                            <View style={styles.iconStack}>
+                                <Ionicons name="folder-outline" size={48} color="#00DEAB" />
+                            </View>
+                            <Text style={styles.workspaceTitle}>No project chats yet</Text>
+                            <Text style={styles.workspaceDescription}>
+                                Project conversations will appear here.{"\n"}Create and manage
+                                projects from the Projects tab.
+                            </Text>
+                            {perms.hasProjectRead && (
+                                <TouchableOpacity
+                                    style={styles.addPeopleButton}
+                                    activeOpacity={0.85}
+                                    onPress={() => router.navigate("/(tabs)/projects" as never)}
+                                >
+                                    <Text style={styles.addPeopleText}>Open Projects</Text>
+                                </TouchableOpacity>
                             )}
                         </View>
                     ) : (
@@ -1644,6 +1673,7 @@ export default function ChatScreen() {
                     )
                 */}
                 {displayRooms.length > 0 &&
+                    activeChip !== "projects" &&
                     (activeChip === "channels"
                         ? perms.canCreateChannels
                         : perms.hasChatRead) && (

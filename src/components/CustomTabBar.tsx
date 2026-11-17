@@ -29,6 +29,8 @@ const {
   LeaveWhiteIcon: LeaveIconWhite,
   PEBlackIcon: PEIconBlack,
   PEWhiteIcon: PEIconWhite,
+  ProjectBlackIcon: ProjectIconBlack,
+  ProjectWhiteIcon: ProjectIconWhite,
   TaskBlackIcon: TaskIconBlack,
   TaskWhiteIcon: TaskIconsWhite,
 } = Icons;
@@ -53,6 +55,11 @@ const TABS: TabItem[] = [
     name: "tasks",
     activeIcon: TaskIconBlack,
     inactiveIcon: TaskIconsWhite,
+  },
+  {
+    name: "projects",
+    activeIcon: ProjectIconBlack,
+    inactiveIcon: ProjectIconWhite,
   },
   {
     name: "chat",

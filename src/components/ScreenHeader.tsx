@@ -8,6 +8,8 @@ type Props = {
   title: string;
   subtitle?: string;
   onBack?: () => void;
+  /** Set false on tab-root screens so no back chevron is rendered. */
+  showBack?: boolean;
   rightActions?: ReactNode;
   style?: StyleProp<ViewStyle>;
 };
@@ -16,6 +18,7 @@ export default function ScreenHeader({
   title,
   subtitle,
   onBack,
+  showBack = true,
   rightActions,
   style,
 }: Props) {
@@ -29,9 +32,11 @@ export default function ScreenHeader({
 
   return (
     <View style={[styles.header, style]}>
-      <TouchableOpacity onPress={handleBack} hitSlop={8} style={styles.backBtn}>
-        <Ionicons name="chevron-back" size={24} color="#1D1D1D" />
-      </TouchableOpacity>
+      {showBack && (
+        <TouchableOpacity onPress={handleBack} hitSlop={8} style={styles.backBtn}>
+          <Ionicons name="chevron-back" size={24} color="#1D1D1D" />
+        </TouchableOpacity>
+      )}
 
       <View style={styles.titleCol}>
         <Text style={styles.title} numberOfLines={1}>

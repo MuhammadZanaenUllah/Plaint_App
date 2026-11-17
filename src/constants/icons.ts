@@ -23,6 +23,8 @@ import LeaveBlackIcon   from "@/assets/icons/tabicons/leaveblack";
 import LeaveWhiteIcon   from "@/assets/icons/tabicons/leavewhite";
 import PEBlackIcon      from "@/assets/icons/tabicons/peblack";
 import PEWhiteIcon      from "@/assets/icons/tabicons/pewhite";
+import ProjectBlackIcon from "@/assets/icons/tabicons/projectblack";
+import ProjectWhiteIcon from "@/assets/icons/tabicons/projectwhite";
 import TaskBlackIcon    from "@/assets/icons/tabicons/taskblack";
 import TaskWhiteIcon    from "@/assets/icons/tabicons/taskwhite";
 import ChannelBtn from "@/assets/icons/channelsbtn";
@@ -65,6 +67,8 @@ const Icons =   {
     LeaveWhiteIcon,
     PEBlackIcon,
     PEWhiteIcon,
+    ProjectBlackIcon,
+    ProjectWhiteIcon,
     TaskBlackIcon,
     TaskWhiteIcon,
    
