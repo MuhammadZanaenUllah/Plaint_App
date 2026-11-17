@@ -2,6 +2,15 @@
   "name": "planit",
   "main": "expo-router/entry",
   "version": "1.0.0",
+  "expo": {
+    "autolinking": {
+      "android": {
+        "buildFromSource": [
+          "expo-notifications"
+        ]
+      }
+    }
+  },
   "dependencies": {
     "@expo/ui": "~57.0.14",
     "@expo/vector-icons": "^15.1.1",

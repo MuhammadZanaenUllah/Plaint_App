@@ -25,6 +25,7 @@ import {
   openRoomConversation,
 } from "@/utils/conversationNavigation";
 import { extractErrorMessage } from "@/utils/errorHandler";
+import { markRoomReadNotification } from "@/utils/planitNotificationBridge";
 import { showInfo } from "@/utils/toast";
 import React, {
   createContext,
@@ -1891,6 +1892,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const markReadAction = useCallback(
     async (roomId: string) => {
+      // Capture the cutoff before the request: a message that arrives while the
+      // read request is in flight remains unread in the notification state.
+      const beforeTime = Date.now();
       const res = await chatService.markRead(roomId);
       if (res.Good) {
         // Patch only the read flags via a targeted action. Building the room
@@ -1898,6 +1902,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // call time and clobber any newer realtime message that landed while
         // the request was in flight.
         dispatch({ type: "SET_ROOM_READ", roomId, read: true });
+        markRoomReadNotification(roomId, beforeTime);
       }
     },
     [],
@@ -2724,11 +2729,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               room: { ...room, force_unread: true },
             });
           } else if (typed.type === "clear_unread") {
-            // Another session read the room — clear the badge.
+            // Another session read the room — clear the badge and the native
+            // notification rows/offline messages for that room.
             dispatch({
               type: "UPDATE_ROOM",
               room: { ...room, force_unread: false, unreadCount: 0 },
             });
+            markRoomReadNotification(typed.roomId);
           }
         },
       );

@@ -192,32 +192,54 @@ export function PushNotificationProvider({
 
       let expoPushToken: string | null = null;
 
-      // Fetch Expo Push Token (Notifications.getExpoPushTokenAsync)
-      try {
-        const projectId =
-          Constants.expoConfig?.extra?.eas?.projectId ||
-          Constants.easConfig?.projectId;
-        console.log(
-          `📲 [PushNotification] Fetching Expo Push Token (EAS Project ID: ${projectId || "default"})...`,
-        );
-        const expoTokenData = await Notifications.getExpoPushTokenAsync(
-          projectId ? { projectId } : undefined,
-        );
-        if (
-          expoTokenData &&
-          expoTokenData.data &&
-          typeof expoTokenData.data === "string"
-        ) {
-          expoPushToken = expoTokenData.data;
+      // Fetch Expo Push Token (Notifications.getExpoPushTokenAsync). FCM can
+      // transiently fail with SERVICE_NOT_AVAILABLE, so retry a few times
+      // before giving up instead of aborting device registration.
+      const projectId =
+        Constants.expoConfig?.extra?.eas?.projectId ||
+        Constants.easConfig?.projectId;
+      const maxTokenAttempts = 3;
+      let lastTokenError: unknown = null;
+      console.log(
+        `📲 [PushNotification] Fetching Expo Push Token (EAS Project ID: ${projectId || "default"})...`,
+      );
+      for (
+        let attempt = 1;
+        attempt <= maxTokenAttempts && !expoPushToken;
+        attempt++
+      ) {
+        try {
+          const expoTokenData = await Notifications.getExpoPushTokenAsync(
+            projectId ? { projectId } : undefined,
+          );
+          if (
+            expoTokenData &&
+            expoTokenData.data &&
+            typeof expoTokenData.data === "string"
+          ) {
+            expoPushToken = expoTokenData.data;
+            console.log("🚀 [EXPO PUSH TOKEN OBTAINED]:");
+            console.log(expoPushToken);
+            break;
+          }
+          lastTokenError = new Error("Expo push token was empty");
+        } catch (expoErr) {
+          lastTokenError = expoErr;
+          console.warn(
+            `📲 [PushNotification] Expo Push Token fetch failed (attempt ${attempt}/${maxTokenAttempts}):`,
+            expoErr,
+          );
         }
-        // console.log("==================================================================");
-        console.log("🚀 [EXPO PUSH TOKEN OBTAINED]:");
-        console.log(expoPushToken);
-        // console.log("==================================================================");
-      } catch (expoErr) {
+
+        if (attempt < maxTokenAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
+        }
+      }
+
+      if (!expoPushToken) {
         console.warn(
-          "📲 [PushNotification] Could not fetch Expo Push Token:",
-          expoErr,
+          "📲 [PushNotification] Could not fetch Expo Push Token after retries:",
+          lastTokenError,
         );
       }
 
@@ -290,14 +312,14 @@ export function PushNotificationProvider({
             registered: true,
             deviceId: res.device_id,
           }));
-        } else {
-          console.warn(
-            "📲 [PushNotification] Device registration API returned Good: false",
-            res,
-          );
+          return token;
         }
 
-        return token;
+        console.warn(
+          "📲 [PushNotification] Device registration API returned Good: false",
+          res,
+        );
+        return null;
       } catch (error) {
         console.warn(
           "📲 [PushNotification] Device registration failed:",

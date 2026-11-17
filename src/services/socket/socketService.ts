@@ -12,6 +12,9 @@ let pendingListeners: Array<{ event: string; callback: (...args: unknown[]) => v
 // NEW Socket instance and overwrites the global, splitting listeners/emits
 // across orphaned sockets. Share one attempt instead.
 let connectingPromise: Promise<Socket> | null = null;
+let lastAuthToken: string | null = null;
+let openRoomId: string | null = null;
+let onSocketAuthFailure: (() => void) | null = null;
 
 // ─── Task Socket Types ───────────────────────────────────────────────────────
 
@@ -136,7 +139,16 @@ export async function connectSocket(): Promise<Socket> {
   // create a SECOND socket during the initial connect window (called from the
   // root navigator, notification provider, chat tab and a deep-linked
   // conversation at once), which split listeners and made events fire twice.
-  if (socket) return socket;
+  if (socket) {
+    // The token can change between login sessions. Re-handshake with the
+    // current token without tearing down the registered listeners.
+    const currentToken = await getStoredToken();
+    if (currentToken !== lastAuthToken) {
+      lastAuthToken = currentToken;
+      socket.disconnect().connect();
+    }
+    return socket;
+  }
   // Reuse the in-flight attempt so concurrent callers share one Socket.
   if (connectingPromise) return connectingPromise;
 
@@ -151,7 +163,33 @@ export async function connectSocket(): Promise<Socket> {
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionAttempts: Infinity,
-      auth: token ? { token } : undefined,
+      // Read the token for every connection/reconnection so a login after the
+      // socket was created (or a token change) is always authenticated.
+      auth: (cb) => {
+        getStoredToken()
+          .then((currentToken) =>
+            cb(currentToken ? { token: currentToken } : {}),
+          )
+          .catch(() => cb({}));
+      },
+    });
+    lastAuthToken = token;
+
+    socket.on("connect", () => {
+      // A reconnect must restore the "room open" state on the server so a push
+      // is not sent for the room the user is currently viewing.
+      if (openRoomId) {
+        socket?.emit("roomOpened", {
+          roomId: openRoomId,
+          room_id: openRoomId,
+        });
+      }
+    });
+
+    socket.on("connect_error", (error: Error) => {
+      if (error?.message?.includes("Un-Athunticated request")) {
+        onSocketAuthFailure?.();
+      }
     });
 
     // Apply listeners that were registered before the socket existed
@@ -179,11 +217,21 @@ export function disconnectSocket(): void {
   }
   connectingPromise = null;
   if (socket) {
+    if (socket.connected && openRoomId) {
+      socket.emit("roomClosed", { roomId: openRoomId, room_id: openRoomId });
+    }
     socket.removeAllListeners();
     socket.disconnect();
     socket = null;
   }
+  lastAuthToken = null;
+  openRoomId = null;
   pendingListeners = [];
+}
+
+/** Registers the handler used when the Socket.IO handshake rejects the token. */
+export function setSocketAuthFailureHandler(cb: (() => void) | null): void {
+  onSocketAuthFailure = cb;
 }
 
 export function getSocket(): Socket | null {
@@ -201,6 +249,25 @@ export function registerUser(userId: number): void {
 export function joinChatRoom(roomId: string): void {
   if (!socket?.connected) return;
   socket.emit("joinChatRoom", roomId);
+}
+
+/**
+ * Tell the server which conversation is currently visible. The backend uses
+ * this to suppress pushes for a room the user is already viewing.
+ */
+export function emitRoomOpened(roomId: string): void {
+  openRoomId = roomId;
+  if (!socket?.connected) return;
+  socket.emit("roomOpened", { roomId, room_id: roomId });
+}
+
+/** Tell the server the conversation is no longer visible/open. */
+export function emitRoomClosed(roomId: string): void {
+  if (openRoomId === roomId) {
+    openRoomId = null;
+  }
+  if (!socket?.connected) return;
+  socket.emit("roomClosed", { roomId, room_id: roomId });
 }
 
 export function leaveChatRoom(roomId: string, userId?: number | string): void {

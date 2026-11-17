@@ -17,7 +17,7 @@ import useAppFonts from "@/theme/useAppFonts";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useContext, useEffect, useRef } from "react";
+import { useContext, useCallback, useEffect, useRef } from "react";
 import { AppState, LogBox } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Toast from "react-native-toast-message";
@@ -59,6 +59,40 @@ function PushNotificationLifecycle() {
     loading: true,
   };
   const registeredCompanyRef = useRef<number | null>(null);
+  const registeringCompanyRef = useRef<number | null>(null);
+
+  const registerCompany = useCallback(
+    (companyId: number) => {
+      if (registeredCompanyRef.current === companyId) return;
+      // Avoid overlapping registration attempts from the auth effect and the
+      // foreground retry.
+      if (registeringCompanyRef.current === companyId) return;
+      registeringCompanyRef.current = companyId;
+      console.log(
+        `🚀 [PushNotificationLifecycle] Authenticated user session active (Company ID: ${companyId}). Fetching push tokens and registering device...`,
+      );
+      registerForPushNotifications(companyId)
+        .then((token) => {
+          if (token) {
+            registeredCompanyRef.current = companyId;
+          } else {
+            console.warn(
+              "🚀 [PushNotificationLifecycle] Push registration did not complete; will retry on the next foreground.",
+            );
+          }
+        })
+        .catch((err) => {
+          console.error(
+            "🚀 [PushNotificationLifecycle] Push registration error:",
+            err,
+          );
+        })
+        .finally(() => {
+          registeringCompanyRef.current = null;
+        });
+    },
+    [registerForPushNotifications],
+  );
 
   useEffect(() => {
     const isAuthed =
@@ -66,16 +100,7 @@ function PushNotificationLifecycle() {
     const companyId = authCtx?.state.company?.company_id ?? null;
 
     if (isAuthed && companyId && registeredCompanyRef.current !== companyId) {
-      registeredCompanyRef.current = companyId;
-      console.log(
-        `🚀 [PushNotificationLifecycle] Authenticated user session active (Company ID: ${companyId}). Fetching push tokens and registering device...`,
-      );
-      registerForPushNotifications(companyId).catch((err) => {
-        console.error(
-          "🚀 [PushNotificationLifecycle] Push registration error:",
-          err,
-        );
-      });
+      registerCompany(companyId);
     }
 
     if (
@@ -100,7 +125,7 @@ function PushNotificationLifecycle() {
     state.isDefaultPassword,
     state.loading,
     authCtx?.state.company?.company_id,
-    registerForPushNotifications,
+    registerCompany,
     unregisterDevice,
   ]);
 
@@ -108,18 +133,29 @@ function PushNotificationLifecycle() {
     if (state.loading) return;
 
     const subscription = AppState.addEventListener("change", (nextAppState) => {
-      if (nextAppState === "active") {
-        const companyId = authCtx?.state.company?.company_id;
-        if (companyId) {
-          resetBadge(companyId).catch(() => {});
-        }
+      if (nextAppState !== "active") return;
+      const companyId = authCtx?.state.company?.company_id;
+      if (companyId) {
+        resetBadge(companyId).catch(() => {});
+      }
+      // If the token fetch failed earlier (e.g. FCM SERVICE_NOT_AVAILABLE), try
+      // again when the app returns to the foreground.
+      const isAuthed =
+        authCtx?.state.isAuthenticated &&
+        !authCtx.state.isDefaultPassword;
+      if (
+        isAuthed &&
+        companyId &&
+        registeredCompanyRef.current !== companyId
+      ) {
+        registerCompany(companyId);
       }
     });
 
     return () => {
       subscription.remove();
     };
-  }, [state.loading, authCtx, resetBadge]);
+  }, [state.loading, authCtx, resetBadge, registerCompany]);
 
   return null;
 }

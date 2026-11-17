@@ -38,6 +38,7 @@ import {
   isAudioAttachment,
   isOwnMessage,
   isRoomUnread,
+  isVideoAttachment,
   isVoiceNoteText,
   isWithinMessageActionWindow,
   resolveFileUrl,
@@ -47,11 +48,17 @@ import {
   markConversationClosed,
   markConversationOpen,
 } from "@/utils/conversationNavigation";
+import {
+  getCachedVoiceNoteDuration,
+  rememberVoiceNoteDuration,
+  resolveVoiceNoteDuration,
+} from "@/utils/voiceNoteDuration";
 import { canDeleteDirectChat } from "@/utils/permissions";
 import {
   attachmentExtension,
   decodeAttachmentName,
   downloadChatAttachment,
+  downloadChatAttachmentToCache,
   openChatDocument,
 } from "@/utils/openChatDocument";
 import { formatFileSize } from "@/services/api/upload.service";
@@ -99,6 +106,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  SectionList,
   StyleProp,
   StyleSheet,
   Text,
@@ -121,7 +129,7 @@ import Reanimated, {
   withSpring,
   type SharedValue,
 } from "react-native-reanimated";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import EmojiPicker from "rn-emoji-keyboard";
 
 const { ChatIcon: MainChatIcon } = Icons;
@@ -129,6 +137,18 @@ const { ChatIcon: MainChatIcon } = Icons;
 // Long-press delay shared by message bubbles and their attachments, so opening
 // the action toolbar feels identical wherever the press lands.
 const ATTACHMENT_LONG_PRESS_DELAY = 250;
+
+type ForwardSection = { title: string; data: Room[] };
+
+/** Display name used by the forward picker (matches the old inline logic). */
+function getForwardRoomDisplayName(room: Room, currentUserId: number): string {
+  const otherMembers = room.members?.filter((m) => m.id !== currentUserId);
+  return (
+    room.name ||
+    otherMembers?.map((m) => `${m.first_name} ${m.last_name}`).join(", ") ||
+    "Chat"
+  );
+}
 
 // How long a jumped-to (quoted reply / pinned) message stays highlighted.
 // WhatsApp-style: one sustained highlight, not a flash.
@@ -296,7 +316,13 @@ function VoiceNotePlayer({
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(() => {
+    const known =
+      initialDurationSec && initialDurationSec > 0
+        ? initialDurationSec
+        : getCachedVoiceNoteDuration(audioUrl);
+    return known != null && known > 0 ? Math.round(known * 1000) : 0;
+  });
   const waveformBars = useMemo(() => getWaveformBars(audioUrl), [audioUrl]);
   // Smooth waveform progress, driven on the UI thread. Native playback-status
   // updates only arrive ~once per second, so instead of repainting the bars on
@@ -305,6 +331,25 @@ function VoiceNotePlayer({
   const progressPct = useSharedValue(0);
   const durationMs = useSharedValue(0);
   const playingRef = useRef(false);
+
+  // Website-originated notes are `.webm` and do not encode their duration in
+  // the filename or text. Resolve it from the audio metadata so the length is
+  // visible before the note is played. Mobile notes already carry it.
+  useEffect(() => {
+    if (initialDurationSec && initialDurationSec > 0) return;
+    let cancelled = false;
+    resolveVoiceNoteDuration(audioUrl).then((seconds) => {
+      if (!cancelled && seconds != null && seconds > 0) {
+        durationMs.value = seconds * 1000;
+        setDuration(seconds * 1000);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // `durationMs` is a stable shared value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioUrl, initialDurationSec]);
 
   const onFrame = useCallback(
     (frame: { timeSincePreviousFrame: number | null }) => {
@@ -448,6 +493,7 @@ function VoiceNotePlayer({
           if (typeof status.duration === "number" && status.duration > 0) {
             durationMs.value = status.duration * 1000;
             setDuration(status.duration * 1000);
+            rememberVoiceNoteDuration(audioUrl, status.duration);
           }
           if (typeof status.currentTime === "number") {
             // Re-sync the smooth progress to the authoritative position. While
@@ -901,28 +947,28 @@ const dp = StyleSheet.create({
 const ATTACH_TABS = ["Images", "Videos", "Docs", "Links"];
 
 const IMAGE_EXTS = ["jpg", "jpeg", "png", "gif", "webp", "heic"];
-const VIDEO_EXTS = ["mp4", "mov", "avi", "webm", "mkv", "m4v", "3gp"];
 
 function getAttachmentExt(a: MessageAttachment): string {
-  // Prefer `url` over `name` (the server-assigned filename in `name` is
-  // often extension-less/generic, e.g. "attachment") and strip any
-  // query/hash suffix before splitting so `foo.jpg?token=…` still resolves
-  // to `jpg` instead of `jpg?token=…`.
-  const candidate = (a.url || a.name || "").split(/[?#]/)[0];
-  return candidate.split(".").pop()?.toLowerCase() || "";
+  // Prefer the original uploaded filename: the server-assigned `name`/`url`
+  // is often extension-less/generic. Try each candidate until one has a real
+  // extension, and strip any query/hash suffix first.
+  const candidates = [a.originalName, a.url, a.name];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const cleaned = candidate.split(/[?#]/)[0];
+    const match = /\.([a-z0-9]{1,8})$/i.exec(cleaned);
+    if (match) return match[1].toLowerCase();
+  }
+  return "";
 }
 
 function isImageAttachment(a: MessageAttachment): boolean {
+  const mime = (a.type ?? a.mimeType ?? a.mime_type ?? "").toLowerCase();
+  const fileType = (a.fileType ?? "").toLowerCase();
   return (
     IMAGE_EXTS.includes(getAttachmentExt(a)) ||
-    (a.type || "").startsWith("image/")
-  );
-}
-
-function isVideoAttachment(a: MessageAttachment): boolean {
-  return (
-    VIDEO_EXTS.includes(getAttachmentExt(a)) ||
-    (a.type || "").startsWith("video/")
+    mime.startsWith("image/") ||
+    fileType === "image"
   );
 }
 
@@ -1933,6 +1979,10 @@ function AttachmentCluster({
 // is zoomed — otherwise a horizontal pan would swipe to the next image.
 const VIEWER_MAX_SCALE = 6;
 const VIEWER_DOUBLE_TAP_SCALE = 2.5;
+// Keep every preview (portrait and landscape) inside a consistent vertical
+// band. Landscape images were already width-limited to roughly this height;
+// portrait images previously filled the whole screen.
+const VIEWER_IMAGE_MAX_HEIGHT_RATIO = 0.5;
 
 function ZoomableImage({
   url,
@@ -2077,6 +2127,21 @@ function ImageViewerModal({
 }) {
   const listRef = useRef<FlatList<MessageAttachment>>(null);
   const { width, height } = Dimensions.get("window");
+  const insets = useSafeAreaInsets();
+  const previewHeight = Math.max(
+    1,
+    Math.round(height * VIEWER_IMAGE_MAX_HEIGHT_RATIO),
+  );
+  const controlsTop = Math.max(
+    Platform.OS === "ios" ? 54 : 24,
+    insets.top + 8,
+  );
+  const controlsLeft = Math.max(18, insets.left + 12);
+  const controlsRight = Math.max(18, insets.right + 12);
+  const counterTop = Math.max(
+    Platform.OS === "ios" ? 60 : 30,
+    insets.top + 12,
+  );
   const [zoomed, setZoomed] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const safeIndex =
@@ -2138,16 +2203,28 @@ function ImageViewerModal({
             onChangeIndex(i);
           }}
           renderItem={({ item }) => (
-            <ZoomableImage
-              url={item.url}
-              width={width}
-              height={height}
-              onZoomChange={setZoomed}
-            />
+            <View
+              style={{
+                width,
+                height,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <ZoomableImage
+                url={item.url}
+                width={width}
+                height={previewHeight}
+                onZoomChange={setZoomed}
+              />
+            </View>
           )}
         />
         <TouchableOpacity
-          style={styles.viewerDownload}
+          style={[
+            styles.viewerDownload,
+            { top: controlsTop, left: controlsLeft },
+          ]}
           onPress={handleDownload}
           disabled={downloading}
           hitSlop={12}
@@ -2159,14 +2236,17 @@ function ImageViewerModal({
           )}
         </TouchableOpacity>
         <TouchableOpacity
-          style={styles.viewerClose}
+          style={[
+            styles.viewerClose,
+            { top: controlsTop, right: controlsRight },
+          ]}
           onPress={onClose}
           hitSlop={12}
         >
           <Ionicons name="close" size={26} color="#fff" />
         </TouchableOpacity>
         {images.length > 1 ? (
-          <View style={styles.viewerCounter}>
+          <View style={[styles.viewerCounter, { top: counterTop }]}>
             <Text style={styles.viewerCounterText}>
               {`${safeIndex + 1} / ${images.length}`}
             </Text>
@@ -2380,39 +2460,20 @@ const MessageBubble = React.memo(function MessageBubble({
       ? getVoiceNoteSeconds({ text: message.text, attachments: null })
       : null);
 
-  const imageAtts = message.attachments?.filter((a) => {
-    const str = (a.url || a.name || "").toLowerCase();
-    return (
-      str.includes(".jpg") ||
-      str.includes(".jpeg") ||
-      str.includes(".png") ||
-      str.includes(".webp") ||
-      str.includes(".gif") ||
-      str.includes(".heic") ||
-      (a.type || "").startsWith("image/")
-    );
-  });
+  const imageAtts = message.attachments?.filter(isImageAttachment);
 
-  const videoAtts = message.attachments?.filter((a) => isVideoAttachment(a));
+  // A voice note must never also appear as a video/doc. The audio attachment
+  // is rendered by VoiceNotePlayer above, so keep it out of the other buckets.
+  const videoAtts = message.attachments?.filter(
+    (a) => isVideoAttachment(a) && a !== audioAtt,
+  );
 
-  const docAtts = message.attachments?.filter((a) => {
-    const str = (a.url || a.name || "").toLowerCase();
-    const isAudio =
-      str.includes(".m4a") ||
-      str.includes(".mp3") ||
-      str.includes(".wav") ||
-      str.includes(".caf") ||
-      str.includes("audio");
-    const isImage =
-      str.includes(".jpg") ||
-      str.includes(".jpeg") ||
-      str.includes(".png") ||
-      str.includes(".webp") ||
-      str.includes(".gif") ||
-      str.includes(".heic") ||
-      (a.type || "").startsWith("image/");
-    return !isAudio && !isImage && !isVideoAttachment(a);
-  });
+  const docAtts = message.attachments?.filter(
+    (a) =>
+      !isImageAttachment(a) &&
+      !isVideoAttachment(a) &&
+      !isAudioAttachment(a),
+  );
 
   const bubbleScale = useRef(new Animated.Value(1)).current;
 
@@ -2497,7 +2558,7 @@ const MessageBubble = React.memo(function MessageBubble({
                 ) : null}
                 <AttachmentCluster
                   images={imageAtts ?? []}
-                  docs={docAtts ?? []}
+                  docs={[]}
                   videos={videoAtts ?? []}
                   onOpenImage={onOpenImage}
                   onOpenVideo={onOpenVideo}
@@ -2514,6 +2575,16 @@ const MessageBubble = React.memo(function MessageBubble({
                   !videoAtts?.length &&
                   !audioAtt ? (
                   <LinkifiedText text={message.text} style={styles.bubbleText} />
+                ) : null}
+                {docAtts && docAtts.length > 0 ? (
+                  <AttachmentCluster
+                    images={[]}
+                    docs={docAtts}
+                    videos={[]}
+                    onOpenImage={onOpenImage}
+                    onOpenVideo={onOpenVideo}
+                    onLongPress={(e) => onLongPress?.(message, e)}
+                  />
                 ) : null}
               </Pressable>
             </Animated.View>
@@ -2614,7 +2685,7 @@ const MessageBubble = React.memo(function MessageBubble({
                 ) : null}
               <AttachmentCluster
                 images={imageAtts ?? []}
-                docs={docAtts ?? []}
+                docs={[]}
                 videos={videoAtts ?? []}
                 onOpenImage={onOpenImage}
                 onOpenVideo={onOpenVideo}
@@ -2631,6 +2702,16 @@ const MessageBubble = React.memo(function MessageBubble({
                 !videoAtts?.length &&
                 !audioAtt ? (
                 <LinkifiedText text={message.text} style={styles.bubbleText} />
+              ) : null}
+              {docAtts && docAtts.length > 0 ? (
+                <AttachmentCluster
+                  images={[]}
+                  docs={docAtts}
+                  videos={[]}
+                  onOpenImage={onOpenImage}
+                  onOpenVideo={onOpenVideo}
+                  onLongPress={(e) => onLongPress?.(message, e)}
+                />
               ) : null}
             </Pressable>
           </Animated.View>
@@ -5114,7 +5195,42 @@ export default function ConversationScreen() {
   // Forward
   const [forwardOpen, setForwardOpen] = useState(false);
   const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null);
-  const [forwarding, setForwarding] = useState(false);
+  const [forwardSearch, setForwardSearch] = useState("");
+  // Per-room send status so the loader / "Sent" marker only affects the row
+  // the user actually tapped, and the modal can stay open for more targets.
+  const [forwardStatus, setForwardStatus] = useState<
+    Record<string, "sending" | "sent" | "error">
+  >({});
+  // Attachments are downloaded once per forward session and reused for every
+  // target room instead of being re-fetched for each one. The promise is cached
+  // so rapid taps on several rooms share a single download.
+  const forwardAttachmentsRef = useRef<{
+    messageId: string;
+    promise: Promise<{ uri: string; name: string; type: string }[]>;
+  } | null>(null);
+
+  // Split the room list into Inbox (1:1 DMs) and Channels, filtered by the
+  // modal's search box. Project rooms are hidden while the Projects module is
+  // disabled project-wide.
+  const forwardSections = useMemo<ForwardSection[]>(() => {
+    const query = forwardSearch.trim().toLowerCase();
+    const visible = state.rooms.filter((room) =>
+      getForwardRoomDisplayName(room, currentUserId)
+        .toLowerCase()
+        .includes(query),
+    );
+    const sections: ForwardSection[] = [
+      {
+        title: "Inbox",
+        data: visible.filter((room) => room.type === "direct"),
+      },
+      {
+        title: "Channels",
+        data: visible.filter((room) => room.type === "channel"),
+      },
+    ];
+    return sections.filter((section) => section.data.length > 0);
+  }, [state.rooms, currentUserId, forwardSearch]);
   const toggleFilter = (tab: FilterTab) => {
     setActiveFilter((prev) => (prev === tab ? null : tab));
   };
@@ -5227,6 +5343,9 @@ export default function ConversationScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!roomId || !currentUserId) return;
+      let active = true;
+      let roomOpenRequested = false;
+
       const markReadAndAck = () => {
         markRead(roomId).catch(() => {});
         // Chain on connect so a resume before the socket is up (cold start,
@@ -5236,12 +5355,47 @@ export default function ConversationScreen() {
           .then(() => socketService.emitMessagesRead(roomId, currentUserId))
           .catch(() => {});
       };
+
+      // The backend suppresses pushes for a room while it is open. Report the
+      // room as open only while this screen is focused and the app is active.
+      const openRoom = () => {
+        if (roomOpenRequested) return;
+        roomOpenRequested = true;
+        socketService
+          .connectSocket()
+          .then(() => {
+            if (!active || !roomOpenRequested) return;
+            socketService.emitRoomOpened(roomId);
+          })
+          .catch(() => {
+            if (active) roomOpenRequested = false;
+          });
+      };
+
+      const closeRoom = () => {
+        if (!roomOpenRequested) return;
+        roomOpenRequested = false;
+        socketService.emitRoomClosed(roomId);
+      };
+
+      if (AppState.currentState === "active") {
+        openRoom();
+      }
       // Re-run on refocus (navigating back to this screen).
       markReadAndAck();
       const subscription = AppState.addEventListener("change", (nextState) => {
-        if (nextState === "active") markReadAndAck();
+        if (nextState === "active") {
+          openRoom();
+          markReadAndAck();
+        } else {
+          closeRoom();
+        }
       });
-      return () => subscription.remove();
+      return () => {
+        active = false;
+        closeRoom();
+        subscription.remove();
+      };
     }, [roomId, currentUserId, markRead]),
   );
 
@@ -5679,26 +5833,74 @@ export default function ConversationScreen() {
     [toggleReaction, currentUserId, canReact],
   );
 
+  const closeForwardModal = useCallback(() => {
+    setForwardOpen(false);
+    setForwardMsg(null);
+    setForwardSearch("");
+    setForwardStatus({});
+    forwardAttachmentsRef.current = null;
+  }, []);
+
   const handleForward = useCallback(
     async (room: Room) => {
       if (!forwardMsg) return;
-      setForwarding(true);
+      const roomKey = String(room._id ?? room.id);
+      const currentStatus = forwardStatus[roomKey];
+      if (currentStatus === "sending" || currentStatus === "sent") return;
+
+      setForwardStatus((prev) => ({ ...prev, [roomKey]: "sending" }));
       try {
+        // Backend media is auth-gated, so remote attachment URLs cannot be
+        // re-uploaded as-is. Download each one through the secure-file proxy
+        // into the local cache first, then forward it as a normal upload.
+        // Reuse the downloaded files when forwarding to multiple rooms.
+        let cache = forwardAttachmentsRef.current;
+        if (!cache || cache.messageId !== forwardMsg._id) {
+          const promise = Promise.all(
+            (forwardMsg.attachments ?? []).map(async (att) => {
+              const local = await downloadChatAttachmentToCache(
+                att.url,
+                decodeAttachmentName(att.name),
+              );
+              if (!local) return null;
+              return {
+                uri: local.uri,
+                name: local.fileName,
+                type: att.type || att.mimeType || att.mime_type || local.mime,
+              };
+            }),
+          ).then((downloaded) =>
+            downloaded.filter(
+              (att): att is { uri: string; name: string; type: string } =>
+                !!att,
+            ),
+          );
+          const entry = { messageId: forwardMsg._id, promise };
+          forwardAttachmentsRef.current = entry;
+          // A failed download must not poison the cache; allow a retry.
+          promise.catch(() => {
+            if (forwardAttachmentsRef.current === entry) {
+              forwardAttachmentsRef.current = null;
+            }
+          });
+          cache = entry;
+        }
+        const attachments = await cache.promise;
+
         await sendMessage({
           room_id: room._id,
           text: forwardMsg.text,
           is_forwarded: true,
           forwarded_from_name: forwardMsg.sender_name || "Someone",
+          ...(attachments.length > 0 ? { attachments } : {}),
         });
-        setForwardOpen(false);
-        setForwardMsg(null);
+        setForwardStatus((prev) => ({ ...prev, [roomKey]: "sent" }));
       } catch {
+        setForwardStatus((prev) => ({ ...prev, [roomKey]: "error" }));
         showError("Error", "Could not forward this message.");
-      } finally {
-        setForwarding(false);
       }
     },
-    [forwardMsg, sendMessage],
+    [forwardMsg, forwardStatus, sendMessage],
   );
 
   const handleMore = useCallback(
@@ -7489,6 +7691,9 @@ export default function ConversationScreen() {
         }}
         onForward={() => {
           if (selectedMsgForModal?.message) {
+            forwardAttachmentsRef.current = null;
+            setForwardStatus({});
+            setForwardSearch("");
             setForwardMsg(selectedMsgForModal.message);
             setForwardOpen(true);
           }
@@ -7690,68 +7895,121 @@ export default function ConversationScreen() {
         visible={forwardOpen}
         transparent
         animationType="slide"
-        onRequestClose={() => setForwardOpen(false)}
+        onRequestClose={closeForwardModal}
       >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setForwardOpen(false)}
-        >
-          <View
-            style={styles.forwardPickerContainer}
-            onStartShouldSetResponder={() => true}
-          >
+        <View style={styles.modalOverlay}>
+          <Pressable
+            style={styles.forwardBackdrop}
+            onPress={closeForwardModal}
+          />
+          <View style={styles.forwardPickerContainer}>
             <View style={styles.forwardHeader}>
               <Text style={styles.forwardTitle}>Forward to</Text>
-              <ModalCloseButton onPress={() => setForwardOpen(false)} />
+              <ModalCloseButton onPress={closeForwardModal} />
             </View>
             {forwardMsg && (
               <View style={styles.forwardPreview}>
                 <Text style={styles.forwardPreviewLabel}>Message:</Text>
-                <Text style={styles.forwardPreviewText} numberOfLines={2}>
+                <Text style={styles.forwardPreviewText} numberOfLines={1}>
                   {forwardMsg.text}
                 </Text>
               </View>
             )}
-            <FlatList
-              data={state.rooms}
+            <View style={styles.forwardSearchRow}>
+              <Ionicons name="search" size={13} color="#9CA3AF" />
+              <TextInput
+                style={styles.forwardSearchInput}
+                value={forwardSearch}
+                onChangeText={setForwardSearch}
+                placeholder="Search chats or channels"
+                placeholderTextColor="#9CA3AF"
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+              {forwardSearch.length > 0 && (
+                <TouchableOpacity onPress={() => setForwardSearch("")}>
+                  <Ionicons name="close-circle" size={14} color="#C4C4C4" />
+                </TouchableOpacity>
+              )}
+            </View>
+            <SectionList
+              sections={forwardSections}
+              style={styles.forwardList}
               keyExtractor={(item: Room, idx: number) =>
                 String(item._id ?? item.id ?? `room-${idx}`)
               }
+              stickySectionHeadersEnabled={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              removeClippedSubviews={false}
+              renderSectionHeader={({ section }) => (
+                <View style={styles.forwardSectionHeader}>
+                  <Text style={styles.forwardSectionTitle}>
+                    {section.title}
+                  </Text>
+                </View>
+              )}
+              ListEmptyComponent={
+                <View style={styles.forwardEmpty}>
+                  <Text style={styles.forwardEmptyText}>
+                    No chats or channels found
+                  </Text>
+                </View>
+              }
               renderItem={({ item: room }) => {
-                const otherMembers = room.members?.filter(
-                  (m) => m.id !== currentUserId,
+                const displayName = getForwardRoomDisplayName(
+                  room,
+                  currentUserId,
                 );
-                const displayName =
-                  room.name ||
-                  otherMembers
-                    ?.map((m) => `${m.first_name} ${m.last_name}`)
-                    .join(", ") ||
-                  "Chat";
+                const status =
+                  forwardStatus[String(room._id ?? room.id)] ?? "idle";
                 return (
-                  <TouchableOpacity
-                    style={styles.forwardRoomRow}
-                    onPress={() => handleForward(room)}
-                    disabled={forwarding}
-                  >
+                  <View style={styles.forwardRoomRow}>
                     <Avatar
                       name={displayName}
                       imagePath={getRoomAvatar(room, currentUserId)}
-                      size={28}
-                      borderRadius={6}
-                      fontSize={12}
+                      size={20}
+                      borderRadius={5}
+                      fontSize={9}
                     />
                     <Text style={styles.forwardRoomName} numberOfLines={1}>
                       {displayName}
                     </Text>
-                    {forwarding && (
-                      <ActivityIndicator size="small" color="#00DEAB" />
-                    )}
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.forwardSendBtn,
+                        status === "sent" && styles.forwardSendBtnSent,
+                      ]}
+                      onPress={() => handleForward(room)}
+                      disabled={status === "sending" || status === "sent"}
+                      activeOpacity={0.8}
+                    >
+                      {status === "sending" ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : status === "sent" ? (
+                        <>
+                          <Ionicons
+                            name="checkmark"
+                            size={10}
+                            color={TEAL}
+                          />
+                          <Text style={styles.forwardSendBtnSentText}>
+                            Sent
+                          </Text>
+                        </>
+                      ) : (
+                        <Text style={styles.forwardSendBtnText}>
+                          {status === "error" ? "Retry" : "Send"}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
                 );
               }}
             />
           </View>
-        </Pressable>
+        </View>
       </Modal>
     </View>
   );
@@ -8624,49 +8882,105 @@ const styles = StyleSheet.create({
   },
 
   // ── Forward Picker ──
+  forwardBackdrop: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
   forwardPickerContainer: {
     backgroundColor: "#fff",
-    borderRadius: 16,
-    width: "85%",
-    maxHeight: "70%",
+    borderRadius: 12,
+    width: "86%",
+    maxHeight: "88%",
+    minHeight: 0,
     overflow: "hidden",
+    zIndex: 1,
+  },
+  forwardList: {
+    flexGrow: 0,
+    flexShrink: 1,
+    minHeight: 0,
   },
   forwardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
   forwardTitle: {
-    fontSize: rf(16),
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Medium",
     color: TEXT_PRIMARY,
   },
-  forwardPreview: {
+  forwardSearchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 30,
+    marginHorizontal: 12,
+    marginTop: 7,
+    marginBottom: 3,
+    paddingHorizontal: 8,
+    borderRadius: 7,
+    backgroundColor: "#F3F4F6",
+    gap: 6,
+  },
+  forwardSearchInput: {
+    flex: 1,
+    padding: 0,
+    fontSize: rf(11.5),
+    fontFamily: "SF_Pro_Regular",
+    color: TEXT_PRIMARY,
+  },
+  forwardSectionHeader: {
+    paddingHorizontal: 12,
+    paddingTop: 7,
+    paddingBottom: 3,
+    backgroundColor: "#fff",
+  },
+  forwardSectionTitle: {
+    fontSize: rf(9.5),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#8A8A8A",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  forwardEmpty: {
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 24,
+    alignItems: "center",
+  },
+  forwardEmptyText: {
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Regular",
+    color: TEXT_SECONDARY,
+  },
+  forwardPreview: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     backgroundColor: "#F9FAFB",
   },
   forwardPreviewLabel: {
-    fontSize: rf(11),
+    fontSize: rf(9),
     fontFamily: "SF_Pro_Medium",
     color: TEXT_SECONDARY,
-    marginBottom: 4,
+    marginBottom: 1,
   },
   forwardPreviewText: {
-    fontSize: rf(13),
+    fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
   },
   forwardRoomRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
+    height: 24,
+    paddingHorizontal: 12,
+    gap: 7,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
@@ -8685,9 +8999,33 @@ const styles = StyleSheet.create({
   },
   forwardRoomName: {
     flex: 1,
-    fontSize: rf(14),
+    fontSize: rf(12),
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
+  },
+  forwardSendBtn: {
+    minWidth: 44,
+    height: 20,
+    borderRadius: 4,
+    backgroundColor: TEAL,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  forwardSendBtnSent: {
+    backgroundColor: "#E8FBF5",
+  },
+  forwardSendBtnText: {
+    color: "#fff",
+    fontSize: rf(10),
+    fontFamily: "SF_Pro_Medium",
+  },
+  forwardSendBtnSentText: {
+    color: TEAL,
+    fontSize: rf(10),
+    fontFamily: "SF_Pro_Medium",
+    marginLeft: 2,
   },
 
   // ── Edit Message ──
@@ -8795,6 +9133,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: Platform.OS === "ios" ? 54 : 24,
     right: 18,
+    zIndex: 3,
     width: 38,
     height: 38,
     borderRadius: 19,
@@ -8806,7 +9145,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: Platform.OS === "ios" ? 54 : 24,
     left: 18,
-    zIndex: 2,
+    zIndex: 3,
     width: 38,
     height: 38,
     borderRadius: 19,
@@ -8818,6 +9157,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: Platform.OS === "ios" ? 60 : 30,
     alignSelf: "center",
+    zIndex: 3,
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: 14,
