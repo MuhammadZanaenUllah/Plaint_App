@@ -1,4 +1,3 @@
-import { rf } from "@/utils/responsive";
 import { useNotifications } from "@/context/NotificationContext";
 import {
   getTaskDigestFilter,
@@ -13,6 +12,7 @@ import {
   openRoomConversation,
 } from "@/utils/conversationNavigation";
 import { formatRelativeTime } from "@/utils/dateFormat";
+import { rf } from "@/utils/responsive";
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -25,6 +25,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface InboxModalProps {
   visible: boolean;
@@ -63,6 +64,7 @@ export default function InboxModal({
   onNotificationPress,
   onViewAll,
 }: InboxModalProps) {
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<TabType>("all");
   const authState = useAuth();
   const companyId = authState?.state?.company?.company_id ?? 0;
@@ -205,7 +207,12 @@ export default function InboxModal({
       <View style={styles.modalContainer}>
         <Pressable style={styles.backdrop} onPress={onClose} />
 
-        <View style={styles.popup}>
+        <View
+          style={[
+            styles.popup,
+            { marginTop: Math.max(insets.top + 50, 52) },
+          ]}
+        >
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>Inbox</Text>

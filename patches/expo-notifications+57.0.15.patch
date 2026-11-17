@@ -14,10 +14,10 @@ index 777403d..35838ed 100644
  </manifest>
 diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitChatNotification.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitChatNotification.kt
 new file mode 100644
-index 0000000..749be20
+index 0000000..db4fe58
 --- /dev/null
 +++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/PlanitChatNotification.kt
-@@ -0,0 +1,1009 @@
+@@ -0,0 +1,1059 @@
 +package expo.modules.notifications.notifications.presentation
 +
 +import android.app.NotificationChannel
@@ -29,12 +29,15 @@ index 0000000..749be20
 +import android.content.pm.PackageManager
 +import android.graphics.Bitmap
 +import android.graphics.BitmapFactory
++import android.media.AudioAttributes
 +import android.os.Build
++import android.provider.Settings
 +import android.util.Log
 +import androidx.core.app.NotificationCompat
 +import androidx.core.app.NotificationManagerCompat
 +import androidx.core.app.Person
 +import expo.modules.notifications.notifications.interfaces.INotificationContent
++import expo.modules.notifications.notifications.SoundResolver
 +import expo.modules.notifications.notifications.model.Notification
 +import expo.modules.notifications.notifications.model.NotificationAction
 +import expo.modules.notifications.notifications.model.NotificationContent
@@ -86,6 +89,11 @@ index 0000000..749be20
 +
 +  private const val FALLBACK_CHANNEL_ID =
 +    "expo_notifications_fallback_notification_channel"
++
++  // Dedicated chat channel so chat pushes (DMs, channels and project chats)
++  // always play the chat sound regardless of the channel id sent with the push.
++  private const val CHAT_CHANNEL_ID = "planit-chat-messages"
++  private const val CHAT_SOUND_RESOURCE = "chat_message"
 +
 +  private val objectIdPattern = Regex("^[a-fA-F0-9]{24}$")
 +  private val nameColonPattern = Regex("^([^:\\n]{1,80}):\\s*([\\s\\S]*)$")
@@ -832,11 +840,53 @@ index 0000000..749be20
 +    }
 +    val manager =
 +      context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
++    // Chat pushes always use the dedicated Planit chat channel so they play the
++    // chat sound instead of the task/general notification sound.
++    val chatChannel = ensureChatChannel(context, manager)
++    if (chatChannel != null) {
++      return chatChannel
++    }
 +    val requested = source.notificationRequest.trigger?.getNotificationChannel()
 +    if (!requested.isNullOrBlank() && manager.getNotificationChannel(requested) != null) {
 +      return requested
 +    }
 +    return ensureFallbackChannel(context, manager)
++  }
++
++  /**
++   * Creates (once) the dedicated chat notification channel carrying the chat
++   * sound. Returns null when the chat sound resource is not bundled in the
++   * build, so callers fall back to the previous channel resolution.
++   */
++  private fun ensureChatChannel(
++    context: Context,
++    manager: NotificationManager
++  ): String? {
++    val soundUri = SoundResolver(context).resolve(CHAT_SOUND_RESOURCE)
++    if (
++      soundUri == null ||
++      soundUri == Settings.System.DEFAULT_NOTIFICATION_URI
++    ) {
++      return null
++    }
++    if (manager.getNotificationChannel(CHAT_CHANNEL_ID) == null) {
++      val channel = NotificationChannel(
++        CHAT_CHANNEL_ID,
++        "Planit Chat Messages",
++        NotificationManager.IMPORTANCE_HIGH
++      )
++      channel.setShowBadge(true)
++      channel.enableVibration(true)
++      channel.setSound(
++        soundUri,
++        AudioAttributes.Builder()
++          .setUsage(AudioAttributes.USAGE_NOTIFICATION)
++          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
++          .build()
++      )
++      manager.createNotificationChannel(channel)
++    }
++    return CHAT_CHANNEL_ID
 +  }
 +
 +  private fun summaryChannelId(
