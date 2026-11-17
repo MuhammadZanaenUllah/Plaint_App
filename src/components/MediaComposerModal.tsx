@@ -8,7 +8,6 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Dimensions,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -19,6 +18,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import {
   Gesture,
@@ -59,7 +59,7 @@ function CropView({
   onCancel: () => void;
   onDone: (result: { uri: string; width: number; height: number }) => void;
 }) {
-  const { width: screenW, height: screenH } = Dimensions.get("window");
+  const { width: screenW, height: screenH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const frame = Math.min(screenW, screenH * 0.62);
   const [imageSize, setImageSize] = useState<{ w: number; h: number } | null>(
@@ -232,7 +232,7 @@ function CropView({
 // ─── Composer ─────────────────────────────────────────────────────────────────
 
 export default function MediaComposerModal({ files, onSend, onCancel }: Props) {
-  const { width: screenW } = Dimensions.get("window");
+  const { width: screenW } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState<ComposerFile[]>(files);
   const [index, setIndex] = useState(0);

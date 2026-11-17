@@ -1,4 +1,4 @@
-import { rf } from "@/utils/responsive";
+import { CONTENT_MAX_WIDTH, rf, useContentWidth } from "@/utils/responsive";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import AddPeopleModal from "@/components/AddPeopleModal";
 import InviteToChannelModal, {
@@ -97,6 +97,7 @@ import {
   Animated,
   AppState,
   Dimensions,
+  useWindowDimensions,
   FlatList,
   GestureResponderEvent,
   ImageStyle,
@@ -1246,6 +1247,10 @@ function AttachmentsPanel({
   onOpenVideo?: (url: string, name?: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState("Images");
+  const contentWidth = useContentWidth();
+  const thumbSize =
+    Math.floor((contentWidth - ATTACHMENT_GRID_GAP * 4) / 3) -
+    ATTACHMENT_GRID_GAP;
 
   const imageAttachments = useMemo(
     () =>
@@ -1320,7 +1325,10 @@ function AttachmentsPanel({
                 style={ap.imageThumbWrap}
                 onPress={() => onOpenImage?.(imageAttachments, index)}
               >
-                <SecureImage url={item.url} style={ap.imageThumb} />
+                <SecureImage
+                  url={item.url}
+                  style={[ap.imageThumb, { width: thumbSize, height: thumbSize }]}
+                />
               </TouchableOpacity>
             ))}
           </View>
@@ -1429,9 +1437,6 @@ function EmptyAttachTab({
 // approach as the message bubble's fixed 220×180 attachedImage, which
 // always rendered correctly) sidesteps that.
 const ATTACHMENT_GRID_GAP = 3;
-const ATTACHMENT_THUMB_SIZE =
-  Math.floor((Dimensions.get("window").width - ATTACHMENT_GRID_GAP * 4) / 3) -
-  ATTACHMENT_GRID_GAP;
 
 const ap = StyleSheet.create({
   container: { paddingBottom: 4 },
@@ -1473,8 +1478,7 @@ const ap = StyleSheet.create({
     overflow: "hidden",
   },
   imageThumb: {
-    width: ATTACHMENT_THUMB_SIZE,
-    height: ATTACHMENT_THUMB_SIZE,
+    // width/height come from the content width (AttachmentsPanel).
     backgroundColor: "#EDEEF1",
   },
   emptyTab: {
@@ -2137,7 +2141,8 @@ function ImageViewerModal({
   onChangeIndex: (index: number) => void;
 }) {
   const listRef = useRef<FlatList<MessageAttachment>>(null);
-  const { width, height } = Dimensions.get("window");
+  // Full-window viewer: window size, kept live for rotation.
+  const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const previewHeight = Math.max(
     1,
@@ -2875,7 +2880,9 @@ function WhatsAppMessageModal({
       ? message.text
       : "";
 
-  const screenHeight = Dimensions.get("window").height;
+  const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
+  // Keep the menu over the content column (tablets) instead of the screen edges.
+  const sideInset = Math.max(20, (screenWidth - CONTENT_MAX_WIDTH) / 2 + 20);
   const clampedY = targetY
     ? Math.max(90, Math.min(targetY - 70, screenHeight - 430))
     : screenHeight * 0.25;
@@ -2917,6 +2924,8 @@ function WhatsAppMessageModal({
             waModalStyles.focusedWrapper,
             {
               top: clampedY,
+              left: sideInset,
+              right: sideInset,
               opacity: fadeAnim,
               transform: [{ scale: scaleAnim }],
             },
