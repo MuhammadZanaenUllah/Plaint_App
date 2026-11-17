@@ -29,18 +29,6 @@ function fromIds(state: TaskBuckets, ids: number[]): TaskEntity[] {
     .filter((task): task is TaskEntity => Boolean(task));
 }
 
-export function uniqueByRecurrenceOrigin(tasks: TaskEntity[]): TaskEntity[] {
-  const seen = new Set<number>();
-  return tasks.filter((task) => {
-    const originId =
-      task.recurrence_origin_id ?? (task.is_recurring ? task.id : null);
-    if (originId === null) return true;
-    if (seen.has(originId)) return false;
-    seen.add(originId);
-    return true;
-  });
-}
-
 export function uniqueTasksFromBuckets(state: TaskBuckets): TaskEntity[] {
   const allTasks = [
     ...fromIds(state, state.assignedToMeIds),
@@ -56,6 +44,33 @@ export function isActiveForTabs(task: TaskEntity): boolean {
 
 export function activeTasksFromBuckets(state: TaskBuckets): TaskEntity[] {
   return uniqueTasksFromBuckets(state).filter(isActiveForTabs);
+}
+
+// Matches the web: every task I created, including ones I assigned to myself
+// (those live in the assigned bucket, whose doer is always me).
+export function createdTabTasks(state: TaskBuckets): TaskEntity[] {
+  const selfAssigned = fromIds(state, state.assignedToMeIds).filter(
+    (task) => Number(task.created_by ?? task.assignee) === Number(task.asigned_to),
+  );
+  return [...fromIds(state, state.createdByMeIds), ...selfAssigned].filter(
+    isActiveForTabs,
+  );
+}
+
+// Matches the web: pending-approval tasks plus recurring templates awaiting approval.
+export function pendingApprovalTabTasks(state: TaskBuckets): TaskEntity[] {
+  const tasks = state.pendingApprovalIds.length
+    ? fromIds(state, state.pendingApprovalIds)
+    : uniqueTasksFromBuckets(state);
+  const recurring = state.recurringIds.length
+    ? fromIds(state, state.recurringIds)
+    : Object.values(state.byId).filter((task) => task.is_recurring);
+  const byId = new Map(
+    [...tasks, ...recurring]
+      .filter((task) => task.status === "Pending-Approval")
+      .map((task) => [task.id, task]),
+  );
+  return [...byId.values()];
 }
 
 export type ActiveTabContext = {
@@ -124,13 +139,12 @@ export function selectTabEntities(
   now: Date = new Date(),
   options: { isAts?: boolean } = {},
 ): TaskEntity[] {
-  const uniqueTasks = uniqueTasksFromBuckets(state);
   const activeTasks = activeTasksFromBuckets(state);
   const activeContext = createActiveTabContext(now, options);
 
   switch (tab) {
     case "created":
-      return fromIds(state, state.createdByMeIds).filter(isActiveForTabs);
+      return createdTabTasks(state);
     case "assigned":
       return fromIds(state, state.assignedToMeIds).filter(isActiveForTabs);
     case "completed": {
@@ -146,18 +160,12 @@ export function selectTabEntities(
       );
     }
     case "pendingApproval":
-      return (state.pendingApprovalIds.length
-        ? fromIds(state, state.pendingApprovalIds)
-        : uniqueTasks.filter((task) => task.status === "Pending-Approval")
-      ).filter((task) => task.status === "Pending-Approval");
+      return pendingApprovalTabTasks(state);
     case "recurring":
       return state.recurringIds.length
         ? fromIds(state, state.recurringIds)
         : Object.values(state.byId).filter((task) => task.is_recurring);
     case "today":
-      return uniqueByRecurrenceOrigin(
-        activeTasks.filter((task) => matchesActiveTab(task, tab, activeContext)),
-      );
     case "week":
     case "overdue":
       return activeTasks.filter((task) =>

@@ -8,11 +8,11 @@ import { isCompletedStatus, normalizeApiStatus } from "../utils/taskStatus";
 import {
   activeTasksFromBuckets,
   createActiveTabContext,
+  createdTabTasks,
   isActiveForTabs,
   matchesActiveTab,
+  pendingApprovalTabTasks,
   selectTabEntities,
-  uniqueByRecurrenceOrigin,
-  uniqueTasksFromBuckets,
 } from "../utils/taskTabRules";
 import { matchesTaskSearch } from "../utils/taskSearch";
 import { sortTasksByDueDate } from "../utils/taskSort";
@@ -166,15 +166,10 @@ export function selectTabCounts(
         filters.dueFrom ||
         filters.dueTo),
   );
-  const uniqueTasks = uniqueTasksFromBuckets(state);
   const activeTasks = activeTasksFromBuckets(state);
-  const createdTasks = byBucket(state, state.createdByMeIds).filter(isActiveForTabs);
+  const createdTasks = createdTabTasks(state);
   const assignedTasks = byBucket(state, state.assignedToMeIds).filter(isActiveForTabs);
-  const pendingTasks = (
-    state.pendingApprovalIds.length
-      ? byBucket(state, state.pendingApprovalIds)
-      : uniqueTasks.filter((task) => task.status === "Pending-Approval")
-  ).filter((task) => task.status === "Pending-Approval");
+  const pendingTasks = pendingApprovalTabTasks(state);
   const recurringTasks = state.recurringIds.length
     ? byBucket(state, state.recurringIds)
     : Object.values(state.byId).filter((task) => task.is_recurring);
@@ -213,17 +208,13 @@ export function selectTabCounts(
   };
 
   const activeContext = createActiveTabContext(now, options);
-  const todayCandidates: TaskEntity[] = [];
   for (const task of activeTasks) {
-    if (matchesActiveTab(task, "today", activeContext)) {
-      todayCandidates.push(task);
-    }
     if (filters && !matchesTaskFilters(task, filters)) continue;
     counts.all += 1;
+    if (matchesActiveTab(task, "today", activeContext)) counts.today += 1;
     if (matchesActiveTab(task, "week", activeContext)) counts.week += 1;
     if (matchesActiveTab(task, "overdue", activeContext)) counts.overdue += 1;
   }
-  counts.today = countMatching(uniqueByRecurrenceOrigin(todayCandidates), filters);
 
   return counts;
 }
