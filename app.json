@@ -19,9 +19,9 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSMicrophoneUsageDescription": "This app uses the microphone to record and send voice notes in chat.",
-        "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",
-        "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photos",
-        "NSFaceIDUsageDescription": "Allow $(PRODUCT_NAME) to use Face ID"
+        "NSCameraUsageDescription": "Planit uses your camera to take photos and videos and send them in chat. For example, you can photograph a whiteboard or a document and share it with your team in a conversation.",
+        "NSPhotoLibraryUsageDescription": "Planit uses your photo library so you can choose photos and videos to share in chat or set as your profile picture. For example, you can attach a screenshot of an issue to a task conversation.",
+        "NSFaceIDUsageDescription": "Planit uses Face ID to let you sign in quickly and securely without typing your password."
       }
     },
     "android": {
@@ -84,8 +84,8 @@
       [
         "expo-media-library",
         {
-          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos.",
-          "savePhotosPermission": "Allow $(PRODUCT_NAME) to save photos and videos to your device.",
+          "photosPermission": "Planit uses your photo library so you can choose photos and videos to share in chat or set as your profile picture. For example, you can attach a screenshot of an issue to a task conversation.",
+          "savePhotosPermission": "Planit saves photos and videos you download from chat to your photo library. For example, you can save an image a teammate sent you.",
           "granularPermissions": []
         }
       ]
