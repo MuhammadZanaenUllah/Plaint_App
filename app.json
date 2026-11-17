@@ -85,7 +85,8 @@
           "savePhotosPermission": "Planit saves photos and videos you download from chat to your photo library. For example, you can save an image a teammate sent you.",
           "granularPermissions": []
         }
-      ]
+      ],
+      "./plugins/withNotificationServiceExtension"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -94,7 +95,19 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "e77b3336-c148-415e-b0d0-479d536ea892"
+        "projectId": "e77b3336-c148-415e-b0d0-479d536ea892",
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "PlanitNotificationService",
+                  "bundleIdentifier": "pk.planit.PlanitNotificationService"
+                }
+              ]
+            }
+          }
+        }
       }
     }
   }
