@@ -1,4 +1,3 @@
-import { rf } from "@/utils/responsive";
 import Icons from "@/constants/icons";
 import { useSearch } from "@/context/SearchContext";
 import { useAuth } from "@/hooks/useAuth";
@@ -8,6 +7,8 @@ import {
 } from "@/services/api/push.service";
 import { viewTask } from "@/services/api/tasks.service";
 import { NotificationItem } from "@/types/chat.types";
+import { triggerHaptic } from "@/utils/haptics";
+import { rf } from "@/utils/responsive";
 import { showInfo } from "@/utils/toast";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -54,7 +55,7 @@ export default function AppHeader({
 }: AppHeaderProps) {
   const { state: authState, logout } = useAuth();
   const insets = useSafeAreaInsets();
-  const menuTopPosition = Math.max(insets.top + 60, 70);
+  const menuTopPosition = Math.max(insets.top + 50, 52);
   const { setSearchText } = useSearch();
   const [searchOpen, setSearchOpen] = useState(false);
   const isSearchVisible = forceSearchOpen || searchOpen;
@@ -148,7 +149,11 @@ export default function AppHeader({
         <View style={styles.headerRight}>
           {showSearch && !forceSearchOpen && (
             <TouchableOpacity
-              onPress={() => setSearchOpen(!searchOpen)}
+              onPress={() => {
+                // Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                triggerHaptic("medium");
+                setSearchOpen(!searchOpen)
+              }}
               hitSlop={8}
             >
               <Ionicons name="search-outline" size={18} color="#000000" />
@@ -158,13 +163,24 @@ export default function AppHeader({
           <TouchableOpacity
             style={styles.bellWrap}
             activeOpacity={0.75}
-            onPress={() => setInboxOpen(true)}
+            onPress={() => {
+              // Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              triggerHaptic("medium");
+              setInboxOpen(true)
+            }}
           >
-            <BellIcon />
-            <View style={styles.bellDot} />
+            <View >
+              <BellIcon />
+              <View style={styles.bellDot} />
+            </View>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={openProfileMenu}>
+          <TouchableOpacity activeOpacity={0.75}
+            onPress={() => {
+              // Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              triggerHaptic("medium");
+              openProfileMenu();
+            }}>
             <Avatar
               name={`${authState.user?.first_name ?? ""} ${authState.user?.last_name ?? ""}`}
               imagePath={authState.user?.image}
@@ -223,7 +239,7 @@ export default function AppHeader({
                   placeholderTextColor="#9CA3AF"
                   value={search}
                   onChangeText={handleSearchChange}
-                  // autoFocus
+                // autoFocus
                 />
                 {search.length > 0 && (
                   <TouchableOpacity
@@ -340,13 +356,17 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 6,
   },
   bellWrap: {
     position: "relative",
     justifyContent: "center",
+    backgroundColor: "transparent",
+    padding: 7,
+    borderRadius: 8,
     alignItems: "center",
   },
+
   bellDot: {
     position: "absolute",
     top: 0,
@@ -364,7 +384,7 @@ const styles = StyleSheet.create({
   },
   profileMenu: {
     position: "absolute",
-    top: 120,
+    top: 100,
     right: 16,
     width: 150,
     backgroundColor: "#fff",
