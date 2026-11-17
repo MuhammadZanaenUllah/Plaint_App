@@ -1,11 +1,14 @@
-import { rf } from "@/utils/responsive";
 import AddPeopleModal from "@/components/AddPeopleModal";
 import Avatar from "@/components/Avatar";
 import CreateChannelModal from "@/components/CreateChannelModal";
+import { rf } from "@/utils/responsive";
 // PROJECT MODULE DISABLED
 // import CreateProjectModal from "@/components/CreateProjectModal";
 // import ProjectDetailModal from "@/components/ProjectDetailModal";
-import InviteToChannelModal, { type ChannelPermission, type ChannelMember } from "@/components/InviteToChannelModal";
+import InviteToChannelModal, {
+  type ChannelMember,
+  type ChannelPermission,
+} from "@/components/InviteToChannelModal";
 import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
@@ -15,74 +18,74 @@ import { useSearch } from "@/context/SearchContext";
 import { useTasks } from "@/hooks/useTasks";
 // PROJECT MODULE DISABLED
 // import { Project } from "@/types/project.types";
+import { canViewProjects } from "@/features/projects/permissions/projectPermissions";
+import * as chatService from "@/services/api/chat.service";
+import {
+  getCompanyActiveUsers,
+  type CompanyActiveUser,
+} from "@/services/api/users.service";
 import { Room } from "@/types/chat.types";
 import {
-    filterReadRooms,
-    filterRoomsByType,
-    filterUnreadRooms,
-    formatChatListTime,
-    formatVoiceDuration,
-    getRoomAvatar,
-    getRoomDisplayName,
-    getVoiceNoteSecondsFromAttachment,
-    getVoiceNoteSecondsFromText,
-    isAudioAttachment,
-    isRoomUnread,
-    isVoiceNoteText,
-    sortRoomsByRecentActivity,
+  filterReadRooms,
+  filterRoomsByType,
+  filterUnreadRooms,
+  formatChatListTime,
+  formatVoiceDuration,
+  getRoomAvatar,
+  getRoomDisplayName,
+  getVoiceNoteSecondsFromAttachment,
+  getVoiceNoteSecondsFromText,
+  isAudioAttachment,
+  isRoomUnread,
+  isVoiceNoteText,
+  sortRoomsByRecentActivity,
 } from "@/utils/chatHelpers";
 import {
-    openConversation,
-    openRoomConversation,
+  openConversation,
+  openRoomConversation,
 } from "@/utils/conversationNavigation";
+import { canCreateChannel, canViewChat } from "@/utils/permissions";
+import { showError, showSuccess } from "@/utils/toast";
 import {
-    getCachedVoiceNoteDuration,
-    resolveVoiceNoteDuration,
-    subscribeVoiceNoteDurations,
+  getCachedVoiceNoteDuration,
+  resolveVoiceNoteDuration,
+  subscribeVoiceNoteDurations,
 } from "@/utils/voiceNoteDuration";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import {
-    useCallback,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-    type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
 } from "react";
 import {
-    ActivityIndicator,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Reanimated, {
-    runOnJS,
-    useAnimatedStyle,
-    useSharedValue,
-    withSpring,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
 } from "react-native-reanimated";
-import { showSuccess, showError } from "@/utils/toast";
-import * as chatService from "@/services/api/chat.service";
-import {
-    getCompanyActiveUsers,
-    type CompanyActiveUser,
-} from "@/services/api/users.service";
-import { canCreateChannel, canViewChat } from "@/utils/permissions";
-import { canViewProjects } from "@/features/projects/permissions/projectPermissions";
 const { ChatIcon: MainChatIcon, ChannelTabIcon } = Icons;
 
 // ─── Chip Config ──────────────────────────────────────────────────────────────
 
 const CHIP_DATA = [
-    { id: "all", label: "All" },
-    { id: "unread", label: "Unread" },
-    { id: "read", label: "Read" },
-    { id: "channels", label: "Channels" },
-    { id: "projects", label: "Projects" },
+  { id: "all", label: "All" },
+  { id: "unread", label: "Unread" },
+  { id: "read", label: "Read" },
+  { id: "channels", label: "Channels" },
+  { id: "projects", label: "Projects" },
 ];
 
 // ─── Swipeable chat row ───────────────────────────────────────────────────────
@@ -94,1105 +97,1144 @@ const CHIP_DATA = [
 const SWIPE_ACTIONS_WIDTH = 132;
 
 function SwipeableChatRow({
-    isMuted,
-    isUnread,
-    selected,
-    onToggleMute,
-    onToggleRead,
-    onPress,
-    children,
+  isMuted,
+  isUnread,
+  selected,
+  onToggleMute,
+  onToggleRead,
+  onPress,
+  children,
 }: {
-    isMuted: boolean;
-    isUnread: boolean;
-    selected: boolean;
-    onToggleMute: () => void;
-    onToggleRead: () => void;
-    onPress: () => void;
-    children: ReactNode;
+  isMuted: boolean;
+  isUnread: boolean;
+  selected: boolean;
+  onToggleMute: () => void;
+  onToggleRead: () => void;
+  onPress: () => void;
+  children: ReactNode;
 }) {
-    const translateX = useSharedValue(0);
-    const startX = useSharedValue(0);
-    const [open, setOpen] = useState(false);
+  const translateX = useSharedValue(0);
+  const startX = useSharedValue(0);
+  const [open, setOpen] = useState(false);
 
-    const close = () => {
-        translateX.value = withSpring(0, { damping: 22, stiffness: 240 });
-        setOpen(false);
-    };
+  const close = () => {
+    translateX.value = withSpring(0, { damping: 22, stiffness: 240 });
+    setOpen(false);
+  };
 
-    const pan = Gesture.Pan()
-        // Horizontal intent only, so vertical list scrolling is never captured.
-        .activeOffsetX([-15, 15])
-        .failOffsetY([-14, 14])
-        .onBegin(() => {
-            startX.value = translateX.value;
-        })
-        .onUpdate((e) => {
-            const next = startX.value + e.translationX;
-            translateX.value = Math.max(
-                -SWIPE_ACTIONS_WIDTH,
-                Math.min(0, next),
-            );
-        })
-        .onEnd((e) => {
-            // Stick open past the threshold (or a fast flick), else snap shut.
-            const shouldOpen =
-                translateX.value < -SWIPE_ACTIONS_WIDTH * 0.4 ||
-                e.velocityX < -500;
-            translateX.value = withSpring(
-                shouldOpen ? -SWIPE_ACTIONS_WIDTH : 0,
-                { damping: 22, stiffness: 240 },
-            );
-            runOnJS(setOpen)(shouldOpen);
-        });
+  const pan = Gesture.Pan()
+    // Horizontal intent only, so vertical list scrolling is never captured.
+    .activeOffsetX([-15, 15])
+    .failOffsetY([-14, 14])
+    .onBegin(() => {
+      startX.value = translateX.value;
+    })
+    .onUpdate((e) => {
+      const next = startX.value + e.translationX;
+      translateX.value = Math.max(-SWIPE_ACTIONS_WIDTH, Math.min(0, next));
+    })
+    .onEnd((e) => {
+      // Stick open past the threshold (or a fast flick), else snap shut.
+      const shouldOpen =
+        translateX.value < -SWIPE_ACTIONS_WIDTH * 0.4 || e.velocityX < -500;
+      translateX.value = withSpring(shouldOpen ? -SWIPE_ACTIONS_WIDTH : 0, {
+        damping: 22,
+        stiffness: 240,
+      });
+      runOnJS(setOpen)(shouldOpen);
+    });
 
-    const rowStyle = useAnimatedStyle(() => ({
-        transform: [{ translateX: translateX.value }],
-    }));
+  const rowStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
 
-    return (
-        <View style={swipeStyles.rowWrap}>
-            <View style={swipeStyles.actionsLayer} pointerEvents="box-none">
-                <TouchableOpacity
-                    style={swipeStyles.action}
-                    activeOpacity={0.7}
-                    accessibilityLabel={isMuted ? "Unmute chat" : "Mute chat"}
-                    onPress={() => {
-                        onToggleMute();
-                        close();
-                    }}
-                >
-                    <Ionicons
-                        name={isMuted ? "notifications" : "notifications-off"}
-                        size={16}
-                        color="#6B7280"
-                    />
-                    <Text style={swipeStyles.actionLabel}>
-                        {isMuted ? "Unmute" : "Mute"}
-                    </Text>
-                </TouchableOpacity>
+  return (
+    <View style={swipeStyles.rowWrap}>
+      <View style={swipeStyles.actionsLayer} pointerEvents="box-none">
+        <TouchableOpacity
+          style={swipeStyles.action}
+          activeOpacity={0.7}
+          accessibilityLabel={isMuted ? "Unmute chat" : "Mute chat"}
+          onPress={() => {
+            onToggleMute();
+            close();
+          }}
+        >
+          <Ionicons
+            name={isMuted ? "notifications" : "notifications-off"}
+            size={16}
+            color="#6B7280"
+          />
+          <Text style={swipeStyles.actionLabel}>
+            {isMuted ? "Unmute" : "Mute"}
+          </Text>
+        </TouchableOpacity>
 
-                <TouchableOpacity
-                    style={swipeStyles.action}
-                    activeOpacity={0.7}
-                    accessibilityLabel={
-                        isUnread ? "Mark as read" : "Mark as unread"
-                    }
-                    onPress={() => {
-                        onToggleRead();
-                        close();
-                    }}
-                >
-                    <Ionicons
-                        name={
-                            isUnread
-                                ? "mail-open-outline"
-                                : "mail-unread-outline"
-                        }
-                        size={16}
-                        color="#00A67E"
-                    />
-                    <Text
-                        style={[swipeStyles.actionLabel, { color: "#00A67E" }]}
-                    >
-                        {isUnread ? "Read" : "Unread"}
-                    </Text>
-                </TouchableOpacity>
-            </View>
+        <TouchableOpacity
+          style={swipeStyles.action}
+          activeOpacity={0.7}
+          accessibilityLabel={isUnread ? "Mark as read" : "Mark as unread"}
+          onPress={() => {
+            onToggleRead();
+            close();
+          }}
+        >
+          <Ionicons
+            name={isUnread ? "mail-open-outline" : "mail-unread-outline"}
+            size={16}
+            color="#00A67E"
+          />
+          <Text style={[swipeStyles.actionLabel, { color: "#00A67E" }]}>
+            {isUnread ? "Read" : "Unread"}
+          </Text>
+        </TouchableOpacity>
+      </View>
 
-            <GestureDetector gesture={pan}>
-                <Reanimated.View style={[swipeStyles.rowAnimated, rowStyle]}>
-                    <TouchableOpacity
-                        style={[
-                            styles.chatRow,
-                            selected && styles.chatRowSelected,
-                        ]}
-                        activeOpacity={0.7}
-                        onPress={() => {
-                            if (open) {
-                                close();
-                            } else {
-                                onPress();
-                            }
-                        }}
-                    >
-                        {children}
-                    </TouchableOpacity>
-                </Reanimated.View>
-            </GestureDetector>
-        </View>
-    );
+      <GestureDetector gesture={pan}>
+        <Reanimated.View style={[swipeStyles.rowAnimated, rowStyle]}>
+          <TouchableOpacity
+            style={[styles.chatRow, selected && styles.chatRowSelected]}
+            activeOpacity={0.7}
+            onPress={() => {
+              if (open) {
+                close();
+              } else {
+                onPress();
+              }
+            }}
+          >
+            {children}
+          </TouchableOpacity>
+        </Reanimated.View>
+      </GestureDetector>
+    </View>
+  );
 }
 
 const swipeStyles = StyleSheet.create({
-    rowWrap: {
-        position: "relative",
-        overflow: "hidden",
-    },
-    rowAnimated: {
-        backgroundColor: "#fff",
-    },
-    actionsLayer: {
-        position: "absolute",
-        top: 0,
-        bottom: 0,
-        right: 0,
-        width: SWIPE_ACTIONS_WIDTH,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "flex-end",
-        gap: 10,
-        paddingHorizontal: 12,
-    },
-    action: {
-        minWidth: 46,
-        paddingHorizontal: 8,
-        paddingVertical: 6,
-        borderRadius: 10,
-        backgroundColor: "#F1F3F5",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 3,
-    },
-    actionLabel: {
-        fontSize: 9,
-        fontFamily: "SF_Pro_Medium",
-        color: "#6B7280",
-    },
+  rowWrap: {
+    position: "relative",
+    overflow: "hidden",
+  },
+  rowAnimated: {
+    backgroundColor: "#fff",
+  },
+  actionsLayer: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    right: 0,
+    width: SWIPE_ACTIONS_WIDTH,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 10,
+    paddingHorizontal: 12,
+  },
+  action: {
+    minWidth: 46,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: "#F1F3F5",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+  },
+  actionLabel: {
+    fontSize: 9,
+    fontFamily: "SF_Pro_Medium",
+    color: "#6B7280",
+  },
 });
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function ChatScreen() {
-    const {
-        state, fetchRooms, markRead,
-        setSearchQuery, initSocket, cleanupChatListeners,
-        roomPermissions, deleteRoom, hiddenRoomIds,
-        muteRoom, markUnread,
-    } = useChat();
-    const authState = useAuth();
-    // PROJECT MODULE DISABLED
-    // const { state: projectState, fetchProjects } = useProjects();
-    const { searchText } = useSearch();
-    const { state: taskState } = useTasks();
-    const currentUserId = authState?.state?.user?.id ?? 0;
-    const currentUser = authState?.state?.user ?? null;
-    const companyId = authState?.state?.company?.company_id ?? 0;
+  const {
+    state,
+    fetchRooms,
+    markRead,
+    setSearchQuery,
+    initSocket,
+    cleanupChatListeners,
+    roomPermissions,
+    deleteRoom,
+    hiddenRoomIds,
+    muteRoom,
+    markUnread,
+  } = useChat();
+  const authState = useAuth();
+  // PROJECT MODULE DISABLED
+  // const { state: projectState, fetchProjects } = useProjects();
+  const { searchText } = useSearch();
+  const { state: taskState } = useTasks();
+  const currentUserId = authState?.state?.user?.id ?? 0;
+  const currentUser = authState?.state?.user ?? null;
+  const companyId = authState?.state?.company?.company_id ?? 0;
 
-    // Company directory (includes email addresses). Room members from
-    // GET /chat/rooms do NOT include emails, so the "Add People" list needs this
-    // to pass emails through to the Invite-to-Channel modal.
-    const [companyUsers, setCompanyUsers] = useState<CompanyActiveUser[]>([]);
-    useEffect(() => {
-        if (!companyId) return;
-        let cancelled = false;
-        getCompanyActiveUsers(companyId)
-            .then((users) => {
-                if (!cancelled) setCompanyUsers(users);
-            })
-            .catch(() => {});
-        return () => {
-            cancelled = true;
-        };
-    }, [companyId]);
-
-    // Module-level permissions (from login `user_permissions`). These drive
-    // which tabs/rooms are visible and which create actions are offered.
-    const perms = useMemo(
-        () => ({
-            hasChatRead: canViewChat(currentUser),
-            hasProjectRead: canViewProjects(
-                currentUser,
-                authState?.state?.company ?? null,
-            ),
-            canCreateChannels: canCreateChannel(currentUser),
-        }),
-        [currentUser, authState?.state?.company]
-    );
-
-    // Only rooms the user is permitted to see:
-    // - 1:1 DMs + channels require `chat-list`
-    // - project group chats require `project-list` (DISABLED — see below)
-    // (Project child channels are `type:"channel"` and still require chat-list.)
-    const visibleRooms = useMemo(() => {
-        const rooms = state.rooms ?? [];
-        return rooms.filter((r) => {
-            // Conversations "deleted for me" stay hidden until a new message
-            // arrives (see ChatContext.hiddenRoomIds).
-            if (hiddenRoomIds.has(r._id)) return false;
-            // Project group-chat rooms are visible alongside normal channels
-            // when the user has the project-list permission.
-            if (r.type === "project") return perms.hasProjectRead;
-            return perms.hasChatRead;
-        });
-    }, [state.rooms, perms, hiddenRoomIds]);
-
-    // Project rooms are expanded by default so their General/Documentation
-    // channels are immediately visible; users can collapse them.
-    const [collapsedProjects, setCollapsedProjects] = useState<Set<number>>(
-        new Set(),
-    );
-
-    // Group project child channels under their parent project room.
-    const projectChannelMap = useMemo(() => {
-        const map = new Map<number, Room[]>();
-        for (const room of visibleRooms) {
-            if (room.type === "channel" && room.parent_id != null) {
-                const parentId = Number(room.parent_id);
-                const existing = map.get(parentId) ?? [];
-                existing.push(room);
-                map.set(parentId, existing);
-            }
-        }
-        return map;
-    }, [visibleRooms]);
-
-    const toggleProjectCollapse = useCallback((projectId: number) => {
-        setCollapsedProjects((previous) => {
-            const next = new Set(previous);
-            if (next.has(projectId)) next.delete(projectId);
-            else next.add(projectId);
-            return next;
-        });
-    }, []);
-
-    // Hide the Channels/Projects chips entirely when the user lacks the
-    // corresponding read permission (they'd render empty otherwise).
-    const visibleChips = useMemo(
-        () =>
-            CHIP_DATA.filter((chip) => {
-                if (chip.id === "channels") return perms.hasChatRead;
-                if (chip.id === "projects") return perms.hasProjectRead;
-                return true;
-            }),
-        [perms]
-    );
-
-    const [addPeopleOpen, setAddPeopleOpen] = useState(false);
-    const [addPeopleQuery, setAddPeopleQuery] = useState("");
-    const [createChannelOpen, setCreateChannelOpen] = useState(false);
-    // PROJECT MODULE DISABLED
-    // const [createProjectOpen, setCreateProjectOpen] = useState(false);
-    const [isChannelMode, setIsChannelMode] = useState(false);
-    const [activeChip, setActiveChip] = useState("all");
-    const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
-    const [selectedChannelKey, setSelectedChannelKey] = useState<string | null>(null);
-    const [newChannelName, setNewChannelName] = useState("");
-    // PROJECT MODULE DISABLED
-    // Track which project we're adding a channel to (null = standalone channel)
-    // const [projectContext, setProjectContext] = useState<Room | null>(null);
-
-    // ── InviteToChannelModal state ─────────────────────────────────────────────
-    const [inviteModalVisible, setInviteModalVisible] = useState(false);
-    // Room that was just created (for the invite modal to use)
-    const createdRoomRef = useRef<Room | null>(null);
-    // Whether invitations were actually sent — used to decide if the
-    // just-created channel should be removed when the modal is dismissed.
-    const channelInvitedRef = useRef(false);
-    // Pending users selected from AddPeopleModal (to pre-fill invite modal)
-    const [pendingInviteUsers, setPendingInviteUsers] = useState<Array<{ id: string; name: string; email?: string }>>([]); 
-
-    // Durations resolved from the audio file for website-originated voice notes.
-    // Mobile notes already encode their length in the filename/text.
-    const [voiceDurations, setVoiceDurations] = useState<Record<string, number>>({});
-
-    // A note may be resolved by its bubble/playback while this list is mounted;
-    // pick those durations up without waiting for the next room refresh.
-    useEffect(() => {
-        return subscribeVoiceNoteDurations((url, seconds) => {
-            setVoiceDurations((prev) =>
-                prev[url] === seconds ? prev : { ...prev, [url]: seconds },
-            );
-        });
-    }, []);
-
-    // Fetch rooms on mount
-    useEffect(() => {
-        fetchRooms();
-    }, [fetchRooms]);
-
-    // Clear the "recently opened" row highlight whenever the chat list regains
-    // focus (e.g. after closing a conversation) so the grey selected background
-    // never lingers behind the chat/channel that was opened.
-    useFocusEffect(
-        useCallback(() => {
-            setSelectedChatId(null);
-        }, []),
-    );
-
-    // Initialize socket when user is available
-    useEffect(() => {
-        if (currentUserId) {
-            initSocket(currentUserId);
-        }
-        return () => {
-            cleanupChatListeners();
-        };
-    }, [currentUserId, initSocket, cleanupChatListeners]);
-
-    // Reset search query when modal closes
-    useEffect(() => {
-        if (!addPeopleOpen) {
-            setAddPeopleQuery("");
-        }
-    }, [addPeopleOpen]);
-
-    // Build a default list of all company members. The backend requires ≥2
-    // chars to search, so we use the company directory (which includes emails)
-    // plus any room members as the default, unsearched list.
-    const defaultMemberList = useMemo(() => {
-        const memberMap = new Map<string, { id: string; name: string; email?: string }>();
-
-        // 1. Company directory — the only source that reliably carries emails.
-        for (const u of companyUsers) {
-            if (!u?.id || u.id === currentUserId) continue;
-            const key = String(u.id);
-            const name =
-                u.full_name?.trim() ||
-                `${u.first_name || ""} ${u.last_name || ""}`.trim() ||
-                u.email?.split("@")[0] ||
-                `User #${u.id}`;
-            memberMap.set(key, { id: key, name, email: u.email });
-        }
-
-        // 2. Existing room members — fill in anyone not in the directory and
-        // backfill an email if the directory lacked one.
-        for (const room of visibleRooms) {
-            for (const m of room.members ?? []) {
-                if (m.id === currentUserId) continue;
-                const key = String(m.id);
-                const existing = memberMap.get(key);
-                if (!existing) {
-                    const name = `${m.first_name || ""} ${m.last_name || ""}`.trim() || `User #${m.id}`;
-                    memberMap.set(key, { id: key, name, email: m.email });
-                } else if (!existing.email && m.email) {
-                    existing.email = m.email;
-                }
-            }
-        }
-        // From task owners
-        for (const owner of (taskState?.taskOwners ?? []) as any[]) {
-            if (!owner?.id) continue;
-            if (owner.id === currentUserId) continue;
-            const key = String(owner.id);
-            if (!memberMap.has(key)) {
-                const name = `${owner.first_name || ""} ${owner.last_name || ""}`.trim() || `User #${owner.id}`;
-                memberMap.set(key, { id: key, name, email: owner.email });
-            }
-        }
-        return Array.from(memberMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-    }, [companyUsers, visibleRooms, currentUserId, taskState?.taskOwners]);
-
-    // Build the user list shown in AddPeopleModal:
-    // - When query has ≥2 chars: use API search results (populated by setSearchQuery)
-    // - Otherwise: use defaultMemberList built from rooms + task owners
-    const addPeopleUsers = useMemo(() => {
-        if (addPeopleQuery.trim().length >= 2 && state.searchResults.length > 0) {
-            return state.searchResults.map((u) => ({
-                id: String(u.id),
-                name: u.full_name || `${u.first_name || ""} ${u.last_name || ""}`.trim() || `User #${u.id}`,
-                email: u.email,
-            }));
-        }
-        return defaultMemberList;
-    }, [addPeopleQuery, state.searchResults, defaultMemberList]);
-
-    // Compute unread counts per chip
-    const chipUnread = useMemo(() => {
-        const rooms = visibleRooms;
-        const directRooms = rooms.filter((r) => r.type === "direct");
-        const hasUnread = (rms: Room[]) => rms.some((r) => r.unreadCount > 0 || r.force_unread);
-        return {
-            all: hasUnread(directRooms),
-            unread: hasUnread(directRooms),
-            read: false,
-            channels: hasUnread(
-                rooms.filter(
-                    (r) => r.type === "channel" || r.type === "project",
-                ),
-            ),
-        };
-    }, [visibleRooms]);
-
-    // Categorize rooms based on active chip
-    const displayRooms = useMemo(() => {
-        const rooms = visibleRooms;
-        // All, Unread, Read → show only direct (inbox) messages, not channels/projects.
-        // A DM is only listed once it actually has a conversation — a room
-        // created by "New chat" stays hidden until at least one message exists.
-        const directRooms = rooms.filter((r) => {
-            if (r.type !== "direct") return false;
-            if (r.unreadCount > 0) return true;
-            const lm = r.last_message;
-            return (
-                !!lm &&
-                (!!lm.text ||
-                    (lm.attachments?.length ?? 0) > 0 ||
-                    !!lm.createdAt)
-            );
-        });
-
-        let base: Room[];
-        switch (activeChip) {
-        case "channels": {
-            // Project rooms are grouped with their child channels in this
-            // view. Child channels whose parent project room is not visible
-            // (e.g. chat-only user without project-list) stay in the normal
-            // channel list so they are not hidden.
-            const projectRooms = filterRoomsByType(rooms, "project");
-            const projectRoomIds = new Set(projectRooms.map((room) => room.id));
-            base = [
-                ...projectRooms,
-                ...filterRoomsByType(rooms, "channel").filter(
-                    (room) =>
-                        room.parent_id == null ||
-                        !projectRoomIds.has(Number(room.parent_id)),
-                ),
-            ];
-            break;
-        }
-            case "projects": {
-                // Projects chip: only chats that belong to a project — the
-                // project room itself plus its child channels. Direct messages
-                // and standalone channels are excluded.
-                const projectRooms = filterRoomsByType(rooms, "project");
-                const projectRoomIds = new Set(
-                    projectRooms.map((room) => room.id),
-                );
-                base = [
-                    ...projectRooms,
-                    ...filterRoomsByType(rooms, "channel").filter(
-                        (room) =>
-                            room.parent_id != null &&
-                            projectRoomIds.has(Number(room.parent_id)),
-                    ),
-                ];
-                break;
-            }
-            case "unread":
-                base = filterUnreadRooms(directRooms);
-                break;
-            case "read":
-                base = filterReadRooms(directRooms);
-                break;
-            case "all":
-            default:
-                base = directRooms;
-                break;
-        }
-
-        // Text search from the header search bar — matches the room name, the
-        // other member's name/email for DMs, and the last message preview.
-        const query = searchText.trim().toLowerCase();
-        if (!query) return sortRoomsByRecentActivity(base);
-        const filtered = base.filter((room) => {
-            const displayName = getRoomDisplayName(room, currentUserId).toLowerCase();
-            const otherMember = room.type === "direct"
-                ? room.members.find((m) => m.id !== currentUserId)
-                : null;
-            const memberName = otherMember
-                ? `${otherMember.first_name} ${otherMember.last_name}`.toLowerCase()
-                : "";
-            const memberEmail = otherMember?.email?.toLowerCase() ?? "";
-            const preview = room.last_message?.text?.toLowerCase() ?? "";
-            return (
-                displayName.includes(query) ||
-                memberName.includes(query) ||
-                memberEmail.includes(query) ||
-                preview.includes(query)
-            );
-        });
-        // WhatsApp-style: most recent activity first (applies to every chip and
-        // to search results). Recomputed on each last_message/unread update, so
-        // a room jumps to the top in real time when a message arrives.
-        return sortRoomsByRecentActivity(filtered);
-    }, [visibleRooms, activeChip, searchText, currentUserId]);
-
-    // Website voice notes are `.webm` and do not encode their duration in the
-    // filename or text. Resolve it from the audio metadata (and cache it) so
-    // the list can show "0:04" like mobile-originated notes. Only the last
-    // voice note of each visible room is probed.
-    const pendingVoiceNoteUrls = useMemo(() => {
-        const urls = new Set<string>();
-        displayRooms.forEach((room) => {
-            const audio = (room.last_message?.attachments ?? []).find((a) =>
-                isAudioAttachment(a),
-            );
-            if (!audio?.url) return;
-            const known =
-                getVoiceNoteSecondsFromAttachment(audio) ??
-                getVoiceNoteSecondsFromText(room.last_message?.text ?? "") ??
-                getCachedVoiceNoteDuration(audio.url);
-            if (known == null) urls.add(audio.url);
-        });
-        return Array.from(urls);
-    }, [displayRooms]);
-
-    useEffect(() => {
-        if (pendingVoiceNoteUrls.length === 0) return;
-        let cancelled = false;
-        (async () => {
-            for (let i = 0; i < pendingVoiceNoteUrls.length; i += 3) {
-                const batch = pendingVoiceNoteUrls.slice(i, i + 3);
-                const results = await Promise.all(
-                    batch.map((url) => resolveVoiceNoteDuration(url)),
-                );
-                if (cancelled) return;
-                const updates: Record<string, number> = {};
-                results.forEach((seconds, index) => {
-                    if (seconds != null && seconds > 0) {
-                        updates[batch[index]] = seconds;
-                    }
-                });
-                if (Object.keys(updates).length > 0) {
-                    setVoiceDurations((prev) => ({ ...prev, ...updates }));
-                }
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [pendingVoiceNoteUrls]);
-
-    // PROJECT MODULE DISABLED
-    // Group channels by their parent project for the Projects view
-    // const projectChannelMap = useMemo(() => {
-    //     const map = new Map<number, Room[]>();
-    //     for (const room of visibleRooms) {
-    //         if (room.type === "channel" && room.parent_id) {
-    //             const existing = map.get(room.parent_id) ?? [];
-    //             existing.push(room);
-    //             map.set(room.parent_id, existing);
-    //         }
-    //     }
-    //     return map;
-    // }, [visibleRooms]);
-
-    // PROJECT MODULE DISABLED
-    // Enrich project rows with status / due date from GET /projects (matched by
-    // room display name — the project's group-chat room shares its name).
-    // const projectMetaByName = useMemo(() => {
-    //     const map = new Map<string, Project>();
-    //     for (const p of projectState.projects ?? []) {
-    //         map.set(p.name, p);
-    //     }
-    //     return map;
-    // }, [projectState.projects]);
-
-    // PROJECT MODULE DISABLED
-    // Keep the Projects chip's status/due-date enrichment fresh whenever it is
-    // being viewed (silent — no full-screen loading state).
-    // useEffect(() => {
-    //     if (activeChip === "projects" && perms.hasProjectRead) {
-    //         fetchProjects({ silent: true }).catch(() => { });
-    //     }
-    // }, [activeChip, perms.hasProjectRead, fetchProjects]);
-
-    // PROJECT MODULE DISABLED
-    // const toggleProjectExpand = useCallback((projectId: number) => {
-    //     setExpandedProjects((prev) => {
-    //         const next = new Set(prev);
-    //         if (next.has(projectId)) next.delete(projectId);
-    //         else next.add(projectId);
-    //         return next;
-    //     });
-    // }, []);
-
-    const handleRoomPress = useCallback(
-        async (room: Room) => {
-            console.log("[Chat] Room pressed:", { id: room.id, _id: room._id, type: room.type, name: room.name });
-            setSelectedChatId(room.id.toString());
-            if (isRoomUnread(room)) {
-                markRead(room._id).catch(() => { });
-            }
-            // Guarded: repeated taps on the same row open one screen only.
-            openRoomConversation(room, currentUserId);
-        },
-        [currentUserId, markRead]
-    );
-
-    // Row action: toggle mute (POST /chat/mute-room toggles the flag).
-    const handleRowToggleMute = useCallback(
-        (room: Room) => {
-            muteRoom(room._id)
-                .then((isMuted) =>
-                    showSuccess(
-                        isMuted ? "Muted" : "Unmuted",
-                        `${getRoomDisplayName(room, currentUserId)} ${
-                            isMuted ? "muted" : "unmuted"
-                        }`,
-                    ),
-                )
-                .catch(() =>
-                    showError("Error", "Could not update notification settings."),
-                );
-        },
-        [muteRoom, currentUserId],
-    );
-
-    // Row action: toggle read/unread. Unread chats get "Read"; read chats get
-    // "Unread".
-    const handleRowToggleRead = useCallback(
-        (room: Room) => {
-            const unread = isRoomUnread(room);
-            const action = unread ? markRead(room._id) : markUnread(room._id);
-            action
-                .then(() =>
-                    showSuccess(unread ? "Marked as read" : "Marked as unread"),
-                )
-                .catch(() =>
-                    showError(
-                        "Error",
-                        unread
-                            ? "Could not mark this chat as read."
-                            : "Could not mark this chat as unread.",
-                    ),
-                );
-        },
-        [markRead, markUnread],
-    );
-
-    const handleAddPeopleSelect = useCallback(
-        (user: { id: string; name: string; email?: string }) => {
-            setAddPeopleOpen(false);
-            const targetId = parseInt(user.id, 10);
-
-            // Fast path: an already-loaded 1:1 room with this member opens
-            // immediately — no network round-trip before navigation.
-            const existingRoom = state.rooms.find(
-                (r) =>
-                    r.type === "direct" &&
-                    (r.members ?? []).some((m) => m.id === targetId),
-            );
-            if (existingRoom) {
-                if (isRoomUnread(existingRoom)) {
-                    markRead(existingRoom._id).catch(() => {});
-                }
-                openRoomConversation(existingRoom, currentUserId);
-                return;
-            }
-
-            // New chat: open the conversation right away with the peer's info
-            // and let the conversation screen get-or-create the room (it swaps
-            // the resolved room id into the route). This removes the
-            // create-room request from the navigation critical path.
-            openConversation({
-                targetId: String(targetId),
-                name: user.name,
-                initials: user.name.trim().charAt(0).toUpperCase() || "C",
-            });
-        },
-        [currentUserId, state.rooms, markRead]
-    );
-
-    const handleChannelCreate = useCallback(
-        async (name: string) => {
-            console.log("[Chat] Creating channel:", name);
-            setCreateChannelOpen(false);
-            createdRoomRef.current = null;
-            setNewChannelName(name);
-            setIsChannelMode(true);
-            setTimeout(() => setAddPeopleOpen(true), 300);
-        },
-        []
-    );
-
-    const handleInviteUsers = useCallback(
-        async (users: Array<{ id: string; name: string; email?: string }>) => {
-            console.log("[Chat] handleInviteUsers called:", { channelName: newChannelName, userCount: users.length });
-            setAddPeopleOpen(false);
-            setIsChannelMode(false);
-            if (!newChannelName || users.length === 0) {
-                setNewChannelName("");
-                setPendingInviteUsers([]);
-                return;
-            }
-            try {
-                // Create the channel now (people have been selected) so the
-                // invite link can be generated the moment the Invite modal
-                // opens. Created via the service directly so it is NOT added to
-                // the room list yet — it only appears after a successful invite,
-                // and is deleted if the user backs out.
-                const res = await chatService.getOrCreateRoom({
-                    type: "channel",
-                    name: newChannelName,
-                });
-                if (!res.Good || !res.room) {
-                    throw new Error("Failed to create channel");
-                }
-                createdRoomRef.current = res.room;
-                channelInvitedRef.current = false;
-                setPendingInviteUsers(users);
-                setTimeout(() => setInviteModalVisible(true), 300);
-            } catch (err) {
-                console.log("[Chat] Channel creation error:", err);
-                showError("Error", "Failed to create channel. Please try again.");
-                setNewChannelName("");
-                setPendingInviteUsers([]);
-            }
-        },
-        [newChannelName]
-    );
-
-    // ── InviteToChannelModal handlers ──────────────────────────────────────────
-
-    const handleChannelInvite = useCallback(
-        async (emails: string[], permission: ChannelPermission) => {
-            // The channel was created when the Add People selection was
-            // confirmed (so the invite link could generate on modal open).
-            const room = createdRoomRef.current;
-            if (!room) return;
-
-            // Final email list comes from the modal's Email Address field, which
-            // was pre-filled with the selected members' emails (and is editable).
-            // Normalize + dedupe so we never send the same invitation twice.
-            const finalEmails = Array.from(
-                new Set(
-                    emails
-                        .map((e) => e.trim().toLowerCase())
-                        .filter(Boolean)
-                )
-            );
-            const emailSet = new Set(finalEmails);
-
-            // Map known member emails → user ids so email invitations include the
-            // selected member's userId (matches the POST /chat/invite contract).
-            const userIdByEmail = new Map<string, number>();
-            for (const user of pendingInviteUsers) {
-                const memberEmail = (user.email ?? "").trim().toLowerCase();
-                if (memberEmail) {
-                    userIdByEmail.set(memberEmail, parseInt(user.id, 10));
-                }
-            }
-
-            let emailSent = 0;
-            let directAdded = 0;
-            let failed = 0;
-
-            // Selected members who are NOT covered by the final email list (no
-            // email address, or their address was removed from the field) are
-            // added directly as members with the chosen permission instead —
-            // this avoids duplicate invitations for the same person.
-            for (const user of pendingInviteUsers) {
-                const userId = parseInt(user.id, 10);
-                if (isNaN(userId)) continue;
-                const userEmail = (user.email ?? "").trim().toLowerCase();
-                if (userEmail && emailSet.has(userEmail)) continue;
-                try {
-                    const res = await chatService.addMember(room._id, userId);
-                    if ((res as { Good?: boolean })?.Good === false) throw new Error("addMember failed");
-                    await chatService.updatePermission({ roomId: room._id, userId, permission }).catch(() => {});
-                    directAdded++;
-                } catch {
-                    failed++;
-                }
-            }
-
-            // Send exactly one invitation per final email address.
-            for (const email of finalEmails) {
-                try {
-                    const res = await chatService.inviteUser({
-                        roomId: room._id,
-                        email,
-                        userId: userIdByEmail.get(email),
-                        permission,
-                    });
-                    if ((res as { Good?: boolean })?.Good === false) throw new Error("invite failed");
-                    emailSent++;
-                } catch {
-                    failed++;
-                }
-            }
-
-            // Nobody could actually be added/invited — remove the just-created
-            // room so an empty channel is never created or listed, and surface
-            // the failure to the modal (so it doesn't show a success toast).
-            if (emailSent === 0 && directAdded === 0) {
-                await chatService.deleteRoom(room._id).catch(() => {});
-                createdRoomRef.current = null;
-                setNewChannelName("");
-                throw new Error("No one could be added to the channel");
-            }
-
-            fetchRooms();
-
-            const parts: string[] = [];
-            if (emailSent > 0) parts.push(`${emailSent} invite(s) sent`);
-            if (directAdded > 0) parts.push(`${directAdded} member(s) added`);
-            if (failed > 0) parts.push(`${failed} failed`);
-            if (parts.length > 0) showSuccess("Channel Ready", `"${room.name}": ${parts.join(", ")}.`);
-
-            // Mark as invited first so a trailing onClose can't delete the room,
-            // then close the invite modal BEFORE navigating. It is a native
-            // Modal rendered above the navigator; leaving it open made it show
-            // over the channel and reappear when coming back with the back button.
-            channelInvitedRef.current = true;
-            setInviteModalVisible(false);
-            createdRoomRef.current = null;
-            setPendingInviteUsers([]);
-            setNewChannelName("");
-
-            // Navigate to the new channel (guarded against duplicate taps)
-            openConversation({
-                roomId: room._id,
-                name: room.name,
-                initials: room.name.charAt(0).toUpperCase(),
-                isChannel: "true",
-                roomType: "channel",
-            });
-        },
-        [pendingInviteUsers, fetchRooms]
-    );
-
-    const handleGenerateChannelLink = useCallback(
-        async (permission: ChannelPermission, forAllUsers: boolean): Promise<string | null> => {
-            const room = createdRoomRef.current;
-            if (!room) return null;
-            try {
-                const allowedUserIds = forAllUsers
-                    ? []
-                    : pendingInviteUsers
-                        .map((u) => parseInt(u.id, 10))
-                        .filter((id) => !isNaN(id));
-                const res = await chatService.generateLink({
-                    roomId: room._id,
-                    permission,
-                    allowedUserIds,
-                });
-                return (res as any)?.data?.inviteLink ?? (res as any)?.inviteLink ?? null;
-            } catch (err) {
-                console.error("[Chat] generateLink error:", err);
-                return null;
-            }
-        },
-        [pendingInviteUsers]
-    );
-
-    const handleUpdateChannelPermission = useCallback(
-        async (memberId: number, permission: ChannelPermission) => {
-            const room = createdRoomRef.current;
-            if (!room) return;
-            await chatService.updatePermission({ roomId: room._id, userId: memberId, permission });
-        },
-        []
-    );
-
-    // Derive the current user's permission for the invite modal
-    const callerPermission = useMemo<ChannelPermission | undefined>(() => {
-        const found = (roomPermissions ?? []).find((p) => p.userId === currentUserId);
-        return found?.permission as ChannelPermission | undefined;
-    }, [roomPermissions, currentUserId]);
-
-    // Build the channel owner (creator) for the InviteToChannelModal
-    // "Who has access" list — only the owner is shown there. A freshly-created
-    // room's member list can still be empty, so always include the current user
-    // (the creator) as the owner.
-    const currentChannelMembers = useMemo<ChannelMember[]>(() => {
-        const room = createdRoomRef.current;
-        const ownerId = currentUserId;
-        const list: ChannelMember[] = (room?.members ?? []).map((m: any) => ({
-            id: m.id,
-            name: `${m.first_name || ""} ${m.last_name || ""}`.trim() || `User #${m.id}`,
-            isOwner: m.id === ownerId,
-        }));
-        if (ownerId && !list.some((m) => m.id === ownerId)) {
-            const me = currentUser;
-            const myName = me
-                ? `${me.first_name || ""} ${me.last_name || ""}`.trim() ||
-                  `User #${currentUserId}`
-                : `User #${currentUserId}`;
-            list.unshift({ id: ownerId, name: myName, isOwner: true });
-        }
-        return list;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [inviteModalVisible, currentUserId, currentUser]);
-
-    // PROJECT MODULE DISABLED
-    // Handler for creating a channel under a specific project
-    // const handleProjectAddChannel = useCallback(
-    //     (project: Room) => {
-    //         if (!perms.canCreateChannels) {
-    //             showError(
-    //                 "Permission Denied",
-    //                 "You don't have permission to create channels."
-    //             );
-    //             return;
-    //         }
-    //         setProjectContext(project);
-    //         setCreateChannelOpen(true);
-    //     },
-    //     [perms.canCreateChannels]
-    // );
-
-    // PROJECT MODULE DISABLED
-    // Handler invoked after a project is successfully created. The project's
-    // group-chat room is auto-created server-side — refresh rooms immediately
-    // and let the `project_update` socket merge (ChatContext) back it up.
-    // const handleProjectCreated = useCallback(
-    //     async (project: Project) => {
-    //         setCreateProjectOpen(false);
-    //         fetchRooms().catch(() => { });
-    //         fetchProjects({ silent: true }).catch(() => { });
-    //         showSuccess("Project Created", `"${project.name}" is ready.`);
-    //     },
-    //     [fetchRooms, fetchProjects]
-    // );
-
-    const renderRoomRow = (room: Room) => {
-        const displayName = getRoomDisplayName(room, currentUserId);
-        const unread = isRoomUnread(room);
-        const lastAtts = room.last_message?.attachments ?? [];
-        const lastText = room.last_message?.text ?? "";
-        const lastAudio = lastAtts.find((a) => isAudioAttachment(a));
-        const lastIsVoice = !!lastAudio || isVoiceNoteText(lastText);
-        const lastVoiceSecs = lastIsVoice
-            ? (lastAudio
-                  ? getVoiceNoteSecondsFromAttachment(lastAudio) ??
-                    (lastAudio.url
-                        ? voiceDurations[lastAudio.url]
-                        : null) ??
-                    getCachedVoiceNoteDuration(lastAudio.url)
-                  : null) ??
-              getVoiceNoteSecondsFromText(lastText)
-            : null;
-        const lastPreview = room.last_message
-            ? lastIsVoice
-                ? lastVoiceSecs != null
-                    ? `Voice note · ${formatVoiceDuration(lastVoiceSecs)}`
-                    : "Voice note"
-                : lastAtts.length > 0
-                    ? `📎 ${lastAtts.length} attachment${lastAtts.length > 1 ? "s" : ""}`
-                    : room.last_message.text || "No messages yet"
-            : "No messages yet";
-
-        return (
-            <SwipeableChatRow
-                key={room.id}
-                isMuted={!!room.is_muted}
-                isUnread={unread}
-                selected={selectedChatId === room.id.toString()}
-                onToggleMute={() => handleRowToggleMute(room)}
-                onToggleRead={() => handleRowToggleRead(room)}
-                onPress={() => handleRoomPress(room)}
-            >
-                <View style={styles.avatarContainer}>
-                    <Avatar
-                        name={displayName}
-                        imagePath={getRoomAvatar(room, currentUserId)}
-                        size={30}
-                        borderRadius={5}
-                        fontSize={12}
-                        fontFamily="SF_Pro_Medium"
-                    />
-                    {unread && <View style={styles.onlineIndicator} />}
-                </View>
-                <View style={styles.chatInfo}>
-                    <Text style={styles.chatName} numberOfLines={1}>
-                        {displayName}
-                    </Text>
-                    {lastIsVoice ? (
-                        <View style={styles.chatSnippetRow}>
-                            <Ionicons
-                                name="mic"
-                                size={12}
-                                color="#4B5563"
-                                style={styles.chatSnippetMic}
-                            />
-                            <Text
-                                style={[styles.chatSnippet, styles.chatSnippetFlex]}
-                                numberOfLines={1}
-                            >
-                                {lastPreview}
-                            </Text>
-                        </View>
-                    ) : (
-                        <Text style={styles.chatSnippet} numberOfLines={1}>
-                            {lastPreview}
-                        </Text>
-                    )}
-                </View>
-                <View style={styles.chatMeta}>
-                    {unread && room.unreadCount > 0 && (
-                        <View style={styles.unreadBubble}>
-                            <Text style={styles.unreadBubbleText}>
-                                +{room.unreadCount}
-                            </Text>
-                        </View>
-                    )}
-                    <Text style={styles.chatTime}>
-                        {room.last_message?.createdAt
-                            ? formatChatListTime(room.last_message.createdAt)
-                            : room.my_visible_from
-                                ? formatChatListTime(room.my_visible_from)
-                                : ""}
-                    </Text>
-                </View>
-            </SwipeableChatRow>
-        );
+  // Company directory (includes email addresses). Room members from
+  // GET /chat/rooms do NOT include emails, so the "Add People" list needs this
+  // to pass emails through to the Invite-to-Channel modal.
+  const [companyUsers, setCompanyUsers] = useState<CompanyActiveUser[]>([]);
+  useEffect(() => {
+    if (!companyId) return;
+    let cancelled = false;
+    getCompanyActiveUsers(companyId)
+      .then((users) => {
+        if (!cancelled) setCompanyUsers(users);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
     };
+  }, [companyId]);
 
-    if (state.loading && state.rooms.length === 0) {
-        return (
-            <View style={styles.root}>
-                <View style={styles.safe}>
-                    <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-                        <ActivityIndicator size="large" color="#00DEAB" />
-                    </View>
-                </View>
-            </View>
-        );
+  // Module-level permissions (from login `user_permissions`). These drive
+  // which tabs/rooms are visible and which create actions are offered.
+  const perms = useMemo(
+    () => ({
+      hasChatRead: canViewChat(currentUser),
+      hasProjectRead: canViewProjects(
+        currentUser,
+        authState?.state?.company ?? null,
+      ),
+      canCreateChannels: canCreateChannel(currentUser),
+    }),
+    [currentUser, authState?.state?.company],
+  );
+
+  // Only rooms the user is permitted to see:
+  // - 1:1 DMs + channels require `chat-list`
+  // - project group chats require `project-list` (DISABLED — see below)
+  // (Project child channels are `type:"channel"` and still require chat-list.)
+  const visibleRooms = useMemo(() => {
+    const rooms = state.rooms ?? [];
+    return rooms.filter((r) => {
+      // Conversations "deleted for me" stay hidden until a new message
+      // arrives (see ChatContext.hiddenRoomIds).
+      if (hiddenRoomIds.has(r._id)) return false;
+      // Project group-chat rooms are visible alongside normal channels
+      // when the user has the project-list permission.
+      if (r.type === "project") return perms.hasProjectRead;
+      return perms.hasChatRead;
+    });
+  }, [state.rooms, perms, hiddenRoomIds]);
+
+  // Project rooms start collapsed (just the project row and its channel
+  // count); tapping one opens its channels. Tracks the opened projects.
+  const [openProjects, setOpenProjects] = useState<Set<number>>(
+    new Set(),
+  );
+
+  // Group project child channels under their parent project room.
+  const projectChannelMap = useMemo(() => {
+    const map = new Map<number, Room[]>();
+    for (const room of visibleRooms) {
+      if (room.type === "channel" && room.parent_id != null) {
+        const parentId = Number(room.parent_id);
+        const existing = map.get(parentId) ?? [];
+        existing.push(room);
+        map.set(parentId, existing);
+      }
+    }
+    return map;
+  }, [visibleRooms]);
+
+  const toggleProjectCollapse = useCallback((projectId: number) => {
+    setOpenProjects((previous) => {
+      const next = new Set(previous);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+  }, []);
+
+  // Hide the Channels/Projects chips entirely when the user lacks the
+  // corresponding read permission (they'd render empty otherwise).
+  const visibleChips = useMemo(
+    () =>
+      CHIP_DATA.filter((chip) => {
+        if (chip.id === "channels") return perms.hasChatRead;
+        if (chip.id === "projects") return perms.hasProjectRead;
+        return true;
+      }),
+    [perms],
+  );
+
+  const [addPeopleOpen, setAddPeopleOpen] = useState(false);
+  const [addPeopleQuery, setAddPeopleQuery] = useState("");
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  // PROJECT MODULE DISABLED
+  // const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [isChannelMode, setIsChannelMode] = useState(false);
+  const [activeChip, setActiveChip] = useState("all");
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [selectedChannelKey, setSelectedChannelKey] = useState<string | null>(
+    null,
+  );
+  const [newChannelName, setNewChannelName] = useState("");
+  // PROJECT MODULE DISABLED
+  // Track which project we're adding a channel to (null = standalone channel)
+  // const [projectContext, setProjectContext] = useState<Room | null>(null);
+
+  // ── InviteToChannelModal state ─────────────────────────────────────────────
+  const [inviteModalVisible, setInviteModalVisible] = useState(false);
+  // Room that was just created (for the invite modal to use)
+  const createdRoomRef = useRef<Room | null>(null);
+  // Whether invitations were actually sent — used to decide if the
+  // just-created channel should be removed when the modal is dismissed.
+  const channelInvitedRef = useRef(false);
+  // Pending users selected from AddPeopleModal (to pre-fill invite modal)
+  const [pendingInviteUsers, setPendingInviteUsers] = useState<
+    Array<{ id: string; name: string; email?: string }>
+  >([]);
+  [];
+  // Durations resolved from the audio file for website-originated voice notes.
+  // Mobile notes already encode their length in the filename/text.
+  const [voiceDurations, setVoiceDurations] = useState<Record<string, number>>(
+    {},
+  );
+
+  // A note may be resolved by its bubble/playback while this list is mounted;
+  // pick those durations up without waiting for the next room refresh.
+  useEffect(() => {
+    return subscribeVoiceNoteDurations((url, seconds) => {
+      setVoiceDurations((prev) =>
+        prev[url] === seconds ? prev : { ...prev, [url]: seconds },
+      );
+    });
+  }, []);
+
+  // Fetch rooms on mount
+  useEffect(() => {
+    fetchRooms();
+  }, [fetchRooms]);
+
+  // Clear the "recently opened" row highlight whenever the chat list regains
+  // focus (e.g. after closing a conversation) so the grey selected background
+  // never lingers behind the chat/channel that was opened.
+  useFocusEffect(
+    useCallback(() => {
+      setSelectedChatId(null);
+    }, []),
+  );
+
+  // Initialize socket when user is available
+  useEffect(() => {
+    if (currentUserId) {
+      initSocket(currentUserId);
+    }
+    return () => {
+      cleanupChatListeners();
+    };
+  }, [currentUserId, initSocket, cleanupChatListeners]);
+
+  // Reset search query when modal closes
+  useEffect(() => {
+    if (!addPeopleOpen) {
+      setAddPeopleQuery("");
+    }
+  }, [addPeopleOpen]);
+
+  // Build a default list of all company members. The backend requires ≥2
+  // chars to search, so we use the company directory (which includes emails)
+  // plus any room members as the default, unsearched list.
+  const defaultMemberList = useMemo(() => {
+    const memberMap = new Map<
+      string,
+      { id: string; name: string; email?: string }
+    >();
+
+    // 1. Company directory — the only source that reliably carries emails.
+    for (const u of companyUsers) {
+      if (!u?.id || u.id === currentUserId) continue;
+      const key = String(u.id);
+      const name =
+        u.full_name?.trim() ||
+        `${u.first_name || ""} ${u.last_name || ""}`.trim() ||
+        u.email?.split("@")[0] ||
+        `User #${u.id}`;
+      memberMap.set(key, { id: key, name, email: u.email });
     }
 
-    return (
-        <View style={styles.root}>
-            <View style={styles.safe}>
-                <ScrollView
-                    style={styles.scroll}
-                    contentContainerStyle={[
-                        styles.scrollContent,
-                        displayRooms.length === 0 && styles.scrollContentEmpty,
-                    ]}
-                    showsVerticalScrollIndicator={false}
-                >
-                    {/* ── Category Chips ── */}
-                    <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        style={styles.chipsScroll}
-                        contentContainerStyle={styles.chipsContainer}
-                    >
-                        {visibleChips.map((chip, index) => {
-                            const isActive = activeChip === chip.id;
-                            const showDot = chipUnread[chip.id as keyof typeof chipUnread] ?? false;
-                            return (
-                                <View
-                                    key={chip.id}
-                                    style={{ flexDirection: "row", alignItems: "center" }}
-                                >
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.chipButton,
-                                            isActive && styles.chipButtonActive,
-                                        ]}
-                                        onPress={() => setActiveChip(chip.id)}
-                                    >
-                                        <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
-                                            {chip.label}
-                                        </Text>
-                                        {showDot && (
-                                            <View style={[styles.unreadDot, isActive && styles.unreadDotActive]} />
-                                        )}
-                                    </TouchableOpacity>
-                                    {index === 2 && (
-                                        <View style={styles.verticalDivider} />
-                                    )}
-                                </View>
-                            );
-                        })}
-                    </ScrollView>
+    // 2. Existing room members — fill in anyone not in the directory and
+    // backfill an email if the directory lacked one.
+    for (const room of visibleRooms) {
+      for (const m of room.members ?? []) {
+        if (m.id === currentUserId) continue;
+        const key = String(m.id);
+        const existing = memberMap.get(key);
+        if (!existing) {
+          const name =
+            `${m.first_name || ""} ${m.last_name || ""}`.trim() ||
+            `User #${m.id}`;
+          memberMap.set(key, { id: key, name, email: m.email });
+        } else if (!existing.email && m.email) {
+          existing.email = m.email;
+        }
+      }
+    }
+    // From task owners
+    for (const owner of (taskState?.taskOwners ?? []) as any[]) {
+      if (!owner?.id) continue;
+      if (owner.id === currentUserId) continue;
+      const key = String(owner.id);
+      if (!memberMap.has(key)) {
+        const name =
+          `${owner.first_name || ""} ${owner.last_name || ""}`.trim() ||
+          `User #${owner.id}`;
+        memberMap.set(key, { id: key, name, email: owner.email });
+      }
+    }
+    return Array.from(memberMap.values()).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  }, [companyUsers, visibleRooms, currentUserId, taskState?.taskOwners]);
 
-                    {displayRooms.length > 0 ? (
-                        <View style={styles.chatListContainer}>
-                            {/* PROJECT MODULE DISABLED — the Projects chip was removed from CHIP_DATA,
+  // Build the user list shown in AddPeopleModal:
+  // - When query has ≥2 chars: use API search results (populated by setSearchQuery)
+  // - Otherwise: use defaultMemberList built from rooms + task owners
+  const addPeopleUsers = useMemo(() => {
+    if (addPeopleQuery.trim().length >= 2 && state.searchResults.length > 0) {
+      return state.searchResults.map((u) => ({
+        id: String(u.id),
+        name:
+          u.full_name ||
+          `${u.first_name || ""} ${u.last_name || ""}`.trim() ||
+          `User #${u.id}`,
+        email: u.email,
+      }));
+    }
+    return defaultMemberList;
+  }, [addPeopleQuery, state.searchResults, defaultMemberList]);
+
+  // Compute unread counts per chip
+  const chipUnread = useMemo(() => {
+    const rooms = visibleRooms;
+    const directRooms = rooms.filter((r) => r.type === "direct");
+    const hasUnread = (rms: Room[]) =>
+      rms.some((r) => r.unreadCount > 0 || r.force_unread);
+    // Same split as the Channels / Projects chips below: a channel belongs to
+    // Projects when its parent project is visible, otherwise to Channels.
+    const projectIds = new Set(
+      rooms.filter((r) => r.type === "project").map((r) => r.id),
+    );
+    const isProjectChannel = (r: Room) =>
+      r.type === "channel" &&
+      r.parent_id != null &&
+      projectIds.has(Number(r.parent_id));
+    return {
+      all: hasUnread(directRooms),
+      unread: hasUnread(directRooms),
+      read: false,
+      channels: hasUnread(
+        rooms.filter((r) => r.type === "channel" && !isProjectChannel(r)),
+      ),
+      projects: hasUnread(
+        rooms.filter((r) => r.type === "project" || isProjectChannel(r)),
+      ),
+    };
+  }, [visibleRooms]);
+
+  // Categorize rooms based on active chip
+  const displayRooms = useMemo(() => {
+    const rooms = visibleRooms;
+    // All, Unread, Read → show only direct (inbox) messages, not channels/projects.
+    // A DM is only listed once it actually has a conversation — a room
+    // created by "New chat" stays hidden until at least one message exists.
+    const directRooms = rooms.filter((r) => {
+      if (r.type !== "direct") return false;
+      if (r.unreadCount > 0) return true;
+      const lm = r.last_message;
+      return (
+        !!lm &&
+        (!!lm.text || (lm.attachments?.length ?? 0) > 0 || !!lm.createdAt)
+      );
+    });
+
+    let base: Room[];
+    switch (activeChip) {
+      case "channels": {
+        // Standalone channels only; projects and their channels live under
+        // the Projects chip. A project channel whose project room is not
+        // visible (e.g. chat-only user without project-list) stays here so
+        // it is not hidden from both chips.
+        const projectRoomIds = new Set(
+          filterRoomsByType(rooms, "project").map((room) => room.id),
+        );
+        base = filterRoomsByType(rooms, "channel").filter(
+          (room) =>
+            room.parent_id == null ||
+            !projectRoomIds.has(Number(room.parent_id)),
+        );
+        break;
+      }
+      case "projects": {
+        // Projects chip: only chats that belong to a project — the
+        // project room itself plus its child channels. Direct messages
+        // and standalone channels are excluded.
+        const projectRooms = filterRoomsByType(rooms, "project");
+        const projectRoomIds = new Set(projectRooms.map((room) => room.id));
+        base = [
+          ...projectRooms,
+          ...filterRoomsByType(rooms, "channel").filter(
+            (room) =>
+              room.parent_id != null &&
+              projectRoomIds.has(Number(room.parent_id)),
+          ),
+        ];
+        break;
+      }
+      case "unread":
+        base = filterUnreadRooms(directRooms);
+        break;
+      case "read":
+        base = filterReadRooms(directRooms);
+        break;
+      case "all":
+      default:
+        base = directRooms;
+        break;
+    }
+
+    // Text search from the header search bar — matches the room name, the
+    // other member's name/email for DMs, and the last message preview.
+    const query = searchText.trim().toLowerCase();
+    if (!query) return sortRoomsByRecentActivity(base);
+    const filtered = base.filter((room) => {
+      const displayName = getRoomDisplayName(room, currentUserId).toLowerCase();
+      const otherMember =
+        room.type === "direct"
+          ? room.members.find((m) => m.id !== currentUserId)
+          : null;
+      const memberName = otherMember
+        ? `${otherMember.first_name} ${otherMember.last_name}`.toLowerCase()
+        : "";
+      const memberEmail = otherMember?.email?.toLowerCase() ?? "";
+      const preview = room.last_message?.text?.toLowerCase() ?? "";
+      return (
+        displayName.includes(query) ||
+        memberName.includes(query) ||
+        memberEmail.includes(query) ||
+        preview.includes(query)
+      );
+    });
+    // WhatsApp-style: most recent activity first (applies to every chip and
+    // to search results). Recomputed on each last_message/unread update, so
+    // a room jumps to the top in real time when a message arrives.
+    return sortRoomsByRecentActivity(filtered);
+  }, [visibleRooms, activeChip, searchText, currentUserId]);
+
+  // Website voice notes are `.webm` and do not encode their duration in the
+  // filename or text. Resolve it from the audio metadata (and cache it) so
+  // the list can show "0:04" like mobile-originated notes. Only the last
+  // voice note of each visible room is probed.
+  const pendingVoiceNoteUrls = useMemo(() => {
+    const urls = new Set<string>();
+    displayRooms.forEach((room) => {
+      const audio = (room.last_message?.attachments ?? []).find((a) =>
+        isAudioAttachment(a),
+      );
+      if (!audio?.url) return;
+      const known =
+        getVoiceNoteSecondsFromAttachment(audio) ??
+        getVoiceNoteSecondsFromText(room.last_message?.text ?? "") ??
+        getCachedVoiceNoteDuration(audio.url);
+      if (known == null) urls.add(audio.url);
+    });
+    return Array.from(urls);
+  }, [displayRooms]);
+
+  useEffect(() => {
+    if (pendingVoiceNoteUrls.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (let i = 0; i < pendingVoiceNoteUrls.length; i += 3) {
+        const batch = pendingVoiceNoteUrls.slice(i, i + 3);
+        const results = await Promise.all(
+          batch.map((url) => resolveVoiceNoteDuration(url)),
+        );
+        if (cancelled) return;
+        const updates: Record<string, number> = {};
+        results.forEach((seconds, index) => {
+          if (seconds != null && seconds > 0) {
+            updates[batch[index]] = seconds;
+          }
+        });
+        if (Object.keys(updates).length > 0) {
+          setVoiceDurations((prev) => ({ ...prev, ...updates }));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingVoiceNoteUrls]);
+
+  // PROJECT MODULE DISABLED
+  // Group channels by their parent project for the Projects view
+  // const projectChannelMap = useMemo(() => {
+  //     const map = new Map<number, Room[]>();
+  //     for (const room of visibleRooms) {
+  //         if (room.type === "channel" && room.parent_id) {
+  //             const existing = map.get(room.parent_id) ?? [];
+  //             existing.push(room);
+  //             map.set(room.parent_id, existing);
+  //         }
+  //     }
+  //     return map;
+  // }, [visibleRooms]);
+
+  // PROJECT MODULE DISABLED
+  // Enrich project rows with status / due date from GET /projects (matched by
+  // room display name — the project's group-chat room shares its name).
+  // const projectMetaByName = useMemo(() => {
+  //     const map = new Map<string, Project>();
+  //     for (const p of projectState.projects ?? []) {
+  //         map.set(p.name, p);
+  //     }
+  //     return map;
+  // }, [projectState.projects]);
+
+  // PROJECT MODULE DISABLED
+  // Keep the Projects chip's status/due-date enrichment fresh whenever it is
+  // being viewed (silent — no full-screen loading state).
+  // useEffect(() => {
+  //     if (activeChip === "projects" && perms.hasProjectRead) {
+  //         fetchProjects({ silent: true }).catch(() => { });
+  //     }
+  // }, [activeChip, perms.hasProjectRead, fetchProjects]);
+
+  // PROJECT MODULE DISABLED
+  // const toggleProjectExpand = useCallback((projectId: number) => {
+  //     setExpandedProjects((prev) => {
+  //         const next = new Set(prev);
+  //         if (next.has(projectId)) next.delete(projectId);
+  //         else next.add(projectId);
+  //         return next;
+  //     });
+  // }, []);
+
+  const handleRoomPress = useCallback(
+    async (room: Room) => {
+      console.log("[Chat] Room pressed:", {
+        id: room.id,
+        _id: room._id,
+        type: room.type,
+        name: room.name,
+      });
+      setSelectedChatId(room.id.toString());
+      if (isRoomUnread(room)) {
+        markRead(room._id).catch(() => {});
+      }
+      // Guarded: repeated taps on the same row open one screen only.
+      openRoomConversation(room, currentUserId);
+    },
+    [currentUserId, markRead],
+  );
+
+  // Row action: toggle mute (POST /chat/mute-room toggles the flag).
+  const handleRowToggleMute = useCallback(
+    (room: Room) => {
+      muteRoom(room._id)
+        .then((isMuted) =>
+          showSuccess(
+            isMuted ? "Muted" : "Unmuted",
+            `${getRoomDisplayName(room, currentUserId)} ${
+              isMuted ? "muted" : "unmuted"
+            }`,
+          ),
+        )
+        .catch(() =>
+          showError("Error", "Could not update notification settings."),
+        );
+    },
+    [muteRoom, currentUserId],
+  );
+
+  // Row action: toggle read/unread. Unread chats get "Read"; read chats get
+  // "Unread".
+  const handleRowToggleRead = useCallback(
+    (room: Room) => {
+      const unread = isRoomUnread(room);
+      const action = unread ? markRead(room._id) : markUnread(room._id);
+      action
+        .then(() => showSuccess(unread ? "Marked as read" : "Marked as unread"))
+        .catch(() =>
+          showError(
+            "Error",
+            unread
+              ? "Could not mark this chat as read."
+              : "Could not mark this chat as unread.",
+          ),
+        );
+    },
+    [markRead, markUnread],
+  );
+
+  const handleAddPeopleSelect = useCallback(
+    (user: { id: string; name: string; email?: string }) => {
+      setAddPeopleOpen(false);
+      const targetId = parseInt(user.id, 10);
+
+      // Fast path: an already-loaded 1:1 room with this member opens
+      // immediately — no network round-trip before navigation.
+      const existingRoom = state.rooms.find(
+        (r) =>
+          r.type === "direct" &&
+          (r.members ?? []).some((m) => m.id === targetId),
+      );
+      if (existingRoom) {
+        if (isRoomUnread(existingRoom)) {
+          markRead(existingRoom._id).catch(() => {});
+        }
+        openRoomConversation(existingRoom, currentUserId);
+        return;
+      }
+
+      // New chat: open the conversation right away with the peer's info
+      // and let the conversation screen get-or-create the room (it swaps
+      // the resolved room id into the route). This removes the
+      // create-room request from the navigation critical path.
+      openConversation({
+        targetId: String(targetId),
+        name: user.name,
+        initials: user.name.trim().charAt(0).toUpperCase() || "C",
+      });
+    },
+    [currentUserId, state.rooms, markRead],
+  );
+
+  const handleChannelCreate = useCallback(async (name: string) => {
+    console.log("[Chatting channel:", name);
+    [];
+    setCreateChannelOpen(false);
+    createdRoomRef.current = null;
+    setNewChannelName(name);
+    setIsChannelMode(true);
+    setTimeout(() => setAddPeopleOpen(true), 300);
+  }, []);
+
+  const handleInviteUsers = useCallback(
+    async (users: Array<{ id: string; name: string; email?: string }>) => {
+      console.log("[Chat] handleInviteUsers called:", {
+        channelName: newChannelName,
+        userCount: users.length,
+      });
+      setAddPeopleOpen(false);
+      setIsChannelMode(false);
+      if (!newChannelName || users.length === 0) {
+        setNewChannelName("");
+        setPendingInviteUsers([]);
+        return;
+      }
+      try {
+        // Create the channel now (people have been selected) so the
+        // invite link can be generated the moment the Invite modal
+        // opens. Created via the service directly so it is NOT added to
+        // the room list yet — it only appears after a successful invite,
+        // and is deleted if the user backs out.
+        const res = await chatService.getOrCreateRoom({
+          type: "channel",
+          name: newChannelName,
+        });
+        if (!res.Good || !res.room) {
+          throw new Error("Failed to create channel");
+        }
+        createdRoomRef.current = res.room;
+        channelInvitedRef.current = false;
+        setPendingInviteUsers(users);
+        setTimeout(() => setInviteModalVisible(true), 300);
+      } catch (err) {
+        console.log("[Chat] Channel creation error:", err);
+        showError("Error", "Failed to create channel. Please try again.");
+        setNewChannelName("");
+        setPendingInviteUsers([]);
+      }
+    },
+    [newChannelName],
+  );
+
+  // ── InviteToChannelModal handlers ──────────────────────────────────────────
+
+  const handleChannelInvite = useCallback(
+    async (emails: string[], permission: ChannelPermission) => {
+      // The channel was created when the Add People selection was
+      // confirmed (so the invite link could generate on modal open).
+      const room = createdRoomRef.current;
+      if (!room) return;
+
+      // Final email list comes from the modal's Email Address field, which
+      // was pre-filled with the selected members' emails (and is editable).
+      // Normalize + dedupe so we never send the same invitation twice.
+      const finalEmails = Array.from(
+        new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean)),
+      );
+      const emailSet = new Set(finalEmails);
+
+      // Map known member emails → user ids so email invitations include the
+      // selected member's userId (matches the POST /chat/invite contract).
+      const userIdByEmail = new Map<string, number>();
+      for (const user of pendingInviteUsers) {
+        const memberEmail = (user.email ?? "").trim().toLowerCase();
+        if (memberEmail) {
+          userIdByEmail.set(memberEmail, parseInt(user.id, 10));
+        }
+      }
+
+      let emailSent = 0;
+      let directAdded = 0;
+      let failed = 0;
+
+      // Selected members who are NOT covered by the final email list (no
+      // email address, or their address was removed from the field) are
+      // added directly as members with the chosen permission instead —
+      // this avoids duplicate invitations for the same person.
+      for (const user of pendingInviteUsers) {
+        const userId = parseInt(user.id, 10);
+        if (isNaN(userId)) continue;
+        const userEmail = (user.email ?? "").trim().toLowerCase();
+        if (userEmail && emailSet.has(userEmail)) continue;
+        try {
+          const res = await chatService.addMember(room._id, userId);
+          if ((res as { Good?: boolean })?.Good === false)
+            throw new Error("addMember failed");
+          await chatService
+            .updatePermission({ roomId: room._id, userId, permission })
+            .catch(() => {});
+          directAdded++;
+        } catch {
+          failed++;
+        }
+      }
+
+      // Send exactly one invitation per final email address.
+      for (const email of finalEmails) {
+        try {
+          const res = await chatService.inviteUser({
+            roomId: room._id,
+            email,
+            userId: userIdByEmail.get(email),
+            permission,
+          });
+          if ((res as { Good?: boolean })?.Good === false)
+            throw new Error("invite failed");
+          emailSent++;
+        } catch {
+          failed++;
+        }
+      }
+
+      // Nobody could actually be added/invited — remove the just-created
+      // room so an empty channel is never created or listed, and surface
+      // the failure to the modal (so it doesn't show a success toast).
+      if (emailSent === 0 && directAdded === 0) {
+        await chatService.deleteRoom(room._id).catch(() => {});
+        createdRoomRef.current = null;
+        setNewChannelName("");
+        throw new Error("No one could be added to the channel");
+      }
+
+      fetchRooms();
+
+      const parts: string[] = [];
+      if (emailSent > 0) parts.push(`${emailSent} invite(s) sent`);
+      if (directAdded > 0) parts.push(`${directAdded} member(s) added`);
+      if (failed > 0) parts.push(`${failed} failed`);
+      if (parts.length > 0)
+        showSuccess("Channel Ready", `"${room.name}": ${parts.join(", ")}.`);
+
+      // Mark as invited first so a trailing onClose can't delete the room,
+      // then close the invite modal BEFORE navigating. It is a native
+      // Modal rendered above the navigator; leaving it open made it show
+      // over the channel and reappear when coming back with the back button.
+      channelInvitedRef.current = true;
+      setInviteModalVisible(false);
+      createdRoomRef.current = null;
+      setPendingInviteUsers([]);
+      setNewChannelName("");
+
+      // Navigate to the new channel (guarded against duplicate taps)
+      openConversation({
+        roomId: room._id,
+        name: room.name,
+        initials: room.name.charAt(0).toUpperCase(),
+        isChannel: "true",
+        roomType: "channel",
+      });
+    },
+    [pendingInviteUsers, fetchRooms],
+  );
+
+  const handleGenerateChannelLink = useCallback(
+    async (
+      permission: ChannelPermission,
+      forAllUsers: boolean,
+    ): Promise<string | null> => {
+      const room = createdRoomRef.current;
+      if (!room) return null;
+      try {
+        const allowedUserIds = forAllUsers
+          ? []
+          : pendingInviteUsers
+              .map((u) => parseInt(u.id, 10))
+              .filter((id) => !isNaN(id));
+        const res = await chatService.generateLink({
+          roomId: room._id,
+          permission,
+          allowedUserIds,
+        });
+        return (
+          (res as any)?.data?.inviteLink ?? (res as any)?.inviteLink ?? null
+        );
+      } catch (err) {
+        console.error("[Chat] generateLink error:", err);
+        return null;
+      }
+    },
+    [pendingInviteUsers],
+  );
+
+  const handleUpdateChannelPermission = useCallback(
+    async (memberId: number, permission: ChannelPermission) => {
+      const room = createdRoomRef.current;
+      if (!room) return;
+      await chatService.updatePermission({
+        roomId: room._id,
+        userId: memberId,
+        permission,
+      });
+    },
+    [],
+  );
+
+  // Derive the current user's permission for the invite modal
+  const callerPermission = useMemo<ChannelPermission | undefined>(() => {
+    const found = (roomPermissions ?? []).find(
+      (p) => p.userId === currentUserId,
+    );
+    return found?.permission as ChannelPermission | undefined;
+  }, [roomPermissions, currentUserId]);
+
+  // Build the channel owner (creator) for the InviteToChannelModal
+  // "Who has access" list — only the owner is shown there. A freshly-created
+  // room's member list can still be empty, so always include the current user
+  // (the creator) as the owner.
+  const currentChannelMembers = useMemo<ChannelMember[]>(() => {
+    const room = createdRoomRef.current;
+    const ownerId = currentUserId;
+    const list: ChannelMember[] = (room?.members ?? []).map((m: any) => ({
+      id: m.id,
+      name:
+        `${m.first_name || ""} ${m.last_name || ""}`.trim() || `User #${m.id}`,
+      isOwner: m.id === ownerId,
+    }));
+    if (ownerId && !list.some((m) => m.id === ownerId)) {
+      const me = currentUser;
+      const myName = me
+        ? `${me.first_name || ""} ${me.last_name || ""}`.trim() ||
+          `User #${currentUserId}`
+        : `User #${currentUserId}`;
+      list.unshift({ id: ownerId, name: myName, isOwner: true });
+    }
+    return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inviteModalVisible, currentUserId, currentUser]);
+
+  // PROJECT MODULE DISABLED
+  // Handler for creating a channel under a specific project
+  // const handleProjectAddChannel = useCallback(
+  //     (project: Room) => {
+  //         if (!perms.canCreateChannels) {
+  //             showError(
+  //                 "Permission Denied",
+  //                 "You don't have permission to create channels."
+  //             );
+  //             return;
+  //         }
+  //         setProjectContext(project);
+  //         setCreateChannelOpen(true);
+  //     },
+  //     [perms.canCreateChannels]
+  // );
+
+  // PROJECT MODULE DISABLED
+  // Handler invoked after a project is successfully created. The project's
+  // group-chat room is auto-created server-side — refresh rooms immediately
+  // and let the `project_update` socket merge (ChatContext) back it up.
+  // const handleProjectCreated = useCallback(
+  //     async (project: Project) => {
+  //         setCreateProjectOpen(false);
+  //         fetchRooms().catch(() => { });
+  //         fetchProjects({ silent: true }).catch(() => { });
+  //         showSuccess("Project Created", `"${project.name}" is ready.`);
+  //     },
+  //     [fetchRooms, fetchProjects]
+  // );
+
+  const renderRoomRow = (room: Room) => {
+    const displayName = getRoomDisplayName(room, currentUserId);
+    const unread = isRoomUnread(room);
+    const lastAtts = room.last_message?.attachments ?? [];
+    const lastText = room.last_message?.text ?? "";
+    const lastAudio = lastAtts.find((a) => isAudioAttachment(a));
+    const lastIsVoice = !!lastAudio || isVoiceNoteText(lastText);
+    const lastVoiceSecs = lastIsVoice
+      ? ((lastAudio
+          ? (getVoiceNoteSecondsFromAttachment(lastAudio) ??
+            (lastAudio.url ? voiceDurations[lastAudio.url] : null) ??
+            getCachedVoiceNoteDuration(lastAudio.url))
+          : null) ?? getVoiceNoteSecondsFromText(lastText))
+      : null;
+    const lastPreview = room.last_message
+      ? lastIsVoice
+        ? lastVoiceSecs != null
+          ? `Voice note · ${formatVoiceDuration(lastVoiceSecs)}`
+          : "Voice note"
+        : lastAtts.length > 0
+          ? `📎 ${lastAtts.length} attachment${lastAtts.length > 1 ? "s" : ""}`
+          : room.last_message.text || "No messages yet"
+      : "No messages yet";
+
+    return (
+      <SwipeableChatRow
+        key={room.id}
+        isMuted={!!room.is_muted}
+        isUnread={unread}
+        selected={selectedChatId === room.id.toString()}
+        onToggleMute={() => handleRowToggleMute(room)}
+        onToggleRead={() => handleRowToggleRead(room)}
+        onPress={() => handleRoomPress(room)}
+      >
+        <View style={styles.avatarContainer}>
+          <Avatar
+            name={displayName}
+            imagePath={getRoomAvatar(room, currentUserId)}
+            size={30}
+            borderRadius={5}
+            fontSize={12}
+            fontFamily="SF_Pro_Medium"
+          />
+          {unread && <View style={styles.onlineIndicator} />}
+        </View>
+        <View style={styles.chatInfo}>
+          <Text style={styles.chatName} numberOfLines={1}>
+            {displayName}
+          </Text>
+          {lastIsVoice ? (
+            <View style={styles.chatSnippetRow}>
+              <Ionicons
+                name="mic"
+                size={12}
+                color="#4B5563"
+                style={styles.chatSnippetMic}
+              />
+              <Text
+                style={[styles.chatSnippet, styles.chatSnippetFlex]}
+                numberOfLines={1}
+              >
+                {lastPreview}
+              </Text>
+            </View>
+          ) : (
+            <Text style={styles.chatSnippet} numberOfLines={1}>
+              {lastPreview}
+            </Text>
+          )}
+        </View>
+        <View style={styles.chatMeta}>
+          {unread && room.unreadCount > 0 && (
+            <View style={styles.unreadBubble}>
+              <Text style={styles.unreadBubbleText}>+{room.unreadCount}</Text>
+            </View>
+          )}
+          <Text style={styles.chatTime}>
+            {room.last_message?.createdAt
+              ? formatChatListTime(room.last_message.createdAt)
+              : room.my_visible_from
+                ? formatChatListTime(room.my_visible_from)
+                : ""}
+          </Text>
+        </View>
+      </SwipeableChatRow>
+    );
+  };
+
+  if (state.loading && state.rooms.length === 0) {
+    return (
+      <View style={styles.root}>
+        <View style={styles.safe}>
+          <View
+            style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
+          >
+            <ActivityIndicator size="large" color="#00DEAB" />
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.root}>
+      <View style={styles.safe}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[
+            styles.scrollContent,
+            displayRooms.length === 0 && styles.scrollContentEmpty,
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* ── Category Chips ── */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.chipsScroll}
+            contentContainerStyle={styles.chipsContainer}
+          >
+            {visibleChips.map((chip, index) => {
+              const isActive = activeChip === chip.id;
+              const showDot =
+                chipUnread[chip.id as keyof typeof chipUnread] ?? false;
+              return (
+                <View
+                  key={chip.id}
+                  style={{ flexDirection: "row", alignItems: "center" }}
+                >
+                  <TouchableOpacity
+                    style={[
+                      styles.chipButton,
+                      isActive && styles.chipButtonActive,
+                    ]}
+                    onPress={() => setActiveChip(chip.id)}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        isActive && styles.chipTextActive,
+                      ]}
+                    >
+                      {chip.label}
+                    </Text>
+                    {showDot && (
+                      <View
+                        style={[
+                          styles.unreadDot,
+                          isActive && styles.unreadDotActive,
+                        ]}
+                      />
+                    )}
+                  </TouchableOpacity>
+                  {index === 2 && <View style={styles.verticalDivider} />}
+                </View>
+              );
+            })}
+          </ScrollView>
+
+          {displayRooms.length > 0 ? (
+            <View style={styles.chatListContainer}>
+              {/* PROJECT MODULE DISABLED — the Projects chip was removed from CHIP_DATA,
                             so this branch is unreachable. It is preserved verbatim below
                             for future re-enablement (uncomment through the `) : (` marker).
                             // ── Projects view with expandable child channels ──
@@ -1381,206 +1423,248 @@ export default function ChatScreen() {
                                 })
                             )}
                             */}
-                            {activeChip === "channels" || activeChip === "projects" ? (
-                                <>
-                                    {displayRooms
-                                        .filter((room) => room.type === "project")
-                                        .map((project) => {
-                                            const displayName = getRoomDisplayName(project, currentUserId);
-                                            const childChannels = projectChannelMap.get(project.id) ?? [];
-                                            const isCollapsed = collapsedProjects.has(project.id);
-                                            const unread = isRoomUnread(project);
-                                            const projectTime = project.last_message?.createdAt
-                                                ? formatChatListTime(project.last_message.createdAt)
-                                                : "";
-                                            return (
-                                                <View key={`project-${project.id}`}>
-                                                    <TouchableOpacity
-                                                        style={[
-                                                            styles.chatRow,
-                                                            selectedChatId === project.id.toString() && styles.chatRowSelected,
-                                                        ]}
-                                                        activeOpacity={0.7}
-                                                        onPress={() => toggleProjectCollapse(project.id)}
-                                                    >
-                                                        <View style={styles.avatarContainer}>
-                                                            <Avatar
-                                                                name={displayName}
-                                                                imagePath={getRoomAvatar(project, currentUserId)}
-                                                                size={30}
-                                                                borderRadius={5}
-                                                                fontSize={12}
-                                                                fontFamily="SF_Pro_Medium"
-                                                            />
-                                                            {unread && <View style={styles.onlineIndicator} />}
-                                                        </View>
-                                                        <View style={styles.chatInfo}>
-                                                            <Text style={styles.chatName} numberOfLines={1}>
-                                                                {displayName}
-                                                            </Text>
-                                                            <Text style={styles.chatSnippet} numberOfLines={1}>
-                                                                {childChannels.length} channel{childChannels.length === 1 ? "" : "s"}
-                                                                {isCollapsed ? " · collapsed" : ""}
-                                                            </Text>
-                                                        </View>
-                                                        <View style={styles.chatMeta}>
-                                                            {unread && project.unreadCount > 0 && (
-                                                                <View style={styles.unreadBubble}>
-                                                                    <Text style={styles.unreadBubbleText}>
-                                                                        +{project.unreadCount}
-                                                                    </Text>
-                                                                </View>
-                                                            )}
-                                                            {projectTime !== "" && (
-                                                                <Text style={styles.chatTime}>{projectTime}</Text>
-                                                            )}
-                                                            <Ionicons
-                                                                name={isCollapsed ? "chevron-down" : "chevron-up"}
-                                                                size={16}
-                                                                color="#6B7280"
-                                                            />
-                                                        </View>
-                                                    </TouchableOpacity>
-                                                    {!isCollapsed &&
-                                                        childChannels.map((channel) => {
-                                                            const channelName = getRoomDisplayName(channel, currentUserId);
-                                                            const channelUnread = isRoomUnread(channel);
-                                                            const channelAttachments = channel.last_message?.attachments ?? [];
-                                                            const channelPreview = channel.last_message
-                                                                ? channelAttachments.length > 0
-                                                                    ? `📎 ${channelAttachments.length} attachment${channelAttachments.length > 1 ? "s" : ""}`
-                                                                    : channel.last_message.text || "No messages yet"
-                                                                : "No messages yet";
-                                                            const channelTime = channel.last_message?.createdAt
-                                                                ? formatChatListTime(channel.last_message.createdAt)
-                                                                : "";
-                                                            return (
-                                                                <TouchableOpacity
-                                                                    key={channel.id}
-                                                                    style={[
-                                                                        styles.chatRow,
-                                                                        { paddingLeft: 38 },
-                                                                        selectedChatId === channel.id.toString() && styles.chatRowSelected,
-                                                                    ]}
-                                                                    activeOpacity={0.7}
-                                                                    onPress={() => handleRoomPress(channel)}
-                                                                >
-                                                                    <View style={styles.avatarContainer}>
-                                                                        <Avatar
-                                                                            name={channelName}
-                                                                            imagePath={getRoomAvatar(channel, currentUserId)}
-                                                                            size={26}
-                                                                            borderRadius={5}
-                                                                            fontSize={11.5}
-                                                                            fontFamily="SF_Pro_Medium"
-                                                                        />
-                                                                        {channelUnread && (
-                                                                            <View style={styles.onlineIndicator} />
-                                                                        )}
-                                                                    </View>
-                                                                    <View style={styles.chatInfo}>
-                                                                        <Text style={styles.chatName} numberOfLines={1}>
-                                                                            {channelName}
-                                                                        </Text>
-                                                                        <Text style={styles.chatSnippet} numberOfLines={1}>
-                                                                            {channelPreview}
-                                                                        </Text>
-                                                                    </View>
-                                                                    <View style={styles.chatMeta}>
-                                                                        {channelUnread && channel.unreadCount > 0 && (
-                                                                            <View style={styles.unreadBubble}>
-                                                                                <Text style={styles.unreadBubbleText}>
-                                                                                    +{channel.unreadCount}
-                                                                                </Text>
-                                                                            </View>
-                                                                        )}
-                                                                        {channelTime !== "" && (
-                                                                            <Text style={styles.chatTime}>{channelTime}</Text>
-                                                                        )}
-                                                                    </View>
-                                                                </TouchableOpacity>
-                                                            );
-                                                        })}
-                                                </View>
-                                            );
-                                        })}
-                                    {activeChip === "channels" &&
-                                        displayRooms
-                                            .filter((room) => room.type === "channel")
-                                            .map(renderRoomRow)}
-                                </>
-                            ) : (
-                                displayRooms.map(renderRoomRow)
-                            )}
-                        </View>
-                    ) : searchText.trim() !== "" ? (
-                        <View style={styles.workspaceContainer}>
-                            <View style={styles.iconStack}>
-                                <Ionicons name="search-outline" size={48} color="#00DEAB" />
+              {activeChip === "channels" || activeChip === "projects" ? (
+                <>
+                  {displayRooms
+                    .filter((room) => room.type === "project")
+                    .map((project) => {
+                      const displayName = getRoomDisplayName(
+                        project,
+                        currentUserId,
+                      );
+                      const childChannels =
+                        projectChannelMap.get(project.id) ?? [];
+                      const isCollapsed = !openProjects.has(project.id);
+                      const unread = isRoomUnread(project);
+                      const projectTime = project.last_message?.createdAt
+                        ? formatChatListTime(project.last_message.createdAt)
+                        : "";
+                      return (
+                        <View key={`project-${project.id}`}>
+                          <TouchableOpacity
+                            style={[
+                              styles.chatRow,
+                              selectedChatId === project.id.toString() &&
+                                styles.chatRowSelected,
+                            ]}
+                            activeOpacity={0.7}
+                            onPress={() => toggleProjectCollapse(project.id)}
+                          >
+                            <View style={styles.avatarContainer}>
+                              <Avatar
+                                name={displayName}
+                                imagePath={getRoomAvatar(
+                                  project,
+                                  currentUserId,
+                                )}
+                                size={30}
+                                borderRadius={5}
+                                fontSize={12}
+                                fontFamily="SF_Pro_Medium"
+                              />
+                              {unread && (
+                                <View style={styles.onlineIndicator} />
+                              )}
                             </View>
-                            <Text style={styles.workspaceTitle}>No Results</Text>
-                            <Text style={styles.workspaceDescription}>
-                                No chats or channels match{"\n"}
-                                "{searchText.trim()}"
-                            </Text>
-                        </View>
-                    ) : activeChip === "unread" ? (
-                        <View style={styles.workspaceContainer}>
-                            <View style={styles.iconStack}>
-                                <Ionicons name="chatbubble-ellipses-outline" size={48} color="#00DEAB" />
+                            <View style={styles.chatInfo}>
+                              <Text style={styles.chatName} numberOfLines={1}>
+                                {displayName}
+                              </Text>
+                              <Text
+                                style={styles.chatSnippet}
+                                numberOfLines={1}
+                              >
+                                {childChannels.length} channel
+                                {childChannels.length === 1 ? "" : "s"}
+                                {/* {isCollapsed ? " · collapsed" : ""} */}
+                              </Text>
                             </View>
-                            <Text style={styles.workspaceTitle}>No Unread Message</Text>
-                        </View>
-                    ) : activeChip === "channels" ? (
-                        <View style={styles.workspaceContainer}>
-                            <View style={styles.iconStack}>
-                                <ChannelTabIcon width={60} height={60} />
-                            </View>
-                            <Text style={styles.workspaceTitle}>Create a channel</Text>
-                            <Text style={styles.workspaceDescription}>
-                                Group keep your team's conversations{"\n"}organized by topic.
-                            </Text>
-                            {perms.canCreateChannels ? (
-                                <TouchableOpacity
-                                    style={styles.addPeopleButton}
-                                    activeOpacity={0.85}
-                                    onPress={() => {
-                                        // PROJECT MODULE DISABLED
-                                        // setProjectContext(null);
-                                        setCreateChannelOpen(true);
-                                    }}
-                                >
-                                    <Text style={styles.addPeopleText}>+ Create Channel</Text>
-                                </TouchableOpacity>
-                            ) : (
-                                <Text style={styles.workspaceDescription}>
-                                    You don't have permission to create channels.
+                            <View style={styles.chatMeta}>
+                              {unread && project.unreadCount > 0 && (
+                                <View style={styles.unreadBubble}>
+                                  <Text style={styles.unreadBubbleText}>
+                                    +{project.unreadCount}
+                                  </Text>
+                                </View>
+                              )}
+                              {projectTime !== "" && (
+                                <Text style={styles.chatTime}>
+                                  {projectTime}
                                 </Text>
-                            )}
-                        </View>
-                    ) : activeChip === "projects" ? (
-                        <View style={styles.workspaceContainer}>
-                            <View style={styles.iconStack}>
-                                <Ionicons name="folder-outline" size={48} color="#00DEAB" />
+                              )}
+                              <Ionicons
+                                name={
+                                  isCollapsed ? "chevron-down" : "chevron-up"
+                                }
+                                size={16}
+                                color="#6B7280"
+                              />
                             </View>
-                            <Text style={styles.workspaceTitle}>No project chats yet</Text>
-                            <Text style={styles.workspaceDescription}>
-                                Project conversations will appear here.{"\n"}Create and manage
-                                projects from the Projects tab.
-                            </Text>
-                            {perms.hasProjectRead && (
+                          </TouchableOpacity>
+                          {!isCollapsed &&
+                            childChannels.map((channel) => {
+                              const channelName = getRoomDisplayName(
+                                channel,
+                                currentUserId,
+                              );
+                              const channelUnread = isRoomUnread(channel);
+                              const channelAttachments =
+                                channel.last_message?.attachments ?? [];
+                              const channelPreview = channel.last_message
+                                ? channelAttachments.length > 0
+                                  ? `📎 ${channelAttachments.length} attachment${channelAttachments.length > 1 ? "s" : ""}`
+                                  : channel.last_message.text ||
+                                    "No messages yet"
+                                : "No messages yet";
+                              const channelTime = channel.last_message
+                                ?.createdAt
+                                ? formatChatListTime(
+                                    channel.last_message.createdAt,
+                                  )
+                                : "";
+                              return (
                                 <TouchableOpacity
-                                    style={styles.addPeopleButton}
-                                    activeOpacity={0.85}
-                                    onPress={() => router.navigate("/(tabs)/projects" as never)}
+                                  key={channel.id}
+                                  style={[
+                                    styles.chatRow,
+                                    { paddingLeft: 38 },
+                                    selectedChatId === channel.id.toString() &&
+                                      styles.chatRowSelected,
+                                  ]}
+                                  activeOpacity={0.7}
+                                  onPress={() => handleRoomPress(channel)}
                                 >
-                                    <Text style={styles.addPeopleText}>Open Projects</Text>
+                                  <View style={styles.avatarContainer}>
+                                    <Avatar
+                                      name={channelName}
+                                      imagePath={getRoomAvatar(
+                                        channel,
+                                        currentUserId,
+                                      )}
+                                      size={26}
+                                      borderRadius={5}
+                                      fontSize={11.5}
+                                      fontFamily="SF_Pro_Medium"
+                                    />
+                                    {channelUnread && (
+                                      <View style={styles.onlineIndicator} />
+                                    )}
+                                  </View>
+                                  <View style={styles.chatInfo}>
+                                    <Text
+                                      style={styles.chatName}
+                                      numberOfLines={1}
+                                    >
+                                      {channelName}
+                                    </Text>
+                                    <Text
+                                      style={styles.chatSnippet}
+                                      numberOfLines={1}
+                                    >
+                                      {channelPreview}
+                                    </Text>
+                                  </View>
+                                  <View style={styles.chatMeta}>
+                                    {channelUnread &&
+                                      channel.unreadCount > 0 && (
+                                        <View style={styles.unreadBubble}>
+                                          <Text style={styles.unreadBubbleText}>
+                                            +{channel.unreadCount}
+                                          </Text>
+                                        </View>
+                                      )}
+                                    {channelTime !== "" && (
+                                      <Text style={styles.chatTime}>
+                                        {channelTime}
+                                      </Text>
+                                    )}
+                                  </View>
                                 </TouchableOpacity>
-                            )}
+                              );
+                            })}
                         </View>
-                    ) : (
-                        <>
-                        {/* PROJECT MODULE DISABLED — "Create a project" empty-state branch
+                      );
+                    })}
+                  {activeChip === "channels" &&
+                    displayRooms
+                      .filter((room) => room.type === "channel")
+                      .map(renderRoomRow)}
+                </>
+              ) : (
+                displayRooms.map(renderRoomRow)
+              )}
+            </View>
+          ) : searchText.trim() !== "" ? (
+            <View style={styles.workspaceContainer}>
+              <View style={styles.iconStack}>
+                <Ionicons name="search-outline" size={48} color="#00DEAB" />
+              </View>
+              <Text style={styles.workspaceTitle}>No Results</Text>
+              <Text style={styles.workspaceDescription}>
+                No chats or channels match{"\n"}"{searchText.trim()}"
+              </Text>
+            </View>
+          ) : activeChip === "unread" ? (
+            <View style={styles.workspaceContainer}>
+              <View style={styles.iconStack}>
+                <Ionicons
+                  name="chatbubble-ellipses-outline"
+                  size={48}
+                  color="#00DEAB"
+                />
+              </View>
+              <Text style={styles.workspaceTitle}>No Unread Message</Text>
+            </View>
+          ) : activeChip === "channels" ? (
+            <View style={styles.workspaceContainer}>
+              <View style={styles.iconStack}>
+                <ChannelTabIcon width={60} height={60} />
+              </View>
+              <Text style={styles.workspaceTitle}>Create a channel</Text>
+              <Text style={styles.workspaceDescription}>
+                Group keep your team's conversations{"\n"}organized by topic.
+              </Text>
+              {perms.canCreateChannels ? (
+                <TouchableOpacity
+                  style={styles.addPeopleButton}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    // PROJECT MODULE DISABLED
+                    // setProjectContext(null);
+                    setCreateChannelOpen(true);
+                  }}
+                >
+                  <Text style={styles.addPeopleText}>+ Create Channel</Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={styles.workspaceDescription}>
+                  You don't have permission to create channels.
+                </Text>
+              )}
+            </View>
+          ) : activeChip === "projects" ? (
+            <View style={styles.workspaceContainer}>
+              <View style={styles.iconStack}>
+                <Ionicons name="folder-outline" size={48} color="#00DEAB" />
+              </View>
+              <Text style={styles.workspaceTitle}>No project chats yet</Text>
+              <Text style={styles.workspaceDescription}>
+                Project conversations will appear here.{"\n"}Create and manage
+                projects from the Projects tab.
+              </Text>
+              {perms.hasProjectRead && (
+                <TouchableOpacity
+                  style={styles.addPeopleButton}
+                  activeOpacity={0.85}
+                  onPress={() => router.navigate("/(tabs)/projects" as never)}
+                >
+                  <Text style={styles.addPeopleText}>Open Projects</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : (
+            <>
+              {/* PROJECT MODULE DISABLED — "Create a project" empty-state branch
                         removed (the Projects chip is gone, so this branch is unreachable).
                         Preserved verbatim for future re-enablement:
                         ) : activeChip === "projects" ? (
@@ -1608,44 +1692,44 @@ export default function ChatScreen() {
                         </View>
                         ) : (
                         */}
-                        <View style={styles.workspaceContainer}>
-                            <View style={styles.iconStack}>
-                                <MainChatIcon />
-                            </View>
-                            <Text style={styles.workspaceTitle}>Private workspace</Text>
-                            <Text style={styles.workspaceDescription}>
-                                A place just for you to capture ideas, draft messages,
-                                and keep everything organized for later.
-                            </Text>
-                            {perms.hasChatRead ? (
-                                <TouchableOpacity
-                                    style={styles.addPeopleButton}
-                                    activeOpacity={0.85}
-                                    onPress={() => {
-                                        setIsChannelMode(false);
-                                        setAddPeopleOpen(true);
-                                    }}
-                                >
-                                    <Ionicons
-                                        name="person-add"
-                                        size={16}
-                                        color="#fff"
-                                        style={styles.buttonIcon}
-                                    />
-                                    <Text style={styles.addPeopleText}>Add People</Text>
-                                </TouchableOpacity>
-                            ) : (
-                                <Text style={styles.workspaceDescription}>
-                                    You don't have permission to view chats.
-                                </Text>
-                            )}
-                        </View>
-                        </>
-                    )}
-                </ScrollView>
+              <View style={styles.workspaceContainer}>
+                <View style={styles.iconStack}>
+                  <MainChatIcon />
+                </View>
+                <Text style={styles.workspaceTitle}>Private workspace</Text>
+                <Text style={styles.workspaceDescription}>
+                  A place just for you to capture ideas, draft messages, and
+                  keep everything organized for later.
+                </Text>
+                {perms.hasChatRead ? (
+                  <TouchableOpacity
+                    style={styles.addPeopleButton}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      setIsChannelMode(false);
+                      setAddPeopleOpen(true);
+                    }}
+                  >
+                    <Ionicons
+                      name="person-add"
+                      size={16}
+                      color="#fff"
+                      style={styles.buttonIcon}
+                    />
+                    <Text style={styles.addPeopleText}>Add People</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={styles.workspaceDescription}>
+                    You don't have permission to view chats.
+                  </Text>
+                )}
+              </View>
+            </>
+          )}
+        </ScrollView>
 
-                {/* FAB — hidden when the active view offers no permitted action */}
-                {/* PROJECT MODULE DISABLED — FAB project taps removed
+        {/* FAB — hidden when the active view offers no permitted action */}
+        {/* PROJECT MODULE DISABLED — FAB project taps removed
                 {displayRooms.length > 0 &&
                     (activeChip === "projects"
                         ? perms.canCreateProjects
@@ -1672,66 +1756,69 @@ export default function ChatScreen() {
                         </TouchableOpacity>
                     )
                 */}
-                {displayRooms.length > 0 &&
-                    activeChip !== "projects" &&
-                    (activeChip === "channels"
-                        ? perms.canCreateChannels
-                        : perms.hasChatRead) && (
-                        <TouchableOpacity
-                            style={styles.fab}
-                            activeOpacity={0.8}
-                            onPress={() => {
-                                if (activeChip === "channels") {
-                                    setCreateChannelOpen(true);
-                                } else {
-                                    setIsChannelMode(false);
-                                    setAddPeopleOpen(true);
-                                }
-                            }}
-                        >
-                            {activeChip === "channels" ? <Icons.ChannelBtn /> : <Icons.IndoxBtn />}
+        {displayRooms.length > 0 &&
+          activeChip !== "projects" &&
+          (activeChip === "channels"
+            ? perms.canCreateChannels
+            : perms.hasChatRead) && (
+            <TouchableOpacity
+              style={styles.fab}
+              activeOpacity={0.8}
+              onPress={() => {
+                if (activeChip === "channels") {
+                  setCreateChannelOpen(true);
+                } else {
+                  setIsChannelMode(false);
+                  setAddPeopleOpen(true);
+                }
+              }}
+            >
+              {activeChip === "channels" ? (
+                <Icons.ChannelBtn />
+              ) : (
+                <Icons.IndoxBtn />
+              )}
+            </TouchableOpacity>
+          )}
+      </View>
 
-                        </TouchableOpacity>
-                    )}
-            </View>
+      <AddPeopleModal
+        visible={addPeopleOpen}
+        users={addPeopleUsers}
+        isChannelMode={isChannelMode}
+        onClose={() => {
+          setAddPeopleOpen(false);
+          setIsChannelMode(false);
+          // Cancel of the channel member-selection step — discard the
+          // pending channel name so nothing is created.
+          setNewChannelName("");
+        }}
+        onSearch={(query) => {
+          setAddPeopleQuery(query);
+          // Only hit the API when the user has typed 2+ chars
+          if (query.trim().length >= 2) {
+            setSearchQuery(query);
+          }
+        }}
+        onSelectUser={handleAddPeopleSelect}
+        onInviteUsers={handleInviteUsers}
+      />
 
-            <AddPeopleModal
-                visible={addPeopleOpen}
-                users={addPeopleUsers}
-                isChannelMode={isChannelMode}
-                onClose={() => {
-                    setAddPeopleOpen(false);
-                    setIsChannelMode(false);
-                    // Cancel of the channel member-selection step — discard the
-                    // pending channel name so nothing is created.
-                    setNewChannelName("");
-                }}
-                onSearch={(query) => {
-                    setAddPeopleQuery(query);
-                    // Only hit the API when the user has typed 2+ chars
-                    if (query.trim().length >= 2) {
-                        setSearchQuery(query);
-                    }
-                }}
-                onSelectUser={handleAddPeopleSelect}
-                onInviteUsers={handleInviteUsers}
-            />
-
-            <CreateChannelModal
-                visible={createChannelOpen}
-                onClose={() => {
-                    setCreateChannelOpen(false);
-                    // PROJECT MODULE DISABLED
-                    // setProjectContext(null);
-                }}
-                onNext={handleChannelCreate}
-                title={"Create Channel"}
-            />
-            {/* PROJECT MODULE DISABLED — original dynamic title was:
+      <CreateChannelModal
+        visible={createChannelOpen}
+        onClose={() => {
+          setCreateChannelOpen(false);
+          // PROJECT MODULE DISABLED
+          // setProjectContext(null);
+        }}
+        onNext={handleChannelCreate}
+        title={"Create Channel"}
+      />
+      {/* PROJECT MODULE DISABLED — original dynamic title was:
                 title={projectContext ? `Add Channel to "${projectContext.name}"` : "Create Channel"}
             */}
 
-            {/* PROJECT MODULE DISABLED
+      {/* PROJECT MODULE DISABLED
             // ── CreateProjectModal ──
             <CreateProjectModal
                 visible={createProjectOpen}
@@ -1740,36 +1827,36 @@ export default function ChatScreen() {
             />
             */}
 
-            {/* ── InviteToChannelModal ── */}
-            <InviteToChannelModal
-                visible={inviteModalVisible}
-                roomId={createdRoomRef.current?._id ?? ""}
-                members={currentChannelMembers}
-                currentUserId={currentUserId}
-                roomCreator={currentUserId}
-                callerPermission={callerPermission}
-                initialEmails={pendingInviteUsers
-                    .map((u) => u.email)
-                    .filter((e): e is string => !!e)}
-                onClose={() => {
-                    setInviteModalVisible(false);
-                    const room = createdRoomRef.current;
-                    // User backed out before inviting — remove the channel that
-                    // was created for link generation so it never shows as empty.
-                    if (room && !channelInvitedRef.current) {
-                        deleteRoom(room._id).catch(() => {});
-                    }
-                    createdRoomRef.current = null;
-                    channelInvitedRef.current = false;
-                    setPendingInviteUsers([]);
-                    setNewChannelName("");
-                }}
-                onInvite={handleChannelInvite}
-                onGenerateLink={handleGenerateChannelLink}
-                onUpdatePermission={handleUpdateChannelPermission}
-            />
+      {/* ── InviteToChannelModal ── */}
+      <InviteToChannelModal
+        visible={inviteModalVisible}
+        roomId={createdRoomRef.current?._id ?? ""}
+        members={currentChannelMembers}
+        currentUserId={currentUserId}
+        roomCreator={currentUserId}
+        callerPermission={callerPermission}
+        initialEmails={pendingInviteUsers
+          .map((u) => u.email)
+          .filter((e): e is string => !!e)}
+        onClose={() => {
+          setInviteModalVisible(false);
+          const room = createdRoomRef.current;
+          // User backed out before inviting — remove the channel that
+          // was created for link generation so it never shows as empty.
+          if (room && !channelInvitedRef.current) {
+            deleteRoom(room._id).catch(() => {});
+          }
+          createdRoomRef.current = null;
+          channelInvitedRef.current = false;
+          setPendingInviteUsers([]);
+          setNewChannelName("");
+        }}
+        onInvite={handleChannelInvite}
+        onGenerateLink={handleGenerateChannelLink}
+        onUpdatePermission={handleUpdateChannelPermission}
+      />
 
-            {/* PROJECT MODULE DISABLED
+      {/* PROJECT MODULE DISABLED
             // ── ProjectDetailModal ──
             <ProjectDetailModal
                 visible={!!selectedProjectForDetail}
@@ -1781,299 +1868,299 @@ export default function ChatScreen() {
                 }}
             />
             */}
-        </View>
-    );
+    </View>
+  );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-    root: {
-        flex: 1,
-        backgroundColor: "#fff",
-    },
-    safe: {
-        flex: 1,
-    },
-    scroll: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingTop: 8,
-        paddingBottom: 80,
-    },
-    // Only stretch the content to fill the viewport when there is no list to
-    // show, so the empty state can center. Lists keep their natural, top-aligned
-    // layout.
-    scrollContentEmpty: {
-        flexGrow: 1,
-    },
-    // Keep the horizontal chip bar at its natural height — RN ScrollView's base
-    // style is flexGrow: 1, which would otherwise make it expand and push the
-    // list/empty state down when the parent content container is stretched.
-    chipsScroll: {
-        flexGrow: 0,
-        flexShrink: 0,
-    },
+  root: {
+    flex: 1,
+    backgroundColor: "#fff",
+  },
+  safe: {
+    flex: 1,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingTop: 8,
+    paddingBottom: 80,
+  },
+  // Only stretch the content to fill the viewport when there is no list to
+  // show, so the empty state can center. Lists keep their natural, top-aligned
+  // layout.
+  scrollContentEmpty: {
+    flexGrow: 1,
+  },
+  // Keep the horizontal chip bar at its natural height — RN ScrollView's base
+  // style is flexGrow: 1, which would otherwise make it expand and push the
+  // list/empty state down when the parent content container is stretched.
+  chipsScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
 
-    // ── Chips ──
-    chipsContainer: {
-        paddingHorizontal: 16,
-        gap: 5,
-        marginBottom: 14,
-    },
-    chipButton: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: "#F4F4F4",
-        borderRadius: 6,
-        paddingHorizontal: 11,
-        paddingVertical: 7,
-        position: "relative",
-    },
-    chipButtonActive: {
-        backgroundColor: "#1D1D1D",
-    },
-    chipText: {
-        fontSize: rf(11.5),
-        fontFamily: "SF_Pro_Medium",
-        color: "#1D1D1D",
-    },
-    chipTextActive: {
-        color: "#fff",
-        fontFamily: "SF_Pro_Semibold",
-    },
-    verticalDivider: {
-        width: 1.5,
-        height: 28,
-        backgroundColor: "#F4F4F4",
-        marginLeft: 6,
-        marginRight: 2,
-    },
-    unreadDot: {
-        position: "absolute",
-        top: -1,
-        right: -3,
-        width: 7,
-        height: 7,
-        borderRadius: 3.5,
-        backgroundColor: "#00DEAB",
-        borderWidth: 1.5,
-        borderColor: "#fff",
-    },
-    unreadDotActive: {
-        borderColor: "#1D1D1D",
-    },
+  // ── Chips ──
+  chipsContainer: {
+    paddingHorizontal: 16,
+    gap: 5,
+    marginBottom: 14,
+  },
+  chipButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F4F4F4",
+    borderRadius: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    position: "relative",
+  },
+  chipButtonActive: {
+    backgroundColor: "#1D1D1D",
+  },
+  chipText: {
+    fontSize: rf(11.5),
+    fontFamily: "SF_Pro_Medium",
+    color: "#1D1D1D",
+  },
+  chipTextActive: {
+    color: "#fff",
+    fontFamily: "SF_Pro_Semibold",
+  },
+  verticalDivider: {
+    width: 1.5,
+    height: 28,
+    backgroundColor: "#F4F4F4",
+    marginLeft: 6,
+    marginRight: 2,
+  },
+  unreadDot: {
+    position: "absolute",
+    top: -1,
+    right: -3,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: "#00DEAB",
+    borderWidth: 1.5,
+    borderColor: "#fff",
+  },
+  unreadDotActive: {
+    borderColor: "#1D1D1D",
+  },
 
-    // ── Chat List ──
-    chatListContainer: {
-        flex: 1,
-    },
-    chatRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        paddingHorizontal: 14,
-        paddingVertical: 7,
-    },
-    chatRowSelected: {
-        backgroundColor: "#F4F4F4",
-        marginHorizontal: 3,
-    },
-    avatarContainer: {
-        position: "relative",
-        marginRight: 9,
-    },
-    avatarBox: {
-        width: 34,
-        height: 34,
-        borderRadius: 5,
-        backgroundColor: "#00DEAB",
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    avatarText: {
-        color: "#fff",
-        fontSize: rf(13.5),
-        fontFamily: "SF_Pro_Medium",
-    },
-    onlineIndicator: {
-        position: "absolute",
-        top: -2,
-        right: -2,
-        width: 9,
-        height: 9,
-        borderRadius: 4.5,
-        backgroundColor: "#00DEAB",
-        borderWidth: 1.5,
-        borderColor: "#fff",
-    },
-    chatInfo: {
-        flex: 1,
-        justifyContent: "center",
-        gap: 2,
-    },
-    chatName: {
-        fontSize: rf(12.5),
-        fontFamily: "SF_Pro_Semibold",
-        color: "#1D1D1D",
-    },
-    chatSnippet: {
-        fontSize: rf(11),
-        fontFamily: "SF_Pro_Regular",
-        color: "#4B5563",
-    },
-    chatSnippetRow: {
-        flexDirection: "row",
-        alignItems: "center",
-    },
-    chatSnippetFlex: {
-        flex: 1,
-    },
-    chatSnippetMic: {
-        marginRight: 3,
-    },
-    chatMeta: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "flex-end",
-        gap: 7,
-        minWidth: 66,
-    },
-    chatTime: {
-        fontSize: rf(9.5),
-        fontFamily: "SF_Pro_Regular",
-        color: "#9CA3AF",
-    },
-    unreadBubble: {
-        backgroundColor: "#1D1D1D",
-        borderRadius: 10,
-        paddingHorizontal: 4,
-        paddingVertical: 2,
-        alignItems: "center",
-        justifyContent: "center",
-        minWidth: 16,
-    },
-    unreadBubbleText: {
-        color: "#0DDFAB",
-        fontSize: rf(9),
-        fontFamily: "SF_Pro_Semibold",
-    },
+  // ── Chat List ──
+  chatListContainer: {
+    flex: 1,
+  },
+  chatRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  chatRowSelected: {
+    backgroundColor: "#F4F4F4",
+    marginHorizontal: 3,
+  },
+  avatarContainer: {
+    position: "relative",
+    marginRight: 9,
+  },
+  avatarBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 5,
+    backgroundColor: "#00DEAB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    color: "#fff",
+    fontSize: rf(13.5),
+    fontFamily: "SF_Pro_Medium",
+  },
+  onlineIndicator: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: "#00DEAB",
+    borderWidth: 1.5,
+    borderColor: "#fff",
+  },
+  chatInfo: {
+    flex: 1,
+    justifyContent: "center",
+    gap: 2,
+  },
+  chatName: {
+    fontSize: rf(12.5),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#1D1D1D",
+  },
+  chatSnippet: {
+    fontSize: rf(11),
+    fontFamily: "SF_Pro_Regular",
+    color: "#4B5563",
+  },
+  chatSnippetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  chatSnippetFlex: {
+    flex: 1,
+  },
+  chatSnippetMic: {
+    marginRight: 3,
+  },
+  chatMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 7,
+    minWidth: 66,
+  },
+  chatTime: {
+    fontSize: rf(9.5),
+    fontFamily: "SF_Pro_Regular",
+    color: "#9CA3AF",
+  },
+  unreadBubble: {
+    backgroundColor: "#1D1D1D",
+    borderRadius: 10,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 16,
+  },
+  unreadBubbleText: {
+    color: "#0DDFAB",
+    fontSize: rf(9),
+    fontFamily: "SF_Pro_Semibold",
+  },
 
-    // ── Empty state ──
-    workspaceContainer: {
-        flex: 1,
-        alignItems: "center",
-        justifyContent: "center",
-        paddingHorizontal: 24,
-        paddingVertical: 40,
-    },
-    iconStack: {
-        position: "relative",
-        marginBottom: 14,
-    },
-    workspaceTitle: {
-        fontSize: rf(18),
-        fontFamily: "SF_Pro_Semibold",
-        color: "#1D1D1D",
-        marginBottom: 6,
-        textAlign: "center",
-    },
-    workspaceDescription: {
-        fontSize: rf(12),
-        fontFamily: "SF_Pro_Regular",
-        color: "#4B5563",
-        textAlign: "center",
-        lineHeight: 18,
-        marginBottom: 20,
-    },
-    addPeopleButton: {
-        flexDirection: "row",
-        justifyContent: "center",
-        minWidth: 180,
-        alignItems: "center",
-        backgroundColor: "#00DEAB",
-        borderRadius: 8,
-        paddingVertical: 10,
-        shadowColor: "#00DEAB",
-        shadowOpacity: 0.15,
-        shadowRadius: 6,
-        shadowOffset: { width: 0, height: 3 },
-        elevation: 3,
-    },
-    buttonIcon: {
-        marginRight: 8,
-    },
-    addPeopleText: {
-        color: "#fff",
-        fontSize: rf(13),
-        fontFamily: "SF_Pro_Semibold",
-    },
+  // ── Empty state ──
+  workspaceContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 40,
+  },
+  iconStack: {
+    position: "relative",
+    marginBottom: 14,
+  },
+  workspaceTitle: {
+    fontSize: rf(18),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#1D1D1D",
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  workspaceDescription: {
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Regular",
+    color: "#4B5563",
+    textAlign: "center",
+    lineHeight: 18,
+    marginBottom: 20,
+  },
+  addPeopleButton: {
+    flexDirection: "row",
+    justifyContent: "center",
+    minWidth: 180,
+    alignItems: "center",
+    backgroundColor: "#00DEAB",
+    borderRadius: 8,
+    paddingVertical: 10,
+    shadowColor: "#00DEAB",
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  buttonIcon: {
+    marginRight: 8,
+  },
+  addPeopleText: {
+    color: "#fff",
+    fontSize: rf(13),
+    fontFamily: "SF_Pro_Semibold",
+  },
 
-    // ── FAB ──
-    fab: {
-        position: "absolute",
-        bottom: 92,
-        right: 20,
-        width: 52,
-        height: 52,
-        borderRadius: 26,
-        backgroundColor: "#00DEAB",
-        alignItems: "center",
-        justifyContent: "center",
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.2,
-        shadowRadius: 6,
-        elevation: 6,
-        zIndex: 99,
-    },
-    channelsContainer: {
-        backgroundColor: "#fff",
-        borderBottomWidth: 1,
-        borderBottomColor: "#F4F4F4",
-    },
-    channelRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        paddingLeft: 16,
-        paddingRight: 16,
-        paddingVertical: 8,
-        backgroundColor: "#fff",
-    },
-    channelRowActive: {
-        backgroundColor: "#F4F4F4",
-        marginHorizontal: 3,
-        borderRadius: 6,
-    },
-    channelName: {
-        fontSize: rf(12.5),
-        fontFamily: "SF_Pro_Medium",
-        color: "#1D1D1D",
-    },
-    subAvatarContainer: {
-        position: "relative",
-        marginRight: 10,
-    },
-    subAvatarBox: {
-        width: 28,
-        height: 28,
-        borderRadius: 5,
-        backgroundColor: "#00DEAB",
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    subAvatarText: {
-        color: "#fff",
-        fontSize: rf(11.5),
-        fontFamily: "SF_Pro_Medium",
-    },
-    channelInfo: {
-        flex: 1,
-        justifyContent: "center",
-        gap: 1.5,
-    },
-    channelSnippet: {
-        fontSize: rf(11.5),
-        fontFamily: "SF_Pro_Regular",
-        color: "#4B5563",
-    },
+  // ── FAB ──
+  fab: {
+    position: "absolute",
+    bottom: 92,
+    right: 20,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#00DEAB",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 99,
+  },
+  channelsContainer: {
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F4F4F4",
+  },
+  channelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 16,
+    paddingRight: 16,
+    paddingVertical: 8,
+    backgroundColor: "#fff",
+  },
+  channelRowActive: {
+    backgroundColor: "#F4F4F4",
+    marginHorizontal: 3,
+    borderRadius: 6,
+  },
+  channelName: {
+    fontSize: rf(12.5),
+    fontFamily: "SF_Pro_Medium",
+    color: "#1D1D1D",
+  },
+  subAvatarContainer: {
+    position: "relative",
+    marginRight: 10,
+  },
+  subAvatarBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 5,
+    backgroundColor: "#00DEAB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  subAvatarText: {
+    color: "#fff",
+    fontSize: rf(11.5),
+    fontFamily: "SF_Pro_Medium",
+  },
+  channelInfo: {
+    flex: 1,
+    justifyContent: "center",
+    gap: 1.5,
+  },
+  channelSnippet: {
+    fontSize: rf(11.5),
+    fontFamily: "SF_Pro_Regular",
+    color: "#4B5563",
+  },
 });

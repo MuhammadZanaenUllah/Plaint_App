@@ -1,6 +1,7 @@
 import * as React from "react"
-import Svg, { Rect } from "react-native-svg"
+import Svg, { Path } from "react-native-svg"
 
+// Projects = folders that group channels; same line style as the task/chat tab icons.
 function ProjectIconWhite(props: any) {
   return (
     <Svg
@@ -11,41 +12,17 @@ function ProjectIconWhite(props: any) {
       fill="none"
       {...props}
     >
-      <Rect
-        x={0.55}
-        y={0.55}
-        width={16.6674}
-        height={16.6674}
-        rx={4.45}
+      <Path
+        d="M1.15 4.4c0-1.1.9-2 2-2h3.17c.5 0 .98.2 1.34.56L8.9 4.2h5.95c1.1 0 2 .9 2 2v7.4c0 1.1-.9 2-2 2H3.15c-1.1 0-2-.9-2-2V4.4z"
         stroke="#fff"
         strokeWidth={1.1}
+        strokeLinejoin="round"
       />
-      <Rect
-        x={4}
-        y={4}
-        width={2.4}
-        height={7.6}
-        rx={0.8}
+      <Path
+        d="M4.7 8.75h8.6M4.7 11.85h5.1"
         stroke="#fff"
         strokeWidth={1.1}
-      />
-      <Rect
-        x={7.8}
-        y={4}
-        width={2.4}
-        height={9.4}
-        rx={0.8}
-        stroke="#fff"
-        strokeWidth={1.1}
-      />
-      <Rect
-        x={11.6}
-        y={4}
-        width={2.4}
-        height={6.2}
-        rx={0.8}
-        stroke="#fff"
-        strokeWidth={1.1}
+        strokeLinecap="round"
       />
     </Svg>
   )

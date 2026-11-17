@@ -2818,6 +2818,10 @@ function WhatsAppMessageModal({
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.85)).current;
   const [mounted, setMounted] = useState(visible);
+  // Measured height of emoji bar + preview + actions, so the block can be
+  // kept fully on screen (long messages used to push the actions off it).
+  const [blockHeight, setBlockHeight] = useState(0);
+  const modalInsets = useSafeAreaInsets();
 
   useEffect(() => {
     if (visible && message) {
@@ -2881,10 +2885,16 @@ function WhatsAppMessageModal({
       ? message.text
       : "";
 
-  const screenHeight = Dimensions.get("window").height;
-  const clampedY = targetY
-    ? Math.max(90, Math.min(targetY - 70, screenHeight - 430))
-    : screenHeight * 0.25;
+  const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
+  // Same width cap as chat bubbles on tablets; phones keep 85% of the row.
+  const previewMaxWidth = Math.min((screenWidth - 40) * 0.85, MESSAGE_MAX_WIDTH);
+  const minTop = Math.max(90, modalInsets.top + 12);
+  const maxTop =
+    screenHeight - (blockHeight || 430) - modalInsets.bottom - 16;
+  const clampedY = Math.max(
+    minTop,
+    Math.min(targetY ? targetY - 70 : screenHeight * 0.25, maxTop),
+  );
 
   const handlePressAction = (actionFn: () => void) => {
     triggerHaptic("selection");
@@ -2928,6 +2938,7 @@ function WhatsAppMessageModal({
             },
           ]}
           onStartShouldSetResponder={() => true}
+          onLayout={(e) => setBlockHeight(e.nativeEvent.layout.height)}
         >
           {/* 1. Quick Emojis Pill Attached On Top */}
           <View
@@ -2960,6 +2971,7 @@ function WhatsAppMessageModal({
             style={[
               waModalStyles.focusedBubble,
               own ? waModalStyles.ownBubble : waModalStyles.otherBubble,
+              { maxWidth: previewMaxWidth },
             ]}
           >
             {!own && (
@@ -2972,6 +2984,8 @@ function WhatsAppMessageModal({
                 waModalStyles.bubbleText,
                 own ? waModalStyles.ownText : waModalStyles.otherText,
               ]}
+              // Preview only: the full message stays in the chat.
+              numberOfLines={6}
             >
               {message.text || "Message Attachment"}
             </Text>
@@ -8028,33 +8042,49 @@ export default function ConversationScreen() {
                 if (section.projectId != null) {
                   const projectId = section.projectId;
                   const channelCount = section.channelCount ?? 0;
+                  // Same row as a chat/channel (avatar, name, right-side
+                  // control); a "Projects" label precedes the first group.
+                  const isFirstProject =
+                    forwardSections.find((s) => s.projectId != null)
+                      ?.projectId === projectId;
                   return (
-                    <TouchableOpacity
-                      style={styles.forwardProjectHeader}
-                      activeOpacity={0.75}
-                      onPress={() => toggleForwardProject(projectId)}
-                    >
-                      <Ionicons
-                        name={
-                          section.collapsed ? "chevron-forward" : "chevron-down"
-                        }
-                        size={13}
-                        color="#6B7280"
-                      />
-                      <Text
-                        style={[
-                          styles.forwardSectionTitle,
-                          styles.forwardProjectTitle,
-                        ]}
-                        numberOfLines={1}
+                    <>
+                      {isFirstProject && (
+                        <View style={styles.forwardSectionHeader}>
+                          <Text style={styles.forwardSectionTitle}>
+                            Projects
+                          </Text>
+                        </View>
+                      )}
+                      <TouchableOpacity
+                        style={styles.forwardRoomRow}
+                        activeOpacity={0.75}
+                        onPress={() => toggleForwardProject(projectId)}
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded: !section.collapsed }}
                       >
-                        {section.title}
-                      </Text>
-                      <Text style={styles.forwardProjectCount}>
-                        {channelCount}{" "}
-                        {channelCount === 1 ? "channel" : "channels"}
-                      </Text>
-                    </TouchableOpacity>
+                        <Avatar
+                          name={section.title}
+                          size={20}
+                          borderRadius={5}
+                          fontSize={9}
+                        />
+                        <Text style={styles.forwardRoomName} numberOfLines={1}>
+                          {section.title}
+                        </Text>
+                        <Text style={styles.forwardProjectCount}>
+                          {channelCount}{" "}
+                          {channelCount === 1 ? "channel" : "channels"}
+                        </Text>
+                        <Ionicons
+                          name={
+                            section.collapsed ? "chevron-forward" : "chevron-down"
+                          }
+                          size={14}
+                          color="#6B7280"
+                        />
+                      </TouchableOpacity>
+                    </>
                   );
                 }
                 return (
@@ -9072,25 +9102,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     textTransform: "uppercase",
   },
-  forwardProjectHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 4,
-    backgroundColor: "#fff",
-  },
-  forwardProjectTitle: {
-    flexShrink: 1,
-    fontSize: rf(11),
-    fontFamily: "SF_Pro_Semibold",
-    color: TEXT_PRIMARY,
-    letterSpacing: 0,
-    textTransform: "none",
-  },
   forwardProjectCount: {
-    marginLeft: "auto",
     fontSize: rf(9.5),
     fontFamily: "SF_Pro_Regular",
     color: "#8A8A8A",
