@@ -123,7 +123,8 @@ export type AuthContextValue = {
   state: AuthState;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  restoreSession: () => Promise<void>;
+  /** Resolves true only if a valid session was restored and the user is signed in. */
+  restoreSession: () => Promise<boolean>;
   handleDefaultPassword: (email: string) => void;
   setInitialPassword: (
     email: string,
@@ -398,12 +399,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         company,
       });
-    } else {
-      resetTaskStores();
-      console.log(
-        "No valid saved session found. Please sign in with email & password.",
-      );
+      return true;
     }
+    // Drop the dead biometric session so the login screen stops offering
+    // Face ID for it; the next password login saves a fresh one.
+    resetTaskStores();
+    await removeBiometricSession();
+    return false;
   }, []);
 
   const logout = useCallback(async () => {

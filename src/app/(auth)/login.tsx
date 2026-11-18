@@ -7,6 +7,7 @@ import Images from "@/constants/images";
 import { useAuth } from "@/hooks/useAuth";
 import { Colors } from "@/theme/root";
 import { extractErrorMessage } from "@/utils/errorHandler";
+import { getBiometricSession } from "@/utils/token";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -53,6 +54,9 @@ export default function Login() {
       try {
         const enabled = await SecureStore.getItemAsync("pref_biometrics_enabled");
         if (enabled !== "true" || !isMounted) return;
+        // No usable saved login (expired or never saved) — Face ID would
+        // succeed but have nothing to sign in with, so don't prompt.
+        if (!(await getBiometricSession()) || !isMounted) return;
 
         const hasHardware = await LocalAuthentication.hasHardwareAsync();
         const isEnrolled = await LocalAuthentication.isEnrolledAsync();
@@ -77,9 +81,15 @@ export default function Login() {
 
         if (res.success && isMounted) {
           setLoading(true);
-          await restoreSession();
-          showSuccess("Authenticated successfully!");
-          router.replace("/(tabs)/tasks");
+          if (await restoreSession()) {
+            showSuccess("Authenticated successfully!");
+            router.replace("/(tabs)/tasks");
+          } else {
+            showInfo(
+              "Session expired",
+              "Please sign in with your email and password.",
+            );
+          }
         }
       } catch (err) {
         console.warn("[Login] Auto biometric error:", err);
