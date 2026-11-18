@@ -649,6 +649,14 @@ function AttachmentModal({
   onSelectGallery: () => void;
   onSelectDocument: () => void;
 }) {
+  // iOS can't present the photo/document picker while this modal is still
+  // animating closed — it fails silently. Wait for the dismiss to finish.
+  // ponytail: fixed delay; switch to Modal onDismiss if it ever proves flaky.
+  const pick = (open: () => void) => {
+    onClose();
+    setTimeout(open, Platform.OS === "ios" ? 500 : 0);
+  };
+
   if (!visible) return null;
 
   return (
@@ -671,10 +679,7 @@ function AttachmentModal({
             <TouchableOpacity
               style={attModalStyles.optionBtn}
               activeOpacity={0.8}
-              onPress={() => {
-                onClose();
-                onSelectCamera();
-              }}
+              onPress={() => pick(onSelectCamera)}
             >
               <View
                 style={[
@@ -690,10 +695,7 @@ function AttachmentModal({
             <TouchableOpacity
               style={attModalStyles.optionBtn}
               activeOpacity={0.8}
-              onPress={() => {
-                onClose();
-                onSelectGallery();
-              }}
+              onPress={() => pick(onSelectGallery)}
             >
               <View
                 style={[
@@ -709,10 +711,7 @@ function AttachmentModal({
             <TouchableOpacity
               style={attModalStyles.optionBtn}
               activeOpacity={0.8}
-              onPress={() => {
-                onClose();
-                onSelectDocument();
-              }}
+              onPress={() => pick(onSelectDocument)}
             >
               <View
                 style={[
