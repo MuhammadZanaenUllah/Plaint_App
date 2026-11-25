@@ -59,10 +59,14 @@ export default function SplashScreen() {
 
     // If the app was launched by tapping a chat notification, deep-link into
     // that conversation instead of the default tab.
-    const pendingTap = consumePendingNotificationTap();
-    if (pendingTap && authStateRef.current.isAuthenticated) {
-      handleTapRef.current(pendingTap);
-      return;
+    // Logged out: leave the tap pending — PushNotificationLifecycle opens it
+    // right after the user signs in.
+    if (authStateRef.current.isAuthenticated) {
+      const pendingTap = consumePendingNotificationTap();
+      if (pendingTap) {
+        handleTapRef.current(pendingTap);
+        return;
+      }
     }
 
     const hasOnboarded = await SecureStore.getItemAsync(ONBOARDING_KEY);

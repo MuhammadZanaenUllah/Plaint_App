@@ -10,7 +10,8 @@ import { extractErrorMessage } from "@/utils/errorHandler";
 import { getBiometricSession } from "@/utils/token";
 import { showError, showInfo, showSuccess } from "@/utils/toast";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   BackHandler,
@@ -47,66 +48,85 @@ export default function Login() {
     }, [])
   );
 
-  useEffect(() => {
-    let isMounted = true;
+  // "Face ID" / "Fingerprint" when biometric login is on and usable on this
+  // device; null hides the button.
+  const [bioLabel, setBioLabel] = useState<string | null>(null);
+  const mountedRef = useRef(true);
 
-    async function autoTriggerBiometrics() {
+  const biometricLogin = useCallback(
+    async (label: string) => {
       try {
-        const enabled = await SecureStore.getItemAsync("pref_biometrics_enabled");
-        if (enabled !== "true" || !isMounted) return;
-        // No usable saved login (expired or never saved) — Face ID would
-        // succeed but have nothing to sign in with, so don't prompt.
-        if (!(await getBiometricSession()) || !isMounted) return;
-
-        const hasHardware = await LocalAuthentication.hasHardwareAsync();
-        const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-
-        if (!hasHardware || !isEnrolled || !isMounted) return;
-
-        const types =
-          await LocalAuthentication.supportedAuthenticationTypesAsync();
-        const label = types.includes(
-          LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION
-        )
-          ? "Face ID"
-          : types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)
-          ? "Fingerprint"
-          : "Biometrics";
+        // No usable saved login (expired or never saved): the scan would
+        // succeed but have nothing to sign in with.
+        if (!(await getBiometricSession())) {
+          showInfo(
+            "Sign in with password",
+            `Sign in with your email and password once to use ${label} again.`,
+          );
+          return;
+        }
 
         const res = await LocalAuthentication.authenticateAsync({
           promptMessage: `Sign in using ${label}`,
           fallbackLabel: "Use Password",
           cancelLabel: "Cancel",
         });
+        if (!res.success || !mountedRef.current) return;
 
-        if (res.success && isMounted) {
-          setLoading(true);
-          if (await restoreSession()) {
-            showSuccess("Authenticated successfully!");
-            router.replace("/(tabs)/tasks");
-          } else {
-            showInfo(
-              "Session expired",
-              "Please sign in with your email and password.",
-            );
-          }
+        setLoading(true);
+        if (await restoreSession()) {
+          showSuccess("Authenticated successfully!");
+          router.replace("/(tabs)/tasks");
+        } else {
+          showInfo(
+            "Session expired",
+            "Please sign in with your email and password.",
+          );
         }
       } catch (err) {
-        console.warn("[Login] Auto biometric error:", err);
+        console.warn("[Login] Biometric error:", err);
       } finally {
-        if (isMounted) setLoading(false);
+        if (mountedRef.current) setLoading(false);
+      }
+    },
+    [restoreSession],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    async function setupBiometrics() {
+      try {
+        const enabled = await SecureStore.getItemAsync("pref_biometrics_enabled");
+        if (enabled !== "true") return;
+        const hasHardware = await LocalAuthentication.hasHardwareAsync();
+        const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+        if (!hasHardware || !isEnrolled || !mountedRef.current) return;
+
+        const types =
+          await LocalAuthentication.supportedAuthenticationTypesAsync();
+        const label = types.includes(
+          LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION,
+        )
+          ? "Face ID"
+          : "Fingerprint";
+        if (!mountedRef.current) return;
+        setBioLabel(label);
+
+        // Auto-prompt only when there is a saved login to restore; the
+        // button stays available to retry after a cancel or failure.
+        if (await getBiometricSession()) await biometricLogin(label);
+      } catch (err) {
+        console.warn("[Login] Biometric setup error:", err);
       }
     }
 
-    const timer = setTimeout(() => {
-      autoTriggerBiometrics();
-    }, 300);
-
+    const timer = setTimeout(setupBiometrics, 300);
     return () => {
-      isMounted = false;
+      mountedRef.current = false;
       clearTimeout(timer);
     };
-  }, []);
+  }, [biometricLogin]);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -181,6 +201,23 @@ export default function Login() {
                 )}
               </Pressable>
 
+              {bioLabel && (
+                <Pressable
+                  style={[styles.bioBtn, loading && styles.loginBtnDisabled]}
+                  onPress={() => biometricLogin(bioLabel)}
+                  disabled={loading}
+                >
+                  <Ionicons
+                    name={bioLabel === "Face ID" ? "scan-outline" : "finger-print"}
+                    size={20}
+                    color={Colors.bgButtonColor}
+                  />
+                  <Text allowFontScaling={false} style={styles.bioBtnText}>
+                    Log in with {bioLabel}
+                  </Text>
+                </Pressable>
+              )}
+
               <TouchableOpacity
                 onPress={() => router.replace("/(auth)/forgetpassword")}
               >
@@ -244,6 +281,22 @@ const styles = StyleSheet.create({
     fontSize: rf(16),
     fontFamily: "SF_Pro_Semibold",
     color: Colors.buttonText,
+  },
+  bioBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: Colors.bgButtonColor,
+    borderRadius: 8,
+    paddingVertical: 14,
+    marginTop: 12,
+  },
+  bioBtnText: {
+    fontSize: rf(16),
+    fontFamily: "SF_Pro_Semibold",
+    color: Colors.bgButtonColor,
   },
   forgotText: {
     textAlign: "center",

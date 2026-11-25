@@ -50,14 +50,46 @@ LogBox.ignoreLogs([
 ]);
 
 function PushNotificationLifecycle() {
-  const { registerForPushNotifications, unregisterDevice, resetBadge } =
-    usePushNotifications();
+  const {
+    registerForPushNotifications,
+    unregisterDevice,
+    resetBadge,
+    consumePendingNotificationTap,
+    handleNotificationTap,
+  } = usePushNotifications();
   const authCtx = useContext(AuthContext);
   const state = authCtx?.state ?? {
     isAuthenticated: false,
     isDefaultPassword: false,
     loading: true,
   };
+
+  // A notification tapped while logged out stays pending; open it once the
+  // user signs in (password or biometric). Only on a real logged-out →
+  // logged-in change — a cold-start session restore is handled by the splash.
+  const wasLoggedOutRef = useRef(false);
+  useEffect(() => {
+    if (state.loading) return;
+    if (!state.isAuthenticated) {
+      wasLoggedOutRef.current = true;
+      return;
+    }
+    if (!wasLoggedOutRef.current || state.isDefaultPassword) return;
+    // Let the login screen's own redirect to Tasks land first, then push the
+    // chat on top of it.
+    const t = setTimeout(() => {
+      wasLoggedOutRef.current = false;
+      const pending = consumePendingNotificationTap();
+      if (pending) handleNotificationTap(pending);
+    }, 600);
+    return () => clearTimeout(t);
+  }, [
+    state.loading,
+    state.isAuthenticated,
+    state.isDefaultPassword,
+    consumePendingNotificationTap,
+    handleNotificationTap,
+  ]);
   const registeredCompanyRef = useRef<number | null>(null);
   const registeringCompanyRef = useRef<number | null>(null);
 

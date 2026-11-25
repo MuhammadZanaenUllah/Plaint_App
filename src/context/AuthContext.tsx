@@ -176,7 +176,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const handleAuthFailure = () => {
+    const handleAuthFailure = async () => {
+      // Already logged out: this rejection is a request sent without a token
+      // (e.g. the push unregister right after logout), not a rejected login.
+      // Wiping the biometric session here would break Face ID after every
+      // logout.
+      if (!(await getStoredToken())) return;
       // The rejected token must not be restored again (including by the
       // biometric session), otherwise login/session restore can loop on an
       // invalid or deactivated token.
