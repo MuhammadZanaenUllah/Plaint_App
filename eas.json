@@ -31,9 +31,16 @@
         "EXPO_PUBLIC_API_BASE_URL": "https://backend.planit.pk/api/v1",
         "EXPO_PUBLIC_SOCKET_URL": "https://backend.planit.pk"
       }
+    },
+    "testflight": {
+      "extends": "production",
+      "channel": "testflight"
     }
   },
   "submit": {
-    "production": {}
+    "production": {},
+    "testflight": {
+      "extends": "production"
+    }
   }
 }
