@@ -27,7 +27,6 @@ import {
   buildVoiceNoteFileName,
   buildVoiceNoteText,
   canPerformAction,
-  filterMessagesByText,
   formatMessageTime,
   formatVoiceDuration,
   getMessagePostType,
@@ -44,6 +43,11 @@ import {
   resolveFileUrl,
   resolveSecureFileUrl,
 } from "@/utils/chatHelpers";
+import {
+  getMatchingMessages,
+  nextMatchIndex,
+  splitHighlightSegments,
+} from "@/utils/chatSearch";
 import {
   markConversationClosed,
   markConversationOpen,
@@ -1018,13 +1022,37 @@ function buildVideoSource(
 const URL_PATTERN = /(https?:\/\/[^\s]+)/gi;
 const URL_FULL_PATTERN = /^https?:\/\/[^\s]+$/i;
 
-/** Renders message text with clickable, underlined links. */
+/**
+ * Render a text slice with every search-query occurrence wrapped in a highlight
+ * <Text>. Non-matching slices stay as plain strings so the original layout,
+ * line breaks and typography are preserved exactly.
+ */
+function renderHighlightedSlice(
+  slice: string,
+  highlightQuery: string | undefined,
+  keyPrefix: string,
+) {
+  if (!highlightQuery) return slice;
+  return splitHighlightSegments(slice, highlightQuery).map((segment, i) =>
+    segment.match ? (
+      <Text key={`${keyPrefix}-${i}`} style={styles.searchHighlight}>
+        {segment.text}
+      </Text>
+    ) : (
+      segment.text
+    ),
+  );
+}
+
+/** Renders message text with clickable, underlined links + search highlights. */
 function LinkifiedText({
   text,
   style,
+  highlightQuery,
 }: {
   text: string;
   style?: StyleProp<TextStyle>;
+  highlightQuery?: string;
 }) {
   const parts = text.split(URL_PATTERN);
   return (
@@ -1040,10 +1068,10 @@ function LinkifiedText({
               )
             }
           >
-            {part}
+            {renderHighlightedSlice(part, highlightQuery, `link-${i}`)}
           </Text>
         ) : (
-          part
+          renderHighlightedSlice(part, highlightQuery, `text-${i}`)
         ),
       )}
     </Text>
@@ -2363,6 +2391,7 @@ const MessageBubble = React.memo(function MessageBubble({
   showSenderName = false,
   repliedPreview,
   highlighted = false,
+  highlightQuery,
   showTimestamp = true,
   onLongPress,
   onReactionPress,
@@ -2381,6 +2410,7 @@ const MessageBubble = React.memo(function MessageBubble({
     targetId?: string;
   } | null;
   highlighted?: boolean;
+  highlightQuery?: string;
   showTimestamp?: boolean;
   onLongPress?: (msg: ChatMessage, e?: GestureResponderEvent) => void;
   onReactionPress?: (msg: ChatMessage, emoji: string) => void;
@@ -2583,14 +2613,22 @@ const MessageBubble = React.memo(function MessageBubble({
                 {message.text &&
                 !isVoiceNoteText(message.text) &&
                 !message.text.startsWith("📎 ") ? (
-                  <LinkifiedText text={message.text} style={styles.bubbleText} />
+                  <LinkifiedText
+                    text={message.text}
+                    style={styles.bubbleText}
+                    highlightQuery={highlightQuery}
+                  />
                 ) : message.text &&
                   message.text.startsWith("📎 ") &&
                   !imageAtts?.length &&
                   !docAtts?.length &&
                   !videoAtts?.length &&
                   !audioAtt ? (
-                  <LinkifiedText text={message.text} style={styles.bubbleText} />
+                  <LinkifiedText
+                    text={message.text}
+                    style={styles.bubbleText}
+                    highlightQuery={highlightQuery}
+                  />
                 ) : null}
                 {docAtts && docAtts.length > 0 ? (
                   <AttachmentCluster
@@ -2644,25 +2682,23 @@ const MessageBubble = React.memo(function MessageBubble({
     <View style={styles.messageWrapper}>
       <View style={styles.outgoingRow}>
         <View style={styles.outgoingContent}>
-          <Text style={styles.senderMetaOutgoing}>
-            {showTimestamp && showSenderName ? `${senderName} ` : null}
-            {showTimestamp ? (
-              <>
-                <Text style={styles.timeMeta}>
-                  {showSenderName ? `| ${time}` : time}
-                </Text>{" "}
-              </>
-            ) : null}
-            {message.is_pending ? (
-              <ActivityIndicator size={9} color="#9CA3AF" />
-            ) : (
-              <Ionicons
-                name={isTickDouble ? "checkmark-done" : "checkmark"}
-                size={13}
-                color={tickColor}
-              />
-            )}
-          </Text>
+          {showTimestamp && (
+            <Text style={styles.senderMetaOutgoing}>
+              {showSenderName ? `${senderName} ` : null}
+              <Text style={styles.timeMeta}>
+                {showSenderName ? `| ${time}` : time}
+              </Text>{" "}
+              {message.is_pending ? (
+                <ActivityIndicator size={9} color="#9CA3AF" />
+              ) : (
+                <Ionicons
+                  name={isTickDouble ? "checkmark-done" : "checkmark"}
+                  size={13}
+                  color={tickColor}
+                />
+              )}
+            </Text>
+          )}
           <Animated.View style={{ transform: [{ scale: bubbleScale }] }}>
             <Pressable
               onPressIn={handlePressIn}
@@ -2710,14 +2746,22 @@ const MessageBubble = React.memo(function MessageBubble({
               {message.text &&
               !isVoiceNoteText(message.text) &&
               !message.text.startsWith("📎 ") ? (
-                <LinkifiedText text={message.text} style={styles.bubbleText} />
+                <LinkifiedText
+                  text={message.text}
+                  style={styles.bubbleText}
+                  highlightQuery={highlightQuery}
+                />
               ) : message.text &&
                 message.text.startsWith("📎 ") &&
                 !imageAtts?.length &&
                 !docAtts?.length &&
                 !videoAtts?.length &&
                 !audioAtt ? (
-                <LinkifiedText text={message.text} style={styles.bubbleText} />
+                <LinkifiedText
+                  text={message.text}
+                  style={styles.bubbleText}
+                  highlightQuery={highlightQuery}
+                />
               ) : null}
               {docAtts && docAtts.length > 0 ? (
                 <AttachmentCluster
@@ -4705,11 +4749,11 @@ export default function ConversationScreen() {
         // appears immediately with the pending loader on the ticks and flips to
         // the sent ticks on success — exactly like a text message. There is no
         // separate upload progress bar any more.
-        const trimmed = caption?.trim() ?? "";
+        const rawCaption = caption ?? "";
         await sendMessage({
           room_id: roomId,
-          text: trimmed
-            ? trimmed
+          text: rawCaption.trim()
+            ? rawCaption
             : files.length === 1
               ? `📎 ${files[0].name}`
               : `📎 ${files.length} attachments`,
@@ -4854,6 +4898,17 @@ export default function ConversationScreen() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<TextInput>(null);
+  // Search is a rendering concern only: it highlights matches in the existing
+  // list instead of filtering it, so the FlatList data (and therefore the
+  // scroll position) never changes when search opens, updates or closes.
+  const trimmedSearch = search.trim();
+  const searchActive = searchOpen && trimmedSearch.length > 0;
+  // Selected match for the up/down arrows. Scoped to the query string so a new
+  // query starts "not navigated yet" without needing a reset effect.
+  const [activeSearchMatch, setActiveSearchMatch] = useState<{
+    query: string;
+    index: number;
+  }>({ query: "", index: -1 });
 
   // Three-dot conversation menu (mute / mark unread / delete chat), shown as a
   // small popover anchored to the header button.
@@ -5557,7 +5612,9 @@ export default function ConversationScreen() {
     if (!message.trim() || !roomId || sending) return;
 
     if (editingMsg) {
-      const textToSave = message.trim();
+      // Preserve the message exactly as typed/pasted — trimming here silently
+      // removed indentation, blank lines and trailing spaces.
+      const textToSave = message;
       const targetMsg = editingMsg;
       setEditingMsg(null);
       setMessage("");
@@ -5580,7 +5637,9 @@ export default function ConversationScreen() {
     }
 
     socketService.emitStopTyping(roomId, currentUserId, currentUserName);
-    const text = message.trim();
+    // Send the raw text (no trim): leading whitespace/indentation, blank lines
+    // and trailing newlines are meaningful for pasted code blocks and tables.
+    const text = message;
     const mentions = mentionedUserIds;
     const replyTarget = replyTo;
     setMessage("");
@@ -6552,6 +6611,7 @@ export default function ConversationScreen() {
               showSenderName={isChannel}
               repliedPreview={repliedPreview}
               highlighted={highlightedMessageId === (message._id as string)}
+              highlightQuery={searchActive ? trimmedSearch : undefined}
               showTimestamp={item.showTime}
               onLongPress={handleLongPress}
               onReactionPress={handleReactEmoji}
@@ -6572,6 +6632,8 @@ export default function ConversationScreen() {
       uniqueTextToMessageId,
       replyTargetIds,
       highlightedMessageId,
+      searchActive,
+      trimmedSearch,
       handleLongPress,
       handleReactEmoji,
       canUseMessageActions,
@@ -6582,11 +6644,11 @@ export default function ConversationScreen() {
     ],
   );
 
-  // Filtered messages (chronological) after search + date filters.
+  // Filtered messages (chronological) after the header date/post-type filters.
+  // Text search is deliberately NOT applied here — it highlights in place so the
+  // list data stays stable and scrolling is never reset by a query change.
   const filteredMessages = useMemo(() => {
-    let filtered = search.trim()
-      ? filterMessagesByText(state.messages, search)
-      : state.messages;
+    let filtered = state.messages;
 
     if (dateFilterStart && dateFilterEnd) {
       const startOfDay = new Date(dateFilterStart);
@@ -6610,7 +6672,6 @@ export default function ConversationScreen() {
     return filtered;
   }, [
     state.messages,
-    search,
     dateFilterStart,
     dateFilterEnd,
     filterPostType,
@@ -6665,6 +6726,72 @@ export default function ConversationScreen() {
     }
     return items.reverse();
   }, [filteredMessages]);
+
+  // Ordered (oldest → newest) matches together with their FlatList row index,
+  // used by the up/down navigation arrows. Built from the same filtered list the
+  // FlatList renders, so every scroll target is a real row.
+  const searchMatches = useMemo(() => {
+    if (!searchActive) {
+      return [] as { message: ChatMessage; listIndex: number }[];
+    }
+    const matched = getMatchingMessages(filteredMessages, trimmedSearch);
+    if (matched.size === 0) return [];
+    const listIndexByMessage = new Map<ChatMessage, number>();
+    listItems.forEach((item, index) => {
+      if (item.type === "message") listIndexByMessage.set(item.message, index);
+    });
+    const ordered: { message: ChatMessage; listIndex: number }[] = [];
+    for (const message of filteredMessages) {
+      if (!matched.has(message)) continue;
+      const listIndex = listIndexByMessage.get(message);
+      if (listIndex !== undefined) ordered.push({ message, listIndex });
+    }
+    return ordered;
+  }, [searchActive, trimmedSearch, filteredMessages, listItems]);
+
+  const searchMatchCount = searchMatches.length;
+
+  // A selection made under a previous query reads as "not navigated yet" (-1)
+  // until the user taps an arrow again — no reset effect required.
+  const rawActiveSearchMatchIndex =
+    activeSearchMatch.query === trimmedSearch ? activeSearchMatch.index : -1;
+  const activeSearchMatchIndex =
+    searchMatchCount === 0
+      ? -1
+      : rawActiveSearchMatchIndex >= searchMatchCount
+        ? searchMatchCount - 1
+        : rawActiveSearchMatchIndex;
+
+  // Only ever scrolls on an explicit arrow tap — never on query changes — so
+  // manual scrolling is never overridden.
+  const goToSearchMatch = useCallback(
+    (direction: 1 | -1) => {
+      if (searchMatchCount === 0) return;
+      const next = nextMatchIndex(
+        activeSearchMatch.query === trimmedSearch
+          ? activeSearchMatch.index
+          : -1,
+        searchMatchCount,
+        direction,
+      );
+      if (next < 0) return;
+      setActiveSearchMatch({ query: trimmedSearch, index: next });
+      const target = searchMatches[next];
+      if (!target) return;
+      requestAnimationFrame(() => {
+        try {
+          scrollRef.current?.scrollToIndex({
+            index: target.listIndex,
+            animated: true,
+            viewPosition: 0.5,
+          });
+        } catch {
+          // onScrollToIndexFailed retries once the row is measured.
+        }
+      });
+    },
+    [activeSearchMatch, searchMatchCount, searchMatches, trimmedSearch],
+  );
 
   // Resolve a pending "jump to pinned message" request: scroll if already
   // loaded, otherwise keep paginating older messages until it appears (with a
@@ -6857,7 +6984,7 @@ export default function ConversationScreen() {
               onPress={(e) => e.stopPropagation()}
             >
               <View style={styles.searchBox}>
-                <Ionicons name="search-outline" size={18} color="#9CA3AF" />
+                <Ionicons name="search-outline" size={16} color="#9CA3AF" />
                 <TextInput
                   ref={searchInputRef}
                   style={styles.searchInput}
@@ -6867,13 +6994,46 @@ export default function ConversationScreen() {
                   onChangeText={setSearch}
                   autoFocus
                 />
+                {searchActive && (
+                  <>
+                    <Text style={styles.searchCountText}>
+                      {activeSearchMatchIndex >= 0
+                        ? `${activeSearchMatchIndex + 1}/${searchMatchCount}`
+                        : `${searchMatchCount}`}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => goToSearchMatch(1)}
+                      style={styles.searchNavBtn}
+                      activeOpacity={0.7}
+                      disabled={searchMatchCount === 0}
+                    >
+                      <Ionicons
+                        name="chevron-down"
+                        size={16}
+                        color={searchMatchCount === 0 ? "#C4C4C4" : "#1D1D1D"}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => goToSearchMatch(-1)}
+                      style={styles.searchNavBtn}
+                      activeOpacity={0.7}
+                      disabled={searchMatchCount === 0}
+                    >
+                      <Ionicons
+                        name="chevron-up"
+                        size={16}
+                        color={searchMatchCount === 0 ? "#C4C4C4" : "#1D1D1D"}
+                      />
+                    </TouchableOpacity>
+                  </>
+                )}
                 {search.length > 0 && (
                   <TouchableOpacity
                     onPress={() => setSearch("")}
-                    hitSlop={8}
+                    style={styles.searchNavBtn}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+                    <Ionicons name="close-circle" size={16} color="#9CA3AF" />
                   </TouchableOpacity>
                 )}
               </View>
@@ -7245,16 +7405,6 @@ export default function ConversationScreen() {
             updateCellsBatchingPeriod={30}
             initialNumToRender={25}
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-            ListHeaderComponent={
-              search.trim() ? (
-                <View style={styles.searchResultBadge}>
-                  <Text style={styles.searchResultText}>
-                    {filteredMessages.length} result
-                    {filteredMessages.length !== 1 ? "s" : ""} found
-                  </Text>
-                </View>
-              ) : null
-            }
             ListFooterComponent={
               <>
                 {state.messagesLoading && state.messages.length > 0 && (
@@ -7300,21 +7450,6 @@ export default function ConversationScreen() {
               state.messagesLoading && state.messages.length === 0 ? (
                 <View style={{ padding: 40, alignItems: "center" }}>
                   <ActivityIndicator size="large" color="#00DEAB" />
-                </View>
-              ) : search.trim() && filteredMessages.length === 0 ? (
-                <View style={{ padding: 40, alignItems: "center" }}>
-                  <Ionicons name="search-outline" size={32} color="#D1D5DB" />
-                  <Text
-                    style={{
-                      fontSize: rf(13),
-                      color: "#9CA3AF",
-                      fontFamily: "SF_Pro_Regular",
-                      marginTop: 8,
-                      textAlign: "center",
-                    }}
-                  >
-                    No messages matching "{search}"
-                  </Text>
                 </View>
               ) : dateFilterStart &&
                 dateFilterEnd &&
@@ -7375,7 +7510,7 @@ export default function ConversationScreen() {
               activeOpacity={0.85}
               onPress={scrollToBottom}
             >
-              <Ionicons name="chevron-down" size={16} color="#1D1D1D" />
+              <Ionicons name="chevron-down" size={16} color="#000000" />
               {newMessageCount > 0 && (
                 <View style={styles.scrollToBottomBadge}>
                   <Text style={styles.scrollToBottomBadgeText}>
@@ -7526,7 +7661,7 @@ export default function ConversationScreen() {
                         value={message}
                         onChangeText={handleTextChange}
                         multiline
-                        maxLength={2000}
+                        maxLength={10000}
                       />
                     </View>
 
@@ -8207,7 +8342,7 @@ const styles = StyleSheet.create({
     width: 31,
     height: 31,
     borderRadius: 16,
-    backgroundColor: "#fff",
+    backgroundColor: "#0CD5A3",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
@@ -8297,23 +8432,37 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E6E6E6",
     borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 40,
-    gap: 8,
+    paddingHorizontal: 10,
+    height: 36,
+    gap: 5,
     backgroundColor: "#fff",
   },
   searchInput: {
     flex: 1,
-    fontSize: rf(14),
+    fontSize: rf(13),
     color: "#111827",
     fontFamily: "SF_Pro_Regular",
     padding: 0,
   },
+  searchNavBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   cancelBtn: { paddingHorizontal: 4 },
   cancelText: {
-    fontSize: rf(14),
+    fontSize: rf(13),
     fontFamily: "SF_Pro_Medium",
     color: TEAL,
+  },
+  searchCountText: {
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Medium",
+    color: "#6B7280",
+    minWidth: 24,
+    textAlign: "right",
   },
 
   // ── Filter Chips ──
@@ -8393,19 +8542,6 @@ const styles = StyleSheet.create({
   bubbleHighlight: {
     backgroundColor: "rgba(0, 222, 171, 0.35)",
   },
-  searchResultBadge: {
-    backgroundColor: "#F3F4F6",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    alignSelf: "center",
-    marginBottom: 4,
-  },
-  searchResultText: {
-    fontSize: rf(11),
-    fontFamily: "SF_Pro_Medium",
-    color: "#6B7280",
-  },
 
   incomingRow: {
     flexDirection: "row",
@@ -8476,6 +8612,13 @@ const styles = StyleSheet.create({
   linkText: {
     color: "#0A84FF",
     textDecorationLine: "underline",
+  },
+  // Inline search match highlight. Background-only so text size, line height,
+  // wrapping and bubble height stay identical with/without search — this is what
+  // keeps the scroll position stable when search closes.
+  searchHighlight: {
+    backgroundColor: "#0CD5A3",
+    color: "#04352B",
   },
   forwardedRow: {
     flexDirection: "row",
