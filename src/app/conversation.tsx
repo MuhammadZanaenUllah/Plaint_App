@@ -11,6 +11,13 @@ import MediaComposerModal, {
   type ComposerFile,
 } from "@/components/MediaComposerModal";
 import SecureImage from "@/components/SecureImage";
+import MarkdownMessage from "@/components/chat/MarkdownMessage";
+import {
+  MESSAGE_MAX_LENGTH,
+  getCopyableMessageText,
+  getOutgoingMessageText,
+  isBlankMessage,
+} from "@/features/chat/messageText";
 import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat, useChatPresence } from "@/hooks/useChat";
@@ -46,7 +53,6 @@ import {
 import {
   getMatchingMessages,
   nextMatchIndex,
-  splitHighlightSegments,
 } from "@/utils/chatSearch";
 import {
   markConversationClosed,
@@ -117,7 +123,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TextStyle,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -1018,65 +1023,10 @@ function buildVideoSource(
   return { uri, headers };
 }
 
-// Matches http(s) URLs embedded in a message's plain text.
+// Matches http(s) URLs embedded in a message's plain text (used by the
+// Attachments panel's Links list). Message body rendering lives in
+// components/chat/MarkdownMessage.tsx.
 const URL_PATTERN = /(https?:\/\/[^\s]+)/gi;
-const URL_FULL_PATTERN = /^https?:\/\/[^\s]+$/i;
-
-/**
- * Render a text slice with every search-query occurrence wrapped in a highlight
- * <Text>. Non-matching slices stay as plain strings so the original layout,
- * line breaks and typography are preserved exactly.
- */
-function renderHighlightedSlice(
-  slice: string,
-  highlightQuery: string | undefined,
-  keyPrefix: string,
-) {
-  if (!highlightQuery) return slice;
-  return splitHighlightSegments(slice, highlightQuery).map((segment, i) =>
-    segment.match ? (
-      <Text key={`${keyPrefix}-${i}`} style={styles.searchHighlight}>
-        {segment.text}
-      </Text>
-    ) : (
-      segment.text
-    ),
-  );
-}
-
-/** Renders message text with clickable, underlined links + search highlights. */
-function LinkifiedText({
-  text,
-  style,
-  highlightQuery,
-}: {
-  text: string;
-  style?: StyleProp<TextStyle>;
-  highlightQuery?: string;
-}) {
-  const parts = text.split(URL_PATTERN);
-  return (
-    <Text style={style}>
-      {parts.map((part, i) =>
-        URL_FULL_PATTERN.test(part) ? (
-          <Text
-            key={i}
-            style={styles.linkText}
-            onPress={() =>
-              Linking.openURL(part).catch(() =>
-                showError("Error", "Could not open this link."),
-              )
-            }
-          >
-            {renderHighlightedSlice(part, highlightQuery, `link-${i}`)}
-          </Text>
-        ) : (
-          renderHighlightedSlice(part, highlightQuery, `text-${i}`)
-        ),
-      )}
-    </Text>
-  );
-}
 
 // ─── Member Permission Sheet ──────────────────────────────────────────────────
 
@@ -2613,9 +2563,9 @@ const MessageBubble = React.memo(function MessageBubble({
                 {message.text &&
                 !isVoiceNoteText(message.text) &&
                 !message.text.startsWith("📎 ") ? (
-                  <LinkifiedText
+                  <MarkdownMessage
                     text={message.text}
-                    style={styles.bubbleText}
+                    textStyle={styles.bubbleText}
                     highlightQuery={highlightQuery}
                   />
                 ) : message.text &&
@@ -2624,9 +2574,9 @@ const MessageBubble = React.memo(function MessageBubble({
                   !docAtts?.length &&
                   !videoAtts?.length &&
                   !audioAtt ? (
-                  <LinkifiedText
+                  <MarkdownMessage
                     text={message.text}
-                    style={styles.bubbleText}
+                    textStyle={styles.bubbleText}
                     highlightQuery={highlightQuery}
                   />
                 ) : null}
@@ -2746,9 +2696,9 @@ const MessageBubble = React.memo(function MessageBubble({
               {message.text &&
               !isVoiceNoteText(message.text) &&
               !message.text.startsWith("📎 ") ? (
-                <LinkifiedText
+                <MarkdownMessage
                   text={message.text}
-                  style={styles.bubbleText}
+                  textStyle={styles.bubbleText}
                   highlightQuery={highlightQuery}
                 />
               ) : message.text &&
@@ -2757,9 +2707,9 @@ const MessageBubble = React.memo(function MessageBubble({
                 !docAtts?.length &&
                 !videoAtts?.length &&
                 !audioAtt ? (
-                <LinkifiedText
+                <MarkdownMessage
                   text={message.text}
-                  style={styles.bubbleText}
+                  textStyle={styles.bubbleText}
                   highlightQuery={highlightQuery}
                 />
               ) : null}
@@ -4752,11 +4702,11 @@ export default function ConversationScreen() {
         const rawCaption = caption ?? "";
         await sendMessage({
           room_id: roomId,
-          text: rawCaption.trim()
-            ? rawCaption
-            : files.length === 1
+          text: isBlankMessage(rawCaption)
+            ? files.length === 1
               ? `📎 ${files[0].name}`
-              : `📎 ${files.length} attachments`,
+              : `📎 ${files.length} attachments`
+            : getOutgoingMessageText(rawCaption),
           ...(selectedPostType ? { postType: selectedPostType } : {}),
           attachments: files,
         });
@@ -5571,7 +5521,7 @@ export default function ConversationScreen() {
       if (!triggerActive) setMentionQuery("");
 
       if (!roomId || !currentUserId || !canSendMessage) return;
-      if (text.trim().length > 0) {
+      if (!isBlankMessage(text)) {
         socketService.startTypingWithTimeout(
           roomId,
           currentUserId,
@@ -5609,12 +5559,12 @@ export default function ConversationScreen() {
   }, [typingUsers, roomId]);
 
   const handleSend = useCallback(async () => {
-    if (!message.trim() || !roomId || sending) return;
+    if (isBlankMessage(message) || !roomId || sending) return;
 
     if (editingMsg) {
       // Preserve the message exactly as typed/pasted — trimming here silently
       // removed indentation, blank lines and trailing spaces.
-      const textToSave = message;
+      const textToSave = getOutgoingMessageText(message);
       const targetMsg = editingMsg;
       setEditingMsg(null);
       setMessage("");
@@ -5639,7 +5589,7 @@ export default function ConversationScreen() {
     socketService.emitStopTyping(roomId, currentUserId, currentUserName);
     // Send the raw text (no trim): leading whitespace/indentation, blank lines
     // and trailing newlines are meaningful for pasted code blocks and tables.
-    const text = message;
+    const text = getOutgoingMessageText(message);
     const mentions = mentionedUserIds;
     const replyTarget = replyTo;
     setMessage("");
@@ -6064,7 +6014,7 @@ export default function ConversationScreen() {
         {
           text: "Copy Text",
           onPress: () => {
-            Clipboard.setStringAsync(msg.text);
+            Clipboard.setStringAsync(getCopyableMessageText(msg.text));
           },
         },
         ...(isOwn && withinWindow
@@ -7661,7 +7611,7 @@ export default function ConversationScreen() {
                         value={message}
                         onChangeText={handleTextChange}
                         multiline
-                        maxLength={10000}
+                        maxLength={MESSAGE_MAX_LENGTH}
                       />
                     </View>
 
@@ -7729,12 +7679,12 @@ export default function ConversationScreen() {
                       <TouchableOpacity
                         style={[
                           styles.sendBtn,
-                          (message.trim().length > 0 || sending) &&
+                          (!isBlankMessage(message) || sending) &&
                             styles.sendBtnActive,
                         ]}
                         activeOpacity={0.4}
                         onPress={handleSend}
-                        disabled={sending || !message.trim()}
+                        disabled={sending || isBlankMessage(message)}
                       >
                         <Ionicons
                           name={editingMsg ? "checkmark" : "paper-plane"}
@@ -7913,7 +7863,7 @@ export default function ConversationScreen() {
             !isVoiceNoteText(msg.text) &&
             !msg.text.startsWith("📎 ")
           ) {
-            Clipboard.setStringAsync(msg.text);
+            Clipboard.setStringAsync(getCopyableMessageText(msg.text));
             showInfo("Copied", "Message text copied to clipboard");
           }
         }}
@@ -8608,17 +8558,6 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Regular",
     color: TEXT_PRIMARY,
     lineHeight: 16,
-  },
-  linkText: {
-    color: "#0A84FF",
-    textDecorationLine: "underline",
-  },
-  // Inline search match highlight. Background-only so text size, line height,
-  // wrapping and bubble height stay identical with/without search — this is what
-  // keeps the scroll position stable when search closes.
-  searchHighlight: {
-    backgroundColor: "#0CD5A3",
-    color: "#04352B",
   },
   forwardedRow: {
     flexDirection: "row",
