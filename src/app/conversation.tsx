@@ -44,6 +44,7 @@ import {
   isAudioAttachment,
   isOwnMessage,
   isRoomUnread,
+  stripSelfChatPrefix,
   isVideoAttachment,
   isVoiceNoteText,
   isWithinMessageActionWindow,
@@ -4528,11 +4529,17 @@ export default function ConversationScreen() {
           router.setParams({ roomId: room._id });
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        // Surface a clear message when the backend rejects a self-chat; other
+        // new-chat failures keep the previous silent retry-on-reopen behavior.
+        if (!cancelled && Number(targetId) === currentUserId) {
+          showError("Error", "Could not start a chat with yourself.");
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, [roomId, targetId, getOrCreateRoom]);
+  }, [roomId, targetId, getOrCreateRoom, currentUserId]);
 
   // ── Room-level permission gating ──────────────────────────────────────
   // Room permissions come from GET /chat/room-permissions/:roomId
@@ -6878,10 +6885,12 @@ export default function ConversationScreen() {
                 </TouchableOpacity>
 
                 <Avatar
-                  name={name}
+                  name={stripSelfChatPrefix(name)}
                   imagePath={
                     !isChannel
-                      ? (roomMembers[0]?.image ?? (currentRoom as any)?.image)
+                      ? (currentRoom
+                          ? getRoomAvatar(currentRoom, currentUserId)
+                          : null)
                       : ((currentRoom as any)?.image ?? (currentRoom as any)?.avatar)
                   }
                   size={32}

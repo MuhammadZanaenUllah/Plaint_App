@@ -85,6 +85,7 @@
     "test:tasks": "tsx --test tests/task-logic/*.test.ts",
     "test:chat-search": "tsx --test tests/chat-search/*.test.ts",
     "test:chat-markdown": "tsx --test tests/chat-markdown/*.test.ts",
+    "test:chat-self": "tsx --test tests/chat-self/*.test.ts",
     "protect:baseline": "node scripts/baseline/create-baseline.mjs",
     "protect:verify": "node scripts/baseline/verify-baseline.mjs",
     "protect:report": "node scripts/baseline/report-changes.mjs",

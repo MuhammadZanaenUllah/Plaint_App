@@ -5,15 +5,47 @@ import { formatClockTime } from "@/utils/dateFormat";
 
 // ─── Room Helpers ─────────────────────────────────────────────────────────────
 
+/** True for a direct room that only contains the current user ("Message yourself"). */
+export function isSelfChatRoom(room: Room, currentUserId: number): boolean {
+  if (room.type !== "direct") return false;
+  const members = room.members ?? [];
+  return (
+    members.length > 0 &&
+    members.every((m) => String(m.id) === String(currentUserId))
+  );
+}
+
+/** Remove the `(You) ` prefix from a self-chat label (for avatar initials). */
+export function stripSelfChatPrefix(name: string | null | undefined): string {
+  return (name ?? "").replace(/^\(You\)\s*/i, "");
+}
+
 /** Get the display name for a room. For DMs, show the other member's name. */
 export function getRoomDisplayName(
   room: Room,
   currentUserId: number
 ): string {
   if (room.type === "direct") {
-    const otherMember = room.members.find((m) => m.id !== currentUserId);
+    const members = room.members ?? [];
+    const otherMember = members.find(
+      (m) => String(m.id) !== String(currentUserId),
+    );
     if (otherMember) {
-      return `${otherMember.first_name} ${otherMember.last_name}`;
+      return (
+        `${otherMember.first_name ?? ""} ${otherMember.last_name ?? ""}`.trim() ||
+        otherMember.email?.split("@")[0] ||
+        room.name
+      );
+    }
+    // Self-chat ("Message yourself"): every member is the current user.
+    if (isSelfChatRoom(room, currentUserId)) {
+      const self = members[0];
+      const selfName =
+        `${self.first_name ?? ""} ${self.last_name ?? ""}`.trim() ||
+        self.email?.split("@")[0] ||
+        room.name ||
+        "You";
+      return `(You) ${selfName}`;
     }
   }
   return room.name;
@@ -25,12 +57,23 @@ export function getRoomInitials(
   currentUserId: number
 ): string {
   if (room.type === "direct") {
-    const otherMember = room.members.find((m) => m.id !== currentUserId);
-    if (otherMember) {
-      return otherMember.first_name.charAt(0).toUpperCase();
+    const members = room.members ?? [];
+    const otherMember = members.find(
+      (m) => String(m.id) !== String(currentUserId),
+    );
+    const named = otherMember ?? (
+      isSelfChatRoom(room, currentUserId) ? members[0] : undefined
+    );
+    if (named) {
+      return (
+        named.first_name?.charAt(0) ||
+        named.email?.charAt(0) ||
+        room.name?.charAt(0) ||
+        "?"
+      ).toUpperCase();
     }
   }
-  return room.name.charAt(0).toUpperCase();
+  return (room.name?.charAt(0) ?? "?").toUpperCase();
 }
 
 /** Get the avatar image URL for a room. For DMs, show the other member's image. */
@@ -39,9 +82,15 @@ export function getRoomAvatar(
   currentUserId: number
 ): string | null {
   if (room.type === "direct") {
-    const otherMember = (room.members ?? []).find((m) => m.id !== currentUserId);
+    const members = room.members ?? [];
+    const otherMember = members.find(
+      (m) => String(m.id) !== String(currentUserId),
+    );
     if (otherMember?.image) {
       return otherMember.image;
+    }
+    if (isSelfChatRoom(room, currentUserId) && members[0]?.image) {
+      return members[0].image;
     }
   }
   return (room as any).image ?? (room as any).avatar ?? (room as any).icon ?? null;

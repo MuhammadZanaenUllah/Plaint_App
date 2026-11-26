@@ -37,8 +37,10 @@ import {
   getVoiceNoteSecondsFromText,
   isAudioAttachment,
   isRoomUnread,
+  isSelfChatRoom,
   isVoiceNoteText,
   sortRoomsByRecentActivity,
+  stripSelfChatPrefix,
 } from "@/utils/chatHelpers";
 import {
   openConversation,
@@ -437,6 +439,22 @@ export default function ChatScreen() {
     }
   }, [addPeopleOpen]);
 
+  // The current user as a selectable peer for the WhatsApp-style "Message
+  // yourself" chat. Only shown in DM mode (never in channel member selection).
+  const selfChatUser = useMemo(() => {
+    if (!currentUserId) return null;
+    const name =
+      `${currentUser?.first_name ?? ""} ${currentUser?.last_name ?? ""}`.trim() ||
+      currentUser?.email?.split("@")[0] ||
+      `User #${currentUserId}`;
+    return {
+      id: String(currentUserId),
+      name: `(You) ${name}`,
+      email: currentUser?.email,
+      initials: name.charAt(0).toUpperCase() || "Y",
+    };
+  }, [currentUser, currentUserId]);
+
   // Build a default list of all company members. The backend requires ≥2
   // chars to search, so we use the company directory (which includes emails)
   // plus any room members as the default, unsearched list.
@@ -496,18 +514,29 @@ export default function ChatScreen() {
   // - When query has ≥2 chars: use API search results (populated by setSearchQuery)
   // - Otherwise: use defaultMemberList built from rooms + task owners
   const addPeopleUsers = useMemo(() => {
-    if (addPeopleQuery.trim().length >= 2 && state.searchResults.length > 0) {
-      return state.searchResults.map((u) => ({
-        id: String(u.id),
-        name:
-          u.full_name ||
-          `${u.first_name || ""} ${u.last_name || ""}`.trim() ||
-          `User #${u.id}`,
-        email: u.email,
-      }));
-    }
-    return defaultMemberList;
-  }, [addPeopleQuery, state.searchResults, defaultMemberList]);
+    const base =
+      addPeopleQuery.trim().length >= 2 && state.searchResults.length > 0
+        ? state.searchResults.map((u) => ({
+            id: String(u.id),
+            name:
+              u.full_name ||
+              `${u.first_name || ""} ${u.last_name || ""}`.trim() ||
+              `User #${u.id}`,
+            email: u.email,
+          }))
+        : defaultMemberList;
+
+    // Channel member selection must never include yourself. In DM mode, pin
+    // the "Message yourself" row to the top (WhatsApp-style).
+    if (isChannelMode || !selfChatUser) return base;
+    return [selfChatUser, ...base.filter((u) => u.id !== selfChatUser.id)];
+  }, [
+    addPeopleQuery,
+    state.searchResults,
+    defaultMemberList,
+    isChannelMode,
+    selfChatUser,
+  ]);
 
   // Compute unread counts per chip
   const chipUnread = useMemo(() => {
@@ -774,17 +803,24 @@ export default function ChatScreen() {
   );
 
   const handleAddPeopleSelect = useCallback(
-    (user: { id: string; name: string; email?: string }) => {
+    (user: { id: string; name: string; email?: string; initials?: string }) => {
       setAddPeopleOpen(false);
       const targetId = parseInt(user.id, 10);
+      const isSelfChat = targetId === currentUserId;
 
       // Fast path: an already-loaded 1:1 room with this member opens
       // immediately — no network round-trip before navigation.
-      const existingRoom = state.rooms.find(
-        (r) =>
-          r.type === "direct" &&
-          (r.members ?? []).some((m) => m.id === targetId),
-      );
+      // For self-chat, a normal DM also contains the current user, so require
+      // *every* member to be the current user; otherwise `some()` would match
+      // the first unrelated DM.
+      const existingRoom = state.rooms.find((r) => {
+        if (r.type !== "direct") return false;
+        const members = r.members ?? [];
+        if (isSelfChat) {
+          return isSelfChatRoom(r, currentUserId);
+        }
+        return members.some((m) => String(m.id) === String(targetId));
+      });
       if (existingRoom) {
         if (isRoomUnread(existingRoom)) {
           markRead(existingRoom._id).catch(() => {});
@@ -800,7 +836,10 @@ export default function ChatScreen() {
       openConversation({
         targetId: String(targetId),
         name: user.name,
-        initials: user.name.trim().charAt(0).toUpperCase() || "C",
+        initials:
+          user.initials?.charAt(0).toUpperCase() ||
+          user.name.trim().charAt(0).toUpperCase() ||
+          "C",
       });
     },
     [currentUserId, state.rooms, markRead],
@@ -1109,7 +1148,7 @@ export default function ChatScreen() {
       >
         <View style={styles.avatarContainer}>
           <Avatar
-            name={displayName}
+            name={stripSelfChatPrefix(displayName)}
             imagePath={getRoomAvatar(room, currentUserId)}
             size={30}
             borderRadius={5}
