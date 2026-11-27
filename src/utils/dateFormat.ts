@@ -83,25 +83,29 @@ export function formatFullDateTime(
   return `${d.getDate()}, ${d.toLocaleString("en-US", { month: "short" })} ${time}`;
 }
 
-/** "Just now" / "5m ago" / "3h ago" / "2d ago" / falls back to "Aug 18" past a week. */
-export function formatRelativeTime(dateString?: string, opts: FormatOptions = {}): string {
+/**
+ * "Just now" / "5m ago" / "3h ago" / "2d ago".
+ *
+ * Ages are elapsed-time based: minutes under an hour, hours under a day, then
+ * whole days. `nowMs` is injectable for deterministic tests.
+ */
+export function formatRelativeTime(
+  dateString?: string,
+  opts: FormatOptions & { nowMs?: number } = {}
+): string {
   const { emptyPlaceholder = "", invalidPlaceholder = "" } = opts;
   if (!dateString) return emptyPlaceholder;
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return invalidPlaceholder;
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
+  const nowMs = opts.nowMs ?? Date.now();
+  // Clamp future timestamps (server/client clock skew) to "Just now" instead of
+  // producing a negative age.
+  const diffMs = Math.max(0, nowMs - date.getTime());
   const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
   if (diffMins < 1) return "Just now";
   if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMs / 3600000);
   if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  const datePart = date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-  return `${datePart}, ${formatClockTime(date)}`;
+  const diffDays = Math.floor(diffMs / 86400000);
+  return `${diffDays}d ago`;
 }

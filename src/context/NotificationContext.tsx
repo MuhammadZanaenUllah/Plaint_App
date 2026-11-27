@@ -155,6 +155,14 @@ export function NotificationProvider({
     dispatch({ type: "ADD_NOTIFICATION", notification });
   }, []);
 
+  // Seed the unread count when the session/company becomes available. Without
+  // this, the bell dot stayed at 0 until the inbox was opened (or an event
+  // arrived), so an existing unread notification never showed a badge.
+  useEffect(() => {
+    if (!currentUserId || !currentCompanyId) return;
+    fetchNotifications(currentCompanyId, true, true).catch(() => {});
+  }, [currentUserId, currentCompanyId, fetchNotifications]);
+
   // ─── Live notifications via socket ──────────────────────────────────────
   // The `notification` socket event is scoped by the recipient user id
   // (payload: `{ assigned_to }`, possibly nested under `data`). On receipt we

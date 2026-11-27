@@ -1,4 +1,5 @@
 import Icons from "@/constants/icons";
+import { useNotifications } from "@/context/NotificationContext";
 import { useSearch } from "@/context/SearchContext";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -54,6 +55,8 @@ export default function AppHeader({
   onFilterPress,
 }: AppHeaderProps) {
   const { state: authState, logout } = useAuth();
+  const { state: notifState } = useNotifications();
+  const hasUnreadNotifications = notifState.unreadCount > 0;
   const insets = useSafeAreaInsets();
   const menuTopPosition = Math.max(insets.top + 50, 52);
   const { setSearchText } = useSearch();
@@ -171,7 +174,7 @@ export default function AppHeader({
           >
             <View >
               <BellIcon />
-              <View style={styles.bellDot} />
+              {hasUnreadNotifications && <View style={styles.bellDot} />}
             </View>
           </TouchableOpacity>
 

@@ -6,7 +6,11 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { NotificationItem } from "@/types/chat.types";
-import { getNotificationDisplay, isMentionNotification } from "@/utils/chatHelpers";
+import {
+  findRoomForNotification,
+  getNotificationDisplay,
+  isMentionNotification,
+} from "@/utils/chatHelpers";
 import {
   openConversation,
   openRoomConversation,
@@ -37,6 +41,8 @@ interface InboxModalProps {
 type TabType = "all" | "unread" | "mentions";
 
 export function formatNotificationTime(dateString: string): string {
+  // Same "Just now / 5m ago / 3h ago / 2d ago" scale as the rest of the app.
+  // The popup re-renders on a timer while open, so the label stays current.
   return formatRelativeTime(dateString);
 }
 
@@ -56,6 +62,37 @@ export function getNotificationName(item: NotificationItem): string {
     return `${assigned.first_name ?? ""} ${assigned.last_name ?? ""}`.trim() || "System";
   }
   return "System";
+}
+
+/** Same chat-vs-task classification used for press handling. */
+function isChatNotificationItem(item: NotificationItem): boolean {
+  const typ = (item.typ ?? "").toLowerCase();
+  const hasTask = !!item.task_id && item.task_id !== 0;
+  const isTaskMention = hasTask && typ.includes("mention");
+  return (
+    !isTaskMention &&
+    (typ === "chat" ||
+      typ.includes("mention") ||
+      (!item.task_id && item.title?.toLowerCase().includes("sent you a message")))
+  );
+}
+
+/** The newest valid timestamp among the given ISO strings. */
+function latestTimestamp(
+  ...values: (string | null | undefined)[]
+): string {
+  let best = "";
+  let bestMs = -Infinity;
+  for (const value of values) {
+    if (!value) continue;
+    const ms = new Date(value).getTime();
+    if (!Number.isFinite(ms)) continue;
+    if (ms > bestMs) {
+      bestMs = ms;
+      best = value;
+    }
+  }
+  return best;
 }
 
 export default function InboxModal({
@@ -87,6 +124,18 @@ export default function InboxModal({
     }
   }, [visible, companyId, fetchNotifications, fetchRooms]);
 
+  // Keep the "Just now / 5m ago / 3h ago / 2d ago" labels current while the
+  // popup stays open. The values are computed at render time, so a periodic
+  // re-render is enough (no stored timestamp to update).
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    if (!visible) return;
+    const interval = setInterval(() => {
+      setClockTick((tick) => tick + 1);
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [visible]);
+
   const handleMarkAllRead = useCallback(() => {
     if (companyId) {
       markAllRead(companyId);
@@ -114,14 +163,7 @@ export default function InboxModal({
         return;
       }
 
-      const typ = (item.typ ?? "").toLowerCase();
-      const hasTask = !!item.task_id && item.task_id !== 0;
-      const isTaskMention = hasTask && typ.includes("mention");
-      const isChatNotif =
-        !isTaskMention &&
-        (typ === "chat" ||
-          typ.includes("mention") ||
-          (!item.task_id && item.title?.toLowerCase().includes("sent you a message")));
+      const isChatNotif = isChatNotificationItem(item);
 
       if (isChatNotif) {
         const cb = Number(item.created_by) || 0;
@@ -331,6 +373,17 @@ export default function InboxModal({
                   item,
                   chatState.rooms,
                 );
+                // Chat notifications represent the room, and their preview is
+                // already the room's latest message. Use that message's time as
+                // well, so a second message from the same sender updates the
+                // bell even if the notification row's own `createdAt` is stale.
+                const chatRoom = isChatNotificationItem(item)
+                  ? findRoomForNotification(item, chatState.rooms)
+                  : undefined;
+                const displayTime = latestTimestamp(
+                  item.createdAt,
+                  chatRoom?.last_message?.createdAt,
+                );
                 return (
                 <TouchableOpacity
                   key={`${item.id}-${index}`}
@@ -370,7 +423,7 @@ export default function InboxModal({
                         style={styles.timeIcon}
                       />
                       <Text style={styles.timeText}>
-                        {formatNotificationTime(item.createdAt)}
+                        {formatNotificationTime(displayTime)}
                       </Text>
                     </View>
                   </View>
