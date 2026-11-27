@@ -9,6 +9,7 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  type SharedValue,
 } from "react-native-reanimated";
 // PROJECT MODULE DISABLED — the Projects Quick Menu depended on these hooks
 // import { useAuth } from "@/hooks/useAuth";
@@ -73,6 +74,64 @@ const SPRING_CONFIG = {
   stiffness: 190,
   mass: 0.7,
 };
+
+const TAB_ITEM_SIZE = 42;
+const PILL_SIZE = 42;
+const TAB_ICON_SIZE = 20;
+
+type TabIconProps = {
+  ActiveIcon: React.ComponentType<any>;
+  InactiveIcon: React.ComponentType<any>;
+  tabX: number;
+  measured: boolean;
+  indicatorX: SharedValue<number>;
+};
+
+/**
+ * Renders both icon variants and shows the black (active) artwork only while
+ * the sliding white pill actually covers the icon. The old implementation
+ * switched to the black icon as soon as navigation focus changed, while the
+ * pill was still springing from the previous tab — leaving a white icon on the
+ * white pill and a black icon on the black bar for the whole transition.
+ *
+ * Because this is driven by the animated pill position on the UI thread, an
+ * interrupted/retargeted spring (rapid tab switching) can never leave the icon
+ * on the wrong background.
+ */
+function TabIcon({
+  ActiveIcon,
+  InactiveIcon,
+  tabX,
+  measured,
+  indicatorX,
+}: TabIconProps) {
+  const iconCenter = tabX + TAB_ITEM_SIZE / 2;
+
+  const activeStyle = useAnimatedStyle(() => {
+    if (!measured) return { opacity: 0 };
+    const x = indicatorX.value;
+    const covered = iconCenter >= x && iconCenter <= x + PILL_SIZE;
+    return { opacity: covered ? 1 : 0 };
+  });
+
+  const inactiveStyle = useAnimatedStyle(() => {
+    if (!measured) return { opacity: 1 };
+    const x = indicatorX.value;
+    const covered = iconCenter >= x && iconCenter <= x + PILL_SIZE;
+    return { opacity: covered ? 0 : 1 };
+  });
+
+  return (
+    <View style={styles.iconContainer}>
+      <Animated.View style={[styles.iconLayer, inactiveStyle]}>
+        <InactiveIcon width={TAB_ICON_SIZE} height={TAB_ICON_SIZE} />
+      </Animated.View>
+      <Animated.View style={[styles.iconLayer, activeStyle]}>
+        <ActiveIcon width={TAB_ICON_SIZE} height={TAB_ICON_SIZE} />
+      </Animated.View>
+    </View>
+  );
+}
 
 export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -216,21 +275,23 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                 delayLongPress={280}
                 hitSlop={{ top: 10, bottom: 10, left: 15, right: 15 }}
               >
-                <View style={styles.iconContainer}>
-                  {tab.activeIcon ? (
-                    focused ? (
-                      <tab.activeIcon width={20} height={20} />
-                    ) : (
-                      <tab.inactiveIcon width={20} height={20} />
-                    )
-                  ) : (
+                {tab.activeIcon && tab.inactiveIcon ? (
+                  <TabIcon
+                    ActiveIcon={tab.activeIcon}
+                    InactiveIcon={tab.inactiveIcon}
+                    tabX={tabPositions[i] ?? 0}
+                    measured={tabPositions[i] !== undefined}
+                    indicatorX={indicatorX}
+                  />
+                ) : (
+                  <View style={styles.iconContainer}>
                     <Ionicons
                       name={tab.ionicon!}
-                      size={20}
+                      size={TAB_ICON_SIZE}
                       color={focused ? "#000" : "#fff"}
                     />
-                  )}
-                </View>
+                  </View>
+                )}
               </Pressable>
             );
           })}
@@ -287,22 +348,29 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     top: 7,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: PILL_SIZE,
+    height: PILL_SIZE,
+    borderRadius: PILL_SIZE / 2,
     backgroundColor: "#fff",
     zIndex: 1,
   },
   tabItem: {
-    width: 42,
-    height: 42,
+    width: TAB_ITEM_SIZE,
+    height: TAB_ITEM_SIZE,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 2,
   },
   iconContainer: {
-    width: 42,
-    height: 42,
+    width: TAB_ITEM_SIZE,
+    height: TAB_ITEM_SIZE,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconLayer: {
+    position: "absolute",
+    width: TAB_ITEM_SIZE,
+    height: TAB_ITEM_SIZE,
     alignItems: "center",
     justifyContent: "center",
   },
