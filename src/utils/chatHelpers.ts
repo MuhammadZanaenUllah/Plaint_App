@@ -1,7 +1,7 @@
 import { File } from "expo-file-system";
 import { SERVER_ORIGIN } from "@/config/env";
 import { Room, RoomType, ChatMessage, ChatPermission, NotificationItem, RoomMember } from "@/types/chat.types";
-import { formatClockTime } from "@/utils/dateFormat";
+import { formatChatListTimestamp, formatClockTime } from "@/utils/dateFormat";
 
 // ─── Room Helpers ─────────────────────────────────────────────────────────────
 
@@ -376,12 +376,15 @@ export function buildVoiceNoteFileName(
   return `voice-note-${secs}s-${Date.now()}.${ext}`;
 }
 
-/** Format a message time for the chat list (shorter format). */
+/**
+ * Format a room's latest activity for the chat list:
+ * time (< 24h), weekday name (1–7 days), or dd/mm/yy (older).
+ */
 export function formatChatListTime(dateString?: string): string {
-  if (!dateString) return "";
-  const date = new Date(dateString);
-  if (isNaN(date.getTime())) return "";
-  return formatClockTime(date, true);
+  return formatChatListTimestamp(dateString, {
+    emptyPlaceholder: "",
+    invalidPlaceholder: "",
+  });
 }
 
 /** Check if a message is from the current user. */

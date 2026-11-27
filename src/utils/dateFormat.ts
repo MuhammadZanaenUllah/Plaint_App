@@ -84,6 +84,38 @@ export function formatFullDateTime(
 }
 
 /**
+ * Chat-list timestamp:
+ *  - less than 24h old → clock time, e.g. "3:45 pm" (existing behaviour)
+ *  - 24h to 7 days old → weekday name, e.g. "Thursday"
+ *  - older than 7 days → dd/mm/yy, e.g. "11/12/26"
+ *
+ * `nowMs` is injectable for deterministic tests.
+ */
+export function formatChatListTimestamp(
+  dateString?: string,
+  opts: FormatOptions & { nowMs?: number } = {}
+): string {
+  const { emptyPlaceholder = "", invalidPlaceholder = "" } = opts;
+  if (!dateString) return emptyPlaceholder;
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return invalidPlaceholder;
+
+  const nowMs = opts.nowMs ?? Date.now();
+  const diffMs = Math.max(0, nowMs - date.getTime());
+  const DAY_MS = 86400000;
+
+  if (diffMs < DAY_MS) return formatClockTime(date, true);
+  if (diffMs <= 7 * DAY_MS) {
+    return date.toLocaleDateString("en-US", { weekday: "long" });
+  }
+
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear()).slice(-2);
+  return `${day}/${month}/${year}`;
+}
+
+/**
  * "Just now" / "5m ago" / "3h ago" / "2d ago".
  *
  * Ages are elapsed-time based: minutes under an hour, hours under a day, then
