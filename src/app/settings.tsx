@@ -20,6 +20,8 @@ import Avatar from "@/components/Avatar";
 import { getUserAvatarUrl } from "@/utils/userHelpers";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import ModalCloseButton from "@/components/ModalCloseButton";
+import * as Application from "expo-application";
+import Constants from "expo-constants";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
@@ -140,6 +142,12 @@ export default function SettingsScreen() {
 
   const fullName =
     [user?.first_name, user?.last_name].filter(Boolean).join(" ") || "User";
+
+  // Installed binary version/build (EAS remote versioning increments the native
+  // build number; expoConfig is only a fallback for dev/Expo Go).
+  const appVersion =
+    Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? "";
+  const appVersionLabel = appVersion ? `v${appVersion}` : "Unknown";
 
   // Fetch Push Settings & Local Preferences
   useEffect(() => {
@@ -823,7 +831,7 @@ export default function SettingsScreen() {
               </View>
               <View style={styles.rowTextWrap}>
                 <Text style={styles.rowTitle}>App Version</Text>
-                <Text style={styles.rowSub}>v1.2.4 (Build 108)</Text>
+                <Text style={styles.rowSub}>{appVersionLabel}</Text>
               </View>
               <Text style={styles.tagText}>Latest</Text>
             </View>
