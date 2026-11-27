@@ -86,6 +86,7 @@
     "test:chat-search": "tsx --test tests/chat-search/*.test.ts",
     "test:chat-markdown": "tsx --test tests/chat-markdown/*.test.ts",
     "test:chat-self": "tsx --test tests/chat-self/*.test.ts",
+    "test:chat-forward": "tsx --test tests/chat-forward/*.test.ts",
     "protect:baseline": "node scripts/baseline/create-baseline.mjs",
     "protect:verify": "node scripts/baseline/verify-baseline.mjs",
     "protect:report": "node scripts/baseline/report-changes.mjs",

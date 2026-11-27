@@ -1,5 +1,6 @@
 import AddPeopleModal from "@/components/AddPeopleModal";
 import Avatar from "@/components/Avatar";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import CreateChannelModal from "@/components/CreateChannelModal";
 import { rf } from "@/utils/responsive";
 // PROJECT MODULE DISABLED
@@ -39,8 +40,9 @@ import {
   isRoomUnread,
   isSelfChatRoom,
   isVoiceNoteText,
+  selfChatStorageKey,
   sortRoomsByRecentActivity,
-  stripSelfChatPrefix,
+  stripSelfChatMarker,
 } from "@/utils/chatHelpers";
 import {
   openConversation,
@@ -89,6 +91,26 @@ const CHIP_DATA = [
   { id: "channels", label: "Channels" },
   { id: "projects", label: "Projects" },
 ];
+
+/** Latest activity timestamp for a room (0 when it has no messages). */
+function roomActivityAt(room: Room): number {
+  const iso = room.last_message?.createdAt;
+  if (!iso) return 0;
+  const parsed = new Date(iso).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * Latest activity across a project and all of its child channels. A new
+ * message in ANY project channel must move the whole project to the top of
+ * the Projects chip, exactly like WhatsApp moves a chat to the top.
+ */
+function projectActivityAt(project: Room, children: Room[]): number {
+  return children.reduce(
+    (latest, child) => Math.max(latest, roomActivityAt(child)),
+    roomActivityAt(project),
+  );
+}
 
 // ─── Swipeable chat row ───────────────────────────────────────────────────────
 // Swipe left → the row sticks open and reveals two actions:
@@ -256,6 +278,7 @@ export default function ChatScreen() {
   const {
     state,
     fetchRooms,
+    getOrCreateRoom,
     markRead,
     setSearchQuery,
     initSocket,
@@ -340,6 +363,10 @@ export default function ChatScreen() {
         map.set(parentId, existing);
       }
     }
+    // Child channels inside an expanded project: newest activity first.
+    for (const [projectId, rooms] of map) {
+      map.set(projectId, sortRoomsByRecentActivity(rooms));
+    }
     return map;
   }, [visibleRooms]);
 
@@ -408,10 +435,30 @@ export default function ChatScreen() {
     });
   }, []);
 
-  // Fetch rooms on mount
+  // Fetch rooms on mount, then restore a previously-used "Message yourself"
+  // room. Some backends omit self-chat rooms from GET /chat/rooms, so the
+  // existing get-or-create endpoint restores it after refresh. A local flag
+  // avoids creating an empty self room for users who never started one.
   useEffect(() => {
-    fetchRooms();
-  }, [fetchRooms]);
+    let cancelled = false;
+    (async () => {
+      await fetchRooms();
+      if (cancelled || !currentUserId || !perms.hasChatRead) return;
+      try {
+        const enabled = await AsyncStorage.getItem(
+          selfChatStorageKey(currentUserId),
+        );
+        if (cancelled || enabled !== "1") return;
+        await getOrCreateRoom({ type: "direct", targetId: currentUserId });
+      } catch {
+        // If the backend does not support self rooms, starting one from the
+        // picker surfaces a clear error in the conversation screen.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchRooms, getOrCreateRoom, currentUserId, perms.hasChatRead]);
 
   // Clear the "recently opened" row highlight whenever the chat list regains
   // focus (e.g. after closing a conversation) so the grey selected background
@@ -449,7 +496,7 @@ export default function ChatScreen() {
       `User #${currentUserId}`;
     return {
       id: String(currentUserId),
-      name: `(You) ${name}`,
+      name: `${name} (You)`,
       email: currentUser?.email,
       initials: name.charAt(0).toUpperCase() || "Y",
     };
@@ -655,6 +702,21 @@ export default function ChatScreen() {
     return sortRoomsByRecentActivity(filtered);
   }, [visibleRooms, activeChip, searchText, currentUserId]);
 
+  // Projects chip ordering: use the newest activity across the project room
+  // AND its child channels. Without this, a project stayed in its old position
+  // because only the parent room's last_message was considered.
+  const projectDisplayRooms = useMemo(() => {
+    return displayRooms
+      .filter((room) => room.type === "project")
+      .slice()
+      .sort((a, b) => {
+        const activityDiff =
+          projectActivityAt(b, projectChannelMap.get(b.id) ?? []) -
+          projectActivityAt(a, projectChannelMap.get(a.id) ?? []);
+        return activityDiff || b.id - a.id;
+      });
+  }, [displayRooms, projectChannelMap]);
+
   // Website voice notes are `.webm` and do not encode their duration in the
   // filename or text. Resolve it from the audio metadata (and cache it) so
   // the list can show "0:04" like mobile-originated notes. Only the last
@@ -807,6 +869,14 @@ export default function ChatScreen() {
       setAddPeopleOpen(false);
       const targetId = parseInt(user.id, 10);
       const isSelfChat = targetId === currentUserId;
+      if (isSelfChat) {
+        // Persist that this user uses the self-chat so it can be restored after
+        // the next refresh/app launch even if /chat/rooms omits it.
+        AsyncStorage.setItem(
+          selfChatStorageKey(currentUserId),
+          "1",
+        ).catch(() => {});
+      }
 
       // Fast path: an already-loaded 1:1 room with this member opens
       // immediately — no network round-trip before navigation.
@@ -1148,7 +1218,7 @@ export default function ChatScreen() {
       >
         <View style={styles.avatarContainer}>
           <Avatar
-            name={stripSelfChatPrefix(displayName)}
+            name={stripSelfChatMarker(displayName)}
             imagePath={getRoomAvatar(room, currentUserId)}
             size={30}
             borderRadius={5}
@@ -1464,9 +1534,7 @@ export default function ChatScreen() {
                             */}
               {activeChip === "channels" || activeChip === "projects" ? (
                 <>
-                  {displayRooms
-                    .filter((room) => room.type === "project")
-                    .map((project) => {
+                  {projectDisplayRooms.map((project) => {
                       const displayName = getRoomDisplayName(
                         project,
                         currentUserId,
@@ -1475,9 +1543,16 @@ export default function ChatScreen() {
                         projectChannelMap.get(project.id) ?? [];
                       const isCollapsed = !openProjects.has(project.id);
                       const unread = isRoomUnread(project);
-                      const projectTime = project.last_message?.createdAt
-                        ? formatChatListTime(project.last_message.createdAt)
-                        : "";
+                      const latestActivity = projectActivityAt(
+                        project,
+                        childChannels,
+                      );
+                      const projectTime =
+                        latestActivity > 0
+                          ? formatChatListTime(
+                              new Date(latestActivity).toISOString(),
+                            )
+                          : "";
                       return (
                         <View key={`project-${project.id}`}>
                           <TouchableOpacity

@@ -15,9 +15,17 @@ export function isSelfChatRoom(room: Room, currentUserId: number): boolean {
   );
 }
 
-/** Remove the `(You) ` prefix from a self-chat label (for avatar initials). */
-export function stripSelfChatPrefix(name: string | null | undefined): string {
-  return (name ?? "").replace(/^\(You\)\s*/i, "");
+/** Remove the "(You)" marker from a self-chat label (for avatar initials). */
+export function stripSelfChatMarker(name: string | null | undefined): string {
+  return (name ?? "")
+    .replace(/^\(You\)\s*/i, "")
+    .replace(/\s*\(You\)\s*$/i, "")
+    .trim();
+}
+
+/** AsyncStorage key remembering that a user has used the self-chat. */
+export function selfChatStorageKey(userId: number): string {
+  return `planit_self_chat_${userId}`;
 }
 
 /** Get the display name for a room. For DMs, show the other member's name. */
@@ -45,7 +53,7 @@ export function getRoomDisplayName(
         self.email?.split("@")[0] ||
         room.name ||
         "You";
-      return `(You) ${selfName}`;
+      return `${selfName} (You)`;
     }
   }
   return room.name;
@@ -418,9 +426,14 @@ export function getMessageTick(
   msg: ChatMessage,
   roomMembers?: RoomMember[] | null,
   currentUserId?: number,
+  isSelfChat = false,
 ): MessageTick {
   if ((msg as { failed?: boolean }).failed) return "failed";
   if (msg.is_pending) return "clock";
+  // Self-chat has no other recipient to wait for. As soon as the server
+  // acknowledges the message (no longer pending), it is effectively delivered
+  // and read by you — show the same double (blue) tick as a read message.
+  if (isSelfChat) return "read";
   const sender = String(msg.sender_id);
   const read = new Set(
     (msg.is_read || []).map(String).filter((id) => id !== sender),

@@ -12,12 +12,17 @@ import MediaComposerModal, {
 } from "@/components/MediaComposerModal";
 import SecureImage from "@/components/SecureImage";
 import MarkdownMessage from "@/components/chat/MarkdownMessage";
+import ForwardMessagesModal from "@/features/chat/components/ForwardMessagesModal";
 import {
   MESSAGE_MAX_LENGTH,
   getCopyableMessageText,
   getOutgoingMessageText,
   isBlankMessage,
 } from "@/features/chat/messageText";
+import {
+  getSelectedMessages,
+  messageSelectionKey,
+} from "@/features/chat/messageSelection";
 import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat, useChatPresence } from "@/hooks/useChat";
@@ -27,7 +32,6 @@ import {
   ChatMessage,
   ChatPermission,
   MessageAttachment,
-  Room,
   RoomMember,
 } from "@/types/chat.types";
 import {
@@ -44,7 +48,8 @@ import {
   isAudioAttachment,
   isOwnMessage,
   isRoomUnread,
-  stripSelfChatPrefix,
+  isSelfChatRoom,
+  stripSelfChatMarker,
   isVideoAttachment,
   isVoiceNoteText,
   isWithinMessageActionWindow,
@@ -65,12 +70,10 @@ import {
   resolveVoiceNoteDuration,
 } from "@/utils/voiceNoteDuration";
 import { canDeleteDirectChat } from "@/utils/permissions";
-import { canViewProjects } from "@/features/projects/permissions/projectPermissions";
 import {
   attachmentExtension,
   decodeAttachmentName,
   downloadChatAttachment,
-  downloadChatAttachmentToCache,
   openChatDocument,
 } from "@/utils/openChatDocument";
 import { formatFileSize } from "@/services/api/upload.service";
@@ -119,7 +122,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  SectionList,
   StyleProp,
   StyleSheet,
   Text,
@@ -149,28 +151,6 @@ const { ChatIcon: MainChatIcon } = Icons;
 // Long-press delay shared by message bubbles and their attachments, so opening
 // the action toolbar feels identical wherever the press lands.
 const ATTACHMENT_LONG_PRESS_DELAY = 250;
-
-type ForwardSection = {
-  title: string;
-  data: Room[];
-  /**
-   * Set for project groups: the section header is an interactive project row
-   * and `data` holds the project's child channels when expanded.
-   */
-  projectId?: number;
-  channelCount?: number;
-  collapsed?: boolean;
-};
-
-/** Display name used by the forward picker (matches the old inline logic). */
-function getForwardRoomDisplayName(room: Room, currentUserId: number): string {
-  const otherMembers = room.members?.filter((m) => m.id !== currentUserId);
-  return (
-    room.name ||
-    otherMembers?.map((m) => `${m.first_name} ${m.last_name}`).join(", ") ||
-    "Chat"
-  );
-}
 
 // How long a jumped-to (quoted reply / pinned) message stays highlighted.
 // WhatsApp-style: one sustained highlight, not a flash.
@@ -2343,6 +2323,10 @@ const MessageBubble = React.memo(function MessageBubble({
   repliedPreview,
   highlighted = false,
   highlightQuery,
+  isSelfChat = false,
+  selectionMode = false,
+  onToggleSelect,
+  showSenderAvatar = false,
   showTimestamp = true,
   onLongPress,
   onReactionPress,
@@ -2362,6 +2346,13 @@ const MessageBubble = React.memo(function MessageBubble({
   } | null;
   highlighted?: boolean;
   highlightQuery?: string;
+  /** True for the "Message yourself" room (ticks are double immediately). */
+  isSelfChat?: boolean;
+  /** Multi-select mode: tapping a bubble toggles its selection. */
+  selectionMode?: boolean;
+  onToggleSelect?: (msg: ChatMessage) => void;
+  /** Show the sender avatar/initials (all chats, including 1:1). */
+  showSenderAvatar?: boolean;
   showTimestamp?: boolean;
   onLongPress?: (msg: ChatMessage, e?: GestureResponderEvent) => void;
   onReactionPress?: (msg: ChatMessage, emoji: string) => void;
@@ -2439,7 +2430,7 @@ const MessageBubble = React.memo(function MessageBubble({
   // Delivery / read tick from `delivered_to` + `is_read` (backend B5).
   // Double tick = reached every other member's device; blue = every other
   // member read it. Works for 1:1 and groups/channels alike.
-  const tick = getMessageTick(message, members, currentUserId);
+  const tick = getMessageTick(message, members, currentUserId, isSelfChat);
   const isTickDouble = tick === "delivered" || tick === "read";
   const tickColor = tick === "read" ? "#0DDFAB" : "#9CA3AF";
 
@@ -2492,22 +2483,34 @@ const MessageBubble = React.memo(function MessageBubble({
     }).start();
   };
 
+  // Long-press actions are suppressed while selecting messages so a press only
+  // toggles selection instead of opening the action sheet.
+  const bubbleLongPress = selectionMode
+    ? undefined
+    : (e?: GestureResponderEvent) => onLongPress?.(message, e);
+  const bubblePress = selectionMode
+    ? () => onToggleSelect?.(message)
+    : undefined;
+
   if (!own) {
     return (
       <View style={styles.messageWrapper}>
         <View style={styles.incomingRow}>
-          {showTimestamp ? (
-            <Avatar
-              name={senderName}
-              imagePath={senderImage}
-              size={25}
-              borderRadius={13}
-              fontSize={10}
-              fontFamily="SF_Pro_Regular"
-            />
-          ) : (
-            <View style={styles.avatarSpacer} />
-          )}
+          {/* Sender avatars/initials are shown in every chat, including 1:1. */}
+          {showSenderAvatar ? (
+            showTimestamp ? (
+              <Avatar
+                name={senderName}
+                imagePath={senderImage}
+                size={25}
+                borderRadius={13}
+                fontSize={10}
+                fontFamily="SF_Pro_Regular"
+              />
+            ) : (
+              <View style={styles.avatarSpacer} />
+            )
+          ) : null}
           <View style={styles.incomingContent}>
             {showTimestamp && (
               <Text style={styles.senderMeta}>
@@ -2517,18 +2520,19 @@ const MessageBubble = React.memo(function MessageBubble({
                 </Text>
               </Text>
             )}
-            <Animated.View style={{ transform: [{ scale: bubbleScale }] }}>
-              <Pressable
-                onPressIn={handlePressIn}
-                onPressOut={handlePressOut}
-                onLongPress={(e) => onLongPress?.(message, e)}
-                delayLongPress={250}
-                style={[
-                  styles.incomingBubble,
-                  message.is_pinned && styles.bubblePinnedIncoming,
-                  highlighted && styles.bubbleHighlight,
-                ]}
-              >
+              <Animated.View style={{ transform: [{ scale: bubbleScale }] }}>
+                <Pressable
+                  onPressIn={handlePressIn}
+                  onPressOut={handlePressOut}
+                  onPress={bubblePress}
+                  onLongPress={bubbleLongPress}
+                  delayLongPress={250}
+                  style={[
+                    styles.incomingBubble,
+                    message.is_pinned && styles.bubblePinnedIncoming,
+                    highlighted && styles.bubbleHighlight,
+                  ]}
+                >
                 {postTypeBadge}
                 {quotedPreviewNode}
                 {message.is_forwarded ? (
@@ -2550,7 +2554,7 @@ const MessageBubble = React.memo(function MessageBubble({
                   <VoiceNotePlayer
                     audioUrl={audioAtt.url}
                     initialDurationSec={voiceNoteSeconds}
-                    onLongPress={(e) => onLongPress?.(message, e)}
+                    onLongPress={bubbleLongPress}
                   />
                 ) : null}
                 <AttachmentCluster
@@ -2559,7 +2563,7 @@ const MessageBubble = React.memo(function MessageBubble({
                   videos={videoAtts ?? []}
                   onOpenImage={onOpenImage}
                   onOpenVideo={onOpenVideo}
-                  onLongPress={(e) => onLongPress?.(message, e)}
+                  onLongPress={bubbleLongPress}
                 />
                 {message.text &&
                 !isVoiceNoteText(message.text) &&
@@ -2588,7 +2592,7 @@ const MessageBubble = React.memo(function MessageBubble({
                     videos={[]}
                     onOpenImage={onOpenImage}
                     onOpenVideo={onOpenVideo}
-                    onLongPress={(e) => onLongPress?.(message, e)}
+                    onLongPress={bubbleLongPress}
                   />
                 ) : null}
               </Pressable>
@@ -2654,7 +2658,8 @@ const MessageBubble = React.memo(function MessageBubble({
             <Pressable
               onPressIn={handlePressIn}
               onPressOut={handlePressOut}
-              onLongPress={(e) => onLongPress?.(message, e)}
+              onPress={bubblePress}
+              onLongPress={bubbleLongPress}
               delayLongPress={250}
               style={[
                 styles.outgoingBubble,
@@ -2683,7 +2688,7 @@ const MessageBubble = React.memo(function MessageBubble({
                   <VoiceNotePlayer
                     audioUrl={audioAtt.url}
                     initialDurationSec={voiceNoteSeconds}
-                    onLongPress={(e) => onLongPress?.(message, e)}
+                    onLongPress={bubbleLongPress}
                   />
                 ) : null}
               <AttachmentCluster
@@ -2692,7 +2697,7 @@ const MessageBubble = React.memo(function MessageBubble({
                 videos={videoAtts ?? []}
                 onOpenImage={onOpenImage}
                 onOpenVideo={onOpenVideo}
-                onLongPress={(e) => onLongPress?.(message, e)}
+                onLongPress={bubbleLongPress}
               />
               {message.text &&
               !isVoiceNoteText(message.text) &&
@@ -2721,7 +2726,7 @@ const MessageBubble = React.memo(function MessageBubble({
                   videos={[]}
                   onOpenImage={onOpenImage}
                   onOpenVideo={onOpenVideo}
-                  onLongPress={(e) => onLongPress?.(message, e)}
+                  onLongPress={bubbleLongPress}
                 />
               ) : null}
             </Pressable>
@@ -2757,18 +2762,20 @@ const MessageBubble = React.memo(function MessageBubble({
             </View>
           )}
         </View>
-        {showTimestamp ? (
-          <Avatar
-            name={senderName}
-            imagePath={senderImage}
-            size={25}
-            borderRadius={13}
-            fontSize={10}
-            fontFamily="SF_Pro_Regular"
-          />
-        ) : (
-          <View style={styles.avatarSpacer} />
-        )}
+        {showSenderAvatar ? (
+          showTimestamp ? (
+            <Avatar
+              name={senderName}
+              imagePath={senderImage}
+              size={25}
+              borderRadius={13}
+              fontSize={10}
+              fontFamily="SF_Pro_Regular"
+            />
+          ) : (
+            <View style={styles.avatarSpacer} />
+          )
+        ) : null}
       </View>
     </View>
   );
@@ -2890,8 +2897,19 @@ function WhatsAppMessageModal({
     Math.min(targetY ? targetY - 70 : screenHeight * 0.25, maxTop),
   );
 
-  const handlePressAction = (actionFn: () => void) => {
+  const handlePressAction = (
+    actionFn: () => void,
+    immediate = false,
+  ) => {
     triggerHaptic("selection");
+    // Forward is a mode switch: start selection and dismiss the sheet at once
+    // so the checkboxes/header are usable immediately instead of waiting for
+    // the 120ms fade-out.
+    if (immediate) {
+      actionFn();
+      onClose();
+      return;
+    }
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 0,
@@ -3041,7 +3059,7 @@ function WhatsAppMessageModal({
             <TouchableOpacity
               style={waModalStyles.menuItem}
               activeOpacity={0.6}
-              onPress={() => handlePressAction(onForward)}
+              onPress={() => handlePressAction(onForward, true)}
             >
               <Ionicons
                 name="arrow-redo-outline"
@@ -4499,10 +4517,6 @@ export default function ConversationScreen() {
   const authState = useAuth();
   const currentUserId = authState?.state?.user?.id ?? 0;
   const currentUser = authState?.state?.user ?? null;
-  const currentCompany = authState?.state?.company ?? null;
-  // Project rooms/channels only appear in the forward picker when the user can
-  // see projects (same gate the chat list uses).
-  const canSeeProjects = canViewProjects(currentUser, currentCompany);
   const currentUserName = authState?.state?.user
     ? `${authState.state.user.first_name} ${authState.state.user.last_name}`.trim() ||
       `User #${currentUserId}`
@@ -4945,6 +4959,47 @@ export default function ConversationScreen() {
   }>({ roomId, show: false, count: 0 });
   const showScrollToBottom = scrollUi.roomId === roomId && scrollUi.show;
   const newMessageCount = scrollUi.roomId === roomId ? scrollUi.count : 0;
+  // Slide-up entrance/exit for the scroll-to-bottom FAB (always mounted so the
+  // animation can play both ways without a conditional remount).
+  const [scrollToBottomButtonAnim] = useState(
+    () => new Animated.Value(0),
+  );
+  useEffect(() => {
+    const animation = showScrollToBottom
+      ? Animated.spring(scrollToBottomButtonAnim, {
+          toValue: 1,
+          useNativeDriver: true,
+          friction: 8,
+          tension: 120,
+        })
+      : Animated.timing(scrollToBottomButtonAnim, {
+          toValue: 0,
+          duration: 160,
+          useNativeDriver: true,
+        });
+    animation.start();
+    return () => animation.stop();
+  }, [showScrollToBottom, scrollToBottomButtonAnim]);
+  const scrollToBottomButtonStyle = useMemo(
+    () => ({
+      opacity: scrollToBottomButtonAnim,
+      transform: [
+        {
+          translateY: scrollToBottomButtonAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [22, 0],
+          }),
+        },
+        {
+          scale: scrollToBottomButtonAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.9, 1],
+          }),
+        },
+      ],
+    }),
+    [scrollToBottomButtonAnim],
+  );
   const atBottomRef = useRef(true);
   const newestMessageIdRef = useRef<string | null>(null);
   const trackedRoomRef = useRef(roomId);
@@ -5238,103 +5293,50 @@ export default function ConversationScreen() {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Forward
+  // Forward (one or more selected messages)
   const [forwardOpen, setForwardOpen] = useState(false);
-  const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null);
-  const [forwardSearch, setForwardSearch] = useState("");
-  // Per-room send status so the loader / "Sent" marker only affects the row
-  // the user actually tapped, and the modal can stay open for more targets.
-  const [forwardStatus, setForwardStatus] = useState<
-    Record<string, "sending" | "sent" | "error">
-  >({});
-  // Attachments are downloaded once per forward session and reused for every
-  // target room instead of being re-fetched for each one. The promise is cached
-  // so rapid taps on several rooms share a single download.
-  const forwardAttachmentsRef = useRef<{
-    messageId: string;
-    promise: Promise<{ uri: string; name: string; type: string }[]>;
-  } | null>(null);
-  // Project groups are collapsed by default in the picker; expanding reveals
-  // that project's chat channels underneath its name.
-  const [forwardExpandedProjects, setForwardExpandedProjects] = useState<
-    Set<number>
-  >(new Set());
+  const [forwardMessages, setForwardMessages] = useState<ChatMessage[]>([]);
 
-  const toggleForwardProject = useCallback((projectId: number) => {
-    setForwardExpandedProjects((previous) => {
+  // Multi-message selection for forwarding (WhatsApp-style).
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedMessageKeys, setSelectedMessageKeys] = useState<Set<string>>(
+    new Set(),
+  );
+  const selectedMessages = useMemo(
+    () => getSelectedMessages(state.messages, selectedMessageKeys),
+    [state.messages, selectedMessageKeys],
+  );
+  const startSelection = useCallback((message: ChatMessage) => {
+    setSelectionMode(true);
+    setSelectedMessageKeys(new Set([messageSelectionKey(message)]));
+  }, []);
+  const cancelSelection = useCallback(() => {
+    setSelectionMode(false);
+    setSelectedMessageKeys(new Set());
+  }, []);
+  const toggleMessageSelection = useCallback((message: ChatMessage) => {
+    const key = messageSelectionKey(message);
+    if (!key) return;
+    setSelectedMessageKeys((previous) => {
       const next = new Set(previous);
-      if (next.has(projectId)) next.delete(projectId);
-      else next.add(projectId);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }, []);
+  const openForwardForSelection = useCallback(() => {
+    if (selectedMessages.length === 0) return;
+    setForwardMessages(selectedMessages);
+    setForwardOpen(true);
+  }, [selectedMessages]);
 
-  // Inbox (1:1 DMs), standalone Channels, then one collapsible group per
-  // project (project name followed by its chat channels). Everything is
-  // filtered by the modal's search box.
-  const forwardSections = useMemo<ForwardSection[]>(() => {
-    const query = forwardSearch.trim().toLowerCase();
-    const matches = (room: Room) =>
-      getForwardRoomDisplayName(room, currentUserId)
-        .toLowerCase()
-        .includes(query);
-    const visible = state.rooms.filter(matches);
+  const closeForwardModal = useCallback(() => {
+    setForwardOpen(false);
+    setForwardMessages([]);
+    setSelectionMode(false);
+    setSelectedMessageKeys(new Set());
+  }, []);
 
-    const projectRooms = canSeeProjects
-      ? state.rooms.filter((room) => room.type === "project")
-      : [];
-    const projectRoomIds = new Set(projectRooms.map((room) => room.id));
-    const channels = visible.filter(
-      (room) =>
-        room.type === "channel" &&
-        (room.parent_id == null ||
-          !projectRoomIds.has(Number(room.parent_id))),
-    );
-
-    const projectSections: ForwardSection[] = projectRooms
-      .map<ForwardSection | null>((project) => {
-        const children = state.rooms.filter(
-          (room) =>
-            room.type === "channel" &&
-            room.parent_id != null &&
-            Number(room.parent_id) === project.id,
-        );
-        // A project is listed when its own name matches or any of its channels
-        // match the search. While searching, matching groups auto-expand so the
-        // matching channels are visible without an extra tap.
-        const childMatches = children.some(matches);
-        if (query && !matches(project) && !childMatches) return null;
-        const expanded =
-          forwardExpandedProjects.has(project.id) ||
-          (query.length > 0 && (matches(project) || childMatches));
-        return {
-          title: getForwardRoomDisplayName(project, currentUserId),
-          projectId: project.id,
-          channelCount: children.length,
-          collapsed: !expanded,
-          data: expanded ? children : [],
-        };
-      })
-      .filter((section): section is ForwardSection => section !== null);
-
-    return [
-      {
-        title: "Inbox",
-        data: visible.filter((room) => room.type === "direct"),
-      },
-      {
-        title: "Channels",
-        data: channels,
-      },
-      ...projectSections,
-    ].filter((section) => section.data.length > 0 || section.projectId != null);
-  }, [
-    state.rooms,
-    currentUserId,
-    forwardSearch,
-    forwardExpandedProjects,
-    canSeeProjects,
-  ]);
   const toggleFilter = (tab: FilterTab) => {
     setActiveFilter((prev) => (prev === tab ? null : tab));
   };
@@ -5941,77 +5943,6 @@ export default function ConversationScreen() {
     [toggleReaction, currentUserId, canReact],
   );
 
-  const closeForwardModal = useCallback(() => {
-    setForwardOpen(false);
-    setForwardMsg(null);
-    setForwardSearch("");
-    setForwardStatus({});
-    setForwardExpandedProjects(new Set());
-    forwardAttachmentsRef.current = null;
-  }, []);
-
-  const handleForward = useCallback(
-    async (room: Room) => {
-      if (!forwardMsg) return;
-      const roomKey = String(room._id ?? room.id);
-      const currentStatus = forwardStatus[roomKey];
-      if (currentStatus === "sending" || currentStatus === "sent") return;
-
-      setForwardStatus((prev) => ({ ...prev, [roomKey]: "sending" }));
-      try {
-        // Backend media is auth-gated, so remote attachment URLs cannot be
-        // re-uploaded as-is. Download each one through the secure-file proxy
-        // into the local cache first, then forward it as a normal upload.
-        // Reuse the downloaded files when forwarding to multiple rooms.
-        let cache = forwardAttachmentsRef.current;
-        if (!cache || cache.messageId !== forwardMsg._id) {
-          const promise = Promise.all(
-            (forwardMsg.attachments ?? []).map(async (att) => {
-              const local = await downloadChatAttachmentToCache(
-                att.url,
-                decodeAttachmentName(att.name),
-              );
-              if (!local) return null;
-              return {
-                uri: local.uri,
-                name: local.fileName,
-                type: att.type || att.mimeType || att.mime_type || local.mime,
-              };
-            }),
-          ).then((downloaded) =>
-            downloaded.filter(
-              (att): att is { uri: string; name: string; type: string } =>
-                !!att,
-            ),
-          );
-          const entry = { messageId: forwardMsg._id, promise };
-          forwardAttachmentsRef.current = entry;
-          // A failed download must not poison the cache; allow a retry.
-          promise.catch(() => {
-            if (forwardAttachmentsRef.current === entry) {
-              forwardAttachmentsRef.current = null;
-            }
-          });
-          cache = entry;
-        }
-        const attachments = await cache.promise;
-
-        await sendMessage({
-          room_id: room._id,
-          text: forwardMsg.text,
-          is_forwarded: true,
-          forwarded_from_name: forwardMsg.sender_name || "Someone",
-          ...(attachments.length > 0 ? { attachments } : {}),
-        });
-        setForwardStatus((prev) => ({ ...prev, [roomKey]: "sent" }));
-      } catch {
-        setForwardStatus((prev) => ({ ...prev, [roomKey]: "error" }));
-        showError("Error", "Could not forward this message.");
-      }
-    },
-    [forwardMsg, forwardStatus, sendMessage],
-  );
-
   const handleMore = useCallback(
     (msg: ChatMessage) => {
       if (!canUseMessageActions) return;
@@ -6080,6 +6011,14 @@ export default function ConversationScreen() {
       state.rooms.find((r) => r._id === roomId || r.id.toString() === roomId),
     [state.rooms, roomId],
   );
+  const isSelfChat = useMemo(() => {
+    // A conversation opened from "Message yourself" has targetId === self and
+    // may not have resolved its room yet; treat it as self-chat immediately.
+    if (Number(targetId) === currentUserId) return true;
+    return currentRoom ? isSelfChatRoom(currentRoom, currentUserId) : false;
+  }, [currentRoom, currentUserId, targetId]);
+  // Sender avatars/initials are shown in every chat, including 1:1.
+  const showSenderAvatarForRoom = true;
 
   useEffect(() => {
     if (!currentRoom) return;
@@ -6547,43 +6486,90 @@ export default function ConversationScreen() {
         }
       }
 
+      const selected = selectedMessageKeys.has(
+        messageSelectionKey(message),
+      );
+      const own = isOwnMessage(message, currentUserId);
+
       return (
         <View
           style={{
-            paddingHorizontal: 16,
+            paddingHorizontal: selectionMode ? 6 : 16,
             paddingTop: index === 0 ? 6 : 10,
+            flexDirection: "row",
+            alignItems: "flex-start",
           }}
         >
-          <SwipeToReply
-            enabled={canUseMessageActions}
-            onReply={() => {
-              setReplyTo(message);
-              setTimeout(() => composerRef.current?.focus(), 60);
-            }}
+          {selectionMode && !own && (
+            <TouchableOpacity
+              onPress={() => toggleMessageSelection(message)}
+              style={styles.selectionCheckbox}
+              hitSlop={8}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={selected ? "checkmark-circle" : "ellipse-outline"}
+                size={14}
+                color={selected ? "#00DEAB" : "#9CA3AF"}
+              />
+            </TouchableOpacity>
+          )}
+          <View
+            style={[
+              styles.messageRowFlex,
+              selected && selectionMode && styles.selectionSelectedRow,
+            ]}
           >
-            <MessageBubble
-              message={message}
-              currentUserId={currentUserId}
-              members={currentRoom?.members}
-              showSenderName={isChannel}
-              repliedPreview={repliedPreview}
-              highlighted={highlightedMessageId === (message._id as string)}
-              highlightQuery={searchActive ? trimmedSearch : undefined}
-              showTimestamp={item.showTime}
-              onLongPress={handleLongPress}
-              onReactionPress={handleReactEmoji}
-              onOpenImage={openImageViewer}
-              onOpenVideo={openVideoViewer}
-              onPressReply={handleJumpToMessageId}
-              postTypes={postTypes}
-            />
-          </SwipeToReply>
+            <SwipeToReply
+              enabled={canUseMessageActions && !selectionMode}
+              onReply={() => {
+                setReplyTo(message);
+                setTimeout(() => composerRef.current?.focus(), 60);
+              }}
+            >
+              <MessageBubble
+                message={message}
+                currentUserId={currentUserId}
+                members={currentRoom?.members}
+                showSenderName={isChannel}
+                repliedPreview={repliedPreview}
+                highlighted={highlightedMessageId === (message._id as string)}
+                highlightQuery={searchActive ? trimmedSearch : undefined}
+                isSelfChat={isSelfChat}
+                selectionMode={selectionMode}
+                onToggleSelect={toggleMessageSelection}
+                showSenderAvatar={showSenderAvatarForRoom}
+                showTimestamp={item.showTime}
+                onLongPress={handleLongPress}
+                onReactionPress={handleReactEmoji}
+                onOpenImage={openImageViewer}
+                onOpenVideo={openVideoViewer}
+                onPressReply={handleJumpToMessageId}
+                postTypes={postTypes}
+              />
+            </SwipeToReply>
+          </View>
+          {selectionMode && own && (
+            <TouchableOpacity
+              onPress={() => toggleMessageSelection(message)}
+              style={styles.selectionCheckbox}
+              hitSlop={8}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={selected ? "checkmark-circle" : "ellipse-outline"}
+                size={14}
+                color={selected ? "#00DEAB" : "#9CA3AF"}
+              />
+            </TouchableOpacity>
+          )}
         </View>
       );
     },
     [
       currentUserId,
       currentRoom?.members,
+      showSenderAvatarForRoom,
       isChannel,
       messageById,
       uniqueTextToMessageId,
@@ -6591,6 +6577,10 @@ export default function ConversationScreen() {
       highlightedMessageId,
       searchActive,
       trimmedSearch,
+      isSelfChat,
+      selectionMode,
+      selectedMessageKeys,
+      toggleMessageSelection,
       handleLongPress,
       handleReactEmoji,
       canUseMessageActions,
@@ -6873,7 +6863,42 @@ export default function ConversationScreen() {
       <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
         {/* ── Header ── */}
         <View style={styles.header}>
-          {!searchOpen ? (
+          {selectionMode ? (
+            <View style={styles.selectionHeader}>
+              <TouchableOpacity
+                onPress={cancelSelection}
+                hitSlop={8}
+                style={styles.selectionHeaderClose}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={22} color="#1D1D1D" />
+              </TouchableOpacity>
+              <Text style={styles.selectionHeaderTitle}>
+                {selectedMessages.length} selected
+              </Text>
+              <TouchableOpacity
+                onPress={openForwardForSelection}
+                disabled={selectedMessages.length === 0}
+                style={styles.selectionHeaderAction}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="arrow-redo-outline"
+                  size={18}
+                  color={selectedMessages.length > 0 ? "#00DEAB" : "#C4C4C4"}
+                />
+                <Text
+                  style={[
+                    styles.selectionHeaderActionText,
+                    selectedMessages.length === 0 &&
+                      styles.selectionHeaderActionTextDisabled,
+                  ]}
+                >
+                  Forward
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : !searchOpen ? (
             <>
               <View style={styles.headerLeft}>
                 <TouchableOpacity
@@ -6885,7 +6910,7 @@ export default function ConversationScreen() {
                 </TouchableOpacity>
 
                 <Avatar
-                  name={stripSelfChatPrefix(name)}
+                  name={stripSelfChatMarker(name)}
                   imagePath={
                     !isChannel
                       ? (currentRoom
@@ -7463,9 +7488,15 @@ export default function ConversationScreen() {
             </View>
           )}
 
-          {showScrollToBottom && (
+          <Animated.View
+            pointerEvents={showScrollToBottom ? "auto" : "none"}
+            style={[
+              styles.scrollToBottomContainer,
+              scrollToBottomButtonStyle,
+            ]}
+          >
             <TouchableOpacity
-              style={(styles as any).scrollToBottomBtn}
+              style={styles.scrollToBottomBtn}
               activeOpacity={0.85}
               onPress={scrollToBottom}
             >
@@ -7478,7 +7509,7 @@ export default function ConversationScreen() {
                 </View>
               )}
             </TouchableOpacity>
-          )}
+          </Animated.View>
           </View>
 
           {/* ── Reply Preview ── */}
@@ -7877,14 +7908,10 @@ export default function ConversationScreen() {
           }
         }}
         onForward={() => {
-          if (selectedMsgForModal?.message) {
-            forwardAttachmentsRef.current = null;
-            setForwardStatus({});
-            setForwardSearch("");
-            setForwardExpandedProjects(new Set());
-            setForwardMsg(selectedMsgForModal.message);
-            setForwardOpen(true);
-          }
+          // Forward is the multi-select entry point: the pressed message starts
+          // selected, then the user can tick more before choosing a recipient.
+          const message = selectedMsgForModal?.message;
+          if (message) startSelection(message);
         }}
         onDownload={() => {
           if (selectedMsgForModal?.message) {
@@ -8078,183 +8105,13 @@ export default function ConversationScreen() {
         }}
       />
 
-      {/* ── Forward Room Picker Modal ── */}
-      <Modal
-        visible={forwardOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={closeForwardModal}
-      >
-        <View style={styles.modalOverlay}>
-          <Pressable
-            style={styles.forwardBackdrop}
-            onPress={closeForwardModal}
-          />
-          <View style={styles.forwardPickerContainer}>
-            <View style={styles.forwardHeader}>
-              <Text style={styles.forwardTitle}>Forward to</Text>
-              <ModalCloseButton onPress={closeForwardModal} />
-            </View>
-            {forwardMsg && (
-              <View style={styles.forwardPreview}>
-                <Text style={styles.forwardPreviewLabel}>Message:</Text>
-                <Text style={styles.forwardPreviewText} numberOfLines={1}>
-                  {forwardMsg.text}
-                </Text>
-              </View>
-            )}
-            <View style={styles.forwardSearchRow}>
-              <Ionicons name="search" size={13} color="#9CA3AF" />
-              <TextInput
-                style={styles.forwardSearchInput}
-                value={forwardSearch}
-                onChangeText={setForwardSearch}
-                placeholder="Search chats or channels"
-                placeholderTextColor="#9CA3AF"
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="search"
-              />
-              {forwardSearch.length > 0 && (
-                <TouchableOpacity onPress={() => setForwardSearch("")}>
-                  <Ionicons name="close-circle" size={14} color="#C4C4C4" />
-                </TouchableOpacity>
-              )}
-            </View>
-            <SectionList
-              sections={forwardSections}
-              style={styles.forwardList}
-              keyExtractor={(item: Room, idx: number) =>
-                String(item._id ?? item.id ?? `room-${idx}`)
-              }
-              stickySectionHeadersEnabled={false}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
-              removeClippedSubviews={false}
-              renderSectionHeader={({ section }) => {
-                if (section.projectId != null) {
-                  const projectId = section.projectId;
-                  const channelCount = section.channelCount ?? 0;
-                  // Same row as a chat/channel (avatar, name, right-side
-                  // control); a "Projects" label precedes the first group.
-                  const isFirstProject =
-                    forwardSections.find((s) => s.projectId != null)
-                      ?.projectId === projectId;
-                  return (
-                    <>
-                      {isFirstProject && (
-                        <View style={styles.forwardSectionHeader}>
-                          <Text style={styles.forwardSectionTitle}>
-                            Projects
-                          </Text>
-                        </View>
-                      )}
-                      <TouchableOpacity
-                        style={styles.forwardRoomRow}
-                        activeOpacity={0.75}
-                        onPress={() => toggleForwardProject(projectId)}
-                        accessibilityRole="button"
-                        accessibilityState={{ expanded: !section.collapsed }}
-                      >
-                        <Avatar
-                          name={section.title}
-                          size={20}
-                          borderRadius={5}
-                          fontSize={9}
-                        />
-                        <Text style={styles.forwardRoomName} numberOfLines={1}>
-                          {section.title}
-                        </Text>
-                        <Text style={styles.forwardProjectCount}>
-                          {channelCount}{" "}
-                          {channelCount === 1 ? "channel" : "channels"}
-                        </Text>
-                        <Ionicons
-                          name={
-                            section.collapsed ? "chevron-forward" : "chevron-down"
-                          }
-                          size={14}
-                          color="#6B7280"
-                        />
-                      </TouchableOpacity>
-                    </>
-                  );
-                }
-                return (
-                  <View style={styles.forwardSectionHeader}>
-                    <Text style={styles.forwardSectionTitle}>
-                      {section.title}
-                    </Text>
-                  </View>
-                );
-              }}
-              ListEmptyComponent={
-                <View style={styles.forwardEmpty}>
-                  <Text style={styles.forwardEmptyText}>
-                    No chats or channels found
-                  </Text>
-                </View>
-              }
-              renderItem={({ item: room, section }) => {
-                const displayName = getForwardRoomDisplayName(
-                  room,
-                  currentUserId,
-                );
-                const status =
-                  forwardStatus[String(room._id ?? room.id)] ?? "idle";
-                return (
-                  <View
-                    style={[
-                      styles.forwardRoomRow,
-                      section.projectId != null &&
-                        styles.forwardRoomRowNested,
-                    ]}
-                  >
-                    <Avatar
-                      name={displayName}
-                      imagePath={getRoomAvatar(room, currentUserId)}
-                      size={20}
-                      borderRadius={5}
-                      fontSize={9}
-                    />
-                    <Text style={styles.forwardRoomName} numberOfLines={1}>
-                      {displayName}
-                    </Text>
-                    <TouchableOpacity
-                      style={[
-                        styles.forwardSendBtn,
-                        status === "sent" && styles.forwardSendBtnSent,
-                      ]}
-                      onPress={() => handleForward(room)}
-                      disabled={status === "sending" || status === "sent"}
-                      activeOpacity={0.8}
-                    >
-                      {status === "sending" ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : status === "sent" ? (
-                        <>
-                          <Ionicons
-                            name="checkmark"
-                            size={10}
-                            color={TEAL}
-                          />
-                          <Text style={styles.forwardSendBtnSentText}>
-                            Sent
-                          </Text>
-                        </>
-                      ) : (
-                        <Text style={styles.forwardSendBtnText}>
-                          {status === "error" ? "Retry" : "Send"}
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                );
-              }}
-            />
-          </View>
-        </View>
-      </Modal>
+      {forwardOpen && (
+        <ForwardMessagesModal
+          messages={forwardMessages}
+          currentUserId={currentUserId}
+          onClose={closeForwardModal}
+        />
+      )}
     </View>
   );
 }
@@ -8294,10 +8151,13 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#fff" },
   safe: { flex: 1 },
   flex: { flex: 1 },
-  scrollToBottomBtn: {
+  scrollToBottomContainer: {
     position: "absolute",
     right: 14,
     bottom: 14,
+    zIndex: 20,
+  },
+  scrollToBottomBtn: {
     width: 31,
     height: 31,
     borderRadius: 16,
@@ -8311,7 +8171,6 @@ const styles = StyleSheet.create({
     elevation: 6,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    zIndex: 20,
   },
   scrollToBottomBadge: {
     position: "absolute",
@@ -8342,6 +8201,30 @@ const styles = StyleSheet.create({
     borderBottomColor: "#F3F4F6",
     minHeight: 54,
   },
+  selectionHeader: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  selectionHeaderClose: { padding: 2 },
+  selectionHeaderTitle: {
+    fontFamily: "SF_Pro_Semibold",
+    fontSize: rf(15),
+    color: TEXT_PRIMARY,
+  },
+  selectionHeaderAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    padding: 2,
+  },
+  selectionHeaderActionText: {
+    fontFamily: "SF_Pro_Medium",
+    fontSize: rf(13),
+    color: TEAL,
+  },
+  selectionHeaderActionTextDisabled: { color: "#C4C4C4" },
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
@@ -8496,6 +8379,15 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   messageWrapper: { width: "100%" },
+  messageRowFlex: { flex: 1 },
+  selectionSelectedRow: {
+    backgroundColor: "rgba(0, 222, 171, 0.08)",
+    borderRadius: 12,
+  },
+  selectionCheckbox: {
+    alignSelf: "center",
+    marginHorizontal: 4,
+  },
   // Blink frame applied to the bubble itself (not the whole row) when jumping
   // to a message from the Pinned list or a quoted reply.
   bubbleHighlight: {
@@ -9124,162 +9016,6 @@ const styles = StyleSheet.create({
     fontSize: rf(26),
   },
 
-  // ── Forward Picker ──
-  forwardBackdrop: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-  },
-  forwardPickerContainer: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    width: "86%",
-    maxHeight: "88%",
-    minHeight: 0,
-    overflow: "hidden",
-    zIndex: 1,
-  },
-  forwardList: {
-    flexGrow: 0,
-    flexShrink: 1,
-    minHeight: 0,
-  },
-  forwardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  forwardTitle: {
-    fontSize: rf(13),
-    fontFamily: "SF_Pro_Medium",
-    color: TEXT_PRIMARY,
-  },
-  forwardSearchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    height: 30,
-    marginHorizontal: 12,
-    marginTop: 7,
-    marginBottom: 3,
-    paddingHorizontal: 8,
-    borderRadius: 7,
-    backgroundColor: "#F3F4F6",
-    gap: 6,
-  },
-  forwardSearchInput: {
-    flex: 1,
-    padding: 0,
-    fontSize: rf(11.5),
-    fontFamily: "SF_Pro_Regular",
-    color: TEXT_PRIMARY,
-  },
-  forwardSectionHeader: {
-    paddingHorizontal: 12,
-    paddingTop: 7,
-    paddingBottom: 3,
-    backgroundColor: "#fff",
-  },
-  forwardSectionTitle: {
-    fontSize: rf(9.5),
-    fontFamily: "SF_Pro_Semibold",
-    color: "#8A8A8A",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
-  },
-  forwardProjectCount: {
-    fontSize: rf(9.5),
-    fontFamily: "SF_Pro_Regular",
-    color: "#8A8A8A",
-  },
-  forwardRoomRowNested: {
-    paddingLeft: 27,
-  },
-  forwardEmpty: {
-    paddingHorizontal: 16,
-    paddingVertical: 24,
-    alignItems: "center",
-  },
-  forwardEmptyText: {
-    fontSize: rf(12),
-    fontFamily: "SF_Pro_Regular",
-    color: TEXT_SECONDARY,
-  },
-  forwardPreview: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    backgroundColor: "#F9FAFB",
-  },
-  forwardPreviewLabel: {
-    fontSize: rf(9),
-    fontFamily: "SF_Pro_Medium",
-    color: TEXT_SECONDARY,
-    marginBottom: 1,
-  },
-  forwardPreviewText: {
-    fontSize: rf(11),
-    fontFamily: "SF_Pro_Regular",
-    color: TEXT_PRIMARY,
-  },
-  forwardRoomRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    height: 24,
-    paddingHorizontal: 12,
-    gap: 7,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  forwardRoomAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: TEAL,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  forwardRoomAvatarText: {
-    color: "#fff",
-    fontSize: rf(14),
-    fontFamily: "SF_Pro_Semibold",
-  },
-  forwardRoomName: {
-    flex: 1,
-    fontSize: rf(12),
-    fontFamily: "SF_Pro_Regular",
-    color: TEXT_PRIMARY,
-  },
-  forwardSendBtn: {
-    minWidth: 44,
-    height: 20,
-    borderRadius: 4,
-    backgroundColor: TEAL,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 6,
-  },
-  forwardSendBtnSent: {
-    backgroundColor: "#E8FBF5",
-  },
-  forwardSendBtnText: {
-    color: "#fff",
-    fontSize: rf(10),
-    fontFamily: "SF_Pro_Medium",
-  },
-  forwardSendBtnSentText: {
-    color: TEAL,
-    fontSize: rf(10),
-    fontFamily: "SF_Pro_Medium",
-    marginLeft: 2,
-  },
-
-  // ── Edit Message ──
   editContainer: {
     backgroundColor: "#fff",
     borderRadius: 16,

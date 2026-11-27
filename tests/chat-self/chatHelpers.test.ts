@@ -3,11 +3,13 @@ import test from "node:test";
 
 import type { Room, RoomMember } from "../../src/types/chat.types";
 import {
+  getMessageTick,
   getRoomAvatar,
   getRoomDisplayName,
   getRoomInitials,
   isSelfChatRoom,
-  stripSelfChatPrefix,
+  selfChatStorageKey,
+  stripSelfChatMarker,
 } from "../../src/utils/chatHelpers";
 
 const SELF_ID = 7;
@@ -49,17 +51,17 @@ test("self chat is detected only when every member is the current user", () => {
   assert.equal(isSelfChatRoom(room({ type: "channel", members: [member({})] }), SELF_ID), false);
 });
 
-test("self chat shows (You) before the current user's name", () => {
+test("self chat shows (You) after the current user's name", () => {
   assert.equal(
     getRoomDisplayName(room({ members: [member({})] }), SELF_ID),
-    "(You) Areeb Khan",
+    "Areeb Khan (You)",
   );
   assert.equal(
     getRoomDisplayName(
       room({ members: [member({}), member({ id: SELF_ID })] }),
       SELF_ID,
     ),
-    "(You) Areeb Khan",
+    "Areeb Khan (You)",
   );
 });
 
@@ -83,11 +85,48 @@ test("self chat initials and avatar use the self member", () => {
   assert.equal(getRoomAvatar(self, SELF_ID), "https://cdn/self.png");
 });
 
-test("the (You) prefix is stripped for avatar initials only", () => {
-  assert.equal(stripSelfChatPrefix("(You) Areeb Khan"), "Areeb Khan");
-  assert.equal(stripSelfChatPrefix("(you) Areeb Khan"), "Areeb Khan");
-  assert.equal(stripSelfChatPrefix("Jane Doe"), "Jane Doe");
-  assert.equal(stripSelfChatPrefix(null), "");
+test("the (You) marker is stripped for avatar initials only", () => {
+  assert.equal(stripSelfChatMarker("Areeb Khan (You)"), "Areeb Khan");
+  assert.equal(stripSelfChatMarker("Areeb Khan (you)"), "Areeb Khan");
+  assert.equal(stripSelfChatMarker("(You) Areeb Khan"), "Areeb Khan");
+  assert.equal(stripSelfChatMarker("Jane Doe"), "Jane Doe");
+  assert.equal(stripSelfChatMarker(null), "");
+});
+
+test("the restoration flag is scoped to the user", () => {
+  assert.equal(selfChatStorageKey(7), "planit_self_chat_7");
+  assert.equal(selfChatStorageKey(42), "planit_self_chat_42");
+});
+
+test("self-chat messages show read (double blue) ticks once acknowledged", () => {
+  const base = { sender_id: SELF_ID, is_read: [], delivered_to: [] } as any;
+  assert.equal(getMessageTick({ ...base, is_pending: true }, [], SELF_ID, true), "clock");
+  assert.equal(getMessageTick({ ...base, failed: true }, [], SELF_ID, true), "failed");
+  assert.equal(getMessageTick(base, [], SELF_ID, true), "read");
+});
+
+test("normal DM tick behavior is unchanged", () => {
+  const other = 9;
+  const noReceipts = { sender_id: SELF_ID, is_read: [], delivered_to: [] } as any;
+  assert.equal(getMessageTick(noReceipts, [{ id: other }] as any, SELF_ID, false), "single");
+  assert.equal(
+    getMessageTick(
+      { sender_id: SELF_ID, is_read: [], delivered_to: [other] } as any,
+      [{ id: other }] as any,
+      SELF_ID,
+      false,
+    ),
+    "delivered",
+  );
+  assert.equal(
+    getMessageTick(
+      { sender_id: SELF_ID, is_read: [other], delivered_to: [] } as any,
+      [{ id: other }] as any,
+      SELF_ID,
+      false,
+    ),
+    "read",
+  );
 });
 
 test("missing member data falls back to the room name (backward compatible)", () => {

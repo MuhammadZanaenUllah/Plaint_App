@@ -18,7 +18,9 @@ import {
   getMessageInitials,
   isOwnMessage,
   isRoomUnread,
+  isSelfChatRoom,
   isWithinMessageActionWindow,
+  selfChatStorageKey,
 } from "@/utils/chatHelpers";
 import {
   openConversation,
@@ -1102,7 +1104,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // the just-reappeared chat on the next refresh.
         const serverIds = new Set(res.rooms.map((r) => r._id));
         const preserved = stateRef.current.rooms.filter(
-          (r) => reactivatedRoomsRef.current.has(r._id) && !serverIds.has(r._id),
+          (r) =>
+            !serverIds.has(r._id) &&
+            (reactivatedRoomsRef.current.has(r._id) ||
+              // Keep a locally-restored "Message yourself" room if the server
+              // omits it from GET /chat/rooms (it must survive manual refresh).
+              isSelfChatRoom(r, userIdRef.current)),
         );
         // Merge in any pending incoming message so a newly-created room is not
         // dropped from the list for lacking a last_message.
@@ -1216,26 +1223,40 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "SET_CURRENT_ROOM", room });
   }, []);
 
+  // Deleting/leaving/hiding the self-chat should also stop it from being
+  // auto-restored on the next app launch.
+  const forgetSelfChatIfNeeded = useCallback((roomId: string) => {
+    const room = stateRef.current.rooms.find((r) => r._id === roomId);
+    if (room && isSelfChatRoom(room, userIdRef.current)) {
+      AsyncStorage.removeItem(
+        selfChatStorageKey(userIdRef.current),
+      ).catch(() => {});
+    }
+  }, []);
+
   const deleteRoom = useCallback(async (roomId: string) => {
+    forgetSelfChatIfNeeded(roomId);
     const res = await chatService.deleteRoom(roomId);
     if (!res.Good) {
       console.log(res.message ?? "Failed to delete room");
     }
     socketService.emitRoomDeleted(roomId);
     dispatch({ type: "REMOVE_ROOM", roomId });
-  }, []);
+  }, [forgetSelfChatIfNeeded]);
 
   const leaveRoom = useCallback(async (roomId: string) => {
+    forgetSelfChatIfNeeded(roomId);
     const res = await chatService.leaveRoom(roomId);
     if (!res.Good) {
       console.log(res.message ?? "Failed to leave room");
     }
     socketService.leaveChatRoom(roomId, userIdRef.current);
     dispatch({ type: "REMOVE_ROOM", roomId });
-  }, []);
+  }, [forgetSelfChatIfNeeded]);
 
   const hideRoom = useCallback(
     async (roomId: string) => {
+      forgetSelfChatIfNeeded(roomId);
       const res = await chatService.hideRoom(roomId);
       if (!res.Good) {
         console.log("Failed to hide room");
@@ -1256,7 +1277,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         return next;
       });
     },
-    [persistChatCutoffs],
+    [persistChatCutoffs, forgetSelfChatIfNeeded],
   );
 
   const muteRoom = useCallback(
