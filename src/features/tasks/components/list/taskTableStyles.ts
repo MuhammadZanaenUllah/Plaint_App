@@ -537,17 +537,18 @@ export const taskTableStyles = StyleSheet.create({
     justifyContent: "center",
   },
   emptyText: {
-    fontSize: rf(13),
+    fontSize: rf(12),
     color: "#9CA3AF",
     fontFamily: "SF_Pro_Regular",
+    textAlign: "center",
   },
   errorText: {
     paddingHorizontal: 24,
-    fontSize: rf(13),
+    fontSize: rf(12),
     color: "#6B7280",
     fontFamily: "SF_Pro_Regular",
     textAlign: "center",
-    lineHeight: rf(19),
+    lineHeight: rf(17),
   },
   retryButton: {
     marginTop: 12,

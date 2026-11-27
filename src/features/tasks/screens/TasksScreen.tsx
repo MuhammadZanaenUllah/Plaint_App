@@ -70,7 +70,7 @@ export default function TasksScreen() {
         >
           <Text
             style={{
-              fontSize: 18,
+              fontSize: 12,
               fontFamily: "SF_Pro_Semibold",
               color: "#1D1D1D",
               marginBottom: 8,
@@ -80,11 +80,11 @@ export default function TasksScreen() {
           </Text>
           <Text
             style={{
-              fontSize: 13,
+              fontSize: 12,
               fontFamily: "SF_Pro_Regular",
               color: "#6B7280",
               textAlign: "center",
-              lineHeight: 19,
+              lineHeight: 17,
             }}
           >
             {MODULE_ACCESS_MESSAGES.tasks}
