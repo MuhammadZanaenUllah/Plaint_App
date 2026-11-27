@@ -722,6 +722,29 @@ export function buildMentionMarkup(userId: number, fullName: string): string {
 }
 
 /**
+ * Whether a chat message mentions `userId`.
+ *
+ * The backend's `mentions` array is authoritative for mobile-sent messages;
+ * website-originated messages may also carry inline `@[Name](id)` markup. A
+ * plain `@Name` with no id cannot be matched reliably and is ignored.
+ */
+export function messageMentionsUser(
+  message: Pick<ChatMessage, "mentions" | "text"> | null | undefined,
+  userId: number | string | null | undefined,
+): boolean {
+  if (!message || userId == null || userId === "") return false;
+  const uid = String(userId);
+  if (
+    (message.mentions ?? []).some((id) => String(id) === uid)
+  ) {
+    return true;
+  }
+  return extractMentionedUserIds(message.text).some(
+    (id) => String(id) === uid,
+  );
+}
+
+/**
  * Build the display text for a notification from backend payload data only.
  *
  * The backend sends short labels (e.g. "Created a task") as the title and the

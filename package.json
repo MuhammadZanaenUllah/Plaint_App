@@ -89,6 +89,7 @@
     "test:chat-forward": "tsx --test tests/chat-forward/*.test.ts",
     "test:chat-drafts": "tsx --test tests/chat-drafts/*.test.ts",
     "test:chat-cache": "tsx --test tests/chat-cache/*.test.ts",
+    "test:chat-mentions": "tsx --test tests/chat-mentions/*.test.ts",
     "protect:baseline": "node scripts/baseline/create-baseline.mjs",
     "protect:verify": "node scripts/baseline/verify-baseline.mjs",
     "protect:report": "node scripts/baseline/report-changes.mjs",

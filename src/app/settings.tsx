@@ -21,6 +21,7 @@ import { getUserAvatarUrl } from "@/utils/userHelpers";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import ModalCloseButton from "@/components/ModalCloseButton";
 import * as LocalAuthentication from "expo-local-authentication";
+import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
@@ -64,6 +65,13 @@ export default function SettingsScreen() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [updatingPassword, setUpdatingPassword] = useState(false);
+
+  // Profile picture picker. The server-side upload endpoint is not confirmed
+  // yet (see questions.md Part 6), so this is intentionally a preview only: it
+  // never mutates the account or pretends the photo was saved.
+  const [photoModalVisible, setPhotoModalVisible] = useState(false);
+  const [pendingAvatarUri, setPendingAvatarUri] = useState<string | null>(null);
+  const [pickingAvatar, setPickingAvatar] = useState(false);
 
   const calculateCacheSize = useCallback(async () => {
     try {
@@ -367,6 +375,43 @@ export default function SettingsScreen() {
     }
   };
 
+  const pickProfilePhoto = async (fromCamera: boolean) => {
+    if (pickingAvatar) return;
+    try {
+      if (fromCamera) {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (permission.status !== "granted") {
+          showError(
+            "Permission Required",
+            "Camera permission is required to take a profile photo.",
+          );
+          return;
+        }
+      }
+      setPickingAvatar(true);
+      const options: ImagePicker.ImagePickerOptions = {
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      };
+      const result = fromCamera
+        ? await ImagePicker.launchCameraAsync(options)
+        : await ImagePicker.launchImageLibraryAsync(options);
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        setPendingAvatarUri(result.assets[0].uri);
+      }
+    } catch (err) {
+      console.log("[Profile] Photo picker error:", err);
+      showError(
+        "Photo Error",
+        "Could not open the photo picker. Please try again.",
+      );
+    } finally {
+      setPickingAvatar(false);
+    }
+  };
+
   const handleLogout = () => {
     setAlertConfig({
       visible: true,
@@ -420,12 +465,30 @@ export default function SettingsScreen() {
       >
         {/* ── User Profile Banner ── */}
         <View style={styles.profileCard}>
-          <Avatar
-            name={fullName}
-            imagePath={user?.image}
-            size={44}
-            borderRadius={22}
-          />
+          <TouchableOpacity
+            style={styles.profileAvatarTouchable}
+            activeOpacity={0.8}
+            accessibilityLabel="Change profile picture"
+            onPress={() => setPhotoModalVisible(true)}
+          >
+            {pendingAvatarUri ? (
+              <Image
+                source={{ uri: pendingAvatarUri }}
+                style={styles.profileAvatarPreview}
+                resizeMode="cover"
+              />
+            ) : (
+              <Avatar
+                name={fullName}
+                imagePath={user?.image}
+                size={44}
+                borderRadius={22}
+              />
+            )}
+            <View style={styles.profileAvatarCameraBadge}>
+              <Ionicons name="camera" size={10} color="#FFFFFF" />
+            </View>
+          </TouchableOpacity>
           <View style={styles.profileInfo}>
             <Text style={styles.userName}>{fullName}</Text>
             <Text style={styles.userRole}>
@@ -441,6 +504,56 @@ export default function SettingsScreen() {
             </Text>
           </View>
         </View>
+
+        {/* ── Section: Profile ── */}
+        <View style={styles.section}>
+          <Text style={styles.sectionHeader}>PROFILE</Text>
+
+          <View style={styles.card}>
+            <TouchableOpacity
+              style={styles.clickableRow}
+              activeOpacity={0.7}
+              onPress={() => setPhotoModalVisible(true)}
+            >
+              <View style={styles.rowIconWrap}>
+                <Ionicons name="camera-outline" size={16} color="#00DEAB" />
+              </View>
+              <View style={styles.rowTextWrap}>
+                <Text style={styles.rowTitle}>Profile Picture</Text>
+                <Text style={styles.rowSub}>
+                  Preview only — server photo upload is pending
+                </Text>
+              </View>
+              <Text style={styles.actionLinkTextGreen}>Change</Text>
+            </TouchableOpacity>
+            {pendingAvatarUri ? (
+              <>
+                <View style={styles.divider} />
+                <TouchableOpacity
+                  style={styles.clickableRow}
+                  activeOpacity={0.7}
+                  onPress={() => setPendingAvatarUri(null)}
+                >
+                  <View style={styles.rowIconWrap}>
+                    <Ionicons
+                      name="close-circle-outline"
+                      size={16}
+                      color="#EF4444"
+                    />
+                  </View>
+                  <View style={styles.rowTextWrap}>
+                    <Text style={styles.rowTitle}>Clear preview</Text>
+                    <Text style={styles.rowSub}>
+                      Restore the current profile picture
+                    </Text>
+                  </View>
+                  <Text style={styles.actionLinkText}>Clear</Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
+          </View>
+        </View>
+
 
         {/* ── Section: Notifications & Alerts ── */}
         <View style={styles.section}>
@@ -742,6 +855,90 @@ export default function SettingsScreen() {
         <View style={{ height: 40 }} />
       </ScrollView>
 
+      {/* ── Profile Picture Modal (preview only) ── */}
+      <Modal
+        visible={photoModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPhotoModalVisible(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setPhotoModalVisible(false)}
+        >
+          <Pressable
+            style={styles.modalCard}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Profile Picture</Text>
+              <ModalCloseButton onPress={() => setPhotoModalVisible(false)} />
+            </View>
+
+            <View style={styles.photoPreviewWrap}>
+              {pendingAvatarUri ? (
+                <Image
+                  source={{ uri: pendingAvatarUri }}
+                  style={styles.photoPreview}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Avatar
+                  name={fullName}
+                  imagePath={user?.image}
+                  size={96}
+                  borderRadius={48}
+                />
+              )}
+            </View>
+
+            <Text style={styles.photoNote}>
+              Preview only. Saving your profile picture needs the Planit photo
+              upload API, which is not available yet.
+            </Text>
+
+            <View style={styles.photoActionRow}>
+              <TouchableOpacity
+                style={styles.photoActionBtn}
+                activeOpacity={0.7}
+                disabled={pickingAvatar}
+                onPress={() => pickProfilePhoto(false)}
+              >
+                <Ionicons name="images-outline" size={18} color="#1D1D1D" />
+                <Text style={styles.photoActionText}>Library</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.photoActionBtn}
+                activeOpacity={0.7}
+                disabled={pickingAvatar}
+                onPress={() => pickProfilePhoto(true)}
+              >
+                <Ionicons name="camera-outline" size={18} color="#1D1D1D" />
+                <Text style={styles.photoActionText}>Camera</Text>
+              </TouchableOpacity>
+            </View>
+
+            {pendingAvatarUri ? (
+              <TouchableOpacity
+                style={styles.photoClearBtn}
+                activeOpacity={0.7}
+                onPress={() => setPendingAvatarUri(null)}
+              >
+                <Text style={styles.photoClearText}>Remove preview</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            <TouchableOpacity
+              style={styles.modalSaveBtn}
+              activeOpacity={0.85}
+              onPress={() => setPhotoModalVisible(false)}
+            >
+              <Text style={styles.modalSaveBtnText}>Done</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* ── Password Modal ── */}
       <Modal
         visible={passwordModalVisible}
@@ -928,6 +1125,30 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
+  profileAvatarTouchable: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  profileAvatarPreview: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#F3F4F6",
+  },
+  profileAvatarCameraBadge: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#00DEAB",
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   avatar: {
     width: 48,
     height: 48,
@@ -1096,6 +1317,11 @@ const styles = StyleSheet.create({
     fontFamily: "SF_Pro_Semibold",
     color: "#EF4444",
   },
+  actionLinkTextGreen: {
+    fontSize: rf(11),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#00A881",
+  },
   tagText: {
     fontSize: rf(9),
     fontFamily: "SF_Pro_Medium",
@@ -1180,6 +1406,56 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontFamily: "SF_Pro_Bold",
     fontSize: rf(14),
+  },
+  photoPreviewWrap: {
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  photoPreview: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: "#F3F4F6",
+  },
+  photoNote: {
+    fontSize: rf(10.5),
+    fontFamily: "SF_Pro_Regular",
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 15,
+    marginTop: 4,
+    marginBottom: 14,
+  },
+  photoActionRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  photoActionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#F9FAFB",
+  },
+  photoActionText: {
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Medium",
+    color: "#1D1D1D",
+  },
+  photoClearBtn: {
+    alignSelf: "center",
+    marginTop: 12,
+    paddingVertical: 4,
+  },
+  photoClearText: {
+    fontSize: rf(11),
+    fontFamily: "SF_Pro_Medium",
+    color: "#EF4444",
   },
   alertCard: {
     width: "88%",

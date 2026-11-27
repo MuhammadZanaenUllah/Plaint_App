@@ -120,7 +120,7 @@ export default function Avatar({
   size,
   borderRadius,
   backgroundColor = "#00DEAB",
-  textColor = "#fff",
+  textColor = "#000000",
   fontSize,
   fontFamily = "SF_Pro_Bold",
   style,

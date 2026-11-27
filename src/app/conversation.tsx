@@ -49,6 +49,8 @@ import {
   isOwnMessage,
   isRoomUnread,
   isSelfChatRoom,
+  mentionMarkupToDisplay,
+  messageMentionsUser,
   stripSelfChatMarker,
   isVideoAttachment,
   isVoiceNoteText,
@@ -2551,9 +2553,6 @@ const MessageBubble = React.memo(function MessageBubble({
                     />
                     <Text style={styles.forwardedText}>
                       Forwarded
-                      {message.forwarded_from_name
-                        ? ` from ${message.forwarded_from_name}`
-                        : ""}
                     </Text>
                   </View>
                 ) : null}
@@ -2685,9 +2684,6 @@ const MessageBubble = React.memo(function MessageBubble({
                   />
                   <Text style={styles.forwardedText}>
                     Forwarded
-                    {message.forwarded_from_name
-                      ? ` from ${message.forwarded_from_name}`
-                      : ""}
                   </Text>
                 </View>
               ) : null}
@@ -4462,7 +4458,7 @@ const waModalStyles = StyleSheet.create({
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
-type FilterTab = "date" | "attachments" | "chat_member" | "post_type" | null;
+type FilterTab = "date" | "attachments" | "chat_member" | "mentions" | "post_type" | null;
 
 // Inline list items: a message, or a static date divider that stays attached to
 // the messages of its day while scrolling (WhatsApp-style).
@@ -6715,6 +6711,30 @@ export default function ConversationScreen() {
     filterPostType,
   ]);
 
+  // Messages in this conversation that mention the current user. Newest first
+  // for the channel "Mentions" panel. Only already-loaded history is searched
+  // (the backend has no per-room mentions endpoint); the panel offers "Load
+  // older messages" while `hasMore` is true.
+  const myMentions = useMemo(() => {
+    if (!currentUserId) return [] as ChatMessage[];
+    return state.messages
+      .filter((m) => messageMentionsUser(m, currentUserId))
+      .slice()
+      .reverse();
+  }, [state.messages, currentUserId]);
+
+  const mentionPreviewOf = useCallback((m: ChatMessage): string => {
+    if (isVoiceNoteText(m.text)) return "🎤 Voice note";
+    const text = mentionMarkupToDisplay(m.text).trim();
+    if (text) return text;
+    const attachments = m.attachments ?? [];
+    if (attachments.some((a) => isAudioAttachment(a))) return "🎤 Voice note";
+    if (attachments.length > 0) {
+      return `📎 ${attachments.length} attachment${attachments.length > 1 ? "s" : ""}`;
+    }
+    return "Mentioned you";
+  }, []);
+
   // Build the list items with a static date divider before the first message of
   // each day (chronological), then reverse for the inverted list. Deliberately
   // NOT based on scroll position — dividers stay attached to their messages.
@@ -7222,6 +7242,29 @@ export default function ConversationScreen() {
                 <TouchableOpacity
                   style={[
                     styles.filterChip,
+                    activeFilter === "mentions" && styles.filterChipActive,
+                  ]}
+                  activeOpacity={0.75}
+                  onPress={() => toggleFilter("mentions")}
+                >
+                  <Ionicons
+                    name="at-outline"
+                    size={11}
+                    color={activeFilter === "mentions" ? "#fff" : "#6B7280"}
+                  />
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      activeFilter === "mentions" &&
+                        styles.filterChipTextActive,
+                    ]}
+                  >
+                    Mentions
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.filterChip,
                     (activeFilter === "post_type" || !!filterPostType) &&
                       styles.filterChipActive,
                   ]}
@@ -7428,6 +7471,94 @@ export default function ConversationScreen() {
                   </View>
                   <Text style={styles.memberAddText}>Add people</Text>
                   <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* ── Mentions panel (channels) ── */}
+        {!searchOpen && activeFilter === "mentions" && isChannel && (
+          <View style={styles.panelWrapper}>
+            <View style={styles.mentionsPanel}>
+              <View style={styles.mentionsHeaderRow}>
+                <Text style={styles.mentionsHeaderTitle}>Mentions of you</Text>
+                <Text style={styles.mentionsHeaderCount}>
+                  {myMentions.length} loaded
+                </Text>
+              </View>
+
+              {myMentions.length === 0 ? (
+                <View style={styles.mentionsEmptyWrap}>
+                  <Ionicons name="at-outline" size={28} color="#D1D5DB" />
+                  <Text style={styles.mentionsEmptyText}>
+                    No one has mentioned you in this channel yet.
+                  </Text>
+                </View>
+              ) : (
+                myMentions.map((m) => {
+                  const key = String(m._id ?? m.id);
+                  const senderName = isOwnMessage(m, currentUserId)
+                    ? "You"
+                    : m.sender_name?.trim() || "Member";
+                  return (
+                    <TouchableOpacity
+                      key={key}
+                      style={styles.mentionListItem}
+                      activeOpacity={0.7}
+                      onPress={() => handleJumpToMessageId(key)}
+                    >
+                      <Avatar
+                        name={senderName}
+                        imagePath={m.sender_image}
+                        size={30}
+                        borderRadius={15}
+                        fontSize={11}
+                        fontFamily="SF_Pro_Semibold"
+                      />
+                      <View style={styles.mentionListBody}>
+                        <View style={styles.mentionListTopRow}>
+                          <Text
+                            style={styles.mentionListSender}
+                            numberOfLines={1}
+                          >
+                            {senderName}
+                          </Text>
+                          <Text style={styles.mentionListTime}>
+                            {formatMessageTime(m.createdAt)}
+                          </Text>
+                        </View>
+                        <Text
+                          style={styles.mentionListPreview}
+                          numberOfLines={2}
+                        >
+                          {mentionPreviewOf(m)}
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name="chevron-forward"
+                        size={14}
+                        color="#9CA3AF"
+                      />
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+
+              {state.hasMore && (
+                <TouchableOpacity
+                  style={styles.mentionsLoadMore}
+                  activeOpacity={0.7}
+                  disabled={state.messagesLoading}
+                  onPress={handleLoadMore}
+                >
+                  {state.messagesLoading ? (
+                    <ActivityIndicator size="small" color="#00DEAB" />
+                  ) : (
+                    <Text style={styles.mentionsLoadMoreText}>
+                      Load older messages
+                    </Text>
+                  )}
                 </TouchableOpacity>
               )}
             </View>
@@ -8436,6 +8567,81 @@ const styles = StyleSheet.create({
   // ── Panel ──
   panelWrapper: {
     paddingTop: 4,
+  },
+
+  // ── Mentions panel ──
+  mentionsPanel: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  mentionsHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  mentionsHeaderTitle: {
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#1D1D1D",
+  },
+  mentionsHeaderCount: {
+    fontSize: rf(10),
+    fontFamily: "SF_Pro_Regular",
+    color: "#9CA3AF",
+  },
+  mentionsEmptyWrap: {
+    alignItems: "center",
+    paddingVertical: 22,
+    gap: 6,
+  },
+  mentionsEmptyText: {
+    fontSize: rf(11.5),
+    fontFamily: "SF_Pro_Regular",
+    color: "#9CA3AF",
+    textAlign: "center",
+  },
+  mentionListItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  mentionListBody: {
+    flex: 1,
+  },
+  mentionListTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  mentionListSender: {
+    flex: 1,
+    fontSize: rf(12),
+    fontFamily: "SF_Pro_Semibold",
+    color: "#1D1D1D",
+  },
+  mentionListTime: {
+    fontSize: rf(9.5),
+    fontFamily: "SF_Pro_Regular",
+    color: "#9CA3AF",
+  },
+  mentionListPreview: {
+    fontSize: rf(11),
+    fontFamily: "SF_Pro_Regular",
+    color: "#4B5563",
+    marginTop: 1,
+  },
+  mentionsLoadMore: {
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  mentionsLoadMoreText: {
+    fontSize: rf(11),
+    fontFamily: "SF_Pro_Medium",
+    color: "#00A67E",
   },
 
   // ── Scroll ──

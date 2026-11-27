@@ -188,6 +188,7 @@ export default function AppHeader({
               borderRadius={4}
               fontSize={8}
               backgroundColor="#1D1D1D"
+              textColor="#fff"
             />
           </TouchableOpacity>
         </View>
