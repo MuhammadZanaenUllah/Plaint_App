@@ -411,6 +411,28 @@ export type GetRoomPermissionsResponse = {
 
 export type ChatPermission = "Full edit" | "Edit" | "Comment" | "View Only";
 
+// ─── Conversation Cache ──────────────────────────────────────────────────────
+
+/**
+ * Session-level snapshot of one conversation, used to render a previously
+ * opened conversation instantly while a background sync revalidates it.
+ *
+ * This is NOT persisted to AsyncStorage: it is an in-memory only cache whose
+ * identity is the authenticated user/company session (the whole chat state is
+ * discarded on logout).
+ */
+export type ConversationCacheEntry = {
+  messages: ChatMessage[];
+  hasMore: boolean;
+  messagePage: number;
+  /** A page-1 fetch has completed at least once for this conversation. */
+  loaded: boolean;
+  /** Epoch ms of the last successful fetch (used for freshness decisions). */
+  loadedAt: number;
+  /** Epoch ms of the last cache read/write (used for LRU eviction). */
+  lastAccessAt: number;
+};
+
 // ─── Chat Context State ──────────────────────────────────────────────────────
 
 export type ChatState = {
@@ -419,6 +441,12 @@ export type ChatState = {
   messages: ChatMessage[];
   hasMore: boolean;
   messagePage: number;
+  /**
+   * Per-conversation message snapshots keyed by room `_id`. The active room is
+   * mirrored in `messages`/`hasMore`/`messagePage` above; this map keeps other
+   * conversations warm so reopening them does not show the initial loader.
+   */
+  conversationCache: Record<string, ConversationCacheEntry>;
   pinnedMessages: ChatMessage[];
   postTypes: CustomPostType[];
   roomPermissions: MemberPermission[];

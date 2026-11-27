@@ -65,6 +65,12 @@ import {
   markConversationOpen,
 } from "@/utils/conversationNavigation";
 import {
+  clearDraftIfUnchanged,
+  flushDrafts,
+  getDraft,
+  updateDraft,
+} from "@/features/chat/drafts/draftStore";
+import {
   getCachedVoiceNoteDuration,
   rememberVoiceNoteDuration,
   resolveVoiceNoteDuration,
@@ -101,6 +107,7 @@ import { StatusBar } from "expo-status-bar";
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -4610,6 +4617,27 @@ export default function ConversationScreen() {
   }, [callerPermission]);
 
   const [message, setMessage] = useState("");
+  // Conversation identity used for drafts/persistence. Prefer the resolved Mongo
+  // room id (same key the chat list uses); fall back to the route id while the
+  // room list is still loading.
+  const resolvedRoomForDraft = useMemo(
+    () =>
+      state.rooms.find(
+        (r) =>
+          String(r._id) === String(roomId) || String(r.id) === String(roomId),
+      ),
+    [state.rooms, roomId],
+  );
+  const draftRoomId = resolvedRoomForDraft?._id ?? roomId ?? null;
+  // The room whose draft was last loaded into the composer. Prevents a late
+  // room resolution from overwriting text the user is already typing.
+  const loadedDraftRoomRef = useRef<string | null>(null);
+  // Keep the latest composer text reachable from effects/handlers without
+  // reading a ref during render.
+  const messageRef = useRef(message);
+  useEffect(() => {
+    messageRef.current = message;
+  }, [message]);
   const scrollRef = useRef<any>(null);
   const composerRef = useRef<TextInput>(null);
   // Optimistic quoted-reply previews keyed by sent-message id, so the quote is
@@ -4677,6 +4705,36 @@ export default function ConversationScreen() {
   const [sending, setSending] = useState(false);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editingMsg, setEditingMsg] = useState<ChatMessage | null>(null);
+  // Restore the conversation's draft whenever the room identity resolves or
+  // changes. Never clobber text typed before the room resolved, and never run
+  // while editing an already-sent message (that uses the composer temporarily).
+  useEffect(() => {
+    if (!draftRoomId) return;
+    if (loadedDraftRoomRef.current === draftRoomId) return;
+    if (editingMsg) return;
+    loadedDraftRoomRef.current = draftRoomId;
+    const stored = getDraft(draftRoomId);
+    if (stored) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMessage(stored);
+      return;
+    }
+    if (messageRef.current) {
+      // The user started typing before the room id was known (New Chat flow).
+      updateDraft(draftRoomId, messageRef.current);
+      return;
+    }
+    setMessage("");
+  }, [draftRoomId, editingMsg]);
+
+  // Persist any pending draft write when leaving the screen (the store already
+  // flushes on app background; this covers fast navigation).
+  useEffect(() => {
+    return () => {
+      flushDrafts().catch(() => {});
+    };
+  }, []);
+
   const [deleteModalMsg, setDeleteModalMsg] = useState<ChatMessage | null>(
     null,
   );
@@ -5510,6 +5568,13 @@ export default function ConversationScreen() {
     (text: string) => {
       setMessage(text);
 
+      // Persist the unsent draft immediately (disk write is debounced by the
+      // store). Editing an already-sent message must never overwrite the
+      // conversation draft.
+      if (!editingMsg && draftRoomId) {
+        updateDraft(draftRoomId, text);
+      }
+
       // @-mention trigger detection: the "@" must start a fresh token
       // (preceded by whitespace/start) and the query must contain no spaces.
       const atIdx = text.lastIndexOf("@");
@@ -5540,26 +5605,29 @@ export default function ConversationScreen() {
         socketService.emitStopTyping(roomId, currentUserId, currentUserName);
       }
     },
-    [roomId, currentUserId, canSendMessage, currentUserName],
+    [roomId, currentUserId, canSendMessage, currentUserName, editingMsg, draftRoomId],
   );
 
   const selectMention = useCallback((member: RoomMember) => {
     const memberName =
       `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim() ||
       `User ${member.id}`;
-    setMessage((prev) => {
-      const atIdx = prev.lastIndexOf("@");
-      if (atIdx >= 0) {
-        return `${prev.slice(0, atIdx)}@${memberName} `;
-      }
-      return `${prev}@${memberName} `;
-    });
+    const current = messageRef.current ?? "";
+    const atIdx = current.lastIndexOf("@");
+    const next =
+      atIdx >= 0
+        ? `${current.slice(0, atIdx)}@${memberName} `
+        : `${current}@${memberName} `;
+    setMessage(next);
+    if (!editingMsg && draftRoomId) {
+      updateDraft(draftRoomId, next);
+    }
     setMentionedUserIds((prev) =>
       prev.includes(member.id) ? prev : [...prev, member.id],
     );
     setMentionActive(false);
     setMentionQuery("");
-  }, []);
+  }, [draftRoomId, editingMsg]);
 
   // Names of other members currently typing in this room.
   const typingNames = useMemo(() => {
@@ -5584,6 +5652,9 @@ export default function ConversationScreen() {
           text: textToSave,
         });
         showSuccess("Message updated");
+        // Editing never touches the independent conversation draft; restore it
+        // into the composer after the edit completes.
+        if (draftRoomId) setMessage(getDraft(draftRoomId));
       } catch (err) {
         console.log("[Conv] Edit error:", err);
         showError("Error", "Could not update this message.");
@@ -5599,6 +5670,9 @@ export default function ConversationScreen() {
     // Send the raw text (no trim): leading whitespace/indentation, blank lines
     // and trailing newlines are meaningful for pasted code blocks and tables.
     const text = getOutgoingMessageText(message);
+    // Raw composer text as stored in the draft (used to clear it only after a
+    // confirmed send, and only if the user has not typed something newer).
+    const sentDraftText = message;
     const mentions = mentionedUserIds;
     const replyTarget = replyTo;
     setMessage("");
@@ -5619,6 +5693,12 @@ export default function ConversationScreen() {
         // `id` — the backend 500s on a numeric reply reference.
         parent_id: replyTarget?._id,
       });
+      // The send is confirmed: clear the draft only if it still holds exactly
+      // the text that was sent. A newer draft typed while the request was in
+      // flight is preserved.
+      if (draftRoomId) {
+        clearDraftIfUnchanged(draftRoomId, sentDraftText);
+      }
       // The post type is applied per message; reset it after a successful send.
       setSelectedPostType(null);
       // Cache the quoted preview against the sent message id so it renders
@@ -5657,9 +5737,16 @@ export default function ConversationScreen() {
       }, 50);
     } catch (err) {
       console.log("[Conv] Send message error:", err);
-      setMessage(text);
-      setMentionedUserIds(mentions);
-      setReplyTo(replyTarget);
+      // Restore the failed message only while the draft still holds it. If the
+      // user already started a newer draft while the request was in flight,
+      // that newer text must win.
+      const draftStillMatches =
+        !draftRoomId || getDraft(draftRoomId) === sentDraftText;
+      if (draftStillMatches) {
+        setMessage(text);
+        setMentionedUserIds(mentions);
+        setReplyTo(replyTarget);
+      }
     } finally {
       setSending(false);
     }
@@ -5677,6 +5764,7 @@ export default function ConversationScreen() {
     state.rooms,
     selectedPostType,
     persistReplyTargets,
+    draftRoomId,
   ]);
 
   const handleReact = useCallback(
@@ -6020,7 +6108,10 @@ export default function ConversationScreen() {
   // Sender avatars/initials are shown in every chat, including 1:1.
   const showSenderAvatarForRoom = true;
 
-  useEffect(() => {
+  // Restore the room's cached messages before the first paint. A layout effect
+  // (not a passive effect) means a previously loaded conversation is rendered
+  // immediately on reopen — no full-screen loading flash.
+  useLayoutEffect(() => {
     if (!currentRoom) return;
     setCurrentRoom(currentRoom);
     // Read/seen synchronization for notification-opened chats. Tapping a chat
@@ -7596,7 +7687,8 @@ export default function ConversationScreen() {
                 style={styles.editingBannerCloseBtn}
                 onPress={() => {
                   setEditingMsg(null);
-                  setMessage("");
+                  // Return to the independent unsent draft (if any).
+                  setMessage(draftRoomId ? getDraft(draftRoomId) : "");
                 }}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
@@ -8100,7 +8192,9 @@ export default function ConversationScreen() {
             handleEmojiReact(emojiPickerMsg, emoji);
             setEmojiPickerMsg(null);
           } else {
-            setMessage((prev) => prev + emoji);
+            const next = (messageRef.current ?? "") + emoji;
+            setMessage(next);
+            if (!editingMsg && draftRoomId) updateDraft(draftRoomId, next);
           }
         }}
       />

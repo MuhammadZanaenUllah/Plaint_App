@@ -13,6 +13,9 @@ import InviteToChannelModal, {
 import Icons from "@/constants/icons";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
+import {
+  useChatDrafts,
+} from "@/features/chat/drafts/draftStore";
 // PROJECT MODULE DISABLED
 // import { useProjects } from "@/hooks/useProjects";
 import { useSearch } from "@/context/SearchContext";
@@ -289,6 +292,16 @@ export default function ChatScreen() {
     muteRoom,
     markUnread,
   } = useChat();
+  // Unsent drafts, read through a dedicated subscription so typing in a
+  // conversation does not re-render `useChat()` consumers everywhere.
+  const chatDrafts = useChatDrafts();
+  const draftForRoom = useCallback(
+    (room: Pick<Room, "_id" | "id">): string =>
+      (room._id != null ? chatDrafts[String(room._id)] : undefined) ??
+      chatDrafts[String(room.id)] ??
+      "",
+    [chatDrafts],
+  );
   const authState = useAuth();
   // PROJECT MODULE DISABLED
   // const { state: projectState, fetchProjects } = useProjects();
@@ -622,6 +635,11 @@ export default function ChatScreen() {
     const directRooms = rooms.filter((r) => {
       if (r.type !== "direct") return false;
       if (r.unreadCount > 0) return true;
+      // A conversation with an unsent draft must stay visible even when it has
+      // no last message yet (e.g. a brand-new "New chat" the user typed into).
+      const draft =
+        chatDrafts[String(r._id)] ?? chatDrafts[String(r.id)] ?? "";
+      if (draft.length > 0) return true;
       const lm = r.last_message;
       return (
         !!lm &&
@@ -700,7 +718,7 @@ export default function ChatScreen() {
     // to search results). Recomputed on each last_message/unread update, so
     // a room jumps to the top in real time when a message arrives.
     return sortRoomsByRecentActivity(filtered);
-  }, [visibleRooms, activeChip, searchText, currentUserId]);
+  }, [visibleRooms, activeChip, searchText, currentUserId, chatDrafts]);
 
   // Projects chip ordering: use the newest activity across the project room
   // AND its child channels. Without this, a project stayed in its old position
@@ -1205,6 +1223,12 @@ export default function ChatScreen() {
           ? `📎 ${lastAtts.length} attachment${lastAtts.length > 1 ? "s" : ""}`
           : room.last_message.text || "No messages yet"
       : "No messages yet";
+    // An unsent draft replaces the latest-message preview (never the timestamp
+    // or list ordering — drafts never touch room.last_message).
+    const draftText = draftForRoom(room);
+    const hasDraft = draftText.length > 0;
+    const previewText = hasDraft ? `Draft: ${draftText}` : lastPreview;
+    const showVoicePreview = lastIsVoice && !hasDraft;
 
     return (
       <SwipeableChatRow
@@ -1231,7 +1255,7 @@ export default function ChatScreen() {
           <Text style={styles.chatName} numberOfLines={1}>
             {displayName}
           </Text>
-          {lastIsVoice ? (
+          {showVoicePreview ? (
             <View style={styles.chatSnippetRow}>
               <Ionicons
                 name="mic"
@@ -1243,12 +1267,15 @@ export default function ChatScreen() {
                 style={[styles.chatSnippet, styles.chatSnippetFlex]}
                 numberOfLines={1}
               >
-                {lastPreview}
+                {previewText}
               </Text>
             </View>
           ) : (
-            <Text style={styles.chatSnippet} numberOfLines={1}>
-              {lastPreview}
+            <Text
+              style={[styles.chatSnippet, hasDraft && styles.chatSnippetDraft]}
+              numberOfLines={1}
+            >
+              {previewText}
             </Text>
           )}
         </View>
@@ -1553,6 +1580,8 @@ export default function ChatScreen() {
                               new Date(latestActivity).toISOString(),
                             )
                           : "";
+                      const projectDraft = draftForRoom(project);
+                      const projectHasDraft = projectDraft.length > 0;
                       return (
                         <View key={`project-${project.id}`}>
                           <TouchableOpacity
@@ -1585,11 +1614,15 @@ export default function ChatScreen() {
                                 {displayName}
                               </Text>
                               <Text
-                                style={styles.chatSnippet}
+                                style={[
+                                  styles.chatSnippet,
+                                  projectHasDraft && styles.chatSnippetDraft,
+                                ]}
                                 numberOfLines={1}
                               >
-                                {childChannels.length} channel
-                                {childChannels.length === 1 ? "" : "s"}
+                                {projectHasDraft
+                                  ? `Draft: ${projectDraft}`
+                                  : `${childChannels.length} channel${childChannels.length === 1 ? "" : "s"}`}
                                 {/* {isCollapsed ? " · collapsed" : ""} */}
                               </Text>
                             </View>
@@ -1636,6 +1669,8 @@ export default function ChatScreen() {
                                     channel.last_message.createdAt,
                                   )
                                 : "";
+                              const channelDraft = draftForRoom(channel);
+                              const channelHasDraft = channelDraft.length > 0;
                               return (
                                 <TouchableOpacity
                                   key={channel.id}
@@ -1672,10 +1707,16 @@ export default function ChatScreen() {
                                       {channelName}
                                     </Text>
                                     <Text
-                                      style={styles.chatSnippet}
+                                      style={[
+                                        styles.chatSnippet,
+                                        channelHasDraft &&
+                                          styles.chatSnippetDraft,
+                                      ]}
                                       numberOfLines={1}
                                     >
-                                      {channelPreview}
+                                      {channelHasDraft
+                                        ? `Draft: ${channelDraft}`
+                                        : channelPreview}
                                     </Text>
                                   </View>
                                   <View style={styles.chatMeta}>
@@ -2121,6 +2162,10 @@ const styles = StyleSheet.create({
     fontSize: rf(11),
     fontFamily: "SF_Pro_Regular",
     color: "#4B5563",
+  },
+  chatSnippetDraft: {
+    color: "#00A67E",
+    fontFamily: "SF_Pro_Medium",
   },
   chatSnippetRow: {
     flexDirection: "row",

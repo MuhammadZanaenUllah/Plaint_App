@@ -6,6 +6,7 @@ import * as socketService from "@/services/socket/socketService";
 import {
   ChatMessage,
   ChatState,
+  ConversationCacheEntry,
   CustomPostType,
   GetOrCreateRoomRequest,
   MemberPermission,
@@ -14,6 +15,21 @@ import {
   RoomMember,
   SearchUser,
 } from "@/types/chat.types";
+import {
+  hasRenderableConversation,
+  isConversationCacheFresh,
+  mapCachedMessages,
+  mergeFetchedPage,
+  mergeMessageLists,
+  removeMessageFromCache,
+  shouldShowConversationLoader,
+  upsertMessage,
+  withCachedConversation,
+} from "@/features/chat/conversationCache";
+import {
+  hydrateDrafts,
+  resetDrafts,
+} from "@/features/chat/drafts/draftStore";
 import {
   getMessageInitials,
   isOwnMessage,
@@ -85,6 +101,15 @@ type ChatAction =
   | { type: "SET_ONLINE_USERS"; userIds: string[] }
   | { type: "USER_ONLINE"; userId: string }
   | { type: "USER_OFFLINE"; userId: string }
+  | {
+      type: "CACHE_CONVERSATION";
+      roomId: string;
+      messages: ChatMessage[];
+      hasMore: boolean;
+      messagePage: number;
+      loadedAt: number;
+    }
+  | { type: "CLEAR_CONVERSATION_CACHE" }
   | { type: "LOGOUT" };
 
 const initialState: ChatState = {
@@ -93,6 +118,7 @@ const initialState: ChatState = {
   messages: [],
   hasMore: false,
   messagePage: 1,
+  conversationCache: {},
   pinnedMessages: [],
   postTypes: [],
   roomPermissions: [],
@@ -289,6 +315,82 @@ function applyReceipt(
   return { messages: changed ? next : messages, changed };
 }
 
+/**
+ * Snapshot the currently open conversation into the session cache.
+ *
+ * Called when a conversation closes or another one replaces it. The active
+ * `messages` list is the freshest source (socket events mutate it in place), so
+ * saving on transition keeps the cache accurate without touching every reducer
+ * action.
+ */
+function saveActiveConversationToCache(
+  state: ChatState,
+): Record<string, ConversationCacheEntry> {
+  const roomId = state.currentRoom?._id;
+  if (!roomId) return state.conversationCache;
+  const previous = state.conversationCache[roomId];
+  const loaded = previous?.loaded ?? state.messages.length > 0;
+  const entry: ConversationCacheEntry = {
+    messages: state.messages,
+    hasMore: state.hasMore,
+    messagePage: state.messagePage,
+    loaded,
+    loadedAt:
+      previous?.loadedAt ?? (loaded ? Date.now() : 0),
+    lastAccessAt: Date.now(),
+  };
+  return withCachedConversation(state.conversationCache, roomId, entry, {
+    activeRoomId: roomId,
+  });
+}
+
+/** Merge one incoming message into a cached conversation, if it exists. */
+function upsertMessageInCache(
+  cache: Record<string, ConversationCacheEntry>,
+  message: ChatMessage,
+): Record<string, ConversationCacheEntry> {
+  const roomId = message?.room_id != null ? String(message.room_id) : "";
+  const entry = roomId ? cache[roomId] : undefined;
+  if (!roomId || !entry) return cache;
+  return {
+    ...cache,
+    [roomId]: {
+      ...entry,
+      messages: upsertMessage(entry.messages, message),
+      lastAccessAt: Date.now(),
+    },
+  };
+}
+
+/** Identity check used when replacing a cached message in place. */
+function conversationMessageMatches(
+  current: ChatMessage,
+  incoming: ChatMessage,
+): boolean {
+  if (
+    incoming._id &&
+    current._id &&
+    String(current._id) === String(incoming._id)
+  ) {
+    return true;
+  }
+  if (
+    incoming.id != null &&
+    current.id != null &&
+    String(current.id) === String(incoming.id)
+  ) {
+    return true;
+  }
+  if (
+    incoming.client_id &&
+    current.client_id &&
+    String(current.client_id) === String(incoming.client_id)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "SET_LOADING":
@@ -313,35 +415,100 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
     case "SET_CURRENT_ROOM": {
       if (!action.room) {
-        // Closing the open conversation: drop its message list here so the next
-        // room can never briefly show it.
+        // Closing the open conversation: snapshot it into the session cache and
+        // clear the active list so the next room can never briefly show it.
         return {
           ...state,
           currentRoom: null,
           messages: [],
           messagePage: 1,
           hasMore: false,
+          conversationCache: saveActiveConversationToCache(state),
         };
       }
       const isSameRoom =
         state.currentRoom &&
-        (state.currentRoom._id === action.room._id || state.currentRoom.id === action.room.id);
+        (state.currentRoom._id === action.room._id ||
+          state.currentRoom.id === action.room.id);
       if (isSameRoom) {
         return {
           ...state,
           currentRoom: action.room,
         };
       }
-      // Transitioning from "no active room" (initial mount, or a cold-start
-      // notification deep link where the room store hydrates after the screen
-      // mounts) must NOT clear the list: `fetchMessages` may already have
-      // loaded this exact room's history before the room list resolved, and
-      // clearing here wiped it. The list is cleared on close / when switching
-      // between two different open rooms instead.
+      // Transitioning from "no active room" (initial mount, reopen, or a
+      // cold-start notification deep link where the room store hydrates after
+      // the screen mounts). If history was already fetched for this exact room
+      // before the room list resolved, keep it. Otherwise restore this room's
+      // cached snapshot so reopening renders instantly.
       if (!state.currentRoom) {
+        const first = state.messages[0];
+        const activeMessageRoomId =
+          first?.room_id != null ? String(first.room_id) : "";
+        const messagesBelongToRoom =
+          !!activeMessageRoomId &&
+          (activeMessageRoomId === String(action.room._id) ||
+            activeMessageRoomId === String(action.room.id));
+        if (messagesBelongToRoom) {
+          const entry: ConversationCacheEntry = {
+            messages: state.messages,
+            hasMore: state.hasMore,
+            messagePage: state.messagePage,
+            loaded: true,
+            loadedAt: Date.now(),
+            lastAccessAt: Date.now(),
+          };
+          return {
+            ...state,
+            currentRoom: action.room,
+            conversationCache: withCachedConversation(
+              state.conversationCache,
+              action.room._id,
+              entry,
+              { activeRoomId: action.room._id },
+            ),
+          };
+        }
+        const cached = state.conversationCache[action.room._id];
+        if (cached) {
+          return {
+            ...state,
+            currentRoom: action.room,
+            messages: cached.messages,
+            hasMore: cached.hasMore,
+            messagePage: cached.messagePage,
+            messagesLoading: false,
+            conversationCache: {
+              ...state.conversationCache,
+              [action.room._id]: { ...cached, lastAccessAt: Date.now() },
+            },
+          };
+        }
         return {
           ...state,
           currentRoom: action.room,
+          messages: [],
+          messagePage: 1,
+          hasMore: false,
+        };
+      }
+      // Switching directly between two open rooms: snapshot the outgoing room
+      // FIRST (its messages are still the active list), then restore the new
+      // room's cache snapshot.
+      const conversationCache = saveActiveConversationToCache(state);
+      const cached = conversationCache[action.room._id];
+      if (cached) {
+        return {
+          ...state,
+          currentRoom: action.room,
+          messages: cached.messages,
+          hasMore: cached.hasMore,
+          messagePage: cached.messagePage,
+          messagesLoading: false,
+          conversationCache: {
+            ...conversationCache,
+            [action.room._id]: { ...cached, lastAccessAt: Date.now() },
+          },
         };
       }
       return {
@@ -350,29 +517,70 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         messages: [],
         messagePage: 1,
         hasMore: false,
+        conversationCache,
       };
     }
-    case "LOAD_MESSAGES":
+    case "LOAD_MESSAGES": {
+      const messages = action.append
+        ? mergeMessageLists(action.messages, state.messages)
+        : action.messages;
+      const activeRoomId = state.currentRoom?._id;
+      const activeEntry = activeRoomId
+        ? state.conversationCache[activeRoomId]
+        : undefined;
+      // Keep the active conversation's cache snapshot aligned with what the UI
+      // shows (used by receipt handlers and pagination). The entry is created by
+      // the page-1 fetch, so before that there is nothing to update.
+      const conversationCache =
+        activeRoomId && activeEntry
+          ? {
+              ...state.conversationCache,
+              [activeRoomId]: {
+                ...activeEntry,
+                messages,
+                hasMore: action.hasMore,
+                lastAccessAt: Date.now(),
+              },
+            }
+          : state.conversationCache;
       return {
         ...state,
-        messages: action.append
-          ? [...action.messages, ...state.messages]
-          : action.messages,
+        messages,
         hasMore: action.hasMore,
         messagesLoading: false,
+        conversationCache,
       };
+    }
     case "ADD_MESSAGE": {
+      const incoming = action.message;
+      const normalizedIncoming: ChatMessage = {
+        ...incoming,
+        _id: String(
+          incoming._id ??
+            incoming.id ??
+            `msg-${Date.now()}-${Math.random()}`,
+        ),
+      };
+      // Keep the warm conversation cache in sync even when this room is not the
+      // one currently open (e.g. a message arrives after closing the chat but
+      // before reopening it).
+      const conversationCache = upsertMessageInCache(
+        state.conversationCache,
+        normalizedIncoming,
+      );
+
       // Cross-room contamination guard: `state.messages` only ever backs the
       // currently open conversation. A message from any other room must NOT be
       // appended here — it is still handled by the socket listener's room-list /
       // unread / toast logic and is loaded from the API when its own
       // conversation is opened. Without this check, an incoming message from
       // (e.g.) Nida leaked into an open Areeb↔Awais chat.
-      if (!messageBelongsToRoom(action.message, state.currentRoom)) {
-        return state;
+      if (!messageBelongsToRoom(incoming, state.currentRoom)) {
+        return conversationCache === state.conversationCache
+          ? state
+          : { ...state, conversationCache };
       }
 
-      const incoming = action.message;
       const incomingId = String(incoming._id ?? incoming.id ?? "");
       const incomingClientId = incoming.client_id
         ? String(incoming.client_id)
@@ -430,14 +638,18 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           delivered_to: mergeIdLists(prev.delivered_to, incoming.delivered_to),
           is_read: mergeIdLists(prev.is_read, incoming.is_read),
         };
-        return { ...state, messages: updated };
+        return { ...state, messages: updated, conversationCache };
       }
 
       const normalized = {
         ...incoming,
         _id: String(incoming._id ?? incoming.id ?? `msg-${Date.now()}-${Math.random()}`),
       };
-      return { ...state, messages: [...state.messages, normalized] };
+      return {
+        ...state,
+        messages: [...state.messages, normalized],
+        conversationCache,
+      };
     }
     case "REPLACE_MESSAGE": {
       // Swap the optimistic "sending" placeholder for the real message.
@@ -452,12 +664,34 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           String(m.id) !== tempKey &&
           String(m.client_id) !== tempKey,
       );
+      // Mirror the placeholder swap into the warm cache entry, if any.
+      const replacedRoomId =
+        action.message.room_id != null ? String(action.message.room_id) : "";
+      let conversationCache = state.conversationCache;
+      if (replacedRoomId && conversationCache[replacedRoomId]) {
+        const entry = conversationCache[replacedRoomId];
+        const withoutTemp = entry.messages.filter(
+          (m) =>
+            String(m._id) !== tempKey &&
+            String(m.id) !== tempKey &&
+            String(m.client_id) !== tempKey,
+        );
+        conversationCache = {
+          ...conversationCache,
+          [replacedRoomId]: {
+            ...entry,
+            messages: upsertMessage(withoutTemp, action.message),
+            lastAccessAt: Date.now(),
+          },
+        };
+      }
       // Never surface a message for a different room in the open conversation
       // (e.g. a message forwarded to another room).
       if (!messageBelongsToRoom(action.message, state.currentRoom)) {
-        return messages.length === state.messages.length
+        return messages.length === state.messages.length &&
+          conversationCache === state.conversationCache
           ? state
-          : { ...state, messages };
+          : { ...state, messages, conversationCache };
       }
       const realId = String(action.message._id ?? action.message.id ?? "");
       const clientId = action.message.client_id
@@ -493,15 +727,34 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           { ...action.message, is_pending: false },
         ];
       }
-      return { ...state, messages };
+      return { ...state, messages, conversationCache };
     }
-    case "UPDATE_MESSAGE":
+    case "UPDATE_MESSAGE": {
+      const roomId =
+        action.message.room_id != null ? String(action.message.room_id) : "";
+      const entry = roomId ? state.conversationCache[roomId] : undefined;
+      const conversationCache = entry
+        ? {
+            ...state.conversationCache,
+            [roomId]: {
+              ...entry,
+              messages: entry.messages.map((m) =>
+                conversationMessageMatches(m, action.message)
+                  ? action.message
+                  : m,
+              ),
+              lastAccessAt: Date.now(),
+            },
+          }
+        : state.conversationCache;
       return {
         ...state,
         messages: state.messages.map((m) =>
           m.id === action.message.id ? action.message : m,
         ),
+        conversationCache,
       };
+    }
     case "REMOVE_MESSAGE":
       return {
         ...state,
@@ -509,6 +762,10 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           (m) =>
             String(m._id) !== String(action.messageId) &&
             String(m.id) !== String(action.messageId),
+        ),
+        conversationCache: removeMessageFromCache(
+          state.conversationCache,
+          action.messageId,
         ),
       };
     case "SET_REACTIONS":
@@ -518,6 +775,13 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           m._id === action.messageId
             ? { ...m, reactions: action.reactions }
             : m,
+        ),
+        conversationCache: mapCachedMessages(
+          state.conversationCache,
+          (m) =>
+            String(m._id) === String(action.messageId)
+              ? { ...m, reactions: action.reactions }
+              : m,
         ),
       };
     case "SET_PINNED":
@@ -531,7 +795,16 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         changed = true;
         return { ...m, is_pinned: want };
       });
-      return changed ? { ...state, messages } : state;
+      const conversationCache = mapCachedMessages(
+        state.conversationCache,
+        (m) => {
+          const want = pinned.has(messageKey(m));
+          return !!m.is_pinned === want ? m : { ...m, is_pinned: want };
+        },
+      );
+      return changed || conversationCache !== state.conversationCache
+        ? { ...state, messages, conversationCache }
+        : state;
     }
     case "SET_POST_TYPES":
       return { ...state, postTypes: action.postTypes };
@@ -587,13 +860,17 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             : state.currentRoom,
       };
     }
-    case "REMOVE_ROOM":
+    case "REMOVE_ROOM": {
+      const conversationCache = { ...state.conversationCache };
+      delete conversationCache[action.roomId];
       return {
         ...state,
         rooms: state.rooms.filter((r) => r._id !== action.roomId),
         currentRoom:
           state.currentRoom?._id === action.roomId ? null : state.currentRoom,
+        conversationCache,
       };
+    }
     case "REMOVE_ROOM_MEMBER": {
       // A member left / was removed. Drop them from the room's member list and
       // from the per-room permission map (the "Chat members" panel is driven by
@@ -642,8 +919,26 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       }
       return { ...state, rooms: merged, loading: false, error: null };
     }
-    case "SET_MESSAGE_PAGE":
-      return { ...state, messagePage: action.page };
+    case "SET_MESSAGE_PAGE": {
+      const activeRoomId = state.currentRoom?._id;
+      const activeEntry = activeRoomId
+        ? state.conversationCache[activeRoomId]
+        : undefined;
+      return {
+        ...state,
+        messagePage: action.page,
+        conversationCache:
+          activeRoomId && activeEntry
+            ? {
+                ...state.conversationCache,
+                [activeRoomId]: {
+                  ...activeEntry,
+                  messagePage: action.page,
+                },
+              }
+            : state.conversationCache,
+      };
+    }
     case "SET_SEARCH_QUERY":
       return { ...state, searchQuery: action.query };
     case "SET_SEARCH_RESULTS":
@@ -681,6 +976,27 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ),
         })),
       };
+    case "CACHE_CONVERSATION": {
+      const entry: ConversationCacheEntry = {
+        messages: action.messages,
+        hasMore: action.hasMore,
+        messagePage: action.messagePage,
+        loaded: true,
+        loadedAt: action.loadedAt,
+        lastAccessAt: Date.now(),
+      };
+      return {
+        ...state,
+        conversationCache: withCachedConversation(
+          state.conversationCache,
+          action.roomId,
+          entry,
+          { activeRoomId: state.currentRoom?._id ?? action.roomId },
+        ),
+      };
+    }
+    case "CLEAR_CONVERSATION_CACHE":
+      return { ...state, conversationCache: {} };
     case "LOGOUT":
       return initialState;
     default:
@@ -845,10 +1161,34 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const userIdRef = useRef(0);
+  // Conversation whose `messages` list is currently rendered. Async responses
+  // use it to decide whether they may update the active UI (the cache is always
+  // updated regardless, so another room's later open stays instant).
+  const activeRoomIdRef = useRef<string | null>(null);
+  // In-flight message requests, keyed by `${roomId}:${page}`. Reopening the
+  // same conversation reuses the pending request instead of issuing a duplicate.
+  const inflightFetchesRef = useRef<Map<string, Promise<void>>>(new Map());
   // Current user's display name, used to label optimistic "sending" messages.
   const currentUserNameRef = useRef("");
 
   const { state: authState } = useAuth();
+
+  // Drafts and the conversation cache are scoped to the signed-in user AND
+  // company. Reset both whenever that identity changes so nothing leaks between
+  // accounts/company contexts. Drafts also hydrate from AsyncStorage here.
+  useEffect(() => {
+    const uid = authState.user?.id ?? 0;
+    const companyId = authState.company?.company_id ?? null;
+    dispatch({ type: "CLEAR_CONVERSATION_CACHE" });
+    activeRoomIdRef.current = null;
+    inflightFetchesRef.current.clear();
+    if (!uid) {
+      resetDrafts();
+      return;
+    }
+    hydrateDrafts({ userId: uid, companyId }).catch(() => {});
+  }, [authState.user?.id, authState.company?.company_id]);
+
   useEffect(() => {
     const first = authState.user?.first_name ?? "";
     const last = authState.user?.last_name ?? "";
@@ -1220,6 +1560,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [reactivateDeletedChat]);
 
   const setCurrentRoom = useCallback((room: Room | null) => {
+    activeRoomIdRef.current = room ? room._id : null;
     dispatch({ type: "SET_CURRENT_ROOM", room });
   }, []);
 
@@ -1316,47 +1657,162 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // ── Message Actions ─────────────────────────────────────────────────────
 
-  const fetchMessages = useCallback(async (roomId: string, page = 1) => {
-    dispatch({ type: "SET_MESSAGES_LOADING", loading: true });
-    try {
-      // Only load messages at/after the user's history cutoff so a chat they
-      // deleted for themselves never shows pre-deletion history again.
-      const room = stateRef.current.rooms.find((r) => r._id === roomId);
-      const after =
-        getRoomHistoryCutoff(room, chatCutoffsRef.current[roomId]) ?? undefined;
-      const res = await chatService.getMessages(roomId, page, 50, after);
-      if (res.Good) {
+  /**
+   * Load a conversation page with a stale-while-revalidate strategy.
+   *
+   * • Cache hit → the cached messages are rendered immediately and page 1 is
+   *   revalidated in the background (no full-screen loader).
+   * • Cache miss → the existing page-1 fetch runs with the initial loader.
+   * • Older pages keep the current behaviour (loading row + `hasMore`).
+   *
+   * Every response updates the conversation cache. The active UI is only
+   * updated while that conversation is still the one on screen, so a slow
+   * response can never overwrite another conversation's messages.
+   *
+   * There is no confirmed incremental/sync endpoint on the backend, so page 1
+   * (the newest window) is the safest existing refresh mechanism.
+   */
+  const fetchMessages = useCallback(async (rawRoomId: string, page = 1) => {
+    const room = stateRef.current.rooms.find(
+      (r) =>
+        String(r._id) === String(rawRoomId) ||
+        String(r.id) === String(rawRoomId),
+    );
+    const roomId = room?._id ?? String(rawRoomId);
+    const requestKey = `${roomId}:${page}`;
+
+    // Reuse an identical in-flight request instead of issuing a duplicate.
+    const pending = inflightFetchesRef.current.get(requestKey);
+    if (pending) return pending;
+
+    const isPage1 = page === 1;
+    const cached = stateRef.current.conversationCache[roomId];
+
+    if (isPage1) {
+      // The most recently opened conversation wins when async responses race.
+      activeRoomIdRef.current = roomId;
+      const currentRoom = stateRef.current.currentRoom;
+      const canTouchUi = !currentRoom || currentRoom._id === roomId;
+
+      if (canTouchUi) {
+        // Render the cached conversation before the network round-trip.
+        if (
+          cached &&
+          hasRenderableConversation(cached) &&
+          stateRef.current.messages.length === 0 &&
+          cached.messages.length > 0
+        ) {
+          dispatch({
+            type: "LOAD_MESSAGES",
+            messages: cached.messages,
+            hasMore: cached.hasMore,
+            append: false,
+          });
+          dispatch({ type: "SET_MESSAGE_PAGE", page: cached.messagePage });
+        }
+        // A very recent successful fetch (duplicate mount/effect) is fresh
+        // enough to skip an identical request.
+        if (
+          cached &&
+          cached.loaded &&
+          isConversationCacheFresh(cached)
+        ) {
+          return;
+        }
+      }
+    }
+
+    // The full-screen loader only appears on a page-1 cache miss. Background
+    // revalidation of a warm conversation stays invisible.
+    if (!isPage1 || shouldShowConversationLoader(cached)) {
+      dispatch({ type: "SET_MESSAGES_LOADING", loading: true });
+    }
+
+    const request = (async () => {
+      try {
+        // Only load messages at/after the user's history cutoff so a chat they
+        // deleted for themselves never shows pre-deletion history again.
+        const after =
+          getRoomHistoryCutoff(room, chatCutoffsRef.current[roomId]) ??
+          undefined;
+        const res = await chatService.getMessages(roomId, page, 50, after);
+        if (!res.Good) {
+          if (activeRoomIdRef.current === roomId) {
+            dispatch({ type: "SET_ERROR", error: "Failed to load messages" });
+          }
+          return;
+        }
+
         // Belt-and-braces: if the backend ever ignores `after`, still drop any
         // pre-deletion history so a deleted-for-me chat never shows it again.
         const cutoffMs = after ? new Date(after).getTime() : null;
-        const messages =
+        const incoming =
           cutoffMs === null
             ? res.messages
             : res.messages.filter((m) => {
                 if (!m.createdAt) return true;
                 return new Date(m.createdAt).getTime() > cutoffMs;
               });
-        dispatch({
-          type: "LOAD_MESSAGES",
-          messages,
-          hasMore: res.hasMore,
-          append: page > 1,
+
+        const current = stateRef.current;
+        const isActive =
+          activeRoomIdRef.current === roomId &&
+          (!current.currentRoom || current.currentRoom._id === roomId);
+        const cacheEntry = current.conversationCache[roomId];
+        // Merge with the freshest known list (active UI when this room is open,
+        // otherwise its cached snapshot) so already-loaded history is kept.
+        const baseMessages = isActive
+          ? current.messages
+          : cacheEntry?.messages ?? [];
+        const merged = mergeFetchedPage({
+          baseMessages,
+          incoming,
+          page,
+          serverHasMore: res.hasMore,
+          cached: cacheEntry,
         });
-        dispatch({ type: "SET_MESSAGE_PAGE", page });
-        // Keep the pin badges consistent with the known pinned set, since a
-        // single-pin backend won't mark older pinned messages as pinned.
+
+        // Always update the cache, even if another conversation became active.
         dispatch({
-          type: "SET_PINNED_FLAGS",
-          pinnedIds: (stateRef.current.pinnedMessages ?? []).map((m) =>
-            messageKey(m),
-          ),
+          type: "CACHE_CONVERSATION",
+          roomId,
+          messages: merged.messages,
+          hasMore: merged.hasMore,
+          messagePage: merged.messagePage,
+          loadedAt: Date.now(),
         });
-      } else {
-        dispatch({ type: "SET_ERROR", error: "Failed to load messages" });
+
+        if (isActive) {
+          dispatch({
+            type: "LOAD_MESSAGES",
+            messages: merged.messages,
+            hasMore: merged.hasMore,
+            append: false,
+          });
+          dispatch({ type: "SET_MESSAGE_PAGE", page: merged.messagePage });
+          // Keep the pin badges consistent with the known pinned set, since a
+          // single-pin backend won't mark older pinned messages as pinned.
+          dispatch({
+            type: "SET_PINNED_FLAGS",
+            pinnedIds: (stateRef.current.pinnedMessages ?? []).map((m) =>
+              messageKey(m),
+            ),
+          });
+        }
+      } catch (error) {
+        if (activeRoomIdRef.current === roomId) {
+          dispatch({ type: "SET_ERROR", error: extractErrorMessage(error) });
+        }
+      } finally {
+        inflightFetchesRef.current.delete(requestKey);
+        if (activeRoomIdRef.current === roomId) {
+          dispatch({ type: "SET_MESSAGES_LOADING", loading: false });
+        }
       }
-    } catch (error) {
-      dispatch({ type: "SET_ERROR", error: extractErrorMessage(error) });
-    }
+    })();
+
+    inflightFetchesRef.current.set(requestKey, request);
+    return request;
   }, []);
 
   const sendChatMessage = useCallback(
@@ -2156,6 +2612,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           joined.add(rid);
           socketService.joinChatRoom(rid);
         });
+        // Revalidate the open conversation after a reconnect so messages
+        // missed while the socket was down appear. Uses the existing page-1
+        // strategy (no resync endpoint exists) and the warm cache, so it never
+        // clears the visible history or shows the initial loader.
+        const activeRoomId = activeRoomIdRef.current;
+        if (
+          activeRoomId &&
+          stateRef.current.currentRoom?._id === activeRoomId
+        ) {
+          fetchMessages(activeRoomId, 1).catch(() => {});
+        }
       });
 
       const cleanupDisconnect = socketService.onSocketEvent(
@@ -2848,7 +3315,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         });
       }
     },
-    [fetchPinnedMessages, rollbackRoomPreview],
+    [fetchPinnedMessages, rollbackRoomPreview, fetchMessages],
   );
 
   const cleanupChatListeners = useCallback(() => {
